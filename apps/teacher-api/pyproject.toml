@@ -1,0 +1,24 @@
+[project]
+name = "teacher-api"
+version = "0.1.0"
+description = "Inference API for an authorized hosted teacher model"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+	"distillation-core",
+	"fastapi>=0.116.1",
+	"pydantic-settings>=2.10.1",
+	"uvicorn[standard]>=0.35.0"
+]
+
+[project.scripts]
+teacher-api = "teacher_api.__main__:main"
+
+[build-system]
+requires = ["hatchling", "packaging<26.3"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/teacher_api"]
+
+[tool.uv.sources]
+distillation-core = { workspace = true }

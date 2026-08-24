@@ -2,44 +2,46 @@ set dotenv-load := true
 set shell := ["bash", "-cu"]
 
 default:
-    @just --list
+	@just --list
 
-# Start PostgreSQL, the Go API, and Vite through devenv.
+# Install runtime and development dependencies.
+setup:
+	uv sync --all-packages
+
+# Install the optional GPU training stack.
+setup-train:
+	uv sync --all-packages --extra train
+
+# Run the teacher inference API.
 dev:
-    devenv up
+	uv run teacher-api
 
-# Build and start PostgreSQL, the Go API, and nginx through Docker Compose.
-docker:
-    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}" docker compose -f docker/docker-compose.yml up --build --remove-orphans
-
-# build the application
-build:
-    bun run build
-
-# Run all development scripts without PostgreSQL
-apps:
-    bun dev
-
-# Run web
-web:
-    bun --filter @template/web dev
-
-# Run api
-api:
-    bun --filter @template/api dev
-
-# Run tests
+# Run the test suite.
 test:
-    CGO_ENABLED=0 bun run test
-# Typecheck TS files
+	uv run pytest
+
+# Run static checks.
 check:
-    bun run typecheck
+	uv run ruff check .
+	uv run mypy apps packages tests
 
-# Run a pass of the linter
-lint:
-    bun check
-
-# Run a pass of the formatter
+# Format Python source using tabs.
 format:
-    bun format
+	uv run ruff format .
+	uv run ruff check --fix .
 
+# Refresh the locked dependency graph.
+lock:
+	uv lock
+
+# Collect the included example prompts. Set TERMS_REVIEW_ID in .env first.
+collect-example:
+	uv run distill collect --input data/examples/prompts.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "$TEACHER_TERMS_REVIEW_ID"
+
+# Convert accepted training records into TRL prompt-completion data.
+prepare-example:
+	uv run distill prepare --input data/teacher/ledger.jsonl --output data/processed/train.jsonl --accept-pending
+
+# Train with the example QLoRA configuration.
+train-example:
+	uv run --extra train distill train --config configs/train.example.toml
