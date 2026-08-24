@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Build outputs
 dist/
@@ -8,11 +14,22 @@ build/
 .nx/
 .devenv/
 .jj/
+artifacts/
+outputs/
+data/teacher/
+data/processed/
 
 # Environment files
 .env
 .env.local
 .env.*.local
+
+# Model and experiment artifacts
+*.safetensors
+*.bin
+*.pt
+*.pth
+wandb/
 
 # Logs
 *.log

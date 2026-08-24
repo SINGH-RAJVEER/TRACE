@@ -1,0 +1,61 @@
+[project]
+name = "distillation-lab"
+version = "0.1.0"
+description = "Hosted-teacher sequence distillation research environment"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+	"distillation-core",
+	"teacher-api"
+]
+
+[project.optional-dependencies]
+train = [
+	"distillation-core[train]"
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+distillation-core = { workspace = true }
+teacher-api = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+	"apps/teacher-api",
+	"packages/distillation"
+]
+
+[dependency-groups]
+dev = [
+	"mypy>=1.17.1,<2",
+	"packaging<26.3",
+	"pytest>=8.4.1,<9",
+	"pytest-asyncio>=1.1.0",
+	"ruff>=0.12.9"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.format]
+indent-style = "tab"
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+exclude = ["artifacts", "outputs"]
+
+[[tool.mypy.overrides]]
+module = ["accelerate.*", "datasets.*", "peft.*", "torch.*", "transformers.*", "trl.*"]
+ignore_missing_imports = true
