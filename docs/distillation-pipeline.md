@@ -8,6 +8,22 @@ The current method is sequence-level distillation. The collector saves the teach
 
 The protection wrapper discussed in the paper is outside this implementation.
 
+## Adopted model pairing
+
+- Student: `Qwen/Qwen3-4B-Base` at revision `906bfd4b4dc7f14ee4320094d8b41684abff8539` (Apache 2.0, verified 2026-09-05).
+- Teacher: `Qwen/Qwen3-14B` instruct at revision `40c069824f4251a91eefaf281ebe4c544efd3e18`, run in non-thinking mode.
+
+Both are Qwen3, so they share the tokenizer and chat template and there is no cross-family template mismatch. The 4B to 14B gap leaves real headroom for the student to close while the 4B trains comfortably under QLoRA on a 16GB card. The 14B teacher serves at roughly 28GB in BF16 or 10GB quantized, so one 24GB card with a Q4 quant handles collection. Re-verify both revisions against the Hub before a paper run; model repos can move.
+
+Self-hosting the teacher with vLLM keeps provider terms out of the picture entirely:
+
+```bash
+vllm serve Qwen/Qwen3-14B --revision 40c069824f4251a91eefaf281ebe4c544efd3e18 \
+	--host 127.0.0.1 --port 8001
+```
+
+Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting it, confirm responses contain no thinking traces before the main collection run, and keep transfer prompts inside the student's 32K native context.
+
 ## Authorization gate
 
 Do not collect data until the hosted provider has explicitly authorized using its output to train the planned student. Output ownership does not necessarily grant model-training rights.
