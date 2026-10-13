@@ -45,3 +45,11 @@ prepare-example:
 # Train with the example QLoRA configuration.
 train-example:
 	uv run --extra train distill train --config configs/train.example.toml
+
+# Check data and tokenizer serialization without model weights or training.
+preflight-train config="configs/train.example.toml":
+	uv run --extra train distill train --config {{quote(config)}} --preflight-only
+
+# Construct a tiny native trainer; its training method is intercepted before optimization.
+test-training-setup:
+	DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py

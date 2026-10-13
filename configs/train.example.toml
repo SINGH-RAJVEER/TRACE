@@ -2,9 +2,12 @@
 base_model = "Qwen/Qwen3-4B-Base"
 base_revision = "906bfd4b4dc7f14ee4320094d8b41684abff8539"
 dataset_path = "data/processed/train.jsonl"
+# Add reviewed validation prompts, prepare with --split validation, then enable this path.
+# validation_dataset_path = "data/processed/validation.jsonl"
 output_dir = "artifacts/qwen3-4b-distilled"
 # Matches the Qwen3 chat template; the tokenizer default (<|endoftext|>) is wrong for this family.
 eos_token = "<|im_end|>"
+chat_template_kwargs = { enable_thinking = false }
 max_length = 2048
 epochs = 1.0
 per_device_batch_size = 1
@@ -14,10 +17,20 @@ warmup_ratio = 0.03
 logging_steps = 10
 save_steps = 100
 eval_steps = 100
+eval_strategy = "epoch"
+select_best_checkpoint = true
+save_total_limit = 2
 seed = 42
 precision = "bf16"
 qlora = true
+# TRL 1.15 uses the fused LM head for ordinary NLL without full vocabulary logits.
+loss_type = "nll"
+attn_implementation = "sdpa"
+# Enable only after measuring the transfer-time cost on the training machine.
+activation_offloading = false
 gradient_checkpointing = true
+# Saves attention outputs instead of recomputing them, at extra activation-memory cost.
+selective_gradient_checkpointing = false
 lora_rank = 16
 lora_alpha = 32
 lora_dropout = 0.05
