@@ -239,7 +239,9 @@ UV_PROJECT_ENVIRONMENT=/tmp/distillation-checks uv run --extra train pytest
 
 ## Evaluation
 
-Freeze evaluation prompts before collection. Compare the base student, trained adapter, and authorized teacher under the same task contract. Use executable task metrics where possible. Report quality by task and source, safety failures, truncation, latency, throughput, and peak memory.
+Freeze evaluation prompts before collection. The benchmark tools compare four slots on the identical frozen suite: teacher and base student before training, then teacher and distilled student after training. The initial teacher stays the fixed reference for gap closure; the second evaluation measures teacher drift. Supported public tasks are GSM8K, ARC-Challenge, MMLU, the authors' binary TruthfulQA task, HumanEval, and sanitized MBPP. Coding scores use executable pass@1 in isolated containers. General tasks use numeric exact match or generated-choice accuracy.
+
+Run `uv run --extra eval distill benchmark freeze --output data/benchmarks/suite.json`, then use `configs/eval.example.toml` with `distill benchmark run --stage before` and later `--stage after`. These commands evaluate existing models and do not perform distillation. The read-only dashboard displays quality scores with Wilson intervals, paired gains and regressions, teacher drift, student–teacher agreement, subject slices, latency, usage, and request/test outcomes. See [benchmarks.md](benchmarks.md) for the complete metric definitions, denominator rules, dataset provenance, coding limits, and dashboard commands. Peak GPU memory and domain-specific safety failures require separate instrumentation; this setup does not record them.
 
 Do not use training loss as the main result. Sequence-level distillation aims to transfer behavior on held-out prompts. Add DPO only after SFT if a measured failure has reliable preference pairs. The current code intentionally stops at the SFT baseline.
 

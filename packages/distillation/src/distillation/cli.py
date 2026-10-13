@@ -14,6 +14,8 @@ from distillation.teacher import TeacherAPIGateway
 from distillation.training import load_training_config, preflight_training, train
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
+benchmark_app = typer.Typer(no_args_is_help=True)
+app.add_typer(benchmark_app, name="benchmark", help="Freeze, score, and compare public benchmarks.")
 
 
 @app.command("collect")
@@ -100,6 +102,92 @@ def train_command(
 		return
 	output_dir = train(config)
 	typer.echo(f"adapter={output_dir}")
+
+
+@benchmark_app.command("freeze")
+def freeze_command(
+	output: Annotated[Path, typer.Option("--output")],
+	benchmarks: str = "gsm8k,arc_challenge,mmlu,truthfulqa,humaneval,mbpp",
+	limit: Annotated[int, typer.Option(min=0)] = 200,
+	seed: int = 42,
+) -> None:
+	"""Freeze publisher test questions. Limit 0 selects every question."""
+	from distillation.benchmarks.suites import freeze_suite
+
+	suite = freeze_suite(output, [name.strip() for name in benchmarks.split(",")], limit, seed)
+	typer.echo(f"questions={len(suite.items)} sha256={suite.sha256} output={output}")
+
+
+@benchmark_app.command("run")
+def benchmark_run_command(
+	config: Annotated[Path, typer.Option("--config", exists=True)],
+	stage: Annotated[str, typer.Option("--stage")] = "before",
+) -> None:
+	"""Evaluate one phase on the identical frozen suite.
+
+	before: the initial teacher and base student. after: the teacher and distilled student.
+	"""
+	from distillation.benchmarks.models import STAGE_SLOTS, load_config
+	from distillation.benchmarks.runner import run_evaluation
+
+	if stage not in STAGE_SLOTS:
+		raise typer.BadParameter("stage must be before, after, or all")
+	settings = load_config(config)
+	slots = STAGE_SLOTS[stage]
+	if any(slot not in settings.models for slot in slots):
+		raise typer.BadParameter(f"config must define models for {', '.join(slots)}")
+	for slot in slots:
+		typer.echo(f"Evaluating {slot}")
+		run = asyncio.run(
+			run_evaluation(
+				settings, slot, progress=lambda done, total: typer.echo(f"{done}/{total}")
+			)
+		)
+		typer.echo(f"run={run.id} correct={sum(s.correct for s in run.samples)}/{len(run.samples)}")
+
+
+@benchmark_app.command("report")
+def report_command(
+	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/benchmarks"),
+	comparison: Annotated[str, typer.Option("--comparison")] = "",
+	output: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+	"""List comparable experiments or export a full comparison as JSON."""
+	import json
+
+	from distillation.benchmarks.models import save_json
+	from distillation.benchmarks.reporting import build_report, experiments
+
+	value = build_report(results_dir, comparison) if comparison else experiments(results_dir)
+	if output:
+		save_json(output, value)
+	else:
+		typer.echo(json.dumps(value, indent="\t"))
+
+
+@benchmark_app.command("demo")
+def demo_command(
+	output_dir: Annotated[Path, typer.Option("--output-dir")] = Path("outputs/benchmark-demo"),
+) -> None:
+	"""Create labeled simulated artifacts for a dashboard preview."""
+	from distillation.benchmarks.demo import create_demo
+
+	create_demo(output_dir)
+	typer.echo(f"Simulated dashboard fixtures written to {output_dir}")
+
+
+@benchmark_app.command("dashboard")
+def dashboard_command(
+	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/benchmarks"),
+	frontend_dir: Annotated[Path, typer.Option("--frontend-dir")] = Path("apps/dashboard/dist"),
+	port: Annotated[int, typer.Option(min=1, max=65535)] = 8002,
+) -> None:
+	"""Serve the read-only results API and the built dashboard on localhost."""
+	import uvicorn
+
+	from distillation.benchmarks.dashboard import create_app
+
+	uvicorn.run(create_app(results_dir, frontend_dir), host="127.0.0.1", port=port)
 
 
 if __name__ == "__main__":

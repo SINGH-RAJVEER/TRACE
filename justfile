@@ -13,6 +13,18 @@ setup:
 setup-train:
 	uv sync --all-packages --extra train
 
+# Install the public benchmark import dependencies.
+setup-eval:
+	uv sync --all-packages --extra eval
+
+# Freeze the default suite without inference or training.
+benchmark-freeze:
+	uv run --extra eval distill benchmark freeze --output data/benchmarks/suite.json
+
+# Create explicitly simulated preview artifacts without running models.
+benchmark-demo:
+	uv run distill benchmark demo
+
 # Run the teacher inference API.
 dev:
 	uv run teacher-api
