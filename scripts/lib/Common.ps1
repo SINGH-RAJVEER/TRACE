@@ -333,14 +333,45 @@ function Assert-PipelineOptions([hashtable]$Options) {
 	if (-not $Options.TermsReviewId) {
 		Stop-WithError 'set -TermsReviewId or TEACHER_TERMS_REVIEW_ID (see docs/distillation-pipeline.md)'
 	}
-	if (-not $Options.Reviews -and -not $Options.AcceptPending) {
-		Stop-WithError 'pass -Reviews PATH, or -AcceptPending for a plumbing test'
+	$buildCorpus = [bool]$Options.Corpus
+	if ($buildCorpus) {
+		if ($Options.Corpus -notin @('quick', 'standard', 'full')) { Stop-WithError '-Corpus must be quick, standard, or full' }
+		if ($Options.Prompts -eq 'data/examples/prompts.jsonl') { $Options.Prompts = 'data/prompts/all-splits.jsonl' }
+		if (-not $Options.References) {
+			$Options.References = Join-Path (Split-Path $Options.Prompts -Parent) 'references.jsonl'
+		}
+		if ($Options.Config -eq 'configs/train.example.toml') { $Options.Config = 'configs/train.distill.toml' }
+	}
+	if (-not $Options.Reviews -and -not $Options.References -and -not $Options.AcceptPending) {
+		Stop-WithError 'pass -References PATH or -Reviews PATH, or -AcceptPending for a plumbing test'
+	}
+	if (-not $buildCorpus -and $Options.References -and -not (Test-Path $Options.References -PathType Leaf)) {
+		Stop-WithError "references file not found: $($Options.References)"
 	}
 	if ($Options.Reviews -and -not (Test-Path $Options.Reviews -PathType Leaf)) {
 		Stop-WithError "reviews file not found: $($Options.Reviews)"
 	}
-	if (-not (Test-Path $Options.Prompts -PathType Leaf)) { Stop-WithError "prompts file not found: $($Options.Prompts)" }
+	if (-not $buildCorpus -and -not (Test-Path $Options.Prompts -PathType Leaf)) { Stop-WithError "prompts file not found: $($Options.Prompts)" }
 	if (-not (Test-Path $Options.Config -PathType Leaf)) { Stop-WithError "training config not found: $($Options.Config)" }
+}
+
+# Builds the prompt corpus for -Corpus unless the same profile is already in place. The build
+# is deterministic, so a prompt keeps its example_id and text across rebuilds and profiles.
+function Invoke-CorpusBuild([hashtable]$Options) {
+	if (-not $Options.Corpus) { return }
+	$directory = Split-Path $Options.Prompts -Parent
+	$manifest = Join-Path $directory 'manifest.json'
+	if ((Test-Path $manifest) -and (Test-Path $Options.Prompts) -and (Test-Path $Options.References)) {
+		if ((Get-Content $manifest -Raw | ConvertFrom-Json).profile -eq $Options.Corpus) {
+			Write-Log "using the existing $($Options.Corpus) prompt corpus in $directory"
+			return
+		}
+	}
+	Write-Log "building the $($Options.Corpus) prompt corpus into $directory (downloads public datasets)"
+	Invoke-Checked (Get-AppExecutable 'distill') @('corpus', 'build', '--profile', $Options.Corpus, '--output-dir', $directory)
+	if (-not ((Test-Path $Options.Prompts) -and (Test-Path $Options.References))) {
+		Stop-WithError "corpus build did not write $($Options.Prompts) and $($Options.References)"
+	}
 }
 
 function Invoke-Collection([hashtable]$Options, [string]$TeacherUrl, [string]$Token) {
@@ -357,7 +388,24 @@ function Invoke-Collection([hashtable]$Options, [string]$TeacherUrl, [string]$To
 	finally { $env:TEACHER_API_TOKEN = $previous }
 }
 
+# Validates the ledger against the answer key. Points Reviews at the automatic decisions.
+function Invoke-Review([hashtable]$Options) {
+	if (-not $Options.References) { return }
+	$output = [System.IO.Path]::ChangeExtension($Options.Ledger, '.reviews.jsonl')
+	$arguments = @(
+		'review', '--ledger', $Options.Ledger, '--references', $Options.References,
+		'--output', $output, '--config', $Options.Config
+	)
+	if ($Options.Reviews) { $arguments += @('--overrides', $Options.Reviews) }
+	$image = Get-EnvValue 'REVIEW_CODE_IMAGE'
+	if ($image) { $arguments += @('--code-image', $image) }
+	Write-Log "reviewing teacher responses into $output"
+	Invoke-Checked (Get-AppExecutable 'distill') $arguments
+	$Options.Reviews = $output
+}
+
 function Invoke-PrepareAndTrain([hashtable]$Options) {
+	Invoke-Review $Options
 	$read = "import sys, tomllib; print(tomllib.load(open(sys.argv[1], 'rb'))['dataset_path'])"
 	$dataset = (& (Get-AppExecutable 'python') -c $read $Options.Config)
 	if ($LASTEXITCODE -ne 0) { Stop-WithError "could not read dataset_path from $($Options.Config)" }

@@ -338,11 +338,15 @@ supervise_background() {
 }
 
 # Pipeline options shared by student-train.sh and distill-local.sh.
-PROMPTS_PATH="data/examples/prompts.jsonl"
+DEFAULT_PROMPTS="data/examples/prompts.jsonl"
+DEFAULT_CONFIG="configs/train.example.toml"
+PROMPTS_PATH="$DEFAULT_PROMPTS"
+CORPUS_PROFILE=""
 LEDGER_PATH="data/teacher/ledger.jsonl"
 REVIEWS_PATH=""
+REFERENCES_PATH=""
 ACCEPT_PENDING=0
-TRAIN_CONFIG="configs/train.example.toml"
+TRAIN_CONFIG="$DEFAULT_CONFIG"
 TERMS_REVIEW_ID=""
 CONCURRENCY=4
 MAX_OUTPUT_TOKENS=1024
@@ -351,7 +355,13 @@ PIPELINE_SHIFT=0
 
 PIPELINE_USAGE="  --terms-review-id ID      Approval reference written into every ledger record
                             (default: \$TEACHER_TERMS_REVIEW_ID)
-  --reviews PATH            Review decisions JSONL used to accept records
+  --corpus PROFILE          Build the prompt corpus (quick, standard, or full) into
+                            data/prompts unless it already exists, and use its prompts,
+                            answer key, and configs/train.distill.toml
+  --references PATH         Answer key written by distill corpus build; reviews the ledger
+                            automatically before preparation
+  --reviews PATH            Review decisions JSONL; with --references, they override
+                            the automatic decisions
   --accept-pending          Train on unreviewed records (plumbing tests only)
   --prompts PATH            Prompt JSONL (default: $PROMPTS_PATH)
   --ledger PATH             Teacher ledger JSONL (default: $LEDGER_PATH)
@@ -365,7 +375,9 @@ parse_pipeline_option() {
 	PIPELINE_SHIFT=2
 	case "$1" in
 		--terms-review-id) TERMS_REVIEW_ID="${2:?--terms-review-id needs a value}" ;;
+		--corpus) CORPUS_PROFILE="${2:?--corpus needs a value}" ;;
 		--reviews) REVIEWS_PATH="${2:?--reviews needs a value}" ;;
+		--references) REFERENCES_PATH="${2:?--references needs a value}" ;;
 		--prompts) PROMPTS_PATH="${2:?--prompts needs a value}" ;;
 		--ledger) LEDGER_PATH="${2:?--ledger needs a value}" ;;
 		--config) TRAIN_CONFIG="${2:?--config needs a value}" ;;
@@ -384,12 +396,45 @@ validate_pipeline_options() {
 	TERMS_REVIEW_ID="${TERMS_REVIEW_ID:-${TEACHER_TERMS_REVIEW_ID:-}}"
 	[[ -n "$TERMS_REVIEW_ID" ]] \
 		|| die "set --terms-review-id or TEACHER_TERMS_REVIEW_ID (see docs/distillation-pipeline.md)"
-	if [[ -z "$REVIEWS_PATH" && "$ACCEPT_PENDING" == 0 ]]; then
-		die "pass --reviews PATH, or --accept-pending for a plumbing test"
+	local build_corpus=0
+	if [[ -n "$CORPUS_PROFILE" ]]; then
+		[[ "$CORPUS_PROFILE" =~ ^(quick|standard|full)$ ]] || die "--corpus must be quick, standard, or full"
+		[[ "$PROMPTS_PATH" == "$DEFAULT_PROMPTS" ]] && PROMPTS_PATH="data/prompts/all-splits.jsonl"
+		[[ -n "$REFERENCES_PATH" ]] || REFERENCES_PATH="$(dirname -- "$PROMPTS_PATH")/references.jsonl"
+		[[ "$TRAIN_CONFIG" == "$DEFAULT_CONFIG" ]] && TRAIN_CONFIG="configs/train.distill.toml"
+		build_corpus=1
+	fi
+	if [[ -z "$REVIEWS_PATH" && -z "$REFERENCES_PATH" && "$ACCEPT_PENDING" == 0 ]]; then
+		die "pass --references PATH or --reviews PATH, or --accept-pending for a plumbing test"
 	fi
 	[[ -z "$REVIEWS_PATH" || -f "$REVIEWS_PATH" ]] || die "reviews file not found: $REVIEWS_PATH"
-	[[ -f "$PROMPTS_PATH" ]] || die "prompts file not found: $PROMPTS_PATH"
+	if ((build_corpus == 0)); then
+		[[ -z "$REFERENCES_PATH" || -f "$REFERENCES_PATH" ]] \
+			|| die "references file not found: $REFERENCES_PATH"
+		[[ -f "$PROMPTS_PATH" ]] || die "prompts file not found: $PROMPTS_PATH"
+	fi
 	[[ -f "$TRAIN_CONFIG" ]] || die "training config not found: $TRAIN_CONFIG"
+}
+
+# Builds the prompt corpus for --corpus unless the same profile is already in place. The build
+# is deterministic, so a prompt keeps its example_id and text across rebuilds and profiles.
+build_corpus_if_needed() {
+	[[ -n "$CORPUS_PROFILE" ]] || return 0
+	local directory manifest current=""
+	directory="$(dirname -- "$PROMPTS_PATH")"
+	manifest="$directory/manifest.json"
+	if [[ -f "$manifest" && -f "$PROMPTS_PATH" && -f "$REFERENCES_PATH" ]]; then
+		current="$("$APP_BIN/python" -c \
+			'import json, sys; print(json.load(open(sys.argv[1])).get("profile", ""))' "$manifest")"
+	fi
+	if [[ "$current" == "$CORPUS_PROFILE" ]]; then
+		log "using the existing $CORPUS_PROFILE prompt corpus in $directory"
+		return 0
+	fi
+	log "building the $CORPUS_PROFILE prompt corpus into $directory (downloads public datasets)"
+	"$APP_BIN/distill" corpus build --profile "$CORPUS_PROFILE" --output-dir "$directory"
+	[[ -f "$PROMPTS_PATH" && -f "$REFERENCES_PATH" ]] \
+		|| die "corpus build did not write $PROMPTS_PATH and $REFERENCES_PATH"
 }
 
 collect_teacher_data() {
@@ -402,8 +447,22 @@ collect_teacher_data() {
 	TEACHER_API_TOKEN="$token" "$APP_BIN/distill" "${args[@]}"
 }
 
+# Validates the ledger against the answer key. Sets REVIEWS_PATH to the automatic decisions.
+review_teacher_data() {
+	[[ -n "$REFERENCES_PATH" ]] || return 0
+	local output="${LEDGER_PATH%.jsonl}.reviews.jsonl"
+	local args=(review --ledger "$LEDGER_PATH" --references "$REFERENCES_PATH" --output "$output"
+		--config "$TRAIN_CONFIG")
+	[[ -n "$REVIEWS_PATH" ]] && args+=(--overrides "$REVIEWS_PATH")
+	[[ -n "${REVIEW_CODE_IMAGE:-}" ]] && args+=(--code-image "$REVIEW_CODE_IMAGE")
+	log "reviewing teacher responses into $output"
+	"$APP_BIN/distill" "${args[@]}"
+	REVIEWS_PATH="$output"
+}
+
 prepare_and_train() {
 	local dataset validation_dataset
+	review_teacher_data
 	dataset="$("$APP_BIN/python" -c \
 		'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["dataset_path"])' \
 		"$TRAIN_CONFIG")"

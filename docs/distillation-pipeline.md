@@ -116,6 +116,8 @@ Use grouped train, validation, and test splits. Related templates, documents, us
 
 Set `source.group_id` when multiple source rows come from one document, conversation, or problem family. Preparation uses `(corpus, group_id)` as the split-separation key, falling back to `(corpus, source_id)` when the group is omitted. Declare groups before collection; exact prompt equality cannot detect paraphrases or semantic overlap.
 
+`distill corpus build` produces a prompt set in this format from pinned public datasets and project-authored prompts, assigns grouped splits, removes held-out benchmark overlap, and writes an answer key for automatic review. See [prompt-corpus.md](prompt-corpus.md).
+
 ## Collection and preparation
 
 Run the teacher API first. Then collect responses:
@@ -145,6 +147,19 @@ The basic checks reject blank content and nonterminal finish reasons. Passing re
 
 Task validators and human review must produce these decisions before a paper run. For example, compile generated code, validate structured output against a schema, check citations against supplied text, and audit every task slice.
 
+`distill review` produces these decisions from the answer key that `distill corpus build` writes:
+
+```bash
+uv run --extra train distill review \
+	--ledger data/teacher/ledger.jsonl \
+	--references data/prompts/references.jsonl \
+	--output data/teacher/ledger.reviews.jsonl \
+	--config configs/train.distill.toml \
+	--overrides data/reviews/human.jsonl
+```
+
+It writes one decision for every ledger record, because preparation skips records without one. It compares numeric answers after `####`, multiple-choice letters, exact answers, and JSON objects; parses Python code, and runs its tests in Docker when `--code-image` is set; and checks word limits, bullet counts, and required or forbidden phrases. Prompts without a key are accepted unless the collector rejected them. `--config` rejects records longer than the training `max_length` using the student tokenizer, so preflight does not fail later. `--overrides` decisions replace the automatic ones. The `.summary.json` beside the output counts decisions by status, reference kind, rejection reason, and task. Automatic checks confirm format and final answers, not reasoning quality; sample the accepted open-ended responses by hand before a paper run.
+
 Project accepted training rows into TRL's conversational prompt-completion schema:
 
 ```bash
@@ -169,6 +184,8 @@ uv sync --all-packages --extra train
 ```
 
 Review `configs/train.example.toml`, which uses the pinned Qwen3-4B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. The two included prompts exercise plumbing; they are insufficient for instruction tuning a base model or measuring distillation quality.
+
+For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 264M adapter parameters instead of 33M (2,064,384 per rank across Qwen3-4B's 36 layers), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted student stays near 4.3B parameters against the 14.8B teacher.
 
 For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example leaves validation optional for the two-row plumbing fixture; a research run needs validation and a separately frozen test set.
 
