@@ -32,8 +32,11 @@ class TeacherGenerationRequest(BaseModel):
 
 	messages: list[Message] = Field(min_length=1)
 	temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+	top_p: float | None = Field(default=None, gt=0.0, le=1.0)
+	top_k: int | None = Field(default=None, ge=1)
 	max_output_tokens: int = Field(default=1024, ge=1, le=32768)
 	seed: int | None = None
+	enable_thinking: bool | None = None
 
 	@field_validator("messages")
 	@classmethod
@@ -66,6 +69,7 @@ class PromptSource(BaseModel):
 	source_id: str = Field(min_length=1)
 	license_name: str = Field(alias="license", min_length=1)
 	content_sha256: str | None = None
+	group_id: str | None = Field(default=None, min_length=1)
 
 
 class PromptRecord(BaseModel):
@@ -86,7 +90,7 @@ class TeacherMetadata(BaseModel):
 	endpoint: str
 	request_id: str | None = None
 	generated_at: datetime
-	parameters: dict[str, int | float | str | None]
+	parameters: dict[str, bool | int | float | str | None]
 	terms_review_id: str
 
 
@@ -135,8 +139,17 @@ class LedgerRecord(BaseModel):
 class SFTRecord(BaseModel):
 	"""Conversational prompt-completion record accepted by TRL."""
 
-	prompt: list[Message]
-	completion: list[Message]
+	model_config = ConfigDict(extra="forbid")
+
+	prompt: list[Message] = Field(min_length=1)
+	completion: list[Message] = Field(min_length=1, max_length=1)
+
+	@field_validator("completion")
+	@classmethod
+	def completion_must_be_assistant(cls, messages: list[Message]) -> list[Message]:
+		if messages[0].role != "assistant":
+			raise ValueError("the teacher completion must be an assistant message")
+		return messages
 
 
 class ReviewRecord(BaseModel):

@@ -84,11 +84,18 @@ class OpenAICompatibleTeacher:
 		}
 		if request.seed is not None:
 			payload["seed"] = request.seed
+		if request.enable_thinking is not None:
+			payload["chat_template_kwargs"] = {"enable_thinking": request.enable_thinking}
+		if request.top_p is not None:
+			payload["top_p"] = request.top_p
+		if request.top_k is not None:
+			payload["top_k"] = request.top_k
 
 		try:
 			response = await self._client.post("chat/completions", json=payload)
 			response.raise_for_status()
 			upstream = _UpstreamResponse.model_validate(response.json())
+			message = Message(role="assistant", content=upstream.choices[0].message.content)
 		except httpx.HTTPStatusError as error:
 			raise TeacherUpstreamError(
 				f"teacher returned HTTP {error.response.status_code}"
@@ -103,7 +110,7 @@ class OpenAICompatibleTeacher:
 			provider=self._provider,
 			model=upstream.model or self._model,
 			generated_at=datetime.now(UTC),
-			message=Message(role="assistant", content=choice.message.content),
+			message=message,
 			finish_reason=choice.finish_reason,
 			usage=TokenUsage(
 				input_tokens=usage.prompt_tokens,
