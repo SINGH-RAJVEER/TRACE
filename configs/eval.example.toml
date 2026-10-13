@@ -1,0 +1,49 @@
+# Paths resolve from the repository root. Freeze the suite before either phase.
+experiment = "qwen3-4b-from-14b-v1"
+suite_path = "data/benchmarks/suite.json"
+output_dir = "outputs/benchmarks"
+# Include all transfer training and validation corpora when available.
+# Before training, keep this empty if the corpora do not exist yet.
+training_paths = []
+# Pull this image before a coding run. The runner records and uses its immutable image ID.
+code_image = "python:3.12-slim"
+code_timeout_seconds = 10
+
+[generation]
+max_output_tokens = 1024
+seed = 42
+temperature = 0
+enable_thinking = false
+
+# The initial teacher evaluation is the fixed reference for gap closure.
+# The wrapper forwards the non-thinking option to the hosted Qwen teacher.
+# Use api_key_env = "TEACHER_API_TOKEN" if the wrapper requires authentication.
+[models.teacher]
+backend = "teacher_api"
+model = "Qwen/Qwen3-14B"
+revision = "40c069824f4251a91eefaf281ebe4c544efd3e18"
+base_url = "http://127.0.0.1:8000"
+
+[models.student_before]
+backend = "local"
+model = "Qwen/Qwen3-4B-Base"
+revision = "906bfd4b4dc7f14ee4320094d8b41684abff8539"
+eos_token = "<|im_end|>"
+precision = "bf16"
+load_in_4bit = true
+
+[models.student_after]
+backend = "local"
+model = "Qwen/Qwen3-4B-Base"
+revision = "906bfd4b4dc7f14ee4320094d8b41684abff8539"
+eos_token = "<|im_end|>"
+precision = "bf16"
+load_in_4bit = true
+adapter_path = "artifacts/qwen3-4b-distilled"
+
+# Reevaluate the same untrained teacher after distillation to measure serving drift.
+[models.teacher_after]
+backend = "teacher_api"
+model = "Qwen/Qwen3-14B"
+revision = "40c069824f4251a91eefaf281ebe4c544efd3e18"
+base_url = "http://127.0.0.1:8000"
