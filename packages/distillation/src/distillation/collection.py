@@ -23,8 +23,11 @@ from distillation.teacher import Teacher, TeacherUpstreamError
 class CollectionOptions:
 	terms_review_id: str
 	temperature: float = 0.0
+	top_p: float | None = None
+	top_k: int | None = None
 	max_output_tokens: int = 1024
 	seed: int | None = None
+	enable_thinking: bool | None = None
 	concurrency: int = 4
 	max_attempts: int = 3
 	include_test: bool = False
@@ -36,6 +39,10 @@ class CollectionOptions:
 			raise ValueError("concurrency must be at least 1")
 		if self.max_attempts < 1:
 			raise ValueError("max_attempts must be at least 1")
+		if self.top_p is not None and not 0 < self.top_p <= 1:
+			raise ValueError("top_p must be greater than 0 and at most 1")
+		if self.top_k is not None and self.top_k < 1:
+			raise ValueError("top_k must be at least 1")
 
 
 async def collect(
@@ -45,14 +52,17 @@ async def collect(
 	teacher: Teacher,
 	options: CollectionOptions,
 ) -> tuple[int, int]:
-	"""Collect missing prompt records and append them in input order."""
+	"""Collect missing prompt records and append as workers finish."""
 
-	prompts = read_jsonl(input_path, PromptRecord)
-	example_ids = [prompt.example_id for prompt in prompts]
-	if len(example_ids) != len(set(example_ids)):
+	try:
+		prompts = read_jsonl(input_path, PromptRecord)
+		example_ids = [prompt.example_id for prompt in prompts]
+		if len(example_ids) != len(set(example_ids)):
+			raise ValueError("input contains duplicate example_id values")
+		existing_ids = _existing_example_ids(output_path, prompts, options)
+	except Exception:
 		await teacher.close()
-		raise ValueError("input contains duplicate example_id values")
-	existing_ids = _existing_example_ids(output_path)
+		raise
 	pending = [
 		prompt
 		for prompt in prompts
@@ -91,8 +101,11 @@ async def _collect_one(
 	request = TeacherGenerationRequest(
 		messages=prompt.prompt,
 		temperature=options.temperature,
+		top_p=options.top_p,
+		top_k=options.top_k,
 		max_output_tokens=options.max_output_tokens,
 		seed=options.seed,
+		enable_thinking=options.enable_thinking,
 	)
 	last_error: TeacherUpstreamError | None = None
 	attempts: list[CollectionAttempt] = []
@@ -138,6 +151,11 @@ async def _collect_one(
 	accepted_finish_reasons = {"stop", "end_turn", "completed"}
 	accepted = generation.finish_reason in accepted_finish_reasons
 	rejection_reason = None if accepted else f"finish_reason:{generation.finish_reason}"
+	if options.enable_thinking is False and any(
+		marker in generation.message.content for marker in ("<think>", "</think>")
+	):
+		accepted = False
+		rejection_reason = "unexpected_thinking_trace"
 	return LedgerRecord(
 		example_id=prompt.example_id,
 		attempt_id=successful_attempt_id,
@@ -151,11 +169,7 @@ async def _collect_one(
 			endpoint=generation.endpoint,
 			request_id=generation.request_id or generation.id,
 			generated_at=generation.generated_at,
-			parameters={
-				"temperature": options.temperature,
-				"max_output_tokens": options.max_output_tokens,
-				"seed": options.seed,
-			},
+			parameters=_generation_parameters(options),
 			terms_review_id=options.terms_review_id,
 		),
 		completion=[generation.message],
@@ -163,7 +177,8 @@ async def _collect_one(
 		usage=generation.usage,
 		quality=QualityRecord(
 			status="pending" if accepted else "rejected",
-			checks=["non_empty", "finish_reason"],
+			checks=["non_empty", "finish_reason"]
+			+ (["non_thinking"] if options.enable_thinking is False else []),
 			reviewer="collector-v1",
 			rejection_reason=rejection_reason,
 		),
@@ -171,10 +186,49 @@ async def _collect_one(
 	)
 
 
-def _existing_example_ids(path: Path) -> set[str]:
+def _generation_parameters(
+	options: CollectionOptions,
+) -> dict[str, bool | int | float | str | None]:
+	parameters: dict[str, bool | int | float | str | None] = {
+		"temperature": options.temperature,
+		"max_output_tokens": options.max_output_tokens,
+		"seed": options.seed,
+	}
+	if options.enable_thinking is not None:
+		parameters["enable_thinking"] = options.enable_thinking
+	if options.top_p is not None:
+		parameters["top_p"] = options.top_p
+	if options.top_k is not None:
+		parameters["top_k"] = options.top_k
+	return parameters
+
+
+def _existing_example_ids(
+	path: Path,
+	prompts: list[PromptRecord],
+	options: CollectionOptions,
+) -> set[str]:
 	if not path.exists():
 		return set()
-	return {record.example_id for record in read_jsonl(path, LedgerRecord)}
+	by_id = {prompt.example_id: prompt for prompt in prompts}
+	seen: set[str] = set()
+	for record in read_jsonl(path, LedgerRecord):
+		if record.example_id in seen:
+			raise ValueError(f"duplicate ledger example_id: {record.example_id}")
+		seen.add(record.example_id)
+		prompt = by_id.get(record.example_id)
+		if prompt is None:
+			continue
+		if (
+			any(
+				getattr(prompt, key) != getattr(record, key)
+				for key in ("prompt", "split", "task", "source")
+			)
+			or record.teacher.parameters != _generation_parameters(options)
+			or record.teacher.terms_review_id != options.terms_review_id
+		):
+			raise ValueError(f"resume mismatch for {record.example_id}; use a new ledger")
+	return seen
 
 
 def _attempt_log_path(path: Path) -> Path:

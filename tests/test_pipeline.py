@@ -248,3 +248,81 @@ async def test_collection_rejects_duplicate_input_ids(tmp_path: Path) -> None:
 
 	assert teacher.calls == 0
 	assert teacher.closed
+
+
+@pytest.mark.asyncio
+async def test_pending_bypass_never_overrides_explicit_rejection(tmp_path: Path) -> None:
+	input_path, ledger_path = tmp_path / "prompts.jsonl", tmp_path / "ledger.jsonl"
+	reviews_path = tmp_path / "reviews.jsonl"
+	write_jsonl(input_path, [prompt("one")])
+	await collect(
+		input_path=input_path,
+		output_path=ledger_path,
+		teacher=FakeTeacher(),
+		options=CollectionOptions(terms_review_id="approval"),
+	)
+	write_jsonl(
+		reviews_path,
+		[
+			ReviewRecord(
+				example_id="one", status="rejected", checks=["incorrect_answer"], reviewer="human"
+			)
+		],
+	)
+	assert prepare_sft_dataset(
+		input_path=ledger_path,
+		output_path=tmp_path / "train.jsonl",
+		reviews_path=reviews_path,
+		accept_pending=True,
+	) == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_prepare_checks_uncollected_test_prompts_and_source_groups(tmp_path: Path) -> None:
+	input_path, ledger_path = tmp_path / "prompts.jsonl", tmp_path / "ledger.jsonl"
+	train = prompt("one")
+	duplicate = prompt("test").model_copy(update={"split": "test", "prompt": train.prompt})
+	variant = prompt("variant").model_copy(update={"source": train.source})
+	grouped_test = prompt("grouped-test").model_copy(
+		update={"split": "test", "source": train.source}
+	)
+	write_jsonl(input_path, [train, duplicate, variant, grouped_test])
+	await collect(
+		input_path=input_path,
+		output_path=ledger_path,
+		teacher=FakeTeacher(),
+		options=CollectionOptions(terms_review_id="approval"),
+	)
+	assert len(read_jsonl(ledger_path, LedgerRecord)) == 2
+	assert prepare_sft_dataset(
+		input_path=ledger_path,
+		output_path=tmp_path / "train.jsonl",
+		prompts_path=input_path,
+		accept_pending=True,
+	) == (0, 2)
+
+
+@pytest.mark.asyncio
+async def test_resume_rejects_changed_prompt_before_any_calls(tmp_path: Path) -> None:
+	input_path, ledger_path = tmp_path / "prompts.jsonl", tmp_path / "ledger.jsonl"
+	write_jsonl(input_path, [prompt("one")])
+	await collect(
+		input_path=input_path,
+		output_path=ledger_path,
+		teacher=FakeTeacher(),
+		options=CollectionOptions(terms_review_id="approval"),
+	)
+	changed = prompt("one").model_copy(
+		update={"prompt": [Message(role="user", content="A different question")]}
+	)
+	write_jsonl(input_path, [changed])
+	teacher = FakeTeacher()
+	with pytest.raises(ValueError, match="resume mismatch"):
+		await collect(
+			input_path=input_path,
+			output_path=ledger_path,
+			teacher=teacher,
+			options=CollectionOptions(terms_review_id="approval"),
+		)
+	assert teacher.calls == 0
+	assert teacher.closed

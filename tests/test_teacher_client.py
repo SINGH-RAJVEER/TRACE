@@ -77,3 +77,39 @@ async def test_openai_compatible_teacher_hides_upstream_body_on_error() -> None:
 		)
 	await teacher.close()
 	assert "secret provider detail" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_non_thinking_is_explicit_and_blank_responses_are_retryable() -> None:
+	async def handler(request: httpx.Request) -> httpx.Response:
+		payload = __import__("json").loads(request.content)
+		assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+		assert payload["top_p"] == 0.8
+		assert payload["top_k"] == 20
+		return httpx.Response(
+			200,
+			json={
+				"id": "blank",
+				"choices": [{"message": {"content": "   "}, "finish_reason": "stop"}],
+			},
+		)
+
+	teacher = OpenAICompatibleTeacher(
+		base_url="https://teacher.example/v1",
+		api_key="",
+		model="qwen",
+		provider="test",
+		transport=httpx.MockTransport(handler),
+	)
+	try:
+		with pytest.raises(TeacherUpstreamError, match="invalid response"):
+			await teacher.generate(
+				TeacherGenerationRequest(
+					messages=[Message(role="user", content="Question")],
+					enable_thinking=False,
+					top_p=0.8,
+					top_k=20,
+				)
+			)
+	finally:
+		await teacher.close()

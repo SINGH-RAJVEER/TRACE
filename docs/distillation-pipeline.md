@@ -59,11 +59,14 @@ Example request:
 	],
 	"temperature": 0,
 	"max_output_tokens": 256,
-	"seed": 42
+	"seed": 42,
+	"enable_thinking": false
 }
 ```
 
 The upstream adapter sends `max_output_tokens` as the widely supported `max_tokens` chat-completions field. Add a provider adapter if the chosen authorized provider uses a different protocol. API keys remain in the API process and are never returned to collectors.
+
+`enable_thinking` is optional. Set it to `false` for the Qwen/vLLM collection recipe; the upstream request then contains `chat_template_kwargs`. Omit it for providers that do not support that extension. The collector's `--no-thinking` option forwards the setting, records it in provenance, and rejects responses containing thought markers. This check rejects marker-bearing output; it does not establish task correctness.
 
 ## Prompt input
 
@@ -87,6 +90,8 @@ The collector accepts JSONL. Each row has a stable ID, a split assigned before t
 
 Use grouped train, validation, and test splits. Related templates, documents, users, or generated variants belong in the same split. Do not collect training responses for the frozen test split.
 
+Set `source.group_id` when multiple source rows come from one document, conversation, or problem family. Preparation uses `(corpus, group_id)` as the split-separation key, falling back to `(corpus, source_id)` when the group is omitted. Declare groups before collection; exact prompt equality cannot detect paraphrases or semantic overlap.
+
 ## Collection and preparation
 
 Run the teacher API first. Then collect responses:
@@ -98,10 +103,15 @@ uv run distill collect \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id "$TEACHER_TERMS_REVIEW_ID" \
 	--concurrency 4 \
-	--max-attempts 3
+	--max-attempts 3 \
+	--no-thinking
 ```
 
 Collection is resumable by `example_id`. It rejects duplicate input IDs, retries teacher failures, and appends each successful response from its worker, so a later failure does not discard completed results. The ledger records teacher identity, the actual upstream endpoint, request parameters, provider request ID, token usage, source rights, approval reference, finish reason, and basic checks. A sibling `ledger.attempts.jsonl` file records every successful and failed call, including prompts whose retries all failed. Test prompts are skipped unless `--include-test` is set for a controlled teacher evaluation.
+
+Resume verifies the prompt, split, task, source metadata, generation parameters, and approval reference for IDs already in the ledger. A mismatch requires a new ledger. The collector cannot detect a provider changing the underlying model behind the same endpoint; pin the served model and keep its deployment records.
+
+Collection also exposes `--top-p` and `--top-k`; both are omitted from upstream requests unless supplied and are recorded for resume checks. `top_k` and the thinking switch need an upstream implementation that supports those extensions, such as vLLM. For a reviewed Qwen non-thinking sampling pilot, compare the greedy baseline with `--temperature 0.7 --top-p 0.8 --top-k 20 --no-thinking`, using separate ledgers and the same prompt/task contract. These are Qwen's documented inference recommendations, not a proven distillation optimum. Accept samples by task correctness and coverage before choosing a collection policy.
 
 The basic checks reject blank content and nonterminal finish reasons. Passing responses remain `pending`; the collector does not call them training-ready. Store review decisions in a separate JSONL file so the raw ledger stays unchanged:
 
@@ -117,11 +127,14 @@ Project accepted training rows into TRL's conversational prompt-completion schem
 uv run distill prepare \
 	--input data/teacher/ledger.jsonl \
 	--reviews data/reviews/reviews.jsonl \
+	--prompts data/prompts/all-splits.jsonl \
 	--output data/processed/train.jsonl \
 	--split train
 ```
 
-Preparation keeps reviewed and accepted rows from the requested split. It drops duplicate prompts within the split and prompts found in another split. It refuses to prepare the frozen test split. `--accept-pending` bypasses review for a local plumbing test and should not be used to produce paper results. Raw ledger files and prepared datasets are ignored by version control because they can contain licensed, private, or costly generated data.
+Preparation keeps reviewed and accepted rows from the requested split. Explicit review rejection always wins over `--accept-pending`. It drops duplicate prompts and source groups found in another split, and refuses to prepare the frozen test split. Pass the full original prompt inventory with `--prompts`, including validation and test rows that have no teacher response, to close the ledger-only contamination gap. Without `--prompts`, checks cover only rows present in that ledger. Separate collection files require the same full inventory.
+
+A sibling `train.manifest.json` records input and output hashes, skip-reason counts, accepted task/source counts, and whether pending rows were allowed. Raw ledger files and prepared datasets remain private artifacts. Review near-duplicates and task correctness separately; the automated admission checks do not detect semantic overlap.
 
 ## Student training
 
