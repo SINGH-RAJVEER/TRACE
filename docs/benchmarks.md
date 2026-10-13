@@ -171,3 +171,62 @@ Each completed run records its schema `version`, unique `id`, `experiment`, `slo
 `demo` distinguishes synthetic fixtures from measured runs. Synthetic and measured runs always form separate comparisons. The comparison `id` hashes the experiment name, suite hash, scorer version, generation configuration, code-image ID, code-test timeout, and demo flag. Model identity is retained per slot and differences are noted; student base or inference changes prevent attributing gains to distillation alone. Remote revision declarations need independent server-side verification. The code revision records the current Jujutsu working-copy commit ID, so reruns after source edits retain a different evaluation revision.
 
 Training artifacts are checked against their manifest but do not become benchmark metrics. Training loss, validation loss, or best-checkpoint selection is evidence about optimization, not a held-out task quality score.
+
+## Dashboard outline and commands
+
+The dashboard uses React, shadcn-style controls, and Recharts. It ships a single dark theme. Every chart carries a title, a plain-language note explaining how to read it, a legend, labelled axes with units, and a hover tooltip with exact values.
+
+Color identifies the model: teacher is blue and student is orange. Phase also uses shape: before runs have outlined translucent bars, dashed lines, or hollow dots; after runs are solid.
+
+The page opens with a one-sentence result summary and six headline numbers: student before and after, student change in percentage points, teacher before and after, and teacher gap closed. A sticky toolbar holds the view tabs, a benchmark-scope filter, and per-run toggles. The views are:
+
+- Accuracy: benchmark accuracy bars with Wilson intervals, student gain and teacher drift bars with paired bootstrap intervals, question-by-question outcome stacks (gained, lost, right both times, wrong both times), student–teacher answer agreement, and a per-subject heatmap table.
+- Speed: median response time, response-time spread, accuracy versus median latency, and generation speed in tokens per second, plus a timing and reliability table with p95, token coverage, and non-scorable answers.
+- Answers: question search, outcome filters, the reference answer, and every run's response, parsed answer, status, and latency, with the official tests for coding tasks.
+- Method: scoring rules, dataset sources and licenses, model revisions, adapters, run timestamps, generation settings, checked training corpora, and run notes.
+
+Every Speed chart has a **Log scale** switch, because response times and throughput are positive and can differ by multiples between the teacher and student. In log mode, axes use 1-2-5 ticks and the axis title says "log scale". The response-time spread switches to geometric bins. Accuracy, change, and outcome charts stay linear. Accuracy is bounded at 0–100%, change can be negative, and stacked shares would be distorted on a log axis.
+
+Experiment selection separates incompatible suites and protocols. Missing phases stay unavailable rather than becoming zeros. Full-suite macro summaries remain visible when detail charts are filtered. The dashboard can export the selected complete comparison as JSON.
+
+```bash
+cd apps/dashboard
+bun install
+bun run build
+cd ../..
+uv run distill benchmark dashboard
+```
+
+Open `http://127.0.0.1:8002`. The server binds to loopback. `GET /api/experiments` lists compatible comparisons and corrupt-run notices; `GET /api/reports/<comparison-id>` returns the report. For dashboard development, run the API and `bun run dev` in separate terminals. Vite proxies `/api` to port 8002.
+
+Preview the dashboard without training, inference, or Docker:
+
+```bash
+uv run distill benchmark demo
+uv run distill benchmark dashboard --results-dir outputs/benchmark-demo
+```
+
+The preview creates explicitly labeled synthetic scores in a separate directory and refuses to overwrite existing artifacts. It is a UI fixture, not a benchmark result.
+
+For a JSON report without the dashboard:
+
+```bash
+uv run distill benchmark report --results-dir outputs/benchmarks
+uv run distill benchmark report \
+	--results-dir outputs/benchmarks \
+	--comparison COMPARISON_ID \
+	--output outputs/comparison.json
+```
+
+## Test the setup
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy apps packages tests
+cd apps/dashboard
+bun test src
+bun run build
+```
+
+The automated checks use fixed trusted fixtures and mocked inference. They cover answer extraction, failure denominators, Wilson intervals, paired comparisons, protocol separation, suite integrity, training overlap, adapter provenance, coding assertion completion, container isolation flags, the read-only API, and chart data with missing phases. They do not load model weights or run distillation. Actual GPU inference, Docker runtime behavior, and final model scores require your later evaluation runs.

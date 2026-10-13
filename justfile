@@ -21,9 +21,23 @@ setup-eval:
 benchmark-freeze:
 	uv run --extra eval distill benchmark freeze --output data/benchmarks/suite.json
 
+# Validate and build the dashboard.
+dashboard-build:
+	bun install --cwd apps/dashboard
+	bun run --cwd apps/dashboard build
+
+# Serve measured benchmark results locally.
+dashboard:
+	uv run distill benchmark dashboard
+
 # Create explicitly simulated preview artifacts without running models.
 benchmark-demo:
 	uv run distill benchmark demo
+
+# Run dashboard data tests and type checking.
+dashboard-check:
+	bun test --cwd apps/dashboard src
+	bun run --cwd apps/dashboard check
 
 # Run the teacher inference API.
 dev:
