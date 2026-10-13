@@ -12,6 +12,7 @@ packages/distillation/    Collection, dataset preparation, and QLoRA/LoRA traini
 configs/                  Example training configuration
 data/examples/            Small input fixture for trying the pipeline
 docs/                     Architecture, operating guide, and research notes
+scripts/                  Bash and PowerShell scripts for two-machine and single-machine runs
 ```
 
 ## Quick start
@@ -43,6 +44,8 @@ uv run distill prepare \
 uv sync --all-packages --extra train
 uv run --extra train distill train --config configs/train.example.toml
 ```
+
+To run everything with one command per machine, use `scripts/teacher-host` and `scripts/student-train` on two machines, or `scripts/distill-local` on one. Each comes as `.sh` and `.ps1`. See [docs/run-scripts.md](docs/run-scripts.md).
 
 The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` is suitable only for the included plumbing example. Paper runs should use a separate review file as described in the operating guide.
 
