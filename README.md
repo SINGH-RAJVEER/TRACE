@@ -8,8 +8,9 @@ The first implementation uses teacher-generated prompt-completion pairs and comp
 
 ```text
 apps/teacher-api/         FastAPI service in front of an OpenAI-compatible hosted model
-packages/distillation/    Collection, dataset preparation, and QLoRA/LoRA training tools
-configs/                  Example training configuration
+apps/dashboard/           Read-only benchmark dashboard using React, shadcn controls, and Recharts
+packages/distillation/    Collection, preparation, training, and frozen benchmark evaluation
+configs/                  Example training and four-slot evaluation configurations
 data/examples/            Small input fixture for trying the pipeline
 docs/                     Architecture, operating guide, and research notes
 scripts/                  Bash and PowerShell scripts for two-machine and single-machine runs
@@ -51,3 +52,19 @@ The collection command deliberately requires a terms-review reference. Standard 
 
 See [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for the API contract, data formats, and training instructions. The method choice and primary sources are recorded in [docs/research/teacher-student-distillation.md](docs/research/teacher-student-distillation.md).
 
+## Benchmarks and dashboard
+
+The evaluation setup supports GSM8K, ARC-Challenge, MMLU, TruthfulQA, HumanEval, and MBPP. Run the teacher and base student before training, then reevaluate the teacher and evaluate the distilled student after training. The initial teacher score stays the fixed gap-closure reference; reevaluation measures teacher drift. It records accuracy or executable pass@1, confidence intervals, paired gains and regressions, agreement, latency, throughput, failures, and reproducibility metadata. It does not start distillation.
+
+See [docs/benchmarks.md](docs/benchmarks.md) for every metric's formula, denominator, units, and limitations, plus dataset sources, the evaluation configuration, and commands for later runs.
+
+To preview the dashboard with explicitly labeled simulated results:
+
+```bash
+bun install --cwd apps/dashboard
+bun run --cwd apps/dashboard build
+uv run distill benchmark demo
+uv run distill benchmark dashboard --results-dir outputs/benchmark-demo
+```
+
+Open `http://127.0.0.1:8002`. Use `uv run distill benchmark dashboard` to view your measured results instead. The preview does not run inference, Docker tests, or training.
