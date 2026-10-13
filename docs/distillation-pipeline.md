@@ -8,6 +8,28 @@ The current method is sequence-level distillation. The collector saves the teach
 
 The protection wrapper discussed in the paper is outside this implementation.
 
+## Development environment
+
+Run `devenv shell` to enter the pinned development environment, or allow `.envrc` with `direnv allow` to load it automatically. The shell provides Python 3.14, uv, Bun, Bash, just, a C/C++ compiler, and zlib. On Linux, it exposes the compiler's C++ runtime and `/run/opengl-driver/lib` so binary Python wheels can find native libraries and the host NVIDIA driver.
+
+Shell entry runs `uv sync --all-packages` to install the API and collection dependencies plus pytest, pytest-asyncio, Ruff, and mypy from `uv.lock`. Python dependencies belong in the workspace `pyproject.toml` files; system tools and native libraries belong in `devenv.nix`.
+
+Use these commands inside the shell:
+
+```bash
+just check
+just test
+uv sync --all-packages --extra eval
+uv run --extra eval python -c 'import datasets, huggingface_hub'
+just setup-train
+uv run --extra train python -c 'import torch; print(torch.cuda.is_available())'
+```
+
+The `eval` extra installs datasets and huggingface-hub. The `train` extra installs PyTorch, Transformers, datasets, Accelerate, PEFT, TRL, and bitsandbytes on Linux. These extras stay optional because the API and pipeline tests do not need the large training stack. Select the extra on subsequent `uv run` commands as shown above, since uv synchronizes the environment for each invocation.
+
+QLoRA also requires a compatible NVIDIA GPU and a working host driver. The shell provides the compiler and library paths; the CUDA runtime dependencies come from the locked training wheels. The vLLM teacher described below runs as a separate upstream service with its own environment, either on this machine or another host.
+
+
 ## Adopted model pairing
 
 - Student: `Qwen/Qwen3-4B-Base` at revision `906bfd4b4dc7f14ee4320094d8b41684abff8539` (Apache 2.0, verified 2026-09-05).

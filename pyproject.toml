@@ -12,6 +12,9 @@ dependencies = [
 train = [
 	"distillation-core[train]"
 ]
+eval = [
+	"distillation-core[eval]"
+]
 
 [tool.uv]
 package = false
@@ -57,6 +60,6 @@ warn_unreachable = true
 exclude = ["artifacts", "outputs"]
 
 [[tool.mypy.overrides]]
-module = ["accelerate.*", "datasets.*", "peft.*", "tokenizers.*", "torch.*", "transformers.*", "trl.*"]
+module = ["accelerate.*", "datasets.*", "huggingface_hub.*", "peft.*", "tokenizers.*", "torch.*", "transformers.*", "trl.*"]
 ignore_missing_imports = true
 follow_imports = "skip"

@@ -2,6 +2,8 @@
 node_modules/
 .pnpm-store/
 .venv/
+.venv-pip/
+.venv-vllm/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -18,6 +20,8 @@ artifacts/
 outputs/
 data/teacher/
 data/processed/
+data/benchmarks/
+*.tsbuildinfo
 
 # Environment files
 .env
