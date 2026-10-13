@@ -57,5 +57,6 @@ warn_unreachable = true
 exclude = ["artifacts", "outputs"]
 
 [[tool.mypy.overrides]]
-module = ["accelerate.*", "datasets.*", "peft.*", "torch.*", "transformers.*", "trl.*"]
+module = ["accelerate.*", "datasets.*", "peft.*", "tokenizers.*", "torch.*", "transformers.*", "trl.*"]
 ignore_missing_imports = true
+follow_imports = "skip"

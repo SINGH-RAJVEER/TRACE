@@ -1,6 +1,7 @@
 """Command-line interface for collection, preparation, and training."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Annotated
@@ -10,7 +11,7 @@ import typer
 from distillation.collection import CollectionOptions, collect
 from distillation.preparation import prepare_sft_dataset
 from distillation.teacher import TeacherAPIGateway
-from distillation.training import load_training_config, train
+from distillation.training import load_training_config, preflight_training, train
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
@@ -87,12 +88,17 @@ def prepare_command(
 @app.command("train")
 def train_command(
 	config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)],
+	preflight_only: Annotated[bool, typer.Option("--preflight-only")] = False,
 ) -> None:
 	"""Run completion-only LoRA or QLoRA supervised fine-tuning."""
 
 	if os.environ.get("TOKENIZERS_PARALLELISM") is None:
 		os.environ["TOKENIZERS_PARALLELISM"] = "false"
-	output_dir = train(load_training_config(config_path))
+	config = load_training_config(config_path)
+	if preflight_only:
+		typer.echo(json.dumps(preflight_training(config), indent="\t", sort_keys=True))
+		return
+	output_dir = train(config)
 	typer.echo(f"adapter={output_dir}")
 
 
