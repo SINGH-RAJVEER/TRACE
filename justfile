@@ -1,5 +1,6 @@
 set dotenv-load := true
 set shell := ["bash", "-cu"]
+set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 default:
 	@just --list
@@ -36,7 +37,7 @@ lock:
 
 # Collect the included example prompts. Set TERMS_REVIEW_ID in .env first.
 collect-example:
-	uv run distill collect --input data/examples/prompts.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "$TEACHER_TERMS_REVIEW_ID"
+	uv run distill collect --input data/examples/prompts.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "{{env('TEACHER_TERMS_REVIEW_ID', '')}}"
 
 # Convert accepted training records into TRL prompt-completion data.
 prepare-example:
@@ -53,3 +54,27 @@ preflight-train config="configs/train.example.toml":
 # Construct a tiny native trainer; its training method is intercepted before optimization.
 test-training-setup:
 	DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py
+
+# Two machines, teacher side: serve vLLM and the teacher API with bash. See docs/run-scripts.md.
+teacher-host *args:
+	bash scripts/teacher-host.sh {{args}}
+
+# Two machines, teacher side: serve vLLM and the teacher API with PowerShell.
+teacher-host-ps *args:
+	pwsh -NoLogo -NoProfile -File scripts/teacher-host.ps1 {{args}}
+
+# Two machines, student side: collect from a remote teacher and train with bash.
+student-train *args:
+	bash scripts/student-train.sh {{args}}
+
+# Two machines, student side: collect from a remote teacher and train with PowerShell.
+student-train-ps *args:
+	pwsh -NoLogo -NoProfile -File scripts/student-train.ps1 {{args}}
+
+# One machine: run the whole distillation with bash.
+distill-local *args:
+	bash scripts/distill-local.sh {{args}}
+
+# One machine: run the whole distillation with PowerShell.
+distill-local-ps *args:
+	pwsh -NoLogo -NoProfile -File scripts/distill-local.ps1 {{args}}

@@ -29,7 +29,6 @@ The `eval` extra installs datasets and huggingface-hub. The `train` extra instal
 
 QLoRA also requires a compatible NVIDIA GPU and a working host driver. The shell provides the compiler and library paths; the CUDA runtime dependencies come from the locked training wheels. The vLLM teacher described below runs as a separate upstream service with its own environment, either on this machine or another host.
 
-
 ## Adopted model pairing
 
 - Student: `Qwen/Qwen3-4B-Base` at revision `906bfd4b4dc7f14ee4320094d8b41684abff8539` (Apache 2.0, verified 2026-09-05).
@@ -46,6 +45,8 @@ vllm serve Qwen/Qwen3-14B --revision 40c069824f4251a91eefaf281ebe4c544efd3e18 \
 ```
 
 Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting it, confirm responses contain no thinking traces before the main collection run, and keep transfer prompts inside the student's 32K native context.
+
+The scripts in `scripts/` do all of this for you, on two machines or one, and run the non-thinking check automatically. See [run-scripts.md](run-scripts.md).
 
 ## Authorization gate
 
@@ -155,7 +156,7 @@ uv run distill prepare \
 	--split train
 ```
 
-Preparation keeps reviewed and accepted rows from the requested split. Explicit review rejection always wins over `--accept-pending`. It drops duplicate prompts and source groups found in another split, and refuses to prepare the frozen test split. Pass the full original prompt inventory with `--prompts`, including validation and test rows that have no teacher response, to close the ledger-only contamination gap. Without `--prompts`, checks cover only rows present in that ledger. Separate collection files require the same full inventory.
+Preparation keeps reviewed and accepted rows from the requested split. Explicit review rejection always wins over `--accept-pending`. It drops duplicate prompts and source groups found in another split, and refuses to prepare the frozen test split. Pass the full original prompt inventory with `--prompts`, including validation and test rows that have no teacher response, to close the ledger-only contamination gap. The supplied launchers pass their original prompt inventory automatically. Without `--prompts`, checks cover only rows present in that ledger. Separate collection files require the same full inventory.
 
 A sibling `train.manifest.json` records input and output hashes, skip-reason counts, accepted task/source counts, and whether pending rows were allowed. Raw ledger files and prepared datasets remain private artifacts. Review near-duplicates and task correctness separately; the automated admission checks do not detect semantic overlap.
 
@@ -169,7 +170,7 @@ uv sync --all-packages --extra train
 
 Review `configs/train.example.toml`, which uses the pinned Qwen3-4B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. The two included prompts exercise plumbing; they are insufficient for instruction tuning a base model or measuring distillation quality.
 
-For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example leaves validation optional for the two-row plumbing fixture; a research run needs validation and a separately frozen test set.
+For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example leaves validation optional for the two-row plumbing fixture; a research run needs validation and a separately frozen test set.
 
 Training input must contain only conversational `prompt` and `completion` columns, with one assistant completion. Unknown columns are rejected. This prevents externally supplied `input_ids`, `labels`, or per-row template overrides from bypassing the tokenizer and completion-loss checks.
 
@@ -235,7 +236,6 @@ Keep tests in a separate uv environment if another process is synchronizing this
 ```bash
 UV_PROJECT_ENVIRONMENT=/tmp/distillation-checks uv run --extra train pytest
 ```
-
 
 ## Evaluation
 
