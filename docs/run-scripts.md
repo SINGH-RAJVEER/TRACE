@@ -37,7 +37,7 @@ Each script picks how it installs and runs Python before doing anything else:
 Before installing anything, the script lists every missing tool it can detect, then stops if any of them is required:
 
 - Required: uv for the uv runtime. For the pip runtime: Python 3.14 with `venv` and `ensurepip` (the `python3.14-venv` package on Debian and Ubuntu), plus a Python 3.10 to 3.13 interpreter for vLLM when vLLM is not already installed. `curl` for the bash scripts.
-- Warnings when a GPU is needed: `nvidia-smi` (the NVIDIA driver), and a C compiler (`cc` or `gcc`) for the Triton kernels that vLLM and training compile at runtime.
+- Warnings when a GPU is needed: `nvidia-smi` (the NVIDIA driver), and a C compiler (`cc` or `gcc`) with the C library headers for the Triton kernels that vLLM and training compile at runtime. On Debian and Ubuntu, including WSL, `build-essential` provides both; a bare `gcc` without `libc6-dev` makes vLLM fail at startup with `fatal error: stdlib.h: No such file or directory`.
 - On Windows, the PowerShell scripts stop here if they would need to start vLLM (see Platform notes).
 
 Set `DISTILL_RUNTIME=devenv|uv|pip` to force a runtime.
@@ -115,7 +115,7 @@ The same steps work on two machines: pass `--corpus` to `student-train`.
 The teacher's BF16 weights take about 28 GB, so a 20 GB card such as the RTX 4000 Ada, or a 24 GB card, must quantize it. Ada and newer GPUs support FP8, which halves the weights to about 15 GB. Add these lines to `.env`:
 
 ```dotenv
-VLLM_EXTRA_ARGS=--quantization fp8 --kv-cache-dtype fp8
+VLLM_EXTRA_ARGS="--quantization fp8 --kv-cache-dtype fp8"
 VLLM_MAX_MODEL_LEN=4096
 ```
 

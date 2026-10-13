@@ -146,8 +146,14 @@ select_runtime() {
 	if [[ -n "$needs_gpu" ]]; then
 		command -v nvidia-smi > /dev/null 2>&1 \
 			|| warnings+=("nvidia-smi not found; vLLM and QLoRA training need an NVIDIA GPU and driver")
-		command -v cc > /dev/null 2>&1 || command -v gcc > /dev/null 2>&1 \
-			|| warnings+=("no C compiler (cc or gcc); Triton kernels in vLLM and training compile with one")
+		local compiler
+		if compiler="$(command -v cc || command -v gcc)"; then
+			# A compiler without libc headers passes the check above but fails inside Triton.
+			printf '#include <stdlib.h>\n' | "$compiler" -x c -fsyntax-only - > /dev/null 2>&1 \
+				|| warnings+=("$compiler cannot find the C library headers; install build-essential (Debian and Ubuntu)")
+		else
+			warnings+=("no C compiler (cc or gcc); Triton kernels in vLLM and training compile with one")
+		fi
 	fi
 
 	log "runtime: $RUNTIME"
@@ -260,7 +266,13 @@ wait_for_http() {
 			return 0
 		fi
 		if [[ -n "$pid" ]] && ! kill -0 "$pid" 2> /dev/null; then
-			[[ -n "$logfile" && -f "$logfile" ]] && tail -n 40 "$logfile" >&2
+			if [[ -n "$logfile" && -f "$logfile" ]]; then
+				tail -n 40 "$logfile" >&2
+				# Child processes such as the vLLM engine core log the root cause well above
+				# the tail, so repeat the error lines from the whole log.
+				log "error lines from $logfile:"
+				grep -E ' ERROR |(Error|Exception)(:|$)' "$logfile" | tail -n 20 >&2 || true
+			fi
 			die "process for $url exited during startup"
 		fi
 		sleep 3
