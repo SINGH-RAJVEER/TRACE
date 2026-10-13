@@ -159,3 +159,39 @@ class ReviewRecord(BaseModel):
 	status: Literal["accepted", "rejected"]
 	checks: list[str] = Field(min_length=1)
 	reviewer: str = Field(min_length=1)
+	reason: str | None = None
+
+
+class OutputConstraints(BaseModel):
+	"""Format requirements stated in a prompt and checked on the teacher response."""
+
+	model_config = ConfigDict(extra="forbid")
+
+	min_words: int | None = Field(default=None, ge=1)
+	max_words: int | None = Field(default=None, ge=1)
+	bullet_count: int | None = Field(default=None, ge=1)
+	must_include: list[str] = Field(default_factory=list)
+	must_exclude: list[str] = Field(default_factory=list)
+
+
+class ReferenceRecord(BaseModel):
+	"""Answer key for one prompt, kept beside the prompt set and read only by review."""
+
+	model_config = ConfigDict(extra="forbid")
+
+	example_id: str = Field(min_length=1)
+	kind: Literal[
+		"numeric",
+		"choice",
+		"choice_reasoning",
+		"python_tests",
+		"python_code",
+		"json_equals",
+		"json_valid",
+		"exact",
+		"general",
+	]
+	answer: str | None = None
+	tests: str = ""
+	entry_point: str = ""
+	constraints: OutputConstraints | None = None

@@ -78,7 +78,7 @@ scripts/student-train.sh --teacher-url http://10.0.0.5:8000 --reviews data/revie
 ./scripts/student-train.ps1 -TeacherUrl http://10.0.0.5:8000 -Reviews data/reviews/reviews.jsonl
 ```
 
-The script installs the training stack, waits up to 60 seconds for the teacher to report `ready`, runs the same smoke test, and then runs `distill collect`, `distill prepare`, and `distill train`. Preparation writes to the `dataset_path` in the training config, so the two always match. Collection resumes by `example_id`, so rerunning after a failure only fetches missing prompts.
+The script installs the training stack, waits up to 60 seconds for the teacher to report `ready`, runs the same smoke test, and then runs `distill collect`, `distill review` (when `--references` is given), `distill prepare`, and `distill train`. Preparation writes to the `dataset_path` in the training config, so the two always match. Collection resumes by `example_id`, so rerunning after a failure only fetches missing prompts.
 
 ## Single machine
 
@@ -92,6 +92,35 @@ scripts/distill-local.sh --reviews data/reviews/reviews.jsonl
 
 Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log`, `teacher-api.log`, and `.err.log` files for PowerShell). After collection, the script stops the teacher API and vLLM before training, because the 14B teacher and the 4B student do not fit on one consumer GPU together. The machine therefore needs enough GPU memory for the teacher during collection (see the model pairing in [distillation-pipeline.md](distillation-pipeline.md)). Lower `VLLM_MAX_MODEL_LEN` or add `--quantization fp8` to `VLLM_EXTRA_ARGS` if vLLM runs out of memory. `--upstream-url` (`-UpstreamUrl`) skips vLLM and uses an existing server instead.
 
+## Full run with the prompt corpus
+
+The example prompts only test the plumbing. For a real run, pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
+
+```bash
+scripts/distill-local.sh --corpus standard --concurrency 8
+```
+
+```powershell
+./scripts/distill-local.ps1 -Corpus standard -Concurrency 8 -UpstreamUrl http://127.0.0.1:8001/v1
+```
+
+The prompt files are not in the repository. `--corpus` builds them into `data/prompts/` after installing the Python environment, downloading the pinned public datasets and the held-out benchmark questions, which takes a few minutes. A later run with the same profile reuses the existing files. Unless you pass them yourself, `--corpus` also sets `--prompts data/prompts/all-splits.jsonl`, `--references data/prompts/references.jsonl`, and `--config configs/train.distill.toml`. The build is deterministic and a prompt keeps the same ID and text in every profile, so moving from `quick` to `standard` reuses the responses already in the ledger. To build the corpus on its own, run `just corpus standard`.
+
+With `--references`, the script runs `distill review` after collection. It checks every teacher response against the answer key, rejects responses that would exceed the training config's `max_length`, and writes `data/teacher/ledger.reviews.jsonl` plus a `.summary.json` with counts by status and rejection reason. Preparation then uses those decisions. A `--reviews` file passed at the same time holds human decisions that override the automatic ones. Set `REVIEW_CODE_IMAGE=python:3.12-slim` to run the Python tests in the same isolated Docker container the benchmarks use; without it, code is only parsed.
+
+The same steps work on two machines: pass `--corpus` to `student-train`.
+
+### GPUs with 20 to 24 GB
+
+The teacher's BF16 weights take about 28 GB, so a 20 GB card such as the RTX 4000 Ada, or a 24 GB card, must quantize it. Ada and newer GPUs support FP8, which halves the weights to about 15 GB. Add these lines to `.env`:
+
+```dotenv
+VLLM_EXTRA_ARGS=--quantization fp8 --kv-cache-dtype fp8
+VLLM_MAX_MODEL_LEN=4096
+```
+
+The 4,096-token context still fits the longest corpus prompt plus a 1,024-token answer. vLLM still downloads the BF16 checkpoint and quantizes it while loading. For training, the 4-bit base model takes about 2.5 GB and the rank-128 adapter with its optimizer state about 4 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`.
+
 ## Pipeline options
 
 `student-train` and `distill-local` share these options:
@@ -99,7 +128,9 @@ Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log`, `teacher
 | Option (bash / PowerShell) | Default | Meaning |
 | --- | --- | --- |
 | `--terms-review-id` / `-TermsReviewId` | `TEACHER_TERMS_REVIEW_ID` | Approval reference written into every ledger record; required |
-| `--reviews` / `-Reviews` | none | Review decisions JSONL; required unless accepting pending records |
+| `--corpus` / `-Corpus` | none | Build or reuse the `quick`, `standard`, or `full` prompt corpus and use its prompts, answer key, and `configs/train.distill.toml` |
+| `--references` / `-References` | none | Answer key from `distill corpus build`; reviews the ledger automatically before preparation |
+| `--reviews` / `-Reviews` | none | Review decisions JSONL. With `--references`, they override the automatic decisions. One of the two is required unless accepting pending records |
 | `--accept-pending` / `-AcceptPending` | off | Train on unreviewed records, for plumbing tests only |
 | `--prompts` / `-Prompts` | `data/examples/prompts.jsonl` | Prompt JSONL |
 | `--ledger` / `-Ledger` | `data/teacher/ledger.jsonl` | Teacher ledger JSONL |
@@ -127,6 +158,7 @@ The scripts read `.env` from the repository root. Variables already set in the s
 | `VLLM_PYTHON` | `3.12` (devenv sets a Nix path) | Interpreter for `.venv-vllm` |
 | `VLLM_BIN` | none | Existing vLLM executable to use instead |
 | `DISTILL_RUNTIME` | automatic | Force `devenv`, `uv`, or `pip` |
+| `REVIEW_CODE_IMAGE` | none | Docker image for running Python tests during review, for example `python:3.12-slim` |
 
 ## Platform notes
 

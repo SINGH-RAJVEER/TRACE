@@ -12,7 +12,7 @@ cd "$REPO_ROOT"
 
 usage() {
 	cat << EOF
-Usage: scripts/student-train.sh --teacher-url URL (--reviews PATH | --accept-pending) [options]
+Usage: scripts/student-train.sh --teacher-url URL (--corpus PROFILE | --references PATH | --reviews PATH | --accept-pending) [options]
 
 Runs collection against a teacher API on another machine, then preparation and training.
 Paths are relative to the repository root.
@@ -45,6 +45,7 @@ validate_pipeline_options
 
 select_runtime gpu
 prepare_app_env train
+build_corpus_if_needed
 wait_for_http "$TEACHER_URL/healthz" '"ready"' 60
 smoke_test_teacher "$TEACHER_URL" "$TOKEN"
 collect_teacher_data "$TEACHER_URL" "$TOKEN"

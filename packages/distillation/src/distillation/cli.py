@@ -16,6 +16,8 @@ from distillation.training import load_training_config, preflight_training, trai
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 benchmark_app = typer.Typer(no_args_is_help=True)
 app.add_typer(benchmark_app, name="benchmark", help="Freeze, score, and compare public benchmarks.")
+corpus_app = typer.Typer(no_args_is_help=True)
+app.add_typer(corpus_app, name="corpus", help="Build the transfer prompt corpus.")
 
 
 @app.command("collect")
@@ -85,6 +87,84 @@ def prepare_command(
 		accept_pending=accept_pending,
 	)
 	typer.echo(f"written={written} skipped={skipped} output={output_path}")
+
+
+@app.command("review")
+def review_command(
+	ledger_path: Annotated[Path, typer.Option("--ledger", exists=True, dir_okay=False)],
+	output_path: Annotated[Path, typer.Option("--output", dir_okay=False)],
+	references_path: Annotated[
+		Path | None, typer.Option("--references", exists=True, dir_okay=False)
+	] = None,
+	overrides_path: Annotated[
+		Path | None, typer.Option("--overrides", exists=True, dir_okay=False)
+	] = None,
+	config_path: Annotated[
+		Path | None, typer.Option("--config", exists=True, dir_okay=False)
+	] = None,
+	code_image: Annotated[str | None, typer.Option("--code-image")] = None,
+	code_timeout_seconds: Annotated[int, typer.Option(min=1)] = 10,
+) -> None:
+	"""Validate teacher responses against the answer key and write review decisions.
+
+	--config rejects records longer than the training max_length. --code-image runs Python
+	tests in an isolated Docker container; without it, code is only parsed. Decisions in
+	--overrides, such as human reviews, replace the automatic ones.
+	"""
+	from distillation.review import review_ledger
+
+	summary = review_ledger(
+		ledger_path=ledger_path,
+		references_path=references_path,
+		output_path=output_path,
+		overrides_path=overrides_path,
+		config_path=config_path,
+		code_image=code_image,
+		code_timeout_seconds=code_timeout_seconds,
+	)
+	typer.echo(json.dumps(summary, indent="\t", sort_keys=True))
+
+
+@corpus_app.command("build")
+def corpus_build_command(
+	output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)] = Path(
+		"data/prompts"
+	),
+	authored_path: Annotated[Path, typer.Option("--authored", dir_okay=False)] = Path(
+		"data/authored/prompts.jsonl"
+	),
+	profile: Annotated[str, typer.Option()] = "standard",
+	seed: int = 42,
+	validation_fraction: Annotated[float, typer.Option(min=0.0, max=0.5)] = 0.04,
+	max_prompt_chars: Annotated[int, typer.Option(min=100)] = 3000,
+	families: Annotated[str, typer.Option(help="Comma-separated subset of families")] = "",
+) -> None:
+	"""Download pinned public prompt sets, add authored prompts, and write the corpus.
+
+	Profiles: quick (about 7,200 prompts), standard (about 36,100), full (about 75,900).
+	"""
+	from distillation.corpus import build_corpus
+
+	manifest = build_corpus(
+		output_dir=output_dir,
+		authored_path=authored_path,
+		profile=profile,
+		seed=seed,
+		validation_fraction=validation_fraction,
+		max_prompt_chars=max_prompt_chars,
+		families=[name.strip() for name in families.split(",") if name.strip()] or None,
+	)
+	typer.echo(
+		json.dumps(
+			{
+				"total": manifest["total"],
+				"splits": manifest["splits"],
+				"families": manifest["families"],
+				"output_dir": str(output_dir),
+			},
+			indent="\t",
+		)
+	)
 
 
 @app.command("train")

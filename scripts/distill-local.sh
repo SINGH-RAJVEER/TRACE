@@ -12,7 +12,7 @@ cd "$REPO_ROOT"
 
 usage() {
 	cat << EOF
-Usage: scripts/distill-local.sh (--reviews PATH | --accept-pending) [options]
+Usage: scripts/distill-local.sh (--corpus PROFILE | --references PATH | --reviews PATH | --accept-pending) [options]
 
 Runs the whole distillation on this machine. The teacher API binds to 127.0.0.1.
 Paths are relative to the repository root.
@@ -51,6 +51,7 @@ else
 	select_runtime gpu
 fi
 prepare_app_env train
+build_corpus_if_needed
 trap stop_background EXIT
 trap 'exit 130' INT TERM
 start_teacher_stack 127.0.0.1 "$PORT" "$UPSTREAM_URL" "$LOG_DIR/teacher-api.log"

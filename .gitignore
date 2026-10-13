@@ -20,6 +20,7 @@ artifacts/
 outputs/
 data/teacher/
 data/processed/
+data/prompts/
 data/benchmarks/
 *.tsbuildinfo
 

@@ -162,6 +162,54 @@ def _select(items: list[BenchmarkItem], limit: int, seed: int) -> list[Benchmark
 	return sorted(selected, key=lambda item: item.id)
 
 
+def load_benchmark_rows(benchmark: str) -> tuple[list[dict[str, Any]], DatasetSource]:
+	"""Download every held-out row of one benchmark at a resolved immutable revision."""
+	if benchmark not in CATALOG:
+		raise ValueError(f"unknown benchmark: {benchmark}")
+	repository, configuration, split, license_name = CATALOG[benchmark]
+	if benchmark == "truthfulqa":
+		import csv
+		import io
+
+		import httpx
+
+		repository = "sylinrl/TruthfulQA"
+		revision = TRUTHFULQA_REVISION
+		with httpx.Client(timeout=60) as client:
+			response = client.get(
+				f"https://raw.githubusercontent.com/{repository}/{revision}/TruthfulQA.csv"
+			)
+			response.raise_for_status()
+		rows: list[dict[str, Any]] = list(csv.DictReader(io.StringIO(response.text)))
+		configuration, split = "binary-2025", "all"
+		url = f"https://github.com/{repository}/blob/{revision}/TruthfulQA.csv"
+	else:
+		try:
+			from datasets import load_dataset
+			from huggingface_hub import HfApi
+		except ImportError as error:
+			raise RuntimeError("run `uv sync --all-packages --extra eval`") from error
+		resolved_revision = HfApi().dataset_info(repository).sha
+		if not resolved_revision:
+			raise ValueError(f"cannot resolve immutable revision for {repository}")
+		revision = resolved_revision
+		dataset = load_dataset(repository, configuration, split=split, revision=revision)
+		rows = [dict(row) for row in dataset]
+		url = f"https://huggingface.co/datasets/{repository}/tree/{revision}"
+	source = DatasetSource(
+		benchmark=benchmark,
+		repository=repository,
+		revision=revision,
+		configuration=configuration,
+		split=split,
+		license=license_name,
+		url=url,
+		available=len(rows),
+		selected=len(rows),
+	)
+	return rows, source
+
+
 def freeze_suite(
 	output: Path,
 	benchmarks: list[str],
@@ -174,54 +222,14 @@ def freeze_suite(
 		raise ValueError("use unique benchmarks and a nonnegative limit")
 	if unknown := set(benchmarks) - CATALOG.keys():
 		raise ValueError(f"unknown benchmarks: {sorted(unknown)}")
-	try:
-		from datasets import load_dataset
-		from huggingface_hub import HfApi
-	except ImportError as error:
-		raise RuntimeError("run `uv sync --all-packages --extra eval`") from error
 	items: list[BenchmarkItem] = []
 	sources: list[DatasetSource] = []
 	for benchmark in benchmarks:
-		repository, configuration, split, license_name = CATALOG[benchmark]
-		if benchmark == "truthfulqa":
-			import csv
-			import io
-
-			import httpx
-
-			repository = "sylinrl/TruthfulQA"
-			revision = TRUTHFULQA_REVISION
-			with httpx.Client(timeout=60) as client:
-				response = client.get(
-					f"https://raw.githubusercontent.com/{repository}/{revision}/TruthfulQA.csv"
-				)
-				response.raise_for_status()
-			rows = list(csv.DictReader(io.StringIO(response.text)))
-			configuration, split = "binary-2025", "all"
-			url = f"https://github.com/{repository}/blob/{revision}/TruthfulQA.csv"
-		else:
-			resolved_revision = HfApi().dataset_info(repository).sha
-			if not resolved_revision:
-				raise ValueError(f"cannot resolve immutable revision for {repository}")
-			revision = resolved_revision
-			rows = list(load_dataset(repository, configuration, split=split, revision=revision))
-			url = f"https://huggingface.co/datasets/{repository}/tree/{revision}"
-		converted = [convert_row(benchmark, i, dict(row), seed) for i, row in enumerate(rows)]
+		rows, source = load_benchmark_rows(benchmark)
+		converted = [convert_row(benchmark, i, row, seed) for i, row in enumerate(rows)]
 		selected = _select(converted, limit, seed)
 		items.extend(selected)
-		sources.append(
-			DatasetSource(
-				benchmark=benchmark,
-				repository=repository,
-				revision=revision,
-				configuration=configuration,
-				split=split,
-				license=license_name,
-				url=url,
-				available=len(rows),
-				selected=len(selected),
-			)
-		)
+		sources.append(source.model_copy(update={"selected": len(selected)}))
 	suite = FrozenSuite(seed=seed, created_at=datetime.now(UTC), sources=sources, items=items)
 	suite.sha256 = suite.digest()
 	suite.verify()

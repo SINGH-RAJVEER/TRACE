@@ -65,6 +65,10 @@ lock:
 collect-example:
 	uv run distill collect --input data/examples/prompts.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "{{env('TEACHER_TERMS_REVIEW_ID', '')}}"
 
+# Build the transfer prompt corpus: quick, standard, or full. See docs/prompt-corpus.md.
+corpus profile="standard":
+	uv run --extra eval distill corpus build --profile {{quote(profile)}} --output-dir data/prompts
+
 # Convert accepted training records into TRL prompt-completion data.
 prepare-example:
 	uv run distill prepare --input data/teacher/ledger.jsonl --output data/processed/train.jsonl --accept-pending
