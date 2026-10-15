@@ -5,11 +5,11 @@
 | Scenario | Machine | What it does |
 | --- | --- | --- |
 | `teacher-host` | Two machines, teacher side | Starts vLLM with Qwen3.5-9B on loopback and the teacher API on the network, then runs until interrupted |
-| `student-train` | Two machines, student side | Checks the monorepo teacher API, collects responses, prepares the dataset, and trains the Qwen3.5-2B adapter |
-| `distill-local` | One machine | Starts vLLM and the teacher API on loopback, collects, stops both to free GPU memory, then prepares and trains |
+| `student-train` | Two machines, student side | Builds or reuses the corpus, checks the monorepo teacher API, collects and reviews responses, prepares the splits, and trains the Qwen3.5-2B adapter |
+| `distill-local` | One machine | Builds or reuses the corpus, starts vLLM and the teacher API on loopback, collects a ledger, stops both to free GPU memory, then reviews, prepares, and trains |
 
 ```bash
-python3 scripts/pipeline.py distill-local --corpus standard --concurrency 8
+python3 scripts/pipeline.py distill-local
 python3 scripts/pipeline.py student-train --help
 ```
 
@@ -20,7 +20,7 @@ The same scenarios are `just` recipes, which pick `python3` or `py -3` for the p
 ```bash
 just teacher-host
 just student-train --teacher-url http://10.0.0.5:8000 --corpus quick --concurrency 8
-just distill-local --reviews data/reviews/reviews.jsonl
+just distill-local
 ```
 
 `just` passes options through unquoted, so option values cannot contain spaces.
@@ -99,24 +99,28 @@ After collection, the script runs `distill review`, `distill prepare`, and `dist
 ## Single machine
 
 ```bash
-just distill-local --reviews data/reviews/reviews.jsonl
+just distill-local
 ```
+
+Copy `.env.example` to `.env` and set `TEACHER_TERMS_REVIEW_ID` before the first run. With no data source options, this command uses `DISTILL_CORPUS`, defaulting to `standard`, and `configs/train.distill.toml`. It installs the training dependencies, checks for the corpus and builds it if needed, starts the teacher, creates or resumes `data/teacher/ledger.jsonl`, stops the teacher, reviews the responses against the answer key, prepares both dataset splits, and trains the student. It needs no prebuilt corpus or manual review file. Set `DISTILL_CONCURRENCY`, `DISTILL_MAX_OUTPUT_TOKENS`, and optionally `DISTILL_SEED` in `.env` to configure collection without extra flags.
 
 Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log` and `teacher-api.log`). Each runs in its own process group, so stopping it also stops vLLM's engine processes. After collection, the script stops the teacher API and vLLM before training, because vLLM reserves most of the GPU for the teacher and leaves too little for training alongside it. The machine therefore needs enough GPU memory for the teacher during collection (see the model pairing in [distillation-pipeline.md](distillation-pipeline.md)). Lower `VLLM_MAX_MODEL_LEN` or add `--quantization fp8` to `VLLM_EXTRA_ARGS` if vLLM runs out of memory. `--upstream-url` skips vLLM and uses an existing server instead.
 
 ## Full run with the prompt corpus
 
-A real run starts from the prompt corpus. Pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
+A run with no data source options starts from the `standard` prompt corpus. Set `DISTILL_CORPUS` in `.env` or pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
 
 ```bash
 just distill-local --corpus standard --concurrency 8
 ```
 
-The prompt files are not in the repository. `--corpus` builds into `data/prompts/`, or beside an explicit `--prompts` path, after installing the Python environment. It downloads the pinned public datasets and the held-out benchmark questions, which takes a few minutes. A later run with the same profile reuses the existing files. Unless you pass them yourself, `--corpus` also selects the adjacent `references.jsonl` and `--config configs/train.distill.toml`. The build is deterministic and a prompt keeps the same ID and text in every profile, so moving from `quick` to `standard` reuses the responses already in the ledger. To build the corpus on its own, run `just corpus standard`.
+The prompt files are not in the repository. Corpus mode builds into `data/prompts/`, or beside an explicit `--prompts` path, after installing the Python environment. It downloads the pinned public datasets and the held-out benchmark questions, which takes a few minutes. A later run reuses the existing files when the manifest's profile matches and the prompt and answer-key files are present; otherwise it rebuilds them. Unless you pass them yourself, corpus mode also selects the adjacent `references.jsonl` and `--config configs/train.distill.toml`. The build is deterministic and a prompt keeps the same ID and text in every profile, so moving from `quick` to `standard` reuses the responses already in the ledger. To build the corpus on its own, run `just corpus standard`.
+
+An explicit `--corpus` overrides `DISTILL_CORPUS`. Supplying `--references`, `--reviews`, `--accept-pending`, or a custom `--prompts` path disables automatic corpus selection, so existing custom-data workflows keep their own prompts and config. Add `--corpus PROFILE` explicitly to combine corpus building with those options.
 
 With `--references`, the script runs `distill review` after collection. It checks every teacher response against the answer key, rejects responses that would exceed the training config's `max_length`, and writes `data/teacher/ledger.reviews.jsonl` plus a `.summary.json` with counts by status and rejection reason. Preparation then uses those decisions. A `--reviews` file passed at the same time holds human decisions that override the automatic ones. Set `REVIEW_CODE_IMAGE=python:3.12-slim` to run the Python tests in the same isolated Docker container the benchmarks use; without it, code is only parsed.
 
-The same steps work on two machines: pass `--corpus` to `student-train`.
+The same default corpus workflow runs on two machines with `just student-train --teacher-url http://TEACHER_IP:8000`.
 
 ### GPUs with 20 to 24 GB
 
@@ -139,29 +143,39 @@ For training, the 2B student's 4-bit text model takes about 2 to 3 GB, because i
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--terms-review-id` | `TEACHER_TERMS_REVIEW_ID` | Approval reference written into every ledger record; required |
-| `--corpus` | none | Build or reuse the `quick`, `standard`, or `full` prompt corpus and use its prompts, answer key, and `configs/train.distill.toml` |
+| `--corpus` | `DISTILL_CORPUS` or `standard`, when no other data source is supplied | Build or reuse the `quick`, `standard`, or `full` prompt corpus and use its prompts, answer key, and `configs/train.distill.toml` |
 | `--references` | none | Answer key from `distill corpus build`; reviews the ledger automatically before preparation |
-| `--reviews` | none | Review decisions JSONL. With `--references`, they override the automatic decisions. One of the two is required unless accepting pending records |
+| `--reviews` | none | Review decisions JSONL. With `--references`, they override the automatic decisions. Custom-data runs need reviews or references unless accepting pending records |
 | `--accept-pending` | off | Train on unreviewed records, for plumbing tests only |
 | `--prompts` | `data/prompts/all-splits.jsonl` | Prompt JSONL, written by `distill corpus build` |
 | `--ledger` | `data/teacher/ledger.jsonl` | Teacher ledger JSONL |
-| `--config` | `configs/train.example.toml` | Training config |
-| `--concurrency` | 4 | Parallel teacher requests |
-| `--max-output-tokens` | 1024 | Teacher output limit |
-| `--seed` | none | Teacher sampling seed |
+| `--config` | `configs/train.distill.toml` in corpus mode; otherwise `configs/train.example.toml` | Training config |
+| `--concurrency` | `DISTILL_CONCURRENCY` or 4 | Parallel teacher requests |
+| `--max-output-tokens` | `DISTILL_MAX_OUTPUT_TOKENS` or 1024 | Teacher output limit |
+| `--seed` | `DISTILL_SEED` or none | Teacher sampling seed |
 
 `student-train` also takes `--teacher-url` (required, the teacher API server root) and `--token` (default `TEACHER_API_TOKEN`). `distill-local` also takes `--port` and `--upstream-url`.
 
 ## Environment variables
 
-The script reads `.env` from the repository root. Variables already set in the shell take precedence.
+The script reads `.env` from the repository root. Variables already set in the shell take precedence; command options override their corresponding environment values. `.env.example` includes the project settings, populated defaults, and blank values for optional overrides or credentials without a fixed default. Training hyperparameters stay in `configs/train.*.toml`; they are not environment variables.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `DISTILL_CORPUS` | `standard` | Automatic corpus profile when no data source option is supplied |
+| `DISTILL_CONCURRENCY` | 4 | Parallel teacher requests |
+| `DISTILL_MAX_OUTPUT_TOKENS` | 1024 | Maximum generated tokens per teacher response |
+| `DISTILL_SEED` | none | Optional teacher sampling seed, separate from the training config's seed |
+| `TEACHER_TERMS_REVIEW_ID` | none | Required approval reference recorded in the ledger |
+| `TEACHER_UPSTREAM_BASE_URL` | local vLLM URL in the example; empty in the standalone API | Standalone API's OpenAI-compatible upstream; launchers use their managed vLLM URL or explicit `--upstream-url` |
 | `TEACHER_UPSTREAM_MODEL` | `Qwen/Qwen3.5-9B` | Model vLLM serves, and the name the teacher API requests |
 | `TEACHER_UPSTREAM_API_KEY` | empty | Upstream bearer token used by the teacher API |
 | `TEACHER_API_TOKEN` | empty | Bearer token shared by the teacher API and student launcher |
 | `TEACHER_PROVIDER_NAME` | `self-hosted-vllm` for local vLLM | Provider identity recorded by the teacher API |
+| `TEACHER_TIMEOUT_SECONDS` | 120 | Timeout for an upstream generation request |
+| `TEACHER_HOST` | `127.0.0.1` | Standalone API bind address; launchers choose their own host |
+| `TEACHER_PORT` | 8000 | Teacher API port |
+| `TEACHER_LOG_LEVEL` | `info` | Teacher API logging level |
 | `TEACHER_MODEL_REVISION` | pinned commit | Hugging Face revision vLLM loads |
 | `VLLM_PORT` | 8001 | vLLM loopback port |
 | `VLLM_MAX_MODEL_LEN` | 8192 | Context length; lower it to save KV cache memory |
@@ -171,9 +185,17 @@ The script reads `.env` from the repository root. Variables already set in the s
 | `VLLM_SPEC` | `vllm` | Package spec installed into `.venv-vllm` |
 | `VLLM_PYTHON` | `3.12` (devenv sets a Nix path) | Interpreter for `.venv-vllm` |
 | `VLLM_BIN` | none | Existing vLLM executable to use instead |
-| `HF_HUB_OFFLINE` | unset | `1` skips the model download and uses the Hugging Face cache as is |
-| `DISTILL_RUNTIME` | automatic | Force `devenv`, `uv`, or `pip` |
+| `HF_HUB_OFFLINE` | disabled, `0` in the example | `1` or `true` skips the model download and uses the Hugging Face cache as is |
+| `DISTILL_RUNTIME` | `auto` | Automatically select a runtime, or force `devenv`, `uv`, or `pip` |
 | `REVIEW_CODE_IMAGE` | none | Docker image for running Python tests during review, for example `python:3.12-slim` |
+| `TOKENIZERS_PARALLELISM` | `false` for training | Tokenizer worker parallelism |
+| `PYTORCH_ALLOC_CONF` | `expandable_segments:True` for training | CUDA allocator settings; the launcher supplies this only when neither allocator variable is set |
+| `PYTORCH_CUDA_ALLOC_CONF` | none | Legacy allocator override; clear `PYTORCH_ALLOC_CONF` in `.env` before using it |
+| `PYTHONUNBUFFERED` | `1` in devenv and the example | Flush Python process output without buffering |
+| `UV_PYTHON` | devenv's Python 3.14 path | Workspace interpreter; generated path is documented but left unset in the example |
+| `UV_PYTHON_DOWNLOADS` | `never` in devenv | devenv supplies Python itself; leave unset elsewhere for uv's own interpreter management |
+| `LD_LIBRARY_PATH` | generated on Linux in devenv | Nix C++ runtime, zlib, and `/run/opengl-driver/lib`; leave unset on other platforms |
+| `TRITON_LIBCUDA_PATH` | `/run/opengl-driver/lib` on Linux in devenv | Host driver path for Triton; leave unset on other platforms |
 
 ## Platform notes
 

@@ -322,6 +322,16 @@ class Pipeline:
 				"set --terms-review-id or TEACHER_TERMS_REVIEW_ID "
 				"(see docs/distillation-pipeline.md)"
 			)
+		if not (
+			self.corpus
+			or self.references
+			or self.reviews
+			or self.accept_pending
+			or self.prompts != DEFAULT_PROMPTS
+		):
+			# Without a data source, run the whole loop from the prompt corpus.
+			self.corpus = os.environ.get("DISTILL_CORPUS") or "standard"
+			self.launcher.log(f"no data source given; using the {self.corpus} prompt corpus")
 		if self.corpus:
 			if self.corpus not in {"quick", "standard", "full"}:
 				raise LaunchError("--corpus must be quick, standard, or full")
@@ -481,7 +491,8 @@ CorpusOption = Annotated[
 	typer.Option(
 		help="quick, standard, or full. Builds or reuses the corpus in data/prompts, "
 		"and uses its prompts, answer key, and "
-		"configs/train.distill.toml.",
+		"configs/train.distill.toml. Without --references, --reviews, --accept-pending, "
+		"or --prompts, defaults to DISTILL_CORPUS, or standard.",
 	),
 ]
 ReferencesOption = Annotated[
@@ -504,9 +515,15 @@ AcceptPendingOption = Annotated[
 PromptsOption = Annotated[Path, typer.Option(dir_okay=False, help="Prompt JSONL.")]
 LedgerOption = Annotated[Path, typer.Option(dir_okay=False, help="Teacher ledger JSONL.")]
 ConfigOption = Annotated[Path, typer.Option(dir_okay=False, help="Training TOML.")]
-ConcurrencyOption = Annotated[int, typer.Option(min=1, help="Parallel teacher requests.")]
-MaxOutputTokensOption = Annotated[int, typer.Option(min=1, help="Teacher output limit.")]
-SeedOption = Annotated[int | None, typer.Option(help="Teacher sampling seed.")]
+ConcurrencyOption = Annotated[
+	int, typer.Option(envvar="DISTILL_CONCURRENCY", min=1, help="Parallel teacher requests.")
+]
+MaxOutputTokensOption = Annotated[
+	int, typer.Option(envvar="DISTILL_MAX_OUTPUT_TOKENS", min=1, help="Teacher output limit.")
+]
+SeedOption = Annotated[
+	int | None, typer.Option(envvar="DISTILL_SEED", help="Teacher sampling seed.")
+]
 PortOption = Annotated[
 	int, typer.Option(envvar="TEACHER_PORT", min=1, max=65535, help="Teacher API port.")
 ]
@@ -541,9 +558,7 @@ def teacher_host_command(
 		launcher.start_teacher_stack(host, port, upstream_url, None)
 		launcher.log(f"teacher API ready on {host}:{port}", "bold green")
 		launcher.log("on the student machine run:")
-		launcher.log(
-			f"  just student-train --teacher-url http://{_address()}:{port} --reviews <file>"
-		)
+		launcher.log(f"  just student-train --teacher-url http://{_address()}:{port}")
 		launcher.log("with the same TEACHER_API_TOKEN set on that machine")
 		launcher.log("press Ctrl+C to stop")
 		launcher.supervise()

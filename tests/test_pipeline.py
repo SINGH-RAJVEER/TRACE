@@ -73,31 +73,83 @@ def prompt(example_id: str) -> PromptRecord:
 	)
 
 
-def test_student_launcher_collects_through_monorepo_teacher_api(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("scenario", ["student-train", "distill-local"])
+@pytest.mark.parametrize("existing_corpus", [False, True])
+@pytest.mark.parametrize("corpus_profile", [None, "quick"])
+def test_launcher_collects_through_monorepo_teacher_api(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	scenario: str,
+	existing_corpus: bool,
+	corpus_profile: str | None,
 ) -> None:
-	"""Exercise readiness, auth, smoke generation, and collection through the real API."""
+	"""Run the default corpus path through the real API, stopping local serving before training."""
+	steps: list[str] = []
 	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
-	monkeypatch.setattr(
-		launcher.Pipeline,
-		"prepare_and_train",
-		lambda self: (tmp_path / "training-started").touch(),
-	)
+
+	def prepare_and_train(self: launcher.Pipeline) -> None:
+		assert self.config == launcher.CORPUS_CONFIG
+		assert self.references == launcher.DEFAULT_PROMPTS.parent / "references.jsonl"
+		assert self.ledger.is_file()
+		steps.append("train")
+
+	monkeypatch.setattr(launcher.Pipeline, "prepare_and_train", prepare_and_train)
+	monkeypatch.setattr(launcher.Launcher, "stop_background", lambda self: steps.append("stop"))
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv("TEACHER_API_TOKEN", "wrapper-key")
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
+	# No data source option: use the configured profile, or standard when unset.
+	monkeypatch.delenv("DISTILL_CORPUS", raising=False)
+	if corpus_profile:
+		monkeypatch.setenv("DISTILL_CORPUS", corpus_profile)
+	profile = corpus_profile or "standard"
+	monkeypatch.setenv("DISTILL_CONCURRENCY", "8")
+	monkeypatch.setenv("DISTILL_MAX_OUTPUT_TOKENS", "512")
+	monkeypatch.setenv("DISTILL_SEED", "42")
 	(tmp_path / "configs").mkdir()
 	(tmp_path / "configs/train.distill.toml").write_text('dataset_path = "unused.jsonl"\n')
 	corpus = tmp_path / "data/prompts"
-	corpus.mkdir(parents=True)
-	write_jsonl(corpus / "all-splits.jsonl", [prompt("one"), prompt("two")])
-	(corpus / "references.jsonl").write_text("")
-	(corpus / "manifest.json").write_text('{"profile":"quick"}\n')
+
+	def write_corpus() -> None:
+		corpus.mkdir(parents=True)
+		write_jsonl(corpus / "all-splits.jsonl", [prompt("one"), prompt("two")])
+		(corpus / "references.jsonl").write_text("")
+		(corpus / "manifest.json").write_text(f'{{"profile":"{profile}"}}\n')
+
+	if existing_corpus:
+		write_corpus()
+	original_distill = launcher.Launcher.distill
+
+	def distill(self: launcher.Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		steps.append(args[0])
+		if args[0] == "corpus":
+			assert args == ("corpus", "build", "--profile", profile, "--output-dir", "data/prompts")
+			write_corpus()
+		else:
+			assert args[args.index("--concurrency") + 1] == "8"
+			assert args[args.index("--max-output-tokens") + 1] == "512"
+			assert args[args.index("--seed") + 1] == "42"
+			original_distill(self, *args, env=env)
+
+	monkeypatch.setattr(launcher.Launcher, "distill", distill)
 	teacher = FakeTeacher()
 	api = create_app(settings=Settings(TEACHER_API_TOKEN="wrapper-key"), teacher=teacher)
 	with socket.socket() as listener:
 		listener.bind(("127.0.0.1", 0))
-		base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+		port = listener.getsockname()[1]
+		base_url = f"http://127.0.0.1:{port}"
+
+		def start_teacher_stack(
+			self: launcher.Launcher, host: str, port: int, upstream_url: str, api_log: Path | None
+		) -> None:
+			assert (corpus / "manifest.json").is_file()
+			assert host == "127.0.0.1"
+			assert not upstream_url
+			steps.append("serve")
+			self.wait_for_http(f"{base_url}/healthz", '"ready"', 5, "Waiting for the teacher")
+			self.smoke_test(base_url, "wrapper-key")
+
+		monkeypatch.setattr(launcher.Launcher, "start_teacher_stack", start_teacher_stack)
 		server = uvicorn.Server(uvicorn.Config(api, log_level="error"))
 		thread = Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
 		thread.start()
@@ -106,23 +158,23 @@ def test_student_launcher_collects_through_monorepo_teacher_api(
 			while not server.started and thread.is_alive() and time.monotonic() < deadline:
 				time.sleep(0.01)
 			assert server.started
-			result = CliRunner().invoke(
-				launcher.run_app,
-				[
-					"student-train",
-					"--teacher-url",
-					base_url,
-					"--corpus",
-					"quick",
-					"--concurrency",
-					"8",
-				],
+			options = (
+				["--teacher-url", base_url]
+				if scenario == "student-train"
+				else ["--port", str(port)]
 			)
+			result = CliRunner().invoke(launcher.run_app, [scenario, *options])
 		finally:
 			server.should_exit = True
 			thread.join(timeout=5)
 	assert result.exit_code == 0, result.output
-	assert (tmp_path / "training-started").exists()
+	expected = [] if existing_corpus else ["corpus"]
+	expected += (
+		["serve", "collect", "stop", "train"]
+		if scenario == "distill-local"
+		else ["collect", "train"]
+	)
+	assert steps == [*expected, "stop"]
 	records = read_jsonl(tmp_path / "data/teacher/ledger.jsonl", LedgerRecord)
 	assert len(records) == 2
 	assert teacher.calls == 3  # One smoke generation and two corpus prompts.
