@@ -30,7 +30,12 @@ qlora = true
 # TRL 1.15 uses the fused LM head for ordinary NLL without full vocabulary logits.
 loss_type = "nll"
 attn_implementation = "sdpa"
-activation_offloading = false
+# "auto" uses paged AdamW for QLoRA on native Linux, which pages its state into system memory
+# when the GPU runs short, and fused AdamW otherwise, including under WSL 2.
+optimizer = "auto"
+# "auto" trains without offloading; on a CUDA out-of-memory error it resumes from the last
+# checkpoint with activations kept in system memory, and remembers that for later resumes.
+activation_offloading = "auto"
 gradient_checkpointing = true
 selective_gradient_checkpointing = false
 # Rank 128 on every linear layer of the 24 text layers (18 linear-attention, 6 full-attention)

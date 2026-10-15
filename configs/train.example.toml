@@ -28,8 +28,12 @@ qlora = true
 # TRL 1.15 uses the fused LM head for ordinary NLL without full vocabulary logits.
 loss_type = "nll"
 attn_implementation = "sdpa"
-# Enable only after measuring the transfer-time cost on the training machine.
-activation_offloading = false
+# "auto" uses paged AdamW for QLoRA on native Linux, which pages its state into system memory
+# when the GPU runs short, and fused AdamW otherwise, including under WSL 2.
+optimizer = "auto"
+# "auto" trains without offloading; on a CUDA out-of-memory error it resumes from the last
+# checkpoint with activations kept in system memory, and remembers that for later resumes.
+activation_offloading = "auto"
 gradient_checkpointing = true
 # Saves attention outputs instead of recomputing them, at extra activation-memory cost.
 selective_gradient_checkpointing = false

@@ -525,8 +525,17 @@ def build_corpus(
 	families: list[str] | None = None,
 	index: ContaminationIndex | None = None,
 	loaders: dict[str, Callable[[], Iterable[Candidate]]] | None = None,
+	log: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-	"""Write all-splits.jsonl, references.jsonl, and manifest.json into output_dir."""
+	"""Write all-splits.jsonl, references.jsonl, and manifest.json into output_dir.
+
+	log receives one line per step, between the dataset downloads' own progress bars.
+	"""
+
+	def report(message: str) -> None:
+		if log:
+			log(message)
+
 	if profile not in PROFILES:
 		raise ValueError(f"profile must be one of {sorted(PROFILES)}")
 	if not 0 <= validation_fraction < 0.5:
@@ -539,6 +548,7 @@ def build_corpus(
 	benchmark_sources: list[dict[str, Any]] = []
 	mbpp_test_ids: set[str] = set()
 	if index is None:
+		report("loading held-out benchmark questions for the contamination filter")
 		index, benchmark_sources, mbpp_test_ids = benchmark_index()
 	if loaders is None:
 		loaders = {
@@ -574,7 +584,8 @@ def build_corpus(
 	references: list[ReferenceRecord] = []
 	filtered: dict[str, Counter[str]] = defaultdict(Counter)
 	available: Counter[str] = Counter()
-	for family in selected_families:
+	for position, family in enumerate(selected_families, 1):
+		report(f"family {position}/{len(selected_families)}: {family}")
 		eligible: list[Candidate] = []
 		for candidate in loaders[family]():
 			available[family] += 1
@@ -628,6 +639,7 @@ def build_corpus(
 					{"example_id": candidate.example_id, **candidate.reference}
 				)
 			)
+		report(f"{family}: kept {kept:,} of {available[family]:,} available")
 
 	order = sorted(range(len(prompts)), key=lambda i: prompts[i].example_id)
 	prompts = [prompts[i] for i in order]

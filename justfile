@@ -2,6 +2,9 @@ set dotenv-load := true
 set shell := ["bash", "-cu"]
 set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 
+# Interpreter that starts scripts/pipeline.py, which then prepares the workspace environment.
+python := if os_family() == "windows" { "py -3" } else { "python3" }
+
 default:
 	@just --list
 
@@ -51,6 +54,7 @@ test:
 check:
 	uv run ruff check .
 	uv run mypy apps packages tests
+	uv run mypy --python-version 3.9 scripts
 
 # Format Python source using tabs.
 format:
@@ -89,26 +93,14 @@ preflight-train config="configs/train.example.toml":
 test-training-setup:
 	DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py
 
-# Two machines, teacher side: serve vLLM and the teacher API with bash. See docs/run-scripts.md.
+# Two machines, teacher side: serve vLLM and the teacher API. See docs/run-scripts.md.
 teacher-host *args:
-	bash scripts/teacher-host.sh {{args}}
+	{{python}} scripts/pipeline.py teacher-host {{args}}
 
-# Two machines, teacher side: serve vLLM and the teacher API with PowerShell.
-teacher-host-ps *args:
-	pwsh -NoLogo -NoProfile -File scripts/teacher-host.ps1 {{args}}
-
-# Two machines, student side: collect from a remote teacher and train with bash.
+# Collect from the monorepo teacher API and train the student.
 student-train *args:
-	bash scripts/student-train.sh {{args}}
+	{{python}} scripts/pipeline.py student-train {{args}}
 
-# Two machines, student side: collect from a remote teacher and train with PowerShell.
-student-train-ps *args:
-	pwsh -NoLogo -NoProfile -File scripts/student-train.ps1 {{args}}
-
-# One machine: run the whole distillation with bash.
+# One machine: run the whole distillation.
 distill-local *args:
-	bash scripts/distill-local.sh {{args}}
-
-# One machine: run the whole distillation with PowerShell.
-distill-local-ps *args:
-	pwsh -NoLogo -NoProfile -File scripts/distill-local.ps1 {{args}}
+	{{python}} scripts/pipeline.py distill-local {{args}}

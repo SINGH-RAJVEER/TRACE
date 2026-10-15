@@ -7,11 +7,19 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.markup import escape
 
-from distillation.collection import CollectionOptions, collect
+from distillation.collection import CollectionOptions, CollectionProgress, collect
+from distillation.launcher import run_app
 from distillation.preparation import prepare_sft_dataset
+from distillation.progress import LiveProgress, console
 from distillation.teacher import TeacherAPIGateway
-from distillation.training import load_training_config, preflight_training, train
+from distillation.training import (
+	TrainingInterrupted,
+	load_training_config,
+	preflight_training,
+	train,
+)
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 benchmark_app = typer.Typer(no_args_is_help=True)
@@ -20,6 +28,7 @@ traffic_app = typer.Typer(no_args_is_help=True)
 benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
 corpus_app = typer.Typer(no_args_is_help=True)
 app.add_typer(corpus_app, name="corpus", help="Build the transfer prompt corpus.")
+app.add_typer(run_app, name="run", help="Run a whole pipeline scenario on this machine.")
 
 
 @app.command("collect")
@@ -42,25 +51,36 @@ def collect_command(
 	"""Call the teacher API and append immutable provenance records."""
 
 	gateway = TeacherAPIGateway(base_url=teacher_url, token=token)
-	collected, skipped = asyncio.run(
-		collect(
-			input_path=input_path,
-			output_path=output_path,
-			teacher=gateway,
-			options=CollectionOptions(
-				terms_review_id=terms_review_id,
-				temperature=temperature,
-				top_p=top_p,
-				top_k=top_k,
-				max_output_tokens=max_output_tokens,
-				seed=seed,
-				concurrency=concurrency,
-				max_attempts=max_attempts,
-				include_test=include_test,
-				enable_thinking=enable_thinking,
-			),
+	with LiveProgress() as live:
+
+		def show(state: CollectionProgress) -> None:
+			live.update(
+				"Collecting teacher answers",
+				state.done,
+				state.total,
+				f"new {state.collected:,}  rejected {state.rejected:,}  retries {state.retries:,}",
+			)
+
+		collected, skipped = asyncio.run(
+			collect(
+				input_path=input_path,
+				output_path=output_path,
+				teacher=gateway,
+				options=CollectionOptions(
+					terms_review_id=terms_review_id,
+					temperature=temperature,
+					top_p=top_p,
+					top_k=top_k,
+					max_output_tokens=max_output_tokens,
+					seed=seed,
+					concurrency=concurrency,
+					max_attempts=max_attempts,
+					include_test=include_test,
+					enable_thinking=enable_thinking,
+				),
+				progress=show,
+			)
 		)
-	)
 	typer.echo(f"collected={collected} skipped={skipped} output={output_path}")
 
 
@@ -115,15 +135,17 @@ def review_command(
 	"""
 	from distillation.review import review_ledger
 
-	summary = review_ledger(
-		ledger_path=ledger_path,
-		references_path=references_path,
-		output_path=output_path,
-		overrides_path=overrides_path,
-		config_path=config_path,
-		code_image=code_image,
-		code_timeout_seconds=code_timeout_seconds,
-	)
+	with LiveProgress() as live:
+		summary = review_ledger(
+			ledger_path=ledger_path,
+			references_path=references_path,
+			output_path=output_path,
+			overrides_path=overrides_path,
+			config_path=config_path,
+			code_image=code_image,
+			code_timeout_seconds=code_timeout_seconds,
+			progress=live.update,
+		)
 	typer.echo(json.dumps(summary, indent="\t", sort_keys=True))
 
 
@@ -155,6 +177,7 @@ def corpus_build_command(
 		validation_fraction=validation_fraction,
 		max_prompt_chars=max_prompt_chars,
 		families=[name.strip() for name in families.split(",") if name.strip()] or None,
+		log=lambda message: console.print(f"[bold]corpus[/] {escape(message)}"),
 	)
 	typer.echo(
 		json.dumps(
@@ -169,6 +192,29 @@ def corpus_build_command(
 	)
 
 
+@app.command("download-model")
+def download_model_command(
+	model: Annotated[str, typer.Argument(help="Hugging Face repository, such as Qwen/Qwen3.5-9B")],
+	revision: Annotated[str, typer.Option()] = "main",
+) -> None:
+	"""Download model weights into the Hugging Face cache, showing progress.
+
+	vLLM and transformers read the same cache, so they start without downloading again.
+	"""
+	from huggingface_hub import snapshot_download
+
+	path = snapshot_download(
+		model,
+		revision=revision,
+		# Safetensors weights plus configuration and tokenizer files, never duplicate formats.
+		allow_patterns=["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"],
+	)
+	if console.is_terminal:
+		# The last download bar leaves the cursor at the end of its line.
+		console.line()
+	typer.echo(f"model={model} revision={revision} path={path}")
+
+
 @app.command("train")
 def train_command(
 	config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)],
@@ -178,11 +224,19 @@ def train_command(
 
 	if os.environ.get("TOKENIZERS_PARALLELISM") is None:
 		os.environ["TOKENIZERS_PARALLELISM"] = "false"
+	# Growable allocator segments avoid out-of-memory failures caused by fragmentation.
+	# Set before torch initializes CUDA; an explicit setting in either variable wins.
+	if not os.environ.get("PYTORCH_ALLOC_CONF") and not os.environ.get("PYTORCH_CUDA_ALLOC_CONF"):
+		os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 	config = load_training_config(config_path)
 	if preflight_only:
 		typer.echo(json.dumps(preflight_training(config), indent="\t", sort_keys=True))
 		return
-	output_dir = train(config)
+	try:
+		output_dir = train(config)
+	except TrainingInterrupted as stopped:
+		typer.echo(str(stopped), err=True)
+		raise typer.Exit(130) from None
 	typer.echo(f"adapter={output_dir}")
 
 
@@ -355,4 +409,5 @@ def traffic_demo_command(
 
 
 if __name__ == "__main__":
-	app()
+	# scripts/pipeline.py and distill run start this module with python -m.
+	app(prog_name="distill")

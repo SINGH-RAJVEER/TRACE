@@ -1,6 +1,7 @@
 """Concurrent, resumable collection of hosted-teacher sequences."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,12 +46,24 @@ class CollectionOptions:
 			raise ValueError("top_k must be at least 1")
 
 
+@dataclass(frozen=True)
+class CollectionProgress:
+	"""Counts after each finished prompt. done includes records resumed from the ledger."""
+
+	done: int
+	total: int
+	collected: int
+	rejected: int
+	retries: int
+
+
 async def collect(
 	*,
 	input_path: Path,
 	output_path: Path,
 	teacher: Teacher,
 	options: CollectionOptions,
+	progress: Callable[[CollectionProgress], None] | None = None,
 ) -> tuple[int, int]:
 	"""Collect missing prompt records and append as workers finish."""
 
@@ -72,14 +85,36 @@ async def collect(
 	semaphore = asyncio.Semaphore(options.concurrency)
 	write_lock = asyncio.Lock()
 	attempt_log_path = _attempt_log_path(output_path)
+	total = sum(options.include_test or prompt.split != "test" for prompt in prompts)
+	counts = {"collected": 0, "rejected": 0, "retries": 0}
+
+	def report() -> None:
+		if progress:
+			progress(
+				CollectionProgress(
+					done=total - len(pending) + counts["collected"],
+					total=total,
+					collected=counts["collected"],
+					rejected=counts["rejected"],
+					retries=counts["retries"],
+				)
+			)
+
+	def retried() -> None:
+		counts["retries"] += 1
+		report()
 
 	async def run(prompt: PromptRecord) -> LedgerRecord:
 		async with semaphore:
-			record = await _collect_one(prompt, teacher, options, attempt_log_path)
+			record = await _collect_one(prompt, teacher, options, attempt_log_path, retried)
 		async with write_lock:
 			append_jsonl(output_path, [record])
+		counts["collected"] += 1
+		counts["rejected"] += record.quality.status == "rejected"
+		report()
 		return record
 
+	report()
 	tasks = [asyncio.create_task(run(prompt)) for prompt in pending]
 	try:
 		results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -97,6 +132,7 @@ async def _collect_one(
 	teacher: Teacher,
 	options: CollectionOptions,
 	attempt_log_path: Path,
+	retried: Callable[[], None],
 ) -> LedgerRecord:
 	request = TeacherGenerationRequest(
 		messages=prompt.prompt,
@@ -144,6 +180,7 @@ async def _collect_one(
 			)
 			if attempt_number == options.max_attempts:
 				raise
+			retried()
 			await asyncio.sleep(2 ** (attempt_number - 1))
 	else:
 		raise RuntimeError("teacher retry loop exited unexpectedly") from last_error
