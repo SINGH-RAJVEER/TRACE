@@ -1,11 +1,13 @@
 # Full run on the standard prompt corpus. See docs/prompt-corpus.md.
-# Student: Qwen3-4B-Base (Apache 2.0). Revision pinned 2026-09-05; re-verify before a paper run.
-base_model = "Qwen/Qwen3-4B-Base"
-base_revision = "906bfd4b4dc7f14ee4320094d8b41684abff8539"
+# Student: Qwen3.5-2B-Base (Apache 2.0). Revision pinned 2026-10-15; re-verify before a paper run.
+# The checkpoint also holds a vision encoder and an MTP head; AutoModelForCausalLM loads only
+# the 1.88B-parameter text model, so LoRA never touches them.
+base_model = "Qwen/Qwen3.5-2B-Base"
+base_revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 dataset_path = "data/processed/train.jsonl"
 validation_dataset_path = "data/processed/validation.jsonl"
-output_dir = "artifacts/qwen3-4b-distilled-r128"
-# Matches the Qwen3 chat template; the tokenizer default (<|endoftext|>) is wrong for this family.
+output_dir = "artifacts/qwen3.5-2b-distilled-r128"
+# Matches the Qwen3.5 chat template; the base tokenizer default (<|endoftext|>) is wrong here.
 eos_token = "<|im_end|>"
 chat_template_kwargs = { enable_thinking = false }
 # Prompts are capped at 3,000 characters and teacher answers at 1,024 tokens.
@@ -31,9 +33,9 @@ attn_implementation = "sdpa"
 activation_offloading = false
 gradient_checkpointing = true
 selective_gradient_checkpointing = false
-# Rank 128 on every linear layer trains 2,064,384 parameters per rank (36 layers, 57,344
-# each), about 264M in total, eight times the example config. The adapted student stays
-# near 4.3B parameters against the 14.8B teacher.
+# Rank 128 on every linear layer of the 24 text layers (18 linear-attention, 6 full-attention)
+# trains 1,051,200 parameters per rank, about 135M in total, eight times the example config.
+# The adapted text model stays near 2.0B parameters against the 9B teacher.
 lora_rank = 128
 lora_alpha = 256
 lora_dropout = 0.05

@@ -20,13 +20,13 @@ The build is deterministic. With the same profile, seed, and `data/authored/prom
 
 ## Profiles
 
-| Profile | Prompts | Train | Validation | Estimated collection time on an RTX 4000 Ada | Estimated training time |
+| Profile | Prompts | Train | Validation | Estimated collection time on an RTX 4000 Ada (Qwen3-14B teacher) | Estimated training time (Qwen3-4B student) |
 | --- | --- | --- | --- | --- | --- |
 | `quick` | 7,208 | 6,952 | 256 | 4 to 8 hours | 1 to 2 hours |
 | `standard` | 36,104 | 34,740 | 1,364 | 20 to 40 hours | 4 to 8 hours |
 | `full` | 75,944 | 73,147 | 2,797 | 45 to 85 hours | 9 to 16 hours |
 
-The counts were measured. The times are estimates, not measurements: they assume the FP8 teacher settings in [run-scripts.md](run-scripts.md#gpus-with-20-to-24-gb) at `--concurrency 8`, an average of about 250 answer tokens per prompt (multiple-choice letters are a few tokens, open-ended answers several hundred), and `configs/train.distill.toml`. Collection resumes after interruption, so it can run over several sessions.
+The counts were measured. The times are estimates, not measurements, made for the earlier Qwen3-14B teacher and Qwen3-4B-Base student: an FP8 teacher at `--concurrency 8`, an average of about 250 answer tokens per prompt (multiple-choice letters are a few tokens, open-ended answers several hundred), and a rank-128 4B adapter. The current Qwen3.5-9B teacher and Qwen3.5-2B-Base student are smaller and the teacher serves more requests at once, so expect both phases to take less time, but they have not been re-estimated. Time a `quick` run to plan a larger one. Collection resumes after interruption, so it can run over several sessions.
 
 `standard` is the intended run. `quick` checks the whole pipeline on real data in an evening. `full` takes every eligible prompt from the smaller sources and larger samples from the big ones.
 

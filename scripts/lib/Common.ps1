@@ -11,8 +11,8 @@ $ErrorActionPreference = 'Stop'
 
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $script:LogDir = Join-Path $script:RepoRoot 'artifacts/logs'
-$script:DefaultTeacherModel = 'Qwen/Qwen3-14B'
-$script:DefaultTeacherRevision = '40c069824f4251a91eefaf281ebe4c544efd3e18'
+$script:DefaultTeacherModel = 'Qwen/Qwen3.5-9B'
+$script:DefaultTeacherRevision = 'c202236235762e1c871ad0ccb60c8ee5ba337b9a'
 $script:Runtime = ''
 $script:AppBin = ''
 $script:Vllm = ''
@@ -278,7 +278,7 @@ function Test-TeacherSmoke([string]$TeacherUrl, [string]$Token) {
 		Stop-WithError "teacher smoke test failed with HTTP $($response.StatusCode)"
 	}
 	if ($response.Content -match '<think>') {
-		Stop-WithError 'teacher response contains a <think> trace; disable Qwen3 thinking mode upstream'
+		Stop-WithError 'teacher response contains a <think> trace; disable Qwen thinking mode upstream'
 	}
 	Write-Log 'teacher smoke test passed'
 }
@@ -292,6 +292,9 @@ function Start-TeacherStack([string]$BindHost, [int]$Port, [string]$UpstreamUrl,
 		$vllmPort = Get-EnvValue 'VLLM_PORT' '8001'
 		$vllmLog = Join-Path $script:LogDir 'vllm.log'
 		$extra = @((Get-EnvValue 'VLLM_EXTRA_ARGS') -split '\s+' | Where-Object { $_ })
+		# Qwen3.5 checkpoints include a vision encoder; text-only serving skips it and its
+		# profiling, leaving that memory for the KV cache. No reasoning parser: it would move
+		# <think> text out of the content that the smoke test and collector check.
 		$arguments = @(
 			'serve', $env:TEACHER_UPSTREAM_MODEL,
 			'--revision', (Get-EnvValue 'TEACHER_MODEL_REVISION' $script:DefaultTeacherRevision),
@@ -300,7 +303,8 @@ function Start-TeacherStack([string]$BindHost, [int]$Port, [string]$UpstreamUrl,
 			'--port', $vllmPort,
 			'--max-model-len', (Get-EnvValue 'VLLM_MAX_MODEL_LEN' '8192'),
 			'--gpu-memory-utilization', (Get-EnvValue 'VLLM_GPU_MEMORY_UTILIZATION' '0.90'),
-			'--default-chat-template-kwargs', '{"enable_thinking": false}'
+			'--default-chat-template-kwargs', '{"enable_thinking": false}',
+			'--language-model-only'
 		) + $extra
 		$vllmProcess = Start-Background 'vllm' $vllmLog $script:Vllm $arguments
 		Write-Log "vLLM log: $vllmLog"
