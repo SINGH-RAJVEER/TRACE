@@ -61,17 +61,21 @@ format:
 lock:
 	uv lock
 
-# Collect the included example prompts. Set TERMS_REVIEW_ID in .env first.
-collect-example:
-	uv run distill collect --input data/examples/prompts.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "{{env('TEACHER_TERMS_REVIEW_ID', '')}}"
+# Collect teacher answers for the prompt corpus. Run `just corpus` and set TEACHER_TERMS_REVIEW_ID first.
+collect:
+	uv run distill collect --input data/prompts/all-splits.jsonl --output data/teacher/ledger.jsonl --teacher-url http://127.0.0.1:8000 --terms-review-id "{{env('TEACHER_TERMS_REVIEW_ID', '')}}" --no-thinking
 
 # Build the transfer prompt corpus: quick, standard, or full. See docs/prompt-corpus.md.
 corpus profile="standard":
 	uv run --extra eval distill corpus build --profile {{quote(profile)}} --output-dir data/prompts
 
-# Convert accepted training records into TRL prompt-completion data.
-prepare-example:
-	uv run distill prepare --input data/teacher/ledger.jsonl --output data/processed/train.jsonl --accept-pending
+# Check the collected answers against the corpus answer key.
+review:
+	uv run distill review --ledger data/teacher/ledger.jsonl --references data/prompts/references.jsonl --output data/teacher/ledger.reviews.jsonl
+
+# Convert reviewed training records into TRL prompt-completion data.
+prepare:
+	uv run distill prepare --input data/teacher/ledger.jsonl --output data/processed/train.jsonl --prompts data/prompts/all-splits.jsonl --reviews data/teacher/ledger.reviews.jsonl
 
 # Train with the example QLoRA configuration.
 train-example:

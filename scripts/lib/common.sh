@@ -354,7 +354,7 @@ supervise_background() {
 }
 
 # Pipeline options shared by student-train.sh and distill-local.sh.
-DEFAULT_PROMPTS="data/examples/prompts.jsonl"
+DEFAULT_PROMPTS="data/prompts/all-splits.jsonl"
 DEFAULT_CONFIG="configs/train.example.toml"
 PROMPTS_PATH="$DEFAULT_PROMPTS"
 CORPUS_PROFILE=""
@@ -415,7 +415,6 @@ validate_pipeline_options() {
 	local build_corpus=0
 	if [[ -n "$CORPUS_PROFILE" ]]; then
 		[[ "$CORPUS_PROFILE" =~ ^(quick|standard|full)$ ]] || die "--corpus must be quick, standard, or full"
-		[[ "$PROMPTS_PATH" == "$DEFAULT_PROMPTS" ]] && PROMPTS_PATH="data/prompts/all-splits.jsonl"
 		[[ -n "$REFERENCES_PATH" ]] || REFERENCES_PATH="$(dirname -- "$PROMPTS_PATH")/references.jsonl"
 		[[ "$TRAIN_CONFIG" == "$DEFAULT_CONFIG" ]] && TRAIN_CONFIG="configs/train.distill.toml"
 		build_corpus=1
@@ -427,7 +426,8 @@ validate_pipeline_options() {
 	if ((build_corpus == 0)); then
 		[[ -z "$REFERENCES_PATH" || -f "$REFERENCES_PATH" ]] \
 			|| die "references file not found: $REFERENCES_PATH"
-		[[ -f "$PROMPTS_PATH" ]] || die "prompts file not found: $PROMPTS_PATH"
+		[[ -f "$PROMPTS_PATH" ]] \
+			|| die "prompts file not found: $PROMPTS_PATH; pass --corpus PROFILE or run just corpus"
 	fi
 	[[ -f "$TRAIN_CONFIG" ]] || die "training config not found: $TRAIN_CONFIG"
 }

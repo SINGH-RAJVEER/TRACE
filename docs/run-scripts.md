@@ -94,7 +94,7 @@ Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log`, `teacher
 
 ## Full run with the prompt corpus
 
-The example prompts only test the plumbing. For a real run, pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
+A real run starts from the prompt corpus. Pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
 
 ```bash
 scripts/distill-local.sh --corpus standard --concurrency 8
@@ -135,7 +135,7 @@ For training, the 2B student's 4-bit text model takes about 2 to 3 GB, because i
 | `--references` / `-References` | none | Answer key from `distill corpus build`; reviews the ledger automatically before preparation |
 | `--reviews` / `-Reviews` | none | Review decisions JSONL. With `--references`, they override the automatic decisions. One of the two is required unless accepting pending records |
 | `--accept-pending` / `-AcceptPending` | off | Train on unreviewed records, for plumbing tests only |
-| `--prompts` / `-Prompts` | `data/examples/prompts.jsonl` | Prompt JSONL |
+| `--prompts` / `-Prompts` | `data/prompts/all-splits.jsonl` | Prompt JSONL, written by `distill corpus build` |
 | `--ledger` / `-Ledger` | `data/teacher/ledger.jsonl` | Teacher ledger JSONL |
 | `--config` / `-Config` | `configs/train.example.toml` | Training config |
 | `--concurrency` / `-Concurrency` | 4 | Parallel teacher requests |
