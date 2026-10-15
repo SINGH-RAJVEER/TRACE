@@ -16,6 +16,8 @@ from distillation.training import load_training_config, preflight_training, trai
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 benchmark_app = typer.Typer(no_args_is_help=True)
 app.add_typer(benchmark_app, name="benchmark", help="Freeze, score, and compare public benchmarks.")
+traffic_app = typer.Typer(no_args_is_help=True)
+benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
 corpus_app = typer.Typer(no_args_is_help=True)
 app.add_typer(corpus_app, name="corpus", help="Build the transfer prompt corpus.")
 
@@ -261,13 +263,95 @@ def dashboard_command(
 	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/benchmarks"),
 	frontend_dir: Annotated[Path, typer.Option("--frontend-dir")] = Path("apps/dashboard/dist"),
 	port: Annotated[int, typer.Option(min=1, max=65535)] = 8002,
+	traffic_results_dir: Annotated[Path, typer.Option("--traffic-results-dir")] = Path(
+		"outputs/traffic-benchmarks"
+	),
 ) -> None:
 	"""Serve the read-only results API and the built dashboard on localhost."""
 	import uvicorn
 
 	from distillation.benchmarks.dashboard import create_app
 
-	uvicorn.run(create_app(results_dir, frontend_dir), host="127.0.0.1", port=port)
+	uvicorn.run(
+		create_app(results_dir, frontend_dir, traffic_results_dir=traffic_results_dir),
+		host="127.0.0.1",
+		port=port,
+	)
+
+
+@traffic_app.command("freeze")
+def traffic_freeze_command(
+	output: Annotated[Path, typer.Option("--output")],
+	seed: int = 42,
+	genuine_count: Annotated[int, typer.Option(min=4)] = 48,
+	attack_count: Annotated[int, typer.Option(min=4)] = 144,
+	duration_seconds: Annotated[float, typer.Option(min=0.01)] = 60,
+) -> None:
+	"""Freeze authored genuine and extraction traffic without changing training data."""
+	from distillation.benchmarks.traffic import freeze_traffic
+
+	suite = freeze_traffic(
+		output,
+		seed=seed,
+		genuine_count=genuine_count,
+		attack_count=attack_count,
+		duration_seconds=duration_seconds,
+	)
+	typer.echo(f"requests={len(suite.requests)} sha256={suite.sha256} output={output}")
+
+
+@traffic_app.command("run")
+def traffic_run_command(
+	config: Annotated[Path, typer.Option("--config", exists=True)],
+	phase: Annotated[str, typer.Option("--phase")] = "before",
+) -> None:
+	"""Replay against the unprotected teacher before, or the protected teacher after."""
+	from distillation.benchmarks.traffic import load_traffic_config
+	from distillation.benchmarks.traffic_runner import run_traffic
+
+	if phase not in {"before", "after"}:
+		raise typer.BadParameter("phase must be before or after")
+	settings = load_traffic_config(config)
+	selected = "before" if phase == "before" else "after"
+	if selected not in settings.targets:
+		raise typer.BadParameter(f"config must define targets.{selected}")
+	typer.echo(f"Replaying {selected}; the full schedule must finish before results are complete.")
+	run = asyncio.run(run_traffic(settings, selected))
+	typer.echo(f"run={run.id} succeeded={sum(s.succeeded for s in run.samples)}/{len(run.samples)}")
+
+
+@traffic_app.command("report")
+def traffic_report_command(
+	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path(
+		"outputs/traffic-benchmarks"
+	),
+	comparison: Annotated[str, typer.Option("--comparison")] = "",
+	output: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+	"""List traffic experiments or export a before/after harness comparison."""
+	from distillation.benchmarks.models import save_json
+	from distillation.benchmarks.traffic_reporting import build_traffic_report, traffic_experiments
+
+	value = (
+		build_traffic_report(results_dir, comparison)
+		if comparison
+		else traffic_experiments(results_dir)
+	)
+	if output:
+		save_json(output, value)
+	else:
+		typer.echo(json.dumps(value, indent="\t"))
+
+
+@traffic_app.command("demo")
+def traffic_demo_command(
+	output_dir: Annotated[Path, typer.Option("--output-dir")] = Path("outputs/traffic-demo"),
+) -> None:
+	"""Write explicitly simulated traffic results for previewing the dashboard."""
+	from distillation.benchmarks.traffic_demo import create_traffic_demo
+
+	create_traffic_demo(output_dir)
+	typer.echo(f"Simulated traffic fixtures written to {output_dir}")
 
 
 if __name__ == "__main__":

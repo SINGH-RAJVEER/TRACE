@@ -1,0 +1,33 @@
+# This comparison is before/after harness deployment, independent of student training.
+experiment = "qwen3.5-teacher-harness-v1"
+suite_path = "data/benchmarks/traffic.json"
+output_dir = "outputs/traffic-benchmarks"
+model = "Qwen/Qwen3.5-9B"
+model_revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+timeout_seconds = 120
+max_in_flight = 32
+window_seconds = 10
+
+[generation]
+max_output_tokens = 256
+seed = 42
+temperature = 0
+enable_thinking = false
+
+[targets.before]
+backend = "teacher_api"
+base_url = "http://127.0.0.1:8000"
+service_revision = "unprotected-baseline-v1"
+# api_key_env = "TEACHER_API_TOKEN"
+
+[targets.after]
+backend = "teacher_api"
+# Point this at the future protected API. Keep model and hardware fixed.
+base_url = "http://127.0.0.1:8001"
+service_revision = "replace-with-harness-revision"
+# api_key_env = "TEACHER_API_TOKEN"
+
+# For credential-based policies, give each actor a separate test credential in BOTH
+# targets. Use IDs from the frozen suite, keeping the same principals across phases.
+# [targets.after.actor_key_envs]
+# u00 = "TRAFFIC_U00_TOKEN"
