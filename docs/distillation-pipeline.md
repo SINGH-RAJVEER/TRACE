@@ -56,7 +56,7 @@ Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting 
 
 Qwen3.5 needs a vLLM release that supports the `Qwen3_5ForConditionalGeneration` architecture; pin `VLLM_SPEC` to such a release for a paper run. Do not add the `--reasoning-parser qwen3` flag from the model card. It moves `<think>` text out of the response content, where the smoke test and the collector's thought-marker check look for it.
 
-The scripts in `scripts/` do all of this for you, on two machines or one, and run the non-thinking check automatically. See [run-scripts.md](run-scripts.md).
+`scripts/pipeline.py` does all of this for you, on two machines or one, and runs the non-thinking check automatically. See [run-scripts.md](run-scripts.md).
 
 ## Authorization gate
 
@@ -197,7 +197,7 @@ Review `configs/train.example.toml`, which uses the pinned Qwen3.5-2B-Base check
 
 For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 135M adapter parameters instead of 17M (1,051,200 per rank across Qwen3.5-2B's 24 text layers, 18 linear-attention and 6 full-attention), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted text model stays near 2.0B parameters against the 9B teacher.
 
-For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example config leaves validation optional; a research run needs validation and a separately frozen test set.
+For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. `scripts/pipeline.py` prepares that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example config leaves validation optional; a research run needs validation and a separately frozen test set.
 
 Training input must contain only conversational `prompt` and `completion` columns, with one assistant completion. Unknown columns are rejected. This prevents externally supplied `input_ids`, `labels`, or per-row template overrides from bypassing the tokenizer and completion-loss checks.
 
@@ -216,7 +216,7 @@ The trainer:
 - Uses NF4, double quantization, and BF16 compute when `qlora = true`.
 - Seeds before model and adapter construction. Uses explicit cross-entropy, disables packing, and sets non-reentrant gradient checkpointing.
 - Evaluates and saves every epoch when validation is supplied, loads the checkpoint with lowest validation loss, and evaluates the exported adapter at the end. `eval_strategy="steps"` is available; best-checkpoint selection requires `save_steps` to be a multiple of `eval_steps`.
-- Saves the adapter, tokenizer, template hash, resolved base revision when available, both dataset hashes, preparation manifests, resolved training arguments, checkpoint choice, final validation metrics, package versions, uv lock hash, JJ revision, and available GPU/CUDA/driver metadata.
+- Saves the adapter, tokenizer, template hash, resolved base revision when available, both dataset hashes, preparation manifests, resolved training arguments, the checkpoint it resumed from, checkpoint choice, final validation metrics, package versions, uv lock hash, JJ revision, and available GPU/CUDA/driver metadata.
 
 The Qwen example sets `eos_token = "<|im_end|>"` to match its chat template rather than the pretrained tokenizer's `<|endoftext|>` token. The loader explicitly aligns the model and generation configuration with the tokenizer's EOS and padding IDs before constructing the trainer, keeping training artifacts consistent with the chat contract.
 
@@ -224,7 +224,7 @@ The updated lock uses TRL 1.15.0, Transformers 5.19.0, PEFT 0.21.2, Accelerate 1
 
 flash-linear-attention 0.5 provides Triton kernels for the Gated DeltaNet layers, which Transformers uses when the package is installed. Without it, Transformers falls back to a slower PyTorch implementation. `causal-conv1d`, which speeds up the short convolution in the same layers, is not installed because it builds with `nvcc`; Transformers runs that step in PyTorch.
 
-`attn_implementation="sdpa"` uses PyTorch's native attention backend. You can select `flash_attention_2` on compatible BF16/FP16 training hardware with the required backend installed. `activation_offloading=true` optionally exchanges GPU activation memory for CPU transfers. Keep offloading disabled until you measure its cost. Packing stays disabled to preserve the checked example boundaries. `loss_type="dft"` enables TRL's Dynamic Fine-Tuning objective for a separate ablation; its probability-weighted validation loss is not ordinary NLL and must not be compared directly with NLL runs or converted to perplexity. Compare generated-answer quality on the same frozen suite before adopting it.
+`attn_implementation="sdpa"` uses PyTorch's native attention backend. You can select `flash_attention_2` on compatible BF16/FP16 training hardware with the required backend installed. `activation_offloading` exchanges GPU activation memory for CPU transfers; see GPU memory below for when it turns on. Packing stays disabled to preserve the checked example boundaries. `loss_type="dft"` enables TRL's Dynamic Fine-Tuning objective for a separate ablation; its probability-weighted validation loss is not ordinary NLL and must not be compared directly with NLL runs or converted to perplexity. Compare generated-answer quality on the same frozen suite before adopting it.
 
 Liger, black-box on-policy training, and data-selection methods need separate compatibility and quality experiments.
 
@@ -233,6 +233,24 @@ Liger, black-box on-policy training, and data-selection methods need separate co
 Set `qlora = false` for BF16 or FP16 LoRA when memory permits. Change `precision` to match the GPU. Four-bit training requires CUDA and bitsandbytes. CPU execution is suitable for API and pipeline tests, not the example QLoRA run.
 
 If the base tokenizer has no chat template, set `chat_template_path` to a reviewed local Jinja template. Treat that template as part of the trained artifact. Before loading model weights, the trainer tokenizes every record and checks that prompt tokens are an exact prefix of the full sequence, that supervised completion tokens include the EOS token, and that no sequence exceeds `max_length`. Filter unsuitable records or change the reviewed template/limit rather than silently truncating teacher answers. The pinned Transformers API needs `return_dict=false` for these token-list checks. The configuration keeps `warmup_ratio`, which the locked Transformers version receives as fractional `warmup_steps`.
+
+### Checkpoints and resuming
+
+Training writes `checkpoint-N` directories into `output_dir` on the save schedule and always saves the final step. It keeps the newest `save_total_limit` checkpoints, and never removes the best one while validation selects it. Each holds the adapter, optimizer, scheduler, and RNG state. `distill train` resumes on its own: if `output_dir` already holds a complete checkpoint (one with `trainer_state.json`, which the trainer writes last), it continues from the newest one, including the position in the data order. Rerunning a finished run resumes at its last step, so it only repeats the final evaluation and export.
+
+The first run writes `training-run.json` into `output_dir`, holding the training config, both dataset hashes, and the chat template hash. A resume must match it, so a changed learning rate, dataset, or schedule is refused with a message to use a new `output_dir` or remove the `checkpoint-*` directories. Nothing is deleted automatically. Settings that only change memory use or logging may differ on resume: `activation_offloading`, `gradient_checkpointing`, `selective_gradient_checkpointing`, `attn_implementation`, `logging_steps`, `save_total_limit`, and the paths themselves. A collection rerun that recovers previously failed prompts changes the prepared dataset, so resume is refused after it.
+
+The first Ctrl+C or SIGTERM lets the current optimizer step finish, saves a checkpoint, and exits with status 130 without writing the adapter or `training-manifest.json`, which belong only to finished runs. Rerun the same command to continue. A second signal stops at once, losing work since the last saved checkpoint. A crash, power loss, or `kill -9` loses the work since the last scheduled save, so choose `save_steps` with that in mind; with validation and `eval_strategy="epoch"`, saves happen only at epoch ends. On the pinned versions, an interrupted and resumed CPU FP32 run of a tiny fixture produced the same adapter weights as an uninterrupted one. That check replaced TRL's GPU loss kernel with plain PyTorch; GPU kernels in BF16 are not bit-deterministic, so expect close rather than identical weights there.
+
+### GPU memory
+
+PyTorch does not spill GPU memory into system memory on its own. The trainer uses three narrower mechanisms:
+
+- `optimizer = "auto"` selects bitsandbytes' paged AdamW (`paged_adamw_32bit`) when `qlora = true` on native Linux, and the Transformers default, `adamw_torch_fused`, otherwise. Paged state lives in CUDA unified memory, which the driver pages to system memory when the GPU runs short instead of failing. [NVIDIA's WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html) states that WSL 2 lacks full managed-memory support and warns of reduced performance and high system memory usage, so `auto` detects WSL 2 and uses `adamw_torch_fused` there. It covers only optimizer state, and bitsandbytes pages only parameters with at least 100,000 elements: the rank-128 adapter matrices of `train.distill.toml` qualify, while most rank-16 matrices stay in ordinary GPU memory. QLoRA runs before this change used `adamw_torch_fused`; compare them with that in mind (the manifest's `training_args` records the optimizer). `adamw_torch`, `adamw_torch_fused`, `paged_adamw_32bit`, and `paged_adamw_8bit` can be set explicitly; paged optimizers require CUDA.
+- `activation_offloading = "auto"` starts without offloading. On a CUDA out-of-memory error, it frees the failed attempt, resumes from the last checkpoint (or the first step) with TRL's activation offloading, which keeps saved activations in system memory, and records that in `training-run.json` so later resumes start with it. `true` offloads from the start, and `false` never does; with `false`, an out-of-memory error stops with the last checkpoint and the settings to change. If memory runs out even with offloading, lower `per_device_batch_size` or `max_length` and train into a new `output_dir`. Only `torch.OutOfMemoryError` triggers the retry; allocation failures that cuBLAS or bitsandbytes raise as other errors stop training, since a failed CUDA context is not safe to reuse in the same process. Offloading also does not reduce evaluation memory. bitsandbytes never frees paged buffers, so the failed attempt's optimizer state stays allocated, unused, until the process exits.
+- `distill train` sets `PYTORCH_ALLOC_CONF=expandable_segments:True` unless `PYTORCH_ALLOC_CONF` or `PYTORCH_CUDA_ALLOC_CONF` is already set. Growable allocator segments reduce out-of-memory errors caused by fragmentation; they do not use system memory.
+
+The paged optimizer and real activation offloading have not been measured on the training GPU. Out-of-memory recovery was checked on CPU with a simulated error.
 
 ## Checks before running on training hardware
 

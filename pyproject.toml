@@ -45,6 +45,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+# The launcher bootstrap runs on any system Python before the workspace environment exists.
+per-file-target-version = { "scripts/*.py" = "py39" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]

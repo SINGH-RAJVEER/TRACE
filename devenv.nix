@@ -1,6 +1,7 @@
 { pkgs, lib, ... }:
 
 {
+    dotenv.disableHint = true;
 	packages = with pkgs; [
 		bash
 		just

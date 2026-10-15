@@ -13,7 +13,7 @@ packages/distillation/    Collection, preparation, training, and frozen benchmar
 configs/                  Example training and four-slot evaluation configurations
 data/authored/            Hand-written prompts with answer keys, part of the prompt corpus
 docs/                     Architecture, operating guide, and research notes
-scripts/                  Bash and PowerShell scripts for two-machine and single-machine runs
+scripts/                  Cross-platform Python launcher for two-machine and single-machine runs
 ```
 
 ## Quick start
@@ -54,9 +54,9 @@ uv sync --all-packages --extra train
 uv run --extra train distill train --config configs/train.example.toml
 ```
 
-To run everything with one command per machine, use `scripts/teacher-host` and `scripts/student-train` on two machines, or `scripts/distill-local` on one. Each comes as `.sh` and `.ps1`. See [docs/run-scripts.md](docs/run-scripts.md).
+To run everything with one command per machine, use `just teacher-host` and `just student-train` on two machines, or `just distill-local` on one. Each recipe runs `scripts/pipeline.py`, which works the same on Linux, macOS, and Windows and shows live progress for model downloads, collection, review, and training. See [docs/run-scripts.md](docs/run-scripts.md).
 
-For a full run, `scripts/distill-local.sh --corpus standard` builds about 36,000 training prompts with answer keys from pinned public datasets and project-authored prompts, then reviews the teacher's answers against those keys before training. See [docs/prompt-corpus.md](docs/prompt-corpus.md) and the full-run section of [docs/run-scripts.md](docs/run-scripts.md#full-run-with-the-prompt-corpus).
+For a full run, `just distill-local --corpus standard` builds about 36,000 training prompts with answer keys from pinned public datasets and project-authored prompts, then reviews the teacher's answers against those keys before training. See [docs/prompt-corpus.md](docs/prompt-corpus.md) and the full-run section of [docs/run-scripts.md](docs/run-scripts.md#full-run-with-the-prompt-corpus).
 
 The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` skips review and suits only plumbing tests. Paper runs should use a separate review file as described in the operating guide.
 

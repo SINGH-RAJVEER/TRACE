@@ -6,6 +6,7 @@ import json
 import re
 import tomllib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -178,12 +179,14 @@ async def _run_code_tests(
 	code_image: str,
 	timeout_seconds: int,
 	concurrency: int,
+	progress: Callable[[int, int], None],
 ) -> dict[str, bool]:
 	from distillation.benchmarks.models import BenchmarkItem
 	from distillation.benchmarks.scoring import resolve_code_image, score_code
 
 	image_id = resolve_code_image(code_image)
 	semaphore = asyncio.Semaphore(concurrency)
+	finished = 0
 
 	async def run(record: LedgerRecord, reference: ReferenceRecord) -> tuple[str, bool]:
 		item = BenchmarkItem(
@@ -201,6 +204,9 @@ async def _run_code_tests(
 			passed, _ = await score_code(
 				item, code_block(record.completion[0].content), image_id, timeout_seconds
 			)
+		nonlocal finished
+		finished += 1
+		progress(finished, len(pending))
 		return record.example_id, passed
 
 	results = await asyncio.gather(*(run(record, reference) for record, reference in pending))
@@ -217,8 +223,17 @@ def review_ledger(
 	code_image: str | None = None,
 	code_timeout_seconds: int = 10,
 	code_concurrency: int = 4,
+	progress: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, Any]:
-	"""Write one decision per ledger record. Human overrides always win."""
+	"""Write one decision per ledger record. Human overrides always win.
+
+	progress receives a phase description, the records finished, and the phase total.
+	"""
+
+	def report(phase: str, done: int, total: int) -> None:
+		if progress:
+			progress(phase, done, total)
+
 	for path in (ledger_path, references_path, overrides_path, config_path):
 		if path and output_path.resolve() == path.resolve():
 			raise ValueError("review output must not overwrite an input artifact")
@@ -239,7 +254,8 @@ def review_ledger(
 	decisions: dict[str, Decision] = {}
 	code_pending: list[tuple[LedgerRecord, ReferenceRecord]] = []
 	kinds: Counter[str] = Counter()
-	for record in ledger:
+	report("Checking answers", 0, len(ledger))
+	for done, record in enumerate(ledger, 1):
 		reference = references.get(record.example_id) or ReferenceRecord(
 			example_id=record.example_id, kind="general"
 		)
@@ -257,10 +273,18 @@ def review_ledger(
 		if decision.status == "accepted" and reference.kind == "python_tests" and code_image:
 			code_pending.append((record, reference))
 		decisions[record.example_id] = decision
+		report("Checking answers", done, len(ledger))
 
 	if code_pending and code_image:
+		report("Running code tests", 0, len(code_pending))
 		passed = asyncio.run(
-			_run_code_tests(code_pending, code_image, code_timeout_seconds, code_concurrency)
+			_run_code_tests(
+				code_pending,
+				code_image,
+				code_timeout_seconds,
+				code_concurrency,
+				lambda done, total: report("Running code tests", done, total),
+			)
 		)
 		for example_id, ok in passed.items():
 			previous = decisions[example_id]

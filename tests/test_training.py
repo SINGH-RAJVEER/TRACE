@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from distillation.io import JSONLValidationError, write_jsonl
 from distillation.schemas import Message, SFTRecord
-from distillation.training import TrainingConfig, _reject_overlong_records, _validate_dataset_splits
+from distillation.training import (
+	TrainingConfig,
+	_record_offloading,
+	_reject_overlong_records,
+	_resume_point,
+	_validate_dataset_splits,
+)
 
 
 class FakeTokenizer:
@@ -107,3 +113,20 @@ def test_preflight_cli_never_calls_training(
 	result = CliRunner().invoke(cli.app, ["train", "--config", str(config), "--preflight-only"])
 	assert result.exit_code == 0, result.output
 	assert '"checked": true' in result.output
+
+
+def test_resume_uses_newest_complete_checkpoint_of_the_same_run(tmp_path: Path) -> None:
+	dataset = tmp_path / "train.jsonl"
+	write_jsonl(dataset, [])
+	config = TrainingConfig(base_model="local", dataset_path=dataset, output_dir=tmp_path / "out")
+	fingerprint = {"config": {"learning_rate": 1e-4}, "dataset_sha256": {"training": "a"}}
+	assert _resume_point(config, fingerprint) == (None, False)
+	for step, complete in ((10, True), (20, True), (30, False)):
+		checkpoint = config.output_dir / f"checkpoint-{step}"
+		checkpoint.mkdir()
+		if complete:
+			(checkpoint / "trainer_state.json").write_text("{}")
+	_record_offloading(config)
+	assert _resume_point(config, fingerprint) == (config.output_dir / "checkpoint-20", True)
+	with pytest.raises(ValueError, match="different training config"):
+		_resume_point(config, {**fingerprint, "dataset_sha256": {"training": "b"}})

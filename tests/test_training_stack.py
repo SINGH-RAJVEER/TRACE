@@ -1,6 +1,7 @@
 """Opt-in native trainer construction. No teacher calls or optimization steps."""
 
 import os
+import platform
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,9 @@ def test_native_setup_masks_targets_and_preserves_frozen_head(
 		assert "Answer" in target and "<|im_end|>" in target
 		assert "<think>" not in target and "</think>" not in target
 		assert trainer.args.loss_type == "nll"
+		paged = qlora and "microsoft" not in platform.release().lower()
+		assert trainer.args.optim == ("paged_adamw_32bit" if paged else "adamw_torch_fused")
+		assert not trainer.args.activation_offloading
 		assert trainer.args.load_best_model_at_end
 		assert trainer.args.eval_strategy == "epoch"
 		assert trainer.args.gradient_checkpointing_kwargs == {"use_reentrant": False}

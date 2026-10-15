@@ -1,8 +1,13 @@
 import asyncio
+import socket
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Thread
 
 import pytest
+import uvicorn
+from distillation import launcher
 from distillation.collection import CollectionOptions, collect
 from distillation.io import read_jsonl, write_jsonl
 from distillation.preparation import prepare_sft_dataset
@@ -19,6 +24,9 @@ from distillation.schemas import (
 	TokenUsage,
 )
 from distillation.teacher import TeacherUpstreamError
+from teacher_api.app import create_app
+from teacher_api.settings import Settings
+from typer.testing import CliRunner
 
 
 class FakeTeacher:
@@ -63,6 +71,64 @@ def prompt(example_id: str) -> PromptRecord:
 		),
 		prompt=[Message(role="user", content=f"Question {example_id}")],
 	)
+
+
+def test_student_launcher_collects_through_monorepo_teacher_api(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Exercise readiness, auth, smoke generation, and collection through the real API."""
+	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
+	monkeypatch.setattr(
+		launcher.Pipeline,
+		"prepare_and_train",
+		lambda self: (tmp_path / "training-started").touch(),
+	)
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("TEACHER_API_TOKEN", "wrapper-key")
+	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
+	(tmp_path / "configs").mkdir()
+	(tmp_path / "configs/train.distill.toml").write_text('dataset_path = "unused.jsonl"\n')
+	corpus = tmp_path / "data/prompts"
+	corpus.mkdir(parents=True)
+	write_jsonl(corpus / "all-splits.jsonl", [prompt("one"), prompt("two")])
+	(corpus / "references.jsonl").write_text("")
+	(corpus / "manifest.json").write_text('{"profile":"quick"}\n')
+	teacher = FakeTeacher()
+	api = create_app(settings=Settings(TEACHER_API_TOKEN="wrapper-key"), teacher=teacher)
+	with socket.socket() as listener:
+		listener.bind(("127.0.0.1", 0))
+		base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+		server = uvicorn.Server(uvicorn.Config(api, log_level="error"))
+		thread = Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+		thread.start()
+		try:
+			deadline = time.monotonic() + 5
+			while not server.started and thread.is_alive() and time.monotonic() < deadline:
+				time.sleep(0.01)
+			assert server.started
+			result = CliRunner().invoke(
+				launcher.run_app,
+				[
+					"student-train",
+					"--teacher-url",
+					base_url,
+					"--corpus",
+					"quick",
+					"--concurrency",
+					"8",
+				],
+			)
+		finally:
+			server.should_exit = True
+			thread.join(timeout=5)
+	assert result.exit_code == 0, result.output
+	assert (tmp_path / "training-started").exists()
+	records = read_jsonl(tmp_path / "data/teacher/ledger.jsonl", LedgerRecord)
+	assert len(records) == 2
+	assert teacher.calls == 3  # One smoke generation and two corpus prompts.
+	assert teacher.closed
+	assert all(record.teacher.model == "teacher-v1" for record in records)
+	assert all(record.teacher.provider == "licensed-teacher" for record in records)
 
 
 @pytest.mark.asyncio
