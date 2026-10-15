@@ -217,13 +217,13 @@ ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:18000:127.0.0.1:8000 -o ProxyCom
 
 Keep that connection open and point the local student launcher at `http://127.0.0.1:18000`, using the same `TEACHER_API_TOKEN`. If SSH cannot find `colab`, use its absolute executable path in `ProxyCommand`.
 
-The current `Qwen/Qwen3.5-9B` teacher needs quantization on a 16 GB T4: the [upstream vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.5-9B) budgets 22 GB for BF16. T4 meets [vLLM's general GPU requirement](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/), but a compatible quantized checkpoint, FP16 activations, and working Qwen3.5 hybrid-attention kernels still need a real generation check. [vLLM's quantization table](https://docs.vllm.ai/en/latest/features/quantization/#supported-hardware) lists AWQ, GPTQ, and bitsandbytes for Turing; the native FP8 W8A8 path described for Ada above is unsupported there. This SSH connection has not been validated with the teacher on a live T4, and the repository's default teacher command is not a verified T4 configuration.
+The current `Qwen/Qwen3.5-9B` teacher needs quantization on a 16 GB T4: the [upstream vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.5-9B) budgets 22 GB for BF16. T4 meets [vLLM's general GPU requirement](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/), but a compatible quantized checkpoint, FP16 activations, and working Qwen3.5 hybrid-attention kernels still need a real generation check. [vLLM's quantization table](https://docs.vllm.ai/en/latest/features/quantization/#supported-hardware) lists AWQ, GPTQ, and bitsandbytes for Turing; the native FP8 W8A8 path described for Ada above is unsupported there. The GGUF configuration below passed live inference through SSH on a T4; the repository's default vLLM command remains unverified on that GPU.
 
 ### Selected T4 profile
 
-Use the text-only `Qwen3.5-9B-Q4_K_M.gguf` from [unsloth/Qwen3.5-9B-GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5), pinned to revision `3885219b6810b007914f3a7950a8d1b469d598a5`. The file is 5,680,522,464 bytes, about 5.29 GiB, with SHA-256 `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8`. Hugging Face's [llama.cpp deployment catalog](https://endpoints.huggingface.co/catalog/collection/qwen?inferenceServer=llamacpp) lists this model and quantization for a single T4. The file size excludes runtime buffers and cache; live GPU memory use and generation remain unverified.
+Use the text-only `Qwen3.5-9B-Q4_K_M.gguf` from [unsloth/Qwen3.5-9B-GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5), pinned to revision `3885219b6810b007914f3a7950a8d1b469d598a5`. The file is 5,680,522,464 bytes, about 5.29 GiB, with SHA-256 `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8`. Hugging Face's [llama.cpp deployment catalog](https://endpoints.huggingface.co/catalog/collection/qwen?inferenceServer=llamacpp) lists this model and quantization for a single T4. The file size excludes runtime buffers and cache; the measurements below cover two short generations rather than a full-context stress test.
 
-Build [llama.cpp](https://github.com/ggml-org/llama.cpp/tree/2f729cfa4ca6f55b8bacf67bb2ba92cb9548e291) with its CUDA backend for T4's compute capability 7.5, using `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=75` and a CUDA toolkit that still supports that architecture. Start its [OpenAI-compatible server](https://github.com/ggml-org/llama.cpp/blob/2f729cfa4ca6f55b8bacf67bb2ba92cb9548e291/tools/server/README.md) on the Colab runtime after downloading and checking the pinned GGUF:
+The verified deployment uses the official [llama.cpp b11669 release](https://github.com/ggml-org/llama.cpp/releases/tag/b11669), commit `620d2225c`, with its Ubuntu x64 CUDA 12.8 binary and matching `cudart` archive. Both release archive digests and the GGUF checksum were checked before startup. This avoids changing Colab's installed CUDA 13 toolkit. For a source build, use the CUDA backend with `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=75` and a CUDA toolkit that supports T4's compute capability 7.5. Start the [OpenAI-compatible server](https://github.com/ggml-org/llama.cpp/blob/b11669/tools/server/README.md) on the Colab runtime after downloading and checking the pinned GGUF:
 
 ```bash
 llama-server \
@@ -231,18 +231,17 @@ llama-server \
 	--alias Qwen3.5-9B-Q4_K_M \
 	--host 127.0.0.1 --port 8001 \
 	--n-gpu-layers 99 --ctx-size 4096 --parallel 1 \
-	--jinja --chat-template-kwargs '{"enable_thinking":false}' \
-	--reasoning-format none
+	--jinja --reasoning off --reasoning-format deepseek
 ```
 
-Keep the vision projector unloaded for text collection. The explicit single slot avoids automatic parallelism reserving extra memory. Thinking is disabled in the template; `--reasoning-format none` leaves any unexpected thought text visible to the teacher API's smoke check.
+Keep the vision projector unloaded for text collection. The explicit single slot avoids automatic parallelism reserving extra memory. `--reasoning off` disables thinking in the template. The DeepSeek-format response parser removes the template's empty thinking markers; `--reasoning-format none` instead includes those synthetic markers in the content even when the model generated no reasoning, which makes the launcher's smoke check fail. Check a direct upstream response as well as the teacher API: `reasoning_content` must be absent or empty, and the content must contain the requested answer without thought tags. Collector requests continue to send `enable_thinking=false`.
 
 An alternative to installing the repository on Colab is to forward only this model server and run the teacher API locally:
 
 ```bash
 ssh -N -o ExitOnForwardFailure=yes \
 	-L 127.0.0.1:18001:127.0.0.1:8001 \
-	-o ProxyCommand="/home/rajveer/.local/bin/colab ssh --proxy-mode -s %h" \
+	-o ProxyCommand="~/.local/bin/colab ssh --proxy-mode -s %h" \
 	root@SESSION
 ```
 
@@ -256,3 +255,13 @@ TEACHER_PROVIDER_NAME=colab-llamacpp-q4_k_m \
 ```
 
 This keeps the existing local teacher API at `http://127.0.0.1:8000`, records the quantized model alias and provider, and uses the launcher's generation check. Confirm GPU offload in the remote server log and inspect `nvidia-smi` under an actual request before collecting data. Start collection with concurrency 1 and persist its ledger locally so a Colab runtime expiration does not discard the responses.
+
+### Verified deployment on 2026-10-16
+
+The existing T4 runtime was registered locally as `colab`, with no new runtime allocation. The model server runs on Colab loopback port 8001. Its SSH tunnel listens locally on port 18011, and the authenticated teacher API listens at `http://127.0.0.1:18010`; the usual local ports were already occupied. Start this API with the preceding environment overrides, `--port 18010`, and `--upstream-url http://127.0.0.1:18011/v1`. The existing `.env` supplies the teacher API token and terms reference. Model responses identify `Qwen3.5-9B-Q4_K_M` and provider `colab-llamacpp-q4_k_m`.
+
+The launcher's generation check passed. A direct upstream request returned `56` for `7 * 8` with no reasoning content, and the authenticated teacher API returned the same answer plus a complete 60-token explanatory response without thought tags. An unauthenticated generation request returned HTTP 401. During those requests, GPU memory reached 5,277 MiB out of 15,360 MiB and utilization reached 98%. These are deployment checks, not benchmark scores or an assessment of quantization quality.
+
+Colab returned HTTP 429 when a second SSH connection was opened while the tunnel was active. Use OpenSSH multiplexing to share one connection between the tunnel and management commands, with the same `ControlPath` for both. A dedicated Ed25519 key is selected with `-i` for both OpenSSH and the Colab proxy. The first cold load and generation took over a minute while the NVIDIA driver populated its CUDA compilation cache; subsequent requests completed normally.
+
+Deployment files and local logs are under the ignored `artifacts/colab-teacher/` directory: `manifest.json` pins the model and release archive hashes; `validation.json`, `upstream-validation.json`, and `gpu-samples.txt` record the successful checks; `api.log` and `tunnel.log` hold local service logs. Colab's files, server PID, and log are under `/content/capstone-teacher/`. These detached processes continue after the launching terminal exits, while the Colab runtime and local machine remain available. No automatic runtime recreation or service restart is configured.
