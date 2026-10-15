@@ -340,7 +340,6 @@ function Assert-PipelineOptions([hashtable]$Options) {
 	$buildCorpus = [bool]$Options.Corpus
 	if ($buildCorpus) {
 		if ($Options.Corpus -notin @('quick', 'standard', 'full')) { Stop-WithError '-Corpus must be quick, standard, or full' }
-		if ($Options.Prompts -eq 'data/examples/prompts.jsonl') { $Options.Prompts = 'data/prompts/all-splits.jsonl' }
 		if (-not $Options.References) {
 			$Options.References = Join-Path (Split-Path $Options.Prompts -Parent) 'references.jsonl'
 		}
@@ -355,7 +354,7 @@ function Assert-PipelineOptions([hashtable]$Options) {
 	if ($Options.Reviews -and -not (Test-Path $Options.Reviews -PathType Leaf)) {
 		Stop-WithError "reviews file not found: $($Options.Reviews)"
 	}
-	if (-not $buildCorpus -and -not (Test-Path $Options.Prompts -PathType Leaf)) { Stop-WithError "prompts file not found: $($Options.Prompts)" }
+	if (-not $buildCorpus -and -not (Test-Path $Options.Prompts -PathType Leaf)) { Stop-WithError "prompts file not found: $($Options.Prompts); pass -Corpus PROFILE or run just corpus" }
 	if (-not (Test-Path $Options.Config -PathType Leaf)) { Stop-WithError "training config not found: $($Options.Config)" }
 }
 

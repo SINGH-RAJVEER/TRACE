@@ -11,7 +11,6 @@ apps/teacher-api/         FastAPI service in front of an OpenAI-compatible hoste
 apps/dashboard/           Read-only benchmark dashboard using React, shadcn controls, and Recharts
 packages/distillation/    Collection, preparation, training, and frozen benchmark evaluation
 configs/                  Example training and four-slot evaluation configurations
-data/examples/            Small input fixture for trying the pipeline
 data/authored/            Hand-written prompts with answer keys, part of the prompt corpus
 docs/                     Architecture, operating guide, and research notes
 scripts/                  Bash and PowerShell scripts for two-machine and single-machine runs
@@ -23,25 +22,33 @@ Requirements are Python 3.14, [uv](https://docs.astral.sh/uv/), and optionally `
 
 ```bash
 cp .env.example .env
-uv sync --all-packages
+uv sync --all-packages --extra eval
+uv run --extra eval distill corpus build --profile quick
 uv run teacher-api
 ```
+
+The corpus build downloads pinned public datasets and writes the prompts and their answer key to `data/prompts/`. The `quick` profile has about 7,000 prompts; see [docs/prompt-corpus.md](docs/prompt-corpus.md) for the larger profiles.
 
 In another terminal:
 
 ```bash
 uv run distill collect \
-	--input data/examples/prompts.jsonl \
+	--input data/prompts/all-splits.jsonl \
 	--output data/teacher/ledger.jsonl \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id YOUR_APPROVAL_REFERENCE \
 	--no-thinking
 
+uv run distill review \
+	--ledger data/teacher/ledger.jsonl \
+	--references data/prompts/references.jsonl \
+	--output data/teacher/ledger.reviews.jsonl
+
 uv run distill prepare \
 	--input data/teacher/ledger.jsonl \
 	--output data/processed/train.jsonl \
-	--prompts data/examples/prompts.jsonl \
-	--accept-pending
+	--prompts data/prompts/all-splits.jsonl \
+	--reviews data/teacher/ledger.reviews.jsonl
 
 uv sync --all-packages --extra train
 uv run --extra train distill train --config configs/train.example.toml
@@ -51,9 +58,9 @@ To run everything with one command per machine, use `scripts/teacher-host` and `
 
 For a full run, `scripts/distill-local.sh --corpus standard` builds about 36,000 training prompts with answer keys from pinned public datasets and project-authored prompts, then reviews the teacher's answers against those keys before training. See [docs/prompt-corpus.md](docs/prompt-corpus.md) and the full-run section of [docs/run-scripts.md](docs/run-scripts.md#full-run-with-the-prompt-corpus).
 
-The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` is suitable only for the included plumbing example. Paper runs should use a separate review file as described in the operating guide.
+The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` skips review and suits only plumbing tests. Paper runs should use a separate review file as described in the operating guide.
 
-See [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for the API contract, data formats, and training instructions. The method choice and primary sources are recorded in [docs/research/teacher-student-distillation.md](docs/research/teacher-student-distillation.md).
+See [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for the API contract, data formats, and training instructions.
 
 ## Benchmarks and dashboard
 

@@ -36,7 +36,7 @@ param(
 	[string]$References = '',
 	[string]$Reviews = '',
 	[switch]$AcceptPending,
-	[string]$Prompts = 'data/examples/prompts.jsonl',
+	[string]$Prompts = 'data/prompts/all-splits.jsonl',
 	[string]$Ledger = 'data/teacher/ledger.jsonl',
 	[string]$Config = 'configs/train.example.toml',
 	[int]$Concurrency = 4,

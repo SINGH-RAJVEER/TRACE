@@ -34,13 +34,13 @@ QLoRA also requires a compatible NVIDIA GPU and a working host driver. The shell
 - Student: `Qwen/Qwen3.5-2B-Base` at revision `b1485b2fa6dfa1287294f269f5fb618e03d52d7c` (Apache 2.0, verified 2026-10-15).
 - Teacher: `Qwen/Qwen3.5-9B` at revision `c202236235762e1c871ad0ccb60c8ee5ba337b9a` (Apache 2.0, verified 2026-10-15), run in non-thinking mode.
 
-This pair replaced Qwen3-14B and Qwen3-4B-Base. On a 20 GB GPU, the FP8 14B teacher left too little memory for its KV cache. The 9B teacher should leave room for many concurrent requests, so the whole run can use one such GPU, with collection and training taking turns. These fits are estimates until a quick-corpus run measures them.
+On a 20 GB GPU, the FP8 teacher should leave room for many concurrent requests, so the whole run can use one such GPU, with collection and training taking turns. These fits are estimates until a quick-corpus run measures them.
 
 Both use the Qwen3.5 chat format and tokenizer. Their pinned tokenizer configurations still differ: the teacher's default EOS token is `<|im_end|>` and the base student's is `<|endoftext|>`, so training explicitly sets `<|im_end|>` and passes `enable_thinking=false`.
 
 Qwen3.5 checkpoints are multimodal. Each holds a vision encoder and a multi-token-prediction (MTP) head next to the text model. vLLM serves the teacher with `--language-model-only`, which skips the vision encoder, and `AutoModelForCausalLM` loads only the student's text model, about 1.88B parameters, so LoRA never touches the vision or MTP weights.
 
-Three of every four layers use Gated DeltaNet linear attention, which keeps a fixed-size state per sequence instead of a growing KV cache. Only the full-attention layers, 8 of the teacher's 32, store KV entries, about 32 KB per token in BF16 against about 160 KB for Qwen3-14B. The teacher's BF16 checkpoint is 19.3 GB including the vision encoder and MTP head. Its text weights alone are about 18 GB, so a GPU under 24 GB serves it with `--quantization fp8`, which brings the weights to roughly 11 GB (an estimate; the embedding and output layers stay in BF16).
+Three of every four layers use Gated DeltaNet linear attention, which keeps a fixed-size state per sequence instead of a growing KV cache. Only the full-attention layers, 8 of the teacher's 32, store KV entries, about 32 KB per token in BF16. The teacher's BF16 checkpoint is 19.3 GB including the vision encoder and MTP head. Its text weights alone are about 18 GB, so a GPU under 24 GB serves it with `--quantization fp8`, which brings the weights to roughly 11 GB (an estimate; the embedding and output layers stay in BF16).
 
 Measure peak memory at the intended context length and batch size before choosing hardware. QLoRA reduces frozen-weight memory, but activations, optimizer state, and KV cache still consume memory. The 2B student and 9B teacher leave a useful capacity comparison, but improvement must be measured on held-out tasks.
 
@@ -134,7 +134,7 @@ Run the teacher API first. Then collect responses:
 
 ```bash
 uv run distill collect \
-	--input data/examples/prompts.jsonl \
+	--input data/prompts/all-splits.jsonl \
 	--output data/teacher/ledger.jsonl \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id "$TEACHER_TERMS_REVIEW_ID" \
@@ -193,11 +193,11 @@ Install the optional training stack:
 uv sync --all-packages --extra train
 ```
 
-Review `configs/train.example.toml`, which uses the pinned Qwen3.5-2B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. The two included prompts exercise plumbing; they are insufficient for instruction tuning a base model or measuring distillation quality.
+Review `configs/train.example.toml`, which uses the pinned Qwen3.5-2B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. It trains without a validation split, so use it to check the setup on the `quick` corpus; `configs/train.distill.toml` is the configuration for a measured run.
 
 For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 135M adapter parameters instead of 17M (1,051,200 per rank across Qwen3.5-2B's 24 text layers, 18 linear-attention and 6 full-attention), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted text model stays near 2.0B parameters against the 9B teacher.
 
-For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example leaves validation optional for the two-row plumbing fixture; a research run needs validation and a separately frozen test set.
+For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example config leaves validation optional; a research run needs validation and a separately frozen test set.
 
 Training input must contain only conversational `prompt` and `completion` columns, with one assistant completion. Unknown columns are rejected. This prevents externally supplied `input_ids`, `labels`, or per-row template overrides from bypassing the tokenizer and completion-loss checks.
 
