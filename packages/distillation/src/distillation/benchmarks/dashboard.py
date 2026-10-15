@@ -9,10 +9,27 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from distillation.benchmarks.reporting import build_report, experiments
+from distillation.benchmarks.traffic_reporting import build_traffic_report, traffic_experiments
 
 
-def create_app(results_dir: Path, frontend_dir: Path | None = None) -> FastAPI:
+def create_app(
+	results_dir: Path,
+	frontend_dir: Path | None = None,
+	*,
+	traffic_results_dir: Path = Path("outputs/traffic-benchmarks"),
+) -> FastAPI:
 	app = FastAPI(title="Distillation benchmarks")
+
+	@app.get("/api/traffic/experiments")
+	def list_traffic() -> dict[str, Any]:
+		return traffic_experiments(traffic_results_dir)
+
+	@app.get("/api/traffic/reports/{key}")
+	def get_traffic_report(key: str) -> dict[str, Any]:
+		try:
+			return build_traffic_report(traffic_results_dir, key)
+		except (ValueError, OSError) as error:
+			raise HTTPException(status_code=422, detail=str(error)) from error
 
 	@lru_cache(maxsize=8)
 	def cached_report(key: str, fingerprint: tuple[tuple[str, int, int], ...]) -> dict[str, Any]:
