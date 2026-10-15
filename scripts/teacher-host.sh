@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scenario 1, teacher machine: serve Qwen3-14B with vLLM on loopback and expose the
+# Scenario 1, teacher machine: serve Qwen3.5-9B with vLLM on loopback and expose the
 # teacher API on the network for a student machine to collect from.
 set -euo pipefail
 

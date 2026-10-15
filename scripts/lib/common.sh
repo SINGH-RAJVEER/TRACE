@@ -10,8 +10,8 @@
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG_DIR="$REPO_ROOT/artifacts/logs"
-DEFAULT_TEACHER_MODEL="Qwen/Qwen3-14B"
-DEFAULT_TEACHER_REVISION="40c069824f4251a91eefaf281ebe4c544efd3e18"
+DEFAULT_TEACHER_MODEL="Qwen/Qwen3.5-9B"
+DEFAULT_TEACHER_REVISION="c202236235762e1c871ad0ccb60c8ee5ba337b9a"
 
 RUNTIME=""
 APP_BIN=""
@@ -297,7 +297,7 @@ smoke_test_teacher() {
 	fi
 	if grep -q '<think>' "$response"; then
 		rm -f "$response"
-		die "teacher response contains a <think> trace; disable Qwen3 thinking mode upstream"
+		die "teacher response contains a <think> trace; disable Qwen thinking mode upstream"
 	fi
 	rm -f "$response"
 	log "teacher smoke test passed"
@@ -312,6 +312,9 @@ start_teacher_stack() {
 		prepare_vllm
 		local vllm_port="${VLLM_PORT:-8001}" vllm_log="$LOG_DIR/vllm.log" extra=()
 		read -r -a extra <<< "${VLLM_EXTRA_ARGS:-}"
+		# Qwen3.5 checkpoints include a vision encoder; text-only serving skips it and its
+		# profiling, leaving that memory for the KV cache. No reasoning parser: it would move
+		# <think> text out of the content that the smoke test and collector check.
 		start_background vllm "$vllm_log" "$VLLM" serve "$TEACHER_UPSTREAM_MODEL" \
 			--revision "${TEACHER_MODEL_REVISION:-$DEFAULT_TEACHER_REVISION}" \
 			--served-model-name "$TEACHER_UPSTREAM_MODEL" \
@@ -320,6 +323,7 @@ start_teacher_stack() {
 			--max-model-len "${VLLM_MAX_MODEL_LEN:-8192}" \
 			--gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.90}" \
 			--default-chat-template-kwargs '{"enable_thinking": false}' \
+			--language-model-only \
 			"${extra[@]+"${extra[@]}"}"
 		log "vLLM log: $vllm_log"
 		wait_for_http "http://127.0.0.1:$vllm_port/health" "" "${VLLM_STARTUP_TIMEOUT:-1800}" \

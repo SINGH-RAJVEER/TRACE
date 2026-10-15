@@ -25,26 +25,36 @@ just setup-train
 uv run --extra train python -c 'import torch; print(torch.cuda.is_available())'
 ```
 
-The `eval` extra installs datasets and huggingface-hub. The `train` extra installs PyTorch, Transformers, datasets, Accelerate, PEFT, TRL, and bitsandbytes on Linux. These extras stay optional because the API and pipeline tests do not need the large training stack. Select the extra on subsequent `uv run` commands as shown above, since uv synchronizes the environment for each invocation.
+The `eval` extra installs datasets and huggingface-hub. The `train` extra installs PyTorch, Transformers, datasets, Accelerate, PEFT, TRL, and, on Linux, bitsandbytes and flash-linear-attention. These extras stay optional because the API and pipeline tests do not need the large training stack. Select the extra on subsequent `uv run` commands as shown above, since uv synchronizes the environment for each invocation.
 
 QLoRA also requires a compatible NVIDIA GPU and a working host driver. The shell provides the compiler and library paths; the CUDA runtime dependencies come from the locked training wheels. The vLLM teacher described below runs as a separate upstream service with its own environment, either on this machine or another host.
 
 ## Adopted model pairing
 
-- Student: `Qwen/Qwen3-4B-Base` at revision `906bfd4b4dc7f14ee4320094d8b41684abff8539` (Apache 2.0, verified 2026-09-05).
-- Teacher: `Qwen/Qwen3-14B` instruct at revision `40c069824f4251a91eefaf281ebe4c544efd3e18`, run in non-thinking mode.
+- Student: `Qwen/Qwen3.5-2B-Base` at revision `b1485b2fa6dfa1287294f269f5fb618e03d52d7c` (Apache 2.0, verified 2026-10-15).
+- Teacher: `Qwen/Qwen3.5-9B` at revision `c202236235762e1c871ad0ccb60c8ee5ba337b9a` (Apache 2.0, verified 2026-10-15), run in non-thinking mode.
 
-Both use the Qwen3 chat format. Their pinned tokenizer configurations differ, including the default EOS token, so training explicitly sets `<|im_end|>` and passes `enable_thinking=false`. Measure peak memory at the intended context length and batch size before choosing hardware. QLoRA reduces frozen-weight memory, but activations, optimizer state, and KV cache still consume memory. The 14B teacher's BF16 weights alone are roughly 28 GB; the launcher uses the original checkpoint without a quantization override, so a 24 GB card needs a separately configured supported quantization recipe. The 4B student and 14B teacher leave a useful capacity comparison, but improvement must be measured on held-out tasks.
+This pair replaced Qwen3-14B and Qwen3-4B-Base. On a 20 GB GPU, the FP8 14B teacher left too little memory for its KV cache. The 9B teacher should leave room for many concurrent requests, so the whole run can use one such GPU, with collection and training taking turns. These fits are estimates until a quick-corpus run measures them.
+
+Both use the Qwen3.5 chat format and tokenizer. Their pinned tokenizer configurations still differ: the teacher's default EOS token is `<|im_end|>` and the base student's is `<|endoftext|>`, so training explicitly sets `<|im_end|>` and passes `enable_thinking=false`.
+
+Qwen3.5 checkpoints are multimodal. Each holds a vision encoder and a multi-token-prediction (MTP) head next to the text model. vLLM serves the teacher with `--language-model-only`, which skips the vision encoder, and `AutoModelForCausalLM` loads only the student's text model, about 1.88B parameters, so LoRA never touches the vision or MTP weights.
+
+Three of every four layers use Gated DeltaNet linear attention, which keeps a fixed-size state per sequence instead of a growing KV cache. Only the full-attention layers, 8 of the teacher's 32, store KV entries, about 32 KB per token in BF16 against about 160 KB for Qwen3-14B. The teacher's BF16 checkpoint is 19.3 GB including the vision encoder and MTP head. Its text weights alone are about 18 GB, so a GPU under 24 GB serves it with `--quantization fp8`, which brings the weights to roughly 11 GB (an estimate; the embedding and output layers stay in BF16).
+
+Measure peak memory at the intended context length and batch size before choosing hardware. QLoRA reduces frozen-weight memory, but activations, optimizer state, and KV cache still consume memory. The 2B student and 9B teacher leave a useful capacity comparison, but improvement must be measured on held-out tasks.
 
 Self-hosting the teacher with vLLM keeps provider terms out of the picture entirely:
 
 ```bash
-vllm serve Qwen/Qwen3-14B --revision 40c069824f4251a91eefaf281ebe4c544efd3e18 \
-	--host 127.0.0.1 --port 8001 \
+vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a \
+	--host 127.0.0.1 --port 8001 --language-model-only \
 	--default-chat-template-kwargs '{"enable_thinking": false}'
 ```
 
-Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting it, confirm responses contain no thinking traces before the main collection run, and keep transfer prompts inside the student's 32K native context.
+Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting it, confirm responses contain no thinking traces before the main collection run, and keep transfer prompts within the training `max_length` (the student's native context is 262K tokens).
+
+Qwen3.5 needs a vLLM release that supports the `Qwen3_5ForConditionalGeneration` architecture; pin `VLLM_SPEC` to such a release for a paper run. Do not add the `--reasoning-parser qwen3` flag from the model card. It moves `<think>` text out of the response content, where the smoke test and the collector's thought-marker check look for it.
 
 The scripts in `scripts/` do all of this for you, on two machines or one, and run the non-thinking check automatically. See [run-scripts.md](run-scripts.md).
 
@@ -137,7 +147,7 @@ Collection is resumable by `example_id`. It rejects duplicate input IDs, retries
 
 Resume verifies the prompt, split, task, source metadata, generation parameters, and approval reference for IDs already in the ledger. A mismatch requires a new ledger. The collector cannot detect a provider changing the underlying model behind the same endpoint; pin the served model and keep its deployment records.
 
-Collection also exposes `--top-p` and `--top-k`; both are omitted from upstream requests unless supplied and are recorded for resume checks. `top_k` and the thinking switch need an upstream implementation that supports those extensions, such as vLLM. For a reviewed Qwen non-thinking sampling pilot, compare the greedy baseline with `--temperature 0.7 --top-p 0.8 --top-k 20 --no-thinking`, using separate ledgers and the same prompt/task contract. These are Qwen's documented inference recommendations, not a proven distillation optimum. Accept samples by task correctness and coverage before choosing a collection policy.
+Collection also exposes `--top-p` and `--top-k`; both are omitted from upstream requests unless supplied and are recorded for resume checks. `top_k` and the thinking switch need an upstream implementation that supports those extensions, such as vLLM. For a reviewed Qwen non-thinking sampling pilot, compare the greedy baseline with `--temperature 0.7 --top-p 0.8 --top-k 20 --no-thinking`, using separate ledgers and the same prompt/task contract. These follow Qwen3.5's documented non-thinking recommendations, except `presence_penalty=1.5`, which the collector does not expose. They are not a proven distillation optimum. Accept samples by task correctness and coverage before choosing a collection policy.
 
 The basic checks reject blank content and nonterminal finish reasons. Passing responses remain `pending`; the collector does not call them training-ready. Store review decisions in a separate JSONL file so the raw ledger stays unchanged:
 
@@ -183,9 +193,9 @@ Install the optional training stack:
 uv sync --all-packages --extra train
 ```
 
-Review `configs/train.example.toml`, which uses the pinned Qwen3-4B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. The two included prompts exercise plumbing; they are insufficient for instruction tuning a base model or measuring distillation quality.
+Review `configs/train.example.toml`, which uses the pinned Qwen3.5-2B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. The two included prompts exercise plumbing; they are insufficient for instruction tuning a base model or measuring distillation quality.
 
-For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 264M adapter parameters instead of 33M (2,064,384 per rank across Qwen3-4B's 36 layers), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted student stays near 4.3B parameters against the 14.8B teacher.
+For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 135M adapter parameters instead of 17M (1,051,200 per rank across Qwen3.5-2B's 24 text layers, 18 linear-attention and 6 full-attention), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted text model stays near 2.0B parameters against the 9B teacher.
 
 For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. The Bash and PowerShell pipeline launchers prepare that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example leaves validation optional for the two-row plumbing fixture; a research run needs validation and a separately frozen test set.
 
@@ -202,7 +212,7 @@ The trainer:
 - Loads conversational JSONL with `datasets`.
 - Uses completion-only loss through TRL `SFTTrainer`.
 - Passes the same template arguments to the prompt, full conversation, and TRL tokenization. Empty Qwen thought wrappers are part of the prefilling prompt and are excluded from the loss.
-- Applies LoRA to all linear layers.
+- Applies LoRA to all linear layers of the text model, including the linear-attention projections. The vision encoder and MTP head are not loaded.
 - Uses NF4, double quantization, and BF16 compute when `qlora = true`.
 - Seeds before model and adapter construction. Uses explicit cross-entropy, disables packing, and sets non-reentrant gradient checkpointing.
 - Evaluates and saves every epoch when validation is supplied, loads the checkpoint with lowest validation loss, and evaluates the exported adapter at the end. `eval_strategy="steps"` is available; best-checkpoint selection requires `save_steps` to be a multiple of `eval_steps`.
@@ -212,9 +222,11 @@ The Qwen example sets `eos_token = "<|im_end|>"` to match its chat template rath
 
 The updated lock uses TRL 1.15.0, Transformers 5.19.0, PEFT 0.21.2, Accelerate 1.15.0, PyTorch 2.14.1, and bitsandbytes 0.50.2. TRL 1.15's `loss_type="nll"` uses a fused LM head to compute per-token log probabilities without constructing full sequence-by-vocabulary logits. It preserves ordinary cross-entropy while reducing one source of peak memory. `chunked_nll` is now a deprecated alias and is absent from this project's config. PEFT's `target_modules="all-linear"` excludes the output head; explicit output-head LoRA adapters are incompatible with this fused path for both NLL and DFT. No end-to-end speed or memory improvement has been measured here. The fused scoring kernel requires supported GPU/Triton execution; CPU checks and trainer construction do not prove that runtime path.
 
+flash-linear-attention 0.5 provides Triton kernels for the Gated DeltaNet layers, which Transformers uses when the package is installed. Without it, Transformers falls back to a slower PyTorch implementation. `causal-conv1d`, which speeds up the short convolution in the same layers, is not installed because it builds with `nvcc`; Transformers runs that step in PyTorch.
+
 `attn_implementation="sdpa"` uses PyTorch's native attention backend. You can select `flash_attention_2` on compatible BF16/FP16 training hardware with the required backend installed. `activation_offloading=true` optionally exchanges GPU activation memory for CPU transfers. Keep offloading disabled until you measure its cost. Packing stays disabled to preserve the checked example boundaries. `loss_type="dft"` enables TRL's Dynamic Fine-Tuning objective for a separate ablation; its probability-weighted validation loss is not ordinary NLL and must not be compared directly with NLL runs or converted to perplexity. Compare generated-answer quality on the same frozen suite before adopting it.
 
-The [dated research audit](research/teacher-student-distillation.md#modern-training-and-distillation-options-checked-in-this-audit) records the primary sources and the reasons for adopting these defaults. Liger, black-box on-policy training, data-selection methods, and newer Qwen checkpoints need separate compatibility and quality experiments.
+Liger, black-box on-policy training, and data-selection methods need separate compatibility and quality experiments.
 
 `selective_gradient_checkpointing=true` enables TRL 1.15's selective activation checkpointing when `gradient_checkpointing=true`. It saves attention outputs instead of recomputing them during backward, exchanging additional activation memory for less recomputation. The default remains off until you measure the tradeoff on the training machine. The current recipe uses non-reentrant checkpointing and does not configure DeepSpeed ZeRO-3.
 
@@ -242,7 +254,7 @@ Preflight prints data hashes, record and supervised-token counts, maximum sequen
 
 The token report also includes minimum, median, and nearest-rank 95th-percentile lengths, total tokens, and the supervised fraction. Use these values to compare data budgets and choose an appropriate length limit. `just preflight-train` runs the same safe command, and `just test-training-setup` runs the opt-in construction tests below.
 
-An opt-in test constructs TRL and PEFT against a tiny random local Qwen3 model. It checks actual completion labels, empty-thought-prefix masking, fused-loss configuration, and validation/warmup settings. The test replaces the optimizer-running entry point with an inspection function, so it never trains. Its QLoRA variant skips when CUDA is unavailable:
+An opt-in test constructs TRL and PEFT against a tiny random local Qwen3.5 checkpoint saved in the same multimodal layout as the real ones, with an extra MTP tensor. It checks that only the text model loads, with the saved weights and a tied output head, that LoRA covers the linear-attention and full-attention projections but not the convolution, plus actual completion labels, empty-thought-prefix masking, fused-loss configuration, and validation/warmup settings. The test replaces the optimizer-running entry point with an inspection function, so it never trains. Its QLoRA variant skips when CUDA is unavailable:
 
 ```bash
 DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py

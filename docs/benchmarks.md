@@ -39,7 +39,7 @@ Keep the suite out of transfer training and model selection. `--limit 2` is enou
 
 ## Run the comparison later
 
-Review `configs/eval.example.toml`. Its four slots are `teacher`, `student_before`, `teacher_after`, and `student_after`. The `teacher` slot records the before phase. The included pairing uses the existing pinned Qwen3-14B teacher and Qwen3-4B-Base student. Local student runs use the same base revision, tokenizer, chat template, precision, four-bit setting, and `<|im_end|>` stopping token in both phases. Only `student_after` loads the adapter. Models load one at a time.
+Review `configs/eval.example.toml`. Its four slots are `teacher`, `student_before`, `teacher_after`, and `student_after`. The `teacher` slot records the before phase. The included pairing uses the pinned Qwen3.5-9B teacher and Qwen3.5-2B-Base student. Local student runs use the same base revision, tokenizer, chat template, precision, four-bit setting, and `<|im_end|>` stopping token in both phases. Only `student_after` loads the adapter. Models load one at a time.
 
 ```bash
 uv sync --all-packages --extra train --extra eval

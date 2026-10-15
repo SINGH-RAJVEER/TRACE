@@ -4,8 +4,8 @@ The `scripts/` directory runs the whole pipeline from one command per machine. E
 
 | Script | Scenario | What it does |
 | --- | --- | --- |
-| `teacher-host` | Two machines, teacher side | Starts vLLM with Qwen3-14B on loopback and the teacher API on the network, then runs until interrupted |
-| `student-train` | Two machines, student side | Checks the remote teacher API, collects responses, prepares the dataset, and trains the Qwen3-4B adapter |
+| `teacher-host` | Two machines, teacher side | Starts vLLM with Qwen3.5-9B on loopback and the teacher API on the network, then runs until interrupted |
+| `student-train` | Two machines, student side | Checks the remote teacher API, collects responses, prepares the dataset, and trains the Qwen3.5-2B adapter |
 | `distill-local` | One machine | Starts vLLM and the teacher API on loopback, collects, stops both to free GPU memory, then prepares and trains |
 
 Run them from any directory. Relative paths in options resolve against the repository root.
@@ -58,7 +58,7 @@ scripts/teacher-host.sh
 
 The script binds the teacher API to `0.0.0.0` on `TEACHER_PORT` (default 8000) and keeps vLLM on `127.0.0.1:VLLM_PORT` (default 8001), so only the authenticated teacher API is reachable from the network. It refuses to bind beyond loopback without `TEACHER_API_TOKEN`. `.env`'s `TEACHER_HOST` does not apply here; pass `--host` (`-BindHost`) to change the address. The API has no TLS, so expose it only on a trusted network or behind a TLS gateway.
 
-Startup waits for vLLM to load the model, then for `/healthz` to report `ready`, then sends one small generation through the API. That check fails if the token is wrong or if the response contains a `<think>` trace. vLLM starts with `--default-chat-template-kwargs '{"enable_thinking": false}'`, so Qwen3 answers in non-thinking mode without changing the API's request format. When ready, the script prints the student command with this machine's address and then watches both processes. Ctrl+C stops both.
+Startup waits for vLLM to load the model, then for `/healthz` to report `ready`, then sends one small generation through the API. That check fails if the token is wrong or if the response contains a `<think>` trace. vLLM starts with `--default-chat-template-kwargs '{"enable_thinking": false}'`, so Qwen3.5 answers in non-thinking mode without changing the API's request format, and with `--language-model-only`, so the checkpoint's vision encoder is never loaded. When ready, the script prints the student command with this machine's address and then watches both processes. Ctrl+C stops both.
 
 | Option (bash / PowerShell) | Default | Meaning |
 | --- | --- | --- |
@@ -90,7 +90,7 @@ scripts/distill-local.sh --reviews data/reviews/reviews.jsonl
 ./scripts/distill-local.ps1 -Reviews data/reviews/reviews.jsonl
 ```
 
-Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log`, `teacher-api.log`, and `.err.log` files for PowerShell). After collection, the script stops the teacher API and vLLM before training, because the 14B teacher and the 4B student do not fit on one consumer GPU together. The machine therefore needs enough GPU memory for the teacher during collection (see the model pairing in [distillation-pipeline.md](distillation-pipeline.md)). Lower `VLLM_MAX_MODEL_LEN` or add `--quantization fp8` to `VLLM_EXTRA_ARGS` if vLLM runs out of memory. `--upstream-url` (`-UpstreamUrl`) skips vLLM and uses an existing server instead.
+Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log`, `teacher-api.log`, and `.err.log` files for PowerShell). After collection, the script stops the teacher API and vLLM before training, because vLLM reserves most of the GPU for the teacher and leaves too little for training alongside it. The machine therefore needs enough GPU memory for the teacher during collection (see the model pairing in [distillation-pipeline.md](distillation-pipeline.md)). Lower `VLLM_MAX_MODEL_LEN` or add `--quantization fp8` to `VLLM_EXTRA_ARGS` if vLLM runs out of memory. `--upstream-url` (`-UpstreamUrl`) skips vLLM and uses an existing server instead.
 
 ## Full run with the prompt corpus
 
@@ -112,14 +112,17 @@ The same steps work on two machines: pass `--corpus` to `student-train`.
 
 ### GPUs with 20 to 24 GB
 
-The teacher's BF16 weights take about 28 GB, so a 20 GB card such as the RTX 4000 Ada, or a 24 GB card, must quantize it. Ada and newer GPUs support FP8, which halves the weights to about 15 GB. Add these lines to `.env`:
+The teacher's BF16 text weights take about 18 GB, so a 20 GB card such as the RTX 4000 Ada must quantize them. Ada and newer GPUs support FP8, which brings the weights to roughly 11 GB; the embedding and output layers stay in BF16. Add this line to `.env`:
 
 ```dotenv
-VLLM_EXTRA_ARGS="--quantization fp8 --kv-cache-dtype fp8"
-VLLM_MAX_MODEL_LEN=4096
+VLLM_EXTRA_ARGS="--quantization fp8"
 ```
 
-The 4,096-token context still fits the longest corpus prompt plus a 1,024-token answer. vLLM still downloads the BF16 checkpoint and quantizes it while loading. For training, the 4-bit base model takes about 2.5 GB and the rank-128 adapter with its optimizer state about 4 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`.
+The scripts already pass `--language-model-only`, so the vision encoder takes no GPU memory. Only one layer in four keeps a KV cache, about 32 KB per token in BF16, so the default 8,192-token context and `--concurrency 16` should fit in what remains. Keep the KV cache in BF16: the one run with `--kv-cache-dtype fp8` on an RTX 4000 Ada failed while FlashInfer compiled a kernel at startup, which needs `nvcc` from a CUDA toolkit. vLLM still downloads the BF16 checkpoint and quantizes it while loading, so the machine, or the WSL virtual machine, needs enough system memory to read it.
+
+A GPU that also drives a display already has about 1 GB in use. vLLM refuses to start when free memory is below `VLLM_GPU_MEMORY_UTILIZATION` times the total; lower the value if the log reports that.
+
+For training, the 2B student's 4-bit text model takes about 2 to 3 GB, because its 248K-token embedding stays unquantized, and the rank-128 adapter with its optimizer state about 2 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB with room to spare. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`.
 
 ## Pipeline options
 
@@ -147,7 +150,7 @@ The scripts read `.env` from the repository root. Variables already set in the s
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `TEACHER_UPSTREAM_MODEL` | `Qwen/Qwen3-14B` | Model vLLM serves, and the name the teacher API requests |
+| `TEACHER_UPSTREAM_MODEL` | `Qwen/Qwen3.5-9B` | Model vLLM serves, and the name the teacher API requests |
 | `TEACHER_MODEL_REVISION` | pinned commit | Hugging Face revision vLLM loads |
 | `VLLM_PORT` | 8001 | vLLM loopback port |
 | `VLLM_MAX_MODEL_LEN` | 8192 | Context length; lower it to save KV cache memory |

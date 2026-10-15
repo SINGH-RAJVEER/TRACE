@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
 Scenario 1, student machine: collect from a remote teacher API, prepare the dataset, and train
-the Qwen3-4B QLoRA adapter.
+the Qwen3.5-2B QLoRA adapter.
 
 .DESCRIPTION
 Runs collection against a teacher API on another machine, then preparation and training.

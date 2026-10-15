@@ -1,7 +1,7 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-Scenario 1, teacher machine: serve Qwen3-14B with vLLM on loopback and expose the teacher API
+Scenario 1, teacher machine: serve Qwen3.5-9B with vLLM on loopback and expose the teacher API
 on the network for a student machine to collect from.
 
 .DESCRIPTION

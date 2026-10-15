@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Scenario 1, student machine: collect from a remote teacher API, prepare the dataset,
-# and train the Qwen3-4B QLoRA adapter.
+# and train the Qwen3.5-2B QLoRA adapter.
 set -euo pipefail
 
 SCRIPT_NAME="student-train"

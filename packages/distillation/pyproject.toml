@@ -19,6 +19,9 @@ train = [
 	"accelerate>=1.15.0,<2",
 	"bitsandbytes>=0.47.0; platform_system == 'Linux'",
 	"datasets>=4.0.0",
+	# Triton kernels for the Qwen3.5 linear-attention layers; transformers otherwise falls back to
+	# a slower PyTorch path. causal-conv1d is left out because it builds with nvcc.
+	"flash-linear-attention>=0.5.2,<0.6; platform_system == 'Linux'",
 	"peft>=0.21.2,<1",
 	"torch>=2.14.1,<3",
 	"transformers>=5.19.0,<6",
