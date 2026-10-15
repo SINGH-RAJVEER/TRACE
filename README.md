@@ -54,9 +54,15 @@ uv sync --all-packages --extra train
 uv run --extra train distill train --config configs/train.example.toml
 ```
 
-To run everything with one command per machine, use `just teacher-host` and `just student-train` on two machines, or `just distill-local` on one. Each recipe runs `scripts/pipeline.py`, which works the same on Linux, macOS, and Windows and shows live progress for model downloads, collection, review, and training. See [docs/run-scripts.md](docs/run-scripts.md).
+To run the entire distillation loop on one machine, copy `.env.example` to `.env`, set `TEACHER_TERMS_REVIEW_ID` to your approval reference, adjust the GPU settings if needed, and run:
 
-For a full run, `just distill-local --corpus standard` builds about 36,000 training prompts with answer keys from pinned public datasets and project-authored prompts, then reviews the teacher's answers against those keys before training. See [docs/prompt-corpus.md](docs/prompt-corpus.md) and the full-run section of [docs/run-scripts.md](docs/run-scripts.md#full-run-with-the-prompt-corpus).
+```bash
+just distill-local
+```
+
+It builds the `standard` prompt corpus if it is missing, reuses it when the profile matches, hosts the teacher, collects a resumable ledger, stops the teacher to free GPU memory, reviews the answers, prepares the training and validation splits, and trains the student with `configs/train.distill.toml`. Set `DISTILL_CORPUS=quick` or `full` in `.env` to choose another profile. `.env.example` lists the supported environment settings and their defaults; training hyperparameters live in the TOML configs.
+
+Without `just`, run `python3 scripts/pipeline.py distill-local`. On Windows, use `py -3 scripts\pipeline.py distill-local --upstream-url http://127.0.0.1:8001/v1` with an existing model server. For two machines, run `just teacher-host` and `just student-train --teacher-url http://TEACHER_IP:8000`. See [docs/run-scripts.md](docs/run-scripts.md) for options, GPU requirements, and platform setup, and [docs/prompt-corpus.md](docs/prompt-corpus.md) for the corpus profiles.
 
 The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` skips review and suits only plumbing tests. Paper runs should use a separate review file as described in the operating guide.
 
