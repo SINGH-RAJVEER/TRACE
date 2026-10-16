@@ -256,7 +256,7 @@ The paged optimizer and real activation offloading have not been measured on the
 
 ## Checks before running on training hardware
 
-The default tests use fake teachers and small fixtures. They make no provider calls and perform no optimization steps:
+The default tests make no external provider calls and perform no optimization steps. The HTTP collection integration test replaces only the external provider transport, then runs the real OpenAI adapter, teacher API, gateway, collector, review, and preparation. It checks retry history, provider request IDs, actual served-model identity, secret-free artifacts, held-out prompt exclusion, thought/truncation rejection, and append-only resume. Separate checks change each part of the collection contract and verify rejection before any request or ledger write. Event-controlled workers verify the concurrency bound and that a completed response reaches disk while another request is still blocked; those checks do not depend on sleeping long enough for a worker to finish.
 
 ```bash
 uv run pytest
