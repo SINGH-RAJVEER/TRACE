@@ -2,11 +2,11 @@
 
 ## Scope
 
-This repository implements a black-box teacher to open-weight student experiment. The teacher is a hosted chat model available through an OpenAI-compatible `POST /chat/completions` endpoint. The student is a Hugging Face causal language model trained with LoRA on a BF16 base, or optionally with QLoRA.
+This repository implements the paper's task-specific teacher-to-student extraction experiment. The teacher is a hosted chat model available through an OpenAI-compatible `POST /chat/completions` endpoint. The student is a Hugging Face causal language model trained with LoRA on a BF16 base, or optionally with QLoRA.
 
 The current method is sequence-level distillation. The collector saves the teacher's generated text, and TRL trains the student with cross-entropy on completion tokens. It does not use teacher logits.
 
-The protection wrapper discussed in the paper is outside this implementation.
+The protection wrapper discussed in the paper lives in `packages/harness`; see [harness.md](harness.md).
 
 ## Development environment
 
@@ -34,7 +34,7 @@ Training on a GPU, and QLoRA in particular, requires a compatible NVIDIA GPU and
 - Student: `Qwen/Qwen3.5-2B-Base` at revision `b1485b2fa6dfa1287294f269f5fb618e03d52d7c` (Apache 2.0, verified 2026-10-15).
 - Teacher: `Qwen/Qwen3.5-9B` at revision `c202236235762e1c871ad0ccb60c8ee5ba337b9a` (Apache 2.0, verified 2026-10-15), run in non-thinking mode.
 
-On a 20 GB GPU, the FP8 teacher should leave room for many concurrent requests, so the whole run can use one such GPU, with collection and training taking turns. These fits are estimates until a quick-corpus run measures them.
+On a 20 GB GPU, the FP8 teacher should leave room for many concurrent requests, so the whole run can use one such GPU, with collection and training taking turns. These fits are estimates until a task pilot measures them.
 
 Both use the Qwen3.5 chat format and tokenizer. Their pinned tokenizer configurations still differ: the teacher's default EOS token is `<|im_end|>` and the base student's is `<|endoftext|>`, so training explicitly sets `<|im_end|>` and passes `enable_thinking=false`.
 
@@ -64,7 +64,7 @@ Do not collect data until the hosted provider has explicitly authorized using it
 
 Record the approval, contract amendment, or provider permission in `TEACHER_TERMS_REVIEW_ID`. The collector separately requires `--terms-review-id` and writes it into every ledger record. This is an audit reference, not an enforcement mechanism.
 
-The prompt source also requires a corpus name, source ID, and license. The example fixture uses text authored for this repository under Apache-2.0.
+The prompt source also requires a corpus name, source ID, and license. The task builder records pinned dataset provenance and grouped source identity.
 
 ## Teacher inference API
 
@@ -102,110 +102,62 @@ The upstream adapter sends `max_output_tokens` as the widely supported `max_toke
 
 `enable_thinking` is optional. Set it to `false` for the Qwen/vLLM collection recipe; the upstream request then contains `chat_template_kwargs`. Omit it for providers that do not support that extension. The collector's `--no-thinking` option forwards the setting, records it in provenance, and rejects responses containing thought markers. This check rejects marker-bearing output; it does not establish task correctness.
 
-## Prompt input
+## Task input and splits
 
-The collector accepts JSONL. Each row has a stable ID, a split assigned before teacher collection, task metadata, source rights, and structured messages:
+`distill tasks build --task TASK` writes the attacker pool, gold completions, legitimate workload pools, development suite, final test suite, and a hashed manifest. See [paper-tasks.md](paper-tasks.md#splits) for group assignment, filtering, and dataset pins. Each collector row has a stable example ID, `split`, `task`, source dataset and group identity, license, and structured messages.
 
-```json
-{
-	"example_id": "support-0001",
-	"split": "train",
-	"task": "support-answer",
-	"source": {
-		"corpus": "licensed-support-v1",
-		"source_id": "row-1",
-		"license": "internal-approved"
-	},
-	"prompt": [
-		{"role": "user", "content": "How do I reset the device?"}
-	]
-}
-```
-
-Use grouped train, validation, and test splits. Related templates, documents, users, or generated variants belong in the same split. Do not collect training responses for the frozen test split.
-
-Set `source.group_id` when multiple source rows come from one document, conversation, or problem family. Preparation uses `(corpus, group_id)` as the split-separation key, falling back to `(corpus, source_id)` when the group is omitted. Declare groups before collection; exact prompt equality cannot detect paraphrases or semantic overlap.
-
-`distill corpus build` produces a prompt set in this format from pinned public datasets and project-authored prompts, assigns grouped splits, removes held-out benchmark overlap, and writes an answer key for automatic review. See [prompt-corpus.md](prompt-corpus.md).
+Only attacker-pool prompts enter attacker collection. Gold answers stay in separate files for reference training and evaluation. Frozen development and test suites do not consume attacker queries. Select the recipe on development data and reserve the test suite for final scoring.
 
 ## Collection and preparation
 
-Run the teacher API first. Then collect responses:
+The task launcher runs these steps for each seed and supported budget. To run them manually:
 
 ```bash
+uv run --extra eval distill tasks build --task ag_news
+uv run distill tasks budget --task-dir data/tasks/ag_news --seed 42 --budget 2000
 uv run distill collect \
-	--input data/prompts/all-splits.jsonl \
-	--output data/teacher/ledger.jsonl \
+	--input data/tasks/ag_news/runs/s42-b2000/prompts.jsonl \
+	--output data/tasks/ag_news/ledger.jsonl \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id "$TEACHER_TERMS_REVIEW_ID" \
-	--concurrency 4 \
-	--max-attempts 3 \
-	--no-thinking
-```
-
-Collection is resumable by `example_id`. It rejects duplicate input IDs, retries teacher failures, and appends each successful response from its worker, so a later failure does not discard completed results. The ledger records teacher identity, the actual upstream endpoint, request parameters, provider request ID, token usage, source rights, approval reference, finish reason, and basic checks. A sibling `ledger.attempts.jsonl` file records every successful and failed call, including prompts whose retries all failed. Test prompts are skipped unless `--include-test` is set for a controlled teacher evaluation.
-
-Resume verifies the prompt, split, task, source metadata, generation parameters, and approval reference for IDs already in the ledger. A mismatch requires a new ledger. The collector cannot detect a provider changing the underlying model behind the same endpoint; pin the served model and keep its deployment records.
-
-Collection also exposes `--top-p` and `--top-k`; both are omitted from upstream requests unless supplied and are recorded for resume checks. `top_k` and the thinking switch need an upstream implementation that supports those extensions, such as vLLM. For a reviewed Qwen non-thinking sampling pilot, compare the greedy baseline with `--temperature 0.7 --top-p 0.8 --top-k 20 --no-thinking`, using separate ledgers and the same prompt/task contract. These follow Qwen3.5's documented non-thinking recommendations, except `presence_penalty=1.5`, which the collector does not expose. They are not a proven distillation optimum. Accept samples by task correctness and coverage before choosing a collection policy.
-
-The basic checks reject blank content and nonterminal finish reasons. Passing responses remain `pending`; the collector does not call them training-ready. Store review decisions in a separate JSONL file so the raw ledger stays unchanged:
-
-```json
-{"example_id":"support-0001","status":"accepted","checks":["schema","grounding","human_review"],"reviewer":"reviewer-1"}
-```
-
-Task validators and human review must produce these decisions before a paper run. For example, compile generated code, validate structured output against a schema, check citations against supplied text, and audit every task slice.
-
-`distill review` produces these decisions from the answer key that `distill corpus build` writes:
-
-```bash
+	--max-output-tokens 16 --no-thinking
+uv run distill tasks budget --task-dir data/tasks/ag_news --seed 42 --budget 2000 \
+	--ledger data/tasks/ag_news/ledger.jsonl
 uv run --extra train distill review \
-	--ledger data/teacher/ledger.jsonl \
-	--references data/prompts/references.jsonl \
-	--output data/teacher/ledger.reviews.jsonl \
-	--config configs/train.distill.toml \
-	--overrides data/reviews/human.jsonl
-```
-
-It writes one decision for every ledger record, because preparation skips records without one. It compares numeric answers after `####`, multiple-choice letters, exact answers, and JSON objects; parses Python code, and runs its tests in Docker when `--code-image` is set; and checks word limits, bullet counts, and required or forbidden phrases. Prompts without a key are accepted unless the collector rejected them. `--config` rejects records longer than the training `max_length` using the student tokenizer, so preflight does not fail later. `--overrides` decisions replace the automatic ones. The `.summary.json` beside the output counts decisions by status, reference kind, rejection reason, and task. Automatic checks confirm format and final answers, not reasoning quality; sample the accepted open-ended responses by hand before a paper run.
-
-Project accepted training rows into TRL's conversational prompt-completion schema:
-
-```bash
+	--ledger data/tasks/ag_news/runs/s42-b2000/ledger.jsonl \
+	--output data/tasks/ag_news/runs/s42-b2000/reviews.jsonl \
+	--config configs/train.task.toml
 uv run distill prepare \
-	--input data/teacher/ledger.jsonl \
-	--reviews data/reviews/reviews.jsonl \
-	--prompts data/prompts/all-splits.jsonl \
-	--output data/processed/train.jsonl \
-	--split train
+	--input data/tasks/ag_news/runs/s42-b2000/ledger.jsonl \
+	--output data/tasks/ag_news/runs/s42-b2000/train.jsonl \
+	--prompts data/tasks/ag_news/runs/s42-b2000/prompts.jsonl \
+	--reviews data/tasks/ag_news/runs/s42-b2000/reviews.jsonl
 ```
 
-Preparation keeps reviewed and accepted rows from the requested split. Explicit review rejection always wins over `--accept-pending`. It drops duplicate prompts and source groups found in another split, and refuses to prepare the frozen test split. Pass the full original prompt inventory with `--prompts`, including validation and test rows that have no teacher response, to close the ledger-only contamination gap. The supplied launchers pass their original prompt inventory automatically. Without `--prompts`, checks cover only rows present in that ledger. Separate collection files require the same full inventory.
+Use 64 output tokens for SQuAD and 256 for GSM8K, identically in collection and evaluation. Pilot GSM8K truncation before main collection. Budget extraction refuses ledger rows collected at another task output limit.
 
-A sibling `train.manifest.json` records input and output hashes, skip-reason counts, accepted task/source counts, and whether pending rows were allowed. Raw ledger files and prepared datasets remain private artifacts. Review near-duplicates and task correctness separately; the automated admission checks do not detect semantic overlap.
+Collection resumes by `example_id`, rejects duplicate input IDs, and verifies prompt, split, task, source metadata, parameters, and approval identity before appending. Each finished response persists immediately. A sibling attempts ledger records successful and failed calls. The raw ledger retains the actual served model, provider, endpoint, generation settings, request IDs, usage, finish reasons, and collection checks. Resume cannot detect a provider replacing weights behind an unchanged endpoint, so archive deployment identity separately.
+
+The collector rejects empty responses, nonterminal finish reasons, and thinking traces in non-thinking mode. Other responses remain pending until review. `distill review` accepts nonempty responses that fit the student training length and were not collector-rejected. It has no gold-answer input or correctness filter. Wrong and malformed teacher answers remain in attacker supervision. The review summary records status, rejection reasons, accepted task counts, and whether length was checked.
+
+Preparation writes reviewed, accepted, deduplicated prompt-completion rows and a preparation manifest. It refuses the test split and removes prompts or source groups shared across splits. Pass the original prompt inventory through `--prompts`; grouping and held-out separation also depend on the task build. Explicit rejection wins over the low-level `--accept-pending` bypass, which is only for plumbing checks.
+
+The undefended collector retries transport failures. A defended campaign must charge every attempt, filler request, retry, and challenge to the declared budgets and train only on responses actually released. The campaign client and accounting requirements remain on the [implementation checklist](paper-tasks.md#implementation-todo).
 
 ## Student training
 
-Install the optional training stack:
+`configs/train.task.toml` is the task recipe: rank-16 LoRA, alpha 32, dropout 0.05, 2,048-token training limit, effective batch size 16, and no victim-response validation split. The launcher writes one config per task, seed, budget, and student kind, selecting the corresponding training file and adapter directory.
+
+Select learning rate and epoch count on the frozen gold-scored development suite, then freeze the recipe across defense conditions. The attacker and gold-label reference use the same prompts and training recipe. Establish positive undefended transfer on development data before final defense evaluation. A gold reference is a control, not a guaranteed empirical upper bound.
 
 ```bash
-uv sync --all-packages --extra train
+uv run --extra train distill train \
+	--config data/tasks/ag_news/runs/s42-b2000/train.attacker.toml --preflight-only
+uv run --extra train distill train \
+	--config data/tasks/ag_news/runs/s42-b2000/train.attacker.toml
 ```
 
-Review `configs/train.example.toml`, which uses the pinned Qwen3.5-2B-Base checkpoint. Confirm that the base model license allows fine-tuning and the intended distribution. It trains without a validation split, so use it to check the setup on the `quick` corpus; `configs/train.distill.toml` is the configuration for a measured run.
-
-For a full run, use `configs/train.distill.toml` with the standard corpus. It raises the LoRA rank from 16 to 128, which trains about 135M adapter parameters instead of 17M (1,051,200 per rank across Qwen3.5-2B's 24 text layers, 18 linear-attention and 6 full-attention), raises `max_length` to 3,072, enables the validation split, trains for 2 epochs with batches of 4 and accumulation of 8, and evaluates every 500 steps so the best checkpoint is kept. The adapted text model stays near 2.0B parameters against the 9B teacher.
-
-For an experiment, include reviewed validation prompts in the original inventory, prepare them with `--split validation --prompts data/prompts/all-splits.jsonl`, and enable `validation_dataset_path` in the configuration. `scripts/pipeline.py` prepares that path automatically when configured. Training rejects empty datasets and exact train/validation prompt overlap, including datasets prepared outside this collector. The example config leaves validation optional; a research run needs validation and a separately frozen test set.
-
-Training input must contain only conversational `prompt` and `completion` columns, with one assistant completion. Unknown columns are rejected. This prevents externally supplied `input_ids`, `labels`, or per-row template overrides from bypassing the tokenizer and completion-loss checks.
-
-Start training:
-
-```bash
-uv run --extra train distill train --config configs/train.example.toml
-```
+Training accepts only conversational `prompt` and `completion` columns with one assistant completion. It rejects empty datasets and unsupported per-row tokenization overrides. The shared trainer retains optional validation support, but the paper task recipe selects settings through development task scores rather than extra victim-response queries.
 
 The trainer:
 
@@ -230,7 +182,7 @@ Liger, black-box on-policy training, and data-selection methods need separate co
 
 `selective_gradient_checkpointing=true` enables TRL 1.15's selective activation checkpointing when `gradient_checkpointing=true`. It saves attention outputs instead of recomputing them during backward, exchanging additional activation memory for less recomputation. The default remains off until you measure the tradeoff on the training machine. The current recipe uses non-reentrant checkpointing and does not configure DeepSpeed ZeRO-3.
 
-Both example configs set `qlora = false`. A 4-bit base costs small students more accuracy than it saves memory: the 2B student's text weights take about 3.8 GB in BF16, while activations dominate peak memory. Training on a quantized base also lets the adapter partly learn to correct quantization error, which mixes that recovery into the measured distillation gain. Set `qlora = true` only when the BF16 base does not fit; four-bit training requires CUDA and bitsandbytes. Change `precision` to match the GPU. CPU execution is suitable for API and pipeline tests, not the example training runs.
+The task config sets `qlora = false`. A 4-bit base costs small students more accuracy than it saves memory: the 2B student's text weights take about 3.8 GB in BF16, while activations dominate peak memory. Training on a quantized base also lets the adapter partly learn to correct quantization error, which mixes that recovery into the measured distillation gain. Set `qlora = true` only when the BF16 base does not fit; four-bit training requires CUDA and bitsandbytes. Change `precision` to match the GPU. CPU execution is suitable for API and pipeline tests, not the example training runs.
 
 Evaluate an adapter on the same base it was trained on. Set `load_in_4bit` in both student slots of the evaluation config to the adapter's `qlora` value. The evaluator loads four-bit models with the same NF4 and double-quantization settings as training, and rejects an adapter whose `qlora` setting differs from `load_in_4bit`.
 
@@ -248,7 +200,7 @@ The first Ctrl+C or SIGTERM lets the current optimizer step finish, saves a chec
 
 PyTorch does not spill GPU memory into system memory on its own. The trainer uses three narrower mechanisms:
 
-- `optimizer = "auto"` selects bitsandbytes' paged AdamW (`paged_adamw_32bit`) when `qlora = true` on native Linux, and the Transformers default, `adamw_torch_fused`, otherwise. Paged state lives in CUDA unified memory, which the driver pages to system memory when the GPU runs short instead of failing. [NVIDIA's WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html) states that WSL 2 lacks full managed-memory support and warns of reduced performance and high system memory usage, so `auto` detects WSL 2 and uses `adamw_torch_fused` there. It covers only optimizer state, and bitsandbytes pages only parameters with at least 100,000 elements: the rank-128 adapter matrices of `train.distill.toml` qualify, while most rank-16 matrices stay in ordinary GPU memory. QLoRA runs before this change used `adamw_torch_fused`; compare them with that in mind (the manifest's `training_args` records the optimizer). `adamw_torch`, `adamw_torch_fused`, `paged_adamw_32bit`, and `paged_adamw_8bit` can be set explicitly; paged optimizers require CUDA.
+- `optimizer = "auto"` selects bitsandbytes' paged AdamW (`paged_adamw_32bit`) when `qlora = true` on native Linux, and the Transformers default, `adamw_torch_fused`, otherwise. Paged state lives in CUDA unified memory, which the driver pages to system memory when the GPU runs short instead of failing. [NVIDIA's WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html) states that WSL 2 lacks full managed-memory support and warns of reduced performance and high system memory usage, so `auto` detects WSL 2 and uses `adamw_torch_fused` there. It covers only optimizer state, and bitsandbytes pages only parameters with at least 100,000 elements: most rank-16 task adapter matrices stay in ordinary GPU memory. QLoRA runs before this change used `adamw_torch_fused`; compare them with that in mind (the manifest's `training_args` records the optimizer). `adamw_torch`, `adamw_torch_fused`, `paged_adamw_32bit`, and `paged_adamw_8bit` can be set explicitly; paged optimizers require CUDA.
 - `activation_offloading = "auto"` starts without offloading. On a CUDA out-of-memory error, it frees the failed attempt, resumes from the last checkpoint (or the first step) with TRL's activation offloading, which keeps saved activations in system memory, and records that in `training-run.json` so later resumes start with it. `true` offloads from the start, and `false` never does; with `false`, an out-of-memory error stops with the last checkpoint and the settings to change. If memory runs out even with offloading, lower `per_device_batch_size` or `max_length` and train into a new `output_dir`. Only `torch.OutOfMemoryError` triggers the retry; allocation failures that cuBLAS or bitsandbytes raise as other errors stop training, since a failed CUDA context is not safe to reuse in the same process. Offloading also does not reduce evaluation memory. bitsandbytes never frees paged buffers, so the failed attempt's optimizer state stays allocated, unused, until the process exits.
 - `distill train` sets `PYTORCH_ALLOC_CONF=expandable_segments:True` unless `PYTORCH_ALLOC_CONF` or `PYTORCH_CUDA_ALLOC_CONF` is already set. Growable allocator segments reduce out-of-memory errors caused by fragmentation; they do not use system memory.
 
@@ -267,7 +219,7 @@ uv run mypy apps packages tests
 After preparing your actual data, check the configured tokenizer and complete tokenized targets without loading model weights or invoking a trainer:
 
 ```bash
-uv run --extra train distill train --config configs/train.example.toml --preflight-only
+uv run --extra train distill train --config configs/train.task.toml --preflight-only
 ```
 
 Preflight prints data hashes, record and supervised-token counts, maximum sequence length, template identity, EOS, loss/attention settings, and whether validation is enabled. It may download tokenizer files. It makes no teacher calls, loads no model weights, and creates no adapter. Passing preflight checks data and serialization; it does not prove GPU capacity, numerical stability, or task quality.
@@ -292,12 +244,12 @@ UV_PROJECT_ENVIRONMENT=/tmp/distillation-checks just test-training
 
 ## Evaluation
 
-Freeze evaluation prompts before collection. The benchmark tools compare four slots on the identical frozen suite: teacher and base student before training, then teacher and distilled student after training. The initial teacher stays the fixed reference for gap closure; the second evaluation measures teacher drift. Supported public tasks are GSM8K, ARC-Challenge, MMLU, the authors' binary TruthfulQA task, HumanEval, and sanitized MBPP. Coding scores use executable pass@1 in isolated containers. General tasks use numeric exact match or generated-choice accuracy.
+Evaluate each task separately with `configs/eval.TASK.toml`. Point `student_after.adapter_path` at the exact `attacker` or `gold` adapter and use distinct experiment names and output directories for different seeds, budgets, conditions, and student kinds. The default configs point at the seed-42, budget-2,000 attacker adapter.
 
-Run `uv run --extra eval distill benchmark freeze --output data/benchmarks/suite.json`, then use `configs/eval.example.toml` with `distill benchmark run --stage before` and later `--stage after`. These commands evaluate existing models and do not perform distillation. The read-only dashboard displays quality scores with Wilson intervals, paired gains and regressions, teacher drift, student–teacher agreement, subject slices, latency, usage, and request/test outcomes. See [benchmarks.md](benchmarks.md) for the complete metric definitions, denominator rules, dataset provenance, coding limits, and dashboard commands. Peak GPU memory and domain-specific safety failures require separate instrumentation; this setup does not record them.
-
-Do not use training loss as the main result. Sequence-level distillation aims to transfer behavior on held-out prompts. Add DPO only after SFT if a measured failure has reliable preference pairs. The current code intentionally stops at the SFT baseline.
+Primary capability metrics are AG News label accuracy, SQuAD token F1, and GSM8K numeric exact match. Keep SQuAD exact match secondary. Run the victim and unmodified student before training and reevaluate the victim plus adapted student afterward. Victim reevaluation measures drift; the teacher is not trained. These four slots do not by themselves aggregate a paired defended-versus-undefended study or implement `R_D`. See [benchmarks.md](benchmarks.md).
 
 ## Reproducibility limits
 
-Provider models can change behind aliases. Pin a dated snapshot where available and preserve provider request IDs. Hosted generation may remain nondeterministic with a fixed seed. The training manifest records available runtime information and data/template identity; it cannot recover missing teacher deployment history, a model alias's former weights, or undeclared source groups. Archive the full prompt inventory, review decisions, frozen evaluation suite, and teacher deployment configuration with the experiment. Local filesystem model loads may have no resolved Hub revision. Use immutable Hub commits for paper runs.
+Freeze dataset groups, prompt serialization, model and tokenizer revisions, training settings, query schedules, and the experiment matrix before final testing. Archive task manifests, ledgers, attempts, reviews, generated configs, adapters, training manifests, calibration, and campaign events. Record quantization and actual provider identity as part of the deployed victim.
+
+Training manifests and passing preflight establish software and data checks, not measured capability. Provider aliases can change, generation can vary despite seeds, and exact-overlap checks do not detect paraphrases or pretraining contamination. Report actual completed experiments and their validation boundaries. Outstanding requirements and manuscript revisions are tracked in [paper-tasks.md](paper-tasks.md#implementation-todo) and [paper-revision-todo.md](paper-revision-todo.md).

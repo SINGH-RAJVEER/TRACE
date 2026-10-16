@@ -79,7 +79,7 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 	deltas = [int(right[key].correct) - int(left[key].correct) for key in sorted(left)]
 	rng = random.Random(42)
 	# Resampling binary outcome differences is a multinomial draw. Binomial draws
-	# avoid creating thousands of full-size arrays for the complete MMLU test split.
+	# avoid creating thousands of full-size arrays for a complete task test split.
 	n = len(deltas)
 	p_positive = deltas.count(1) / n
 	p_negative_conditional = deltas.count(-1) / (n - deltas.count(1)) if p_positive < 1 else 0
@@ -92,9 +92,7 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 	agreement_pairs = [
 		(left[key].prediction, right[key].prediction)
 		for key in left
-		if left[key].prediction is not None
-		and right[key].prediction is not None
-		and left[key].benchmark not in {"humaneval", "mbpp"}
+		if left[key].prediction is not None and right[key].prediction is not None
 	]
 	f1_deltas = [
 		(right[key].f1 or 0) - (left[key].f1 or 0)
@@ -213,15 +211,6 @@ def build_report(directory: Path, comparison_key: str) -> dict[str, Any]:
 				)
 				for benchmark in benchmarks
 			}
-	macro = {
-		slot: statistics.mean(score["score"] for score in values.values())
-		for slot, values in scores.items()
-	}
-	gap_closure = None
-	if {"teacher", "student_before", "student_after"} <= macro.keys():
-		gap = macro["teacher"] - macro["student_before"]
-		if gap > 0:
-			gap_closure = 100 * (macro["student_after"] - macro["student_before"]) / gap
 	warnings = errors.copy()
 	if any(not run.training_sha256 for run in latest.values()):
 		warnings.append(
@@ -257,8 +246,6 @@ def build_report(directory: Path, comparison_key: str) -> dict[str, Any]:
 		"scores": scores,
 		"slices": slices,
 		"comparisons": comparisons,
-		"macro": macro,
-		"gap_closure_percent": gap_closure,
 		"warnings": warnings,
 		"samples": [
 			{

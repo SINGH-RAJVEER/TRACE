@@ -1,90 +1,70 @@
-# Distillation lab
+# Task extraction study
 
-This repository is a runnable research environment for sequence-level knowledge distillation from an authorized hosted language model into an open-weight causal language model.
+This repository studies how an access policy affects extraction from narrow language-model APIs. AG News classification and SQuAD 1.1 extractive question answering form the core study; GSM8K adds a generative math task. Each task has separate query pools, ledgers, adapters, and frozen evaluation suites.
 
-The first implementation uses teacher-generated prompt-completion pairs and completion-only supervised fine-tuning. It does not claim token-level knowledge distillation because a text API does not expose the teacher's full token distribution.
+Students learn from teacher-generated text through sequence-level supervised fine-tuning with completion-only loss. The study measures task capability, extraction under query budgets, and legitimate utility. It makes no general-chat or token-distribution distillation claim.
 
 ## Repository layout
 
 ```text
-apps/teacher-api/         FastAPI service in front of an OpenAI-compatible hosted model
-apps/dashboard/           Read-only benchmark dashboard using React, shadcn controls, and Recharts
-packages/distillation/    Collection, preparation, training, and frozen benchmark evaluation
-configs/                  Example training and four-slot evaluation configurations
-data/authored/            Hand-written prompts with answer keys, part of the prompt corpus
-docs/                     Architecture, operating guide, and research notes
-scripts/                  Cross-platform Python launcher for two-machine and single-machine runs
+apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
+apps/dashboard/           Read-only task and traffic results with shadcn controls
+packages/distillation/    Task splits, collection, usability review, training, evaluation
+packages/harness/         Extraction detector, calibration, and graduated access policy
+configs/                  Task training recipe, per-task evaluation, traffic settings
+docs/                     Protocol, operations, metrics, and manuscript revisions
+scripts/                  Cross-platform task-study and teacher-host launcher
 ```
 
-## Quick start
+## Run the study
 
-Requirements are Python 3.14, [uv](https://docs.astral.sh/uv/), and optionally `just`.
+Requirements are Python 3.14, uv, and optionally just. NixOS users can enter `devenv shell` for Python, uv, Bun, native libraries, and build tools. Copy the environment file and set `TEACHER_TERMS_REVIEW_ID` before collection. Set `TEACHER_API_TOKEN` when serving beyond loopback.
 
 ```bash
 cp .env.example .env
-uv sync --all-packages --extra eval
-uv run --extra eval distill corpus build --profile quick
-uv run teacher-api
+just paper-tasks
 ```
 
-The corpus build downloads pinned public datasets and writes the prompts and their answer key to `data/prompts/`. The `quick` profile has about 7,000 prompts; see [docs/prompt-corpus.md](docs/prompt-corpus.md) for the larger profiles.
+The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. The defaults are three seeds and budgets 500, 2,000, and 8,000. GSM8K supports only the first two, giving 48 training runs in total. Collection and training resume from existing artifacts. Evaluation runs separately.
 
-In another terminal:
+For a smaller declared matrix or a remote teacher:
 
 ```bash
-uv run distill collect \
-	--input data/prompts/all-splits.jsonl \
-	--output data/teacher/ledger.jsonl \
-	--teacher-url http://127.0.0.1:8000 \
-	--terms-review-id YOUR_APPROVAL_REFERENCE \
-	--no-thinking
-
-uv run distill review \
-	--ledger data/teacher/ledger.jsonl \
-	--references data/prompts/references.jsonl \
-	--output data/teacher/ledger.reviews.jsonl
-
-uv run distill prepare \
-	--input data/teacher/ledger.jsonl \
-	--output data/processed/train.jsonl \
-	--prompts data/prompts/all-splits.jsonl \
-	--reviews data/teacher/ledger.reviews.jsonl
-
-uv sync --all-packages --extra train
-uv run --extra train distill train --config configs/train.example.toml
+just paper-tasks --tasks ag_news --seeds 42 --budgets 500,2000
+just teacher-host
+# On the student machine, with the same API token:
+just paper-tasks --teacher-url http://TEACHER_IP:8000
 ```
 
-To run the entire distillation loop on one machine, copy `.env.example` to `.env`, set `TEACHER_TERMS_REVIEW_ID` to your approval reference, adjust the GPU settings if needed, and run:
+Without just, use `python3 scripts/pipeline.py paper-tasks`. Windows uses `py -3 scripts\pipeline.py paper-tasks --teacher-url http://TEACHER_IP:8000` or an existing local server through `--upstream-url`.
+
+See [docs/paper-tasks.md](docs/paper-tasks.md) for splits, budgets, output limits, development selection, and the implementation checklist; [docs/run-scripts.md](docs/run-scripts.md) for launchers and environment settings; and [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for collection and training internals.
+
+## Task evaluation and dashboard
+
+Build the chosen task before evaluation. Set the evaluation config's teacher identity to the actual deployment and its adapter path to the generated `attacker` or `gold` directory for the seed and budget being scored. Give each condition a distinct experiment name and output directory.
 
 ```bash
-just distill-local
-```
-
-It builds the `standard` prompt corpus if it is missing, reuses it when the profile matches, hosts the teacher, collects a resumable ledger, stops the teacher to free GPU memory, reviews the answers, prepares the training and validation splits, and trains the student with `configs/train.distill.toml`. Set `DISTILL_CORPUS=quick` or `full` in `.env` to choose another profile. `.env.example` lists the supported environment settings and their defaults; training hyperparameters live in the TOML configs.
-
-Without `just`, run `python3 scripts/pipeline.py distill-local`. On Windows, use `py -3 scripts\pipeline.py distill-local --upstream-url http://127.0.0.1:8001/v1` with an existing model server. For two machines, run `just teacher-host` and `just student-train --teacher-url http://TEACHER_IP:8000`. See [docs/run-scripts.md](docs/run-scripts.md) for options, GPU requirements, and platform setup, and [docs/prompt-corpus.md](docs/prompt-corpus.md) for the corpus profiles.
-
-The collection command deliberately requires a terms-review reference. Standard commercial API terms may prohibit using outputs to train a competing model. Configure only a provider and account whose agreement permits this use. `--accept-pending` skips review and suits only plumbing tests. Paper runs should use a separate review file as described in the operating guide.
-
-See [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for the API contract, data formats, and training instructions.
-
-## Paper tasks
-
-The paper's distillation study uses narrow task APIs: AG News classification and SQuAD 1.1 question answering, plus GSM8K as a generative task. `distill tasks build` splits each pinned dataset into development, attacker, and legitimate pools, keeps gold answers out of the attacker's files, and freezes development and test suites. `distill tasks budget` selects nested, seeded attacker budgets. See [docs/paper-tasks.md](docs/paper-tasks.md).
-
-## Benchmarks and dashboard
-
-The evaluation setup supports GSM8K, ARC-Challenge, MMLU, TruthfulQA, HumanEval, and MBPP. Run the teacher and base student before training, then reevaluate the teacher and evaluate the distilled student after training. The initial teacher score stays the fixed gap-closure reference; reevaluation measures teacher drift. It records accuracy or executable pass@1, confidence intervals, paired gains and regressions, agreement, latency, throughput, failures, and reproducibility metadata. It does not start distillation.
-
-See [docs/benchmarks.md](docs/benchmarks.md) for every metric's formula, denominator, units, and limitations, plus dataset sources, the evaluation configuration, and commands for later runs.
-
-To preview the dashboard with explicitly labeled simulated results:
-
-```bash
+uv run --extra train distill benchmark run --config configs/eval.ag_news.toml --stage before
+uv run --extra train distill benchmark run --config configs/eval.ag_news.toml --stage after
 bun install --cwd apps/dashboard
 bun run --cwd apps/dashboard build
-uv run distill benchmark demo
-uv run distill benchmark dashboard --results-dir outputs/benchmark-demo
+uv run distill benchmark dashboard --results-dir outputs/tasks/ag_news
 ```
 
-Open `http://127.0.0.1:8002`. Use `uv run distill benchmark dashboard` to view your measured results instead. The preview does not run inference, Docker tests, or training.
+Open `http://127.0.0.1:8002`. Primary metrics are AG News accuracy, SQuAD token F1, and GSM8K numeric exact match. The report also records SQuAD exact match, agreement, failures, latency, and provenance. See [docs/benchmarks.md](docs/benchmarks.md) for denominators and limitations.
+
+For a labeled simulation without model execution:
+
+```bash
+uv run distill benchmark demo
+uv run distill benchmark dashboard --results-dir outputs/tasks-demo/ag_news
+```
+
+## Extraction policy and paper status
+
+`packages/harness` implements query embeddings, window MMD scores, benign-only calibration, accumulated account evidence, and graduated access actions. See [docs/harness.md](docs/harness.md) and [docs/harness-benchmarks.md](docs/harness-benchmarks.md). Synthetic traffic fixtures do not enter task training or capability scores.
+
+Configured experiments and passing software tests do not establish extraction effectiveness or defense utility. Establish positive undefended transfer on development data before final defense testing, then compare paired defended and undefended students with matched supervision controls. Track manuscript changes in [docs/paper-revision-todo.md](docs/paper-revision-todo.md).
+
+The current configs use Qwen3.5-9B and Qwen3.5-2B-Base. The draft's Qwen2.5 victim and student sizes remain an unresolved protocol difference. Resolve and freeze the actual model identities before final experiments.

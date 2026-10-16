@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from distillation.io import canonical_json
 from distillation.schemas import Message, TokenUsage
 
-# The initial teacher remains the gap-closure reference; reevaluation measures drift.
+# The initial victim is the reference; reevaluation measures serving drift.
 Slot = Literal["teacher", "student_before", "teacher_after", "student_after"]
 SLOTS: tuple[Slot, ...] = ("teacher", "student_before", "teacher_after", "student_after")
 STAGE_SLOTS: dict[str, tuple[Slot, ...]] = {
@@ -33,14 +33,13 @@ class BenchmarkItem(StrictModel):
 	category: str
 	question: str
 	messages: list[Message] = Field(min_length=1)
-	metric: Literal[
-		"numeric_exact_match", "choice_accuracy", "pass_at_1", "label_accuracy", "squad"
-	]
+	metric: Literal["numeric_exact_match", "label_accuracy", "squad"]
 	answer: str
 	choices: list[str] = Field(default_factory=list)
-	test_code: str = ""
-	code_prompt: str = ""
-	entry_point: str = ""
+	# Empty legacy fields preserve the hashes of already frozen v1 paper-task suites.
+	test_code: Literal[""] = ""
+	code_prompt: Literal[""] = ""
+	entry_point: Literal[""] = ""
 	# Every accepted gold answer for SQuAD; empty for other metrics.
 	answers: list[str] = Field(default_factory=list)
 
@@ -129,12 +128,10 @@ class ModelConfig(StrictModel):
 class EvaluationConfig(StrictModel):
 	experiment: str = Field(min_length=1)
 	suite_path: Path
-	output_dir: Path = Path("outputs/benchmarks")
+	output_dir: Path = Path("outputs/tasks/ag_news")
 	generation: GenerationConfig = Field(default_factory=GenerationConfig)
 	models: dict[Slot, ModelConfig]
 	training_paths: list[Path] = Field(default_factory=list)
-	code_image: str = "python:3.12-slim"
-	code_timeout_seconds: int = Field(default=10, ge=1, le=120)
 
 
 def load_config(path: Path) -> EvaluationConfig:
@@ -151,7 +148,7 @@ class SampleResult(StrictModel):
 	correct: bool
 	# Token F1 against the best gold answer, for SQuAD; None for other metrics.
 	f1: float | None = Field(default=None, ge=0, le=1)
-	status: Literal["ok", "invalid", "truncated", "error", "test_failed", "timeout"]
+	status: Literal["ok", "invalid", "truncated", "error"]
 	latency_seconds: float = Field(ge=0)
 	usage: TokenUsage = Field(default_factory=TokenUsage)
 	finish_reason: str | None = None
@@ -170,8 +167,6 @@ class EvaluationRun(StrictModel):
 	scorer_version: str = SCORER_VERSION
 	generation: GenerationConfig
 	model: ModelConfig
-	code_image_id: str | None = None
-	code_timeout_seconds: int = 10
 	training_sha256: dict[str, str] = Field(default_factory=dict)
 	artifact_sha256: dict[str, str] = Field(default_factory=dict)
 	packages: dict[str, str] = Field(default_factory=dict)
@@ -186,8 +181,6 @@ class EvaluationRun(StrictModel):
 			self.suite_sha256,
 			self.scorer_version,
 			self.generation.model_dump(),
-			self.code_image_id,
-			self.code_timeout_seconds,
 			self.demo,
 		]
 		return hashlib.sha256(canonical_json(payload).encode()).hexdigest()[:16]

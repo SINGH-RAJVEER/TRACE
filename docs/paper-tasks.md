@@ -2,7 +2,7 @@
 
 The paper's distillation study (Section IV-B) measures extraction on narrow task APIs rather than general chat. `distill tasks` builds those tasks: AG News four-class classification and SQuAD 1.1 extractive QA form the core study, and GSM8K adds a generative, multi-step task with an objective answer. Each task is a separate service with its own prompt format, output limit, ledger, frozen suites, and evaluation config, so results are reported per task as Table VI requires.
 
-This workflow is separate from the general prompt corpus in [prompt-corpus.md](prompt-corpus.md). The general corpus remains a full-pipeline demonstration and is not part of the paper's claims.
+This is the repository's only distillation workflow. The study measures task-specific extraction and legitimate utility; it makes no general-chat capability claim.
 
 ## Tasks
 
@@ -18,7 +18,7 @@ Every request for a task uses one fixed serialization, in the attacker pool, the
 
 - **AG News:** an instruction naming the four topics, then `Article: <text>`. The service must answer with exactly one of `World`, `Sports`, `Business`, or `Sci/Tech`, ignoring case, surrounding quotes, and a final period. Any other output is scored invalid and stays in the denominator.
 - **SQuAD:** an instruction to answer with a short span, then `Passage: <context>` and `Question: <question>`. Contexts longer than 6,000 characters are cut at a word boundary before querying, training, and evaluation alike; the manifest counts how often this happens. No pinned row currently needs it. Answer positions are never used to filter or window passages.
-- **GSM8K:** the problem followed by the same instruction the general GSM8K benchmark uses, ending with `####` and the final number.
+- **GSM8K:** the problem followed by a fixed instruction, ending with `####` and the final number.
 
 ## Run the whole study
 
@@ -28,13 +28,13 @@ just paper-tasks --tasks ag_news --seeds 42 --budgets 500,2000
 just paper-tasks --teacher-url http://TEACHER_IP:8000
 ```
 
-This command is separate from the general corpus run (`just distill-local`). It never reads `data/prompts/` or `data/teacher/ledger.jsonl`. Each task keeps its own ledger in `data/tasks/TASK/ledger.jsonl` and its own adapters in `artifacts/tasks/TASK/`, so the two workflows produce different ledgers and different models.
+Each task keeps its ledger in `data/tasks/TASK/ledger.jsonl` and its adapters in `artifacts/tasks/TASK/`. Budgets, seeds, and attacker versus gold-reference training remain separate within each task.
 
 Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 
 1. Builds each task that has no `data/tasks/TASK/manifest.json`, and reuses existing builds.
 2. Drops budgets larger than a task's attacker pool and logs them. GSM8K skips 8,000 this way.
-3. Writes the prompts of every seed's largest budget. Starts vLLM and the teacher API on loopback, or uses `--teacher-url`, and collects those prompts into the task ledger at the task's own output limit, ignoring `DISTILL_MAX_OUTPUT_TOKENS`. Then it stops a locally started teacher. If the ledgers already hold every planned prompt, the teacher is not started.
+3. Writes the prompts of every seed's largest budget. Starts vLLM and the teacher API on loopback, or uses `--teacher-url`, and collects those prompts into the task ledger at the task's own output limit. Then it stops a locally started teacher. If the ledgers already hold every planned prompt, the teacher is not started.
 4. For every task, seed, and budget, writes the budget's ledger subset, reviews it without gold labels, prepares `train.jsonl`, and trains the attacker student. It also trains the gold-label reference on `gold-train.jsonl`, unless you pass `--no-gold`.
 
 | Option | Default | Meaning |
@@ -45,7 +45,7 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 | `--gold/--no-gold` | `--gold` | Also train the gold-label reference student |
 | `--config` | `configs/train.task.toml` | Recipe copied into each run with that run's dataset, output directory, and seed |
 | `--teacher-url` | none | Collect from a running teacher API instead of starting vLLM here |
-| `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#pipeline-options) | Local teacher and collection settings |
+| `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#task-study-operation) | Local teacher and collection settings |
 
 Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. The full default matrix is three tasks, three seeds, and up to three budgets, with two students each, which is 48 training runs. Pass smaller `--tasks`, `--seeds`, or `--budgets` to run part of it, and declare any reduced matrix before final testing.
 
@@ -131,7 +131,7 @@ uv run distill prepare --input $run/ledger.jsonl --output $run/train.jsonl \
 	--prompts $run/prompts.jsonl --reviews $run/reviews.jsonl
 ```
 
-Review runs without `--references` on purpose. The attacker has no gold labels, so review checks only that responses are nonempty and fit the training length limit. It never rejects a response for being wrong, so a complete but malformed AG News answer still trains the student, as it would for a real attacker. It is scored as incorrect at evaluation.
+Review has no gold-reference input. The attacker has no gold labels, so review checks only that responses are nonempty and fit the training length limit. It never rejects a response for being wrong, so a complete but malformed AG News answer still trains the student, as it would for a real attacker. It is scored as incorrect at evaluation.
 
 Responses that stop at the output limit are different. The collector marks any finish reason other than a normal stop as rejected, and preparation drops rejected records, so a truncated response is received but never trains. `budget.json` reports these as `rejected_by_collector`, separately from `collected`. This rarely matters at 16 or 64 tokens, but the 256-token GSM8K limit is an unmeasured estimate. Collect a pilot of about 200 GSM8K prompts first and check the share of `length` finishes in `finish_reasons`. If it exceeds a few percent, raise the limit in `TASKS`, `configs/eval.gsm8k.toml`, and this document together, before collecting the main run.
 
@@ -139,7 +139,21 @@ Responses that stop at the output limit are different. The collector marks any f
 
 Select the learning rate from {1e-4, 2e-4} and the epoch count from {1, 2, 3} on `development-suite.json`, per task and student size, then freeze that recipe across defense conditions. To score a development run, copy the task's evaluation config and point `suite_path` at the development suite under a different `experiment` name.
 
-For the gold-label reference student, train the same recipe on `gold-train.jsonl` from the same run directory. It uses the same prompts as the attack and is reported separately from it.
+For the gold-label reference student, train the same recipe on `gold-train.jsonl` from the same run directory. It uses the same prompts as the attack and is reported separately from it. Treat it as a supervision control; whether it outperforms the attacker is an empirical result.
+
+### Colab collection session on 2026-10-16
+
+The task collector holds `artifacts/paper-tasks-colab/collection.lock` to prevent duplicate collection. It depends only on task inputs and shared teacher deployment state.
+
+The same Colab T4 continues serving `Qwen3.5-9B-Q8_0` through the authenticated teacher API at `http://127.0.0.1:18010`. This session collects AG News and SQuAD with seeds 42, 1, and 20 and budgets 500, 2,000, and 8,000. Combining the largest budgets across seeds gives 20,585 unique AG News queries and 19,509 unique SQuAD queries, for 40,094 total. The union inputs are `data/tasks/TASK/collection-prompts.jsonl`; responses and attempt histories go to `data/tasks/TASK/ledger.jsonl` and `ledger.attempts.jsonl`. Each task has two workers, for four concurrent requests overall, with temperature 0, thinking disabled, and the task's 16- or 64-token output limit.
+
+Ignored `artifacts/paper-tasks-colab/` holds the deployment plan, progress, process ID, validation results, and collection log. The local job runs in a separate uv environment, `artifacts/paper-task-venv`, and keeps responses on the local machine. Its connection guard waits for the upstream health check before making generation requests and reconnects SSH if the tunnel process exits. Model outputs retain the actual quantized model and provider identity. Collection finishes by exporting each seed/budget ledger subset; student training is a subsequent step.
+
+```bash
+cat artifacts/paper-tasks-colab/progress.json
+tail -n 10 artifacts/paper-tasks-colab/collection.log
+```
+
 
 ## Evaluate
 
@@ -150,7 +164,7 @@ uv run --extra train distill benchmark run --config configs/eval.ag_news.toml --
 uv run --extra train distill benchmark run --config configs/eval.ag_news.toml --stage after
 ```
 
-The four slots give the victim reference, the unmodified student S0, and the distilled student. The report's `student_gain` and teacher–student comparisons supply the gain and agreement columns of Table VI.
+The four slots give the victim reference, the unmodified student S0, and the distilled student. The report's `student_gain` and teacher–student comparisons supply per-task gain and agreement. Table VI additionally needs explicit paired defense conditions and the declared study aggregation.
 
 | Metric | Formula |
 | --- | --- |
@@ -162,11 +176,204 @@ The four slots give the victim reference, the unmodified student S0, and the dis
 
 The adapter's manifest lists its training files, and evaluation checks them against the test suite for exact reuse of a test request. The builds above pass this check for every task.
 
-The dashboard shows each task's exact-match score. It does not yet display SQuAD F1; read `f1` from the exported report.
+The dashboard shows each task's primary score, including SQuAD F1. Its binary outcome breakdown uses exact match. Reports retain both SQuAD F1 and exact match.
+
+## Implementation TODO
+
+This checklist applies to the task-only extraction and account-policy study. It preserves the original 28 review-item numbers so implementation work can be matched to [paper-revision-todo.md](paper-revision-todo.md). Paper items follow the supplied protocol, hybrid items adapt existing repository behavior, and repo-first items bound optional work. Checked entries record completed repository changes only. Unchecked entries include implementation, integration, or experimental validation still required; they do not assert that every underlying component is absent from the in-progress codebase.
+
+### Agreed scope and completed cleanup
+
+| Scope | Work covered |
+| --- | --- |
+| Core study | AG News classification and SQuAD extractive QA, budgeted task-specific attacker adapters, an unmodified student, a same-prompt gold-label reference, and paired undefended/defended conditions |
+| Required evidence | Positive undefended transfer on development data, task-matched legitimate utility, campaign attempt/time accounting, released-token controls, per-task capability scores, and paired uncertainty |
+| Generative extension | GSM8K with its own numeric exact-match score and supported budgets; freeze its inclusion before final testing |
+| Bounded secondary work | Task-matched schedules, detector ablations, aggregate alerts, and overhead measurements declared in the frozen matrix; retain active extraction or upstream reproduction only with their complete protocol and evidence |
+| Excluded | General-corpus collection/training, a general instruction/chat student, broad knowledge/coding benchmarks, correctness-filtered attacker supervision, cross-task model rankings, teacher-gap closure, and general-chat dataset or utility studies |
+
+- [x] Remove the general-corpus launchers, builders, prompt families, configs, correctness filters, dedicated tests/docs, and local prompt/ledger artifacts. `just paper-tasks` is the only distillation workflow.
+- [x] Preserve task pools, frozen-suite hashes, task ledgers, and shared collection/training/evaluation code. Remove the task collector's dependency on the retired general ledger and resume it without losing its existing rows.
+- [x] Update the README, operating guides, and dashboard for task-only evaluation, including SQuAD F1 and removal of broad-model aggregate scores and coding filters.
+- [ ] Freeze the actual task/model matrix before final testing. AG News and SQuAD give 36 undefended attacker/gold training runs with the default three seeds and three budgets; retaining GSM8K adds 12, for 48. These counts exclude defended students and matched supervision controls and do not establish completed results.
+- [ ] Resolve the draft's Qwen2.5 identities versus the Qwen3.5 default configs and quantized Colab teacher. Record exact weights, revisions, quantization, tokenizer/template settings, and adapter targets; use distinct compatible data and run artifacts if the selected protocol changes.
+- [ ] Freeze task-specific output limits, development-selected rank-16 training settings, and the gold-unavailable attacker review protocol. Do not restore a general-corpus run or a gold correctness filter as a prerequisite for the task study.
+
+### 1. Exclude service instructions from detector embeddings
+
+- [ ] Paper: give each request a separate detector serialization containing article text for AG News, context plus question for SQuAD, and problem text for GSM8K. Keep fixed service instructions in the victim prompt.
+- [ ] Use the same detector serialization in account construction, fitting, score calibration, policy calibration, and testing. Record its version in artifacts so incompatible inputs cannot be mixed.
+- [ ] Validate that changing only fixed service instructions leaves detector input unchanged, while changing task content changes it. Check that victim prompts retain the instructions.
+
+### 2. Enforce client and source-document separation
+
+- [ ] Paper: carry client identities and source-group identities from task pools through account construction and calibration manifests. Preserve source grouping when constructing accounts.
+- [ ] Reject overlap between fitting, score calibration, policy calibration, and final benign testing on either identity. Reject missing identities when separation cannot be verified, and include the held-out test manifest in the validation.
+- [ ] Record the role assignments and separation check in calibration and evaluation artifacts. Validate that shared clients, shared source documents, and missing identities fail before calibration or final scoring.
+
+### 3. Apply L2 spacing on entry
+
+- [ ] Paper: track the previous admitted request's release time across all policy levels, including L0 and L1.
+- [ ] When L2 spacing applies, release the next admitted request no earlier than one second after the previous admitted request, including the first request entering L2. Keep other release constraints in effect.
+- [ ] Validate the L0-to-L2 transition and consecutive L2 requests, including multiple arrivals at the same timestamp. Rejected requests must not count as admitted requests.
+
+### 4. Report only levels a baseline implements
+
+- [ ] Paper: declare the levels implemented by each policy and use that declaration in replay summaries and exported reports.
+- [ ] Keep quota and rate baseline block decisions, but report their nonexistent L2 and L3 outcomes as N/A rather than inferring that L4 passed through those levels. Preserve actual L2 and L3 outcomes for policies that implement them.
+- [ ] Validate baseline block summaries and downstream report rendering so N/A stays distinct from zero and never enters a level-rate denominator as an observed outcome.
+
+### 5. Require valid outputs for agreement
+
+- [ ] Hybrid: retain the existing task parsers and record response validity explicitly alongside parsed predictions. A parsed prediction alone must not make an invalid, truncated, or failed response eligible for agreement.
+- [ ] Compute agreement only over pairs where both responses are valid. Report the agreement numerator, valid-pair denominator, total paired items, and coverage. Report agreement as unavailable when no valid pairs remain.
+- [ ] Keep invalid, truncated, and failed responses in task-score denominators as incorrect. Validate that matching parsed predictions from unusable responses cannot inflate agreement, while valid shared wrong answers still count as agreement.
+
+### 6. Use each task's primary capability metric consistently
+
+- [x] Retain AG News label-accuracy, SQuAD token-F1, and GSM8K numeric-exact-match scorers. Use SQuAD F1 in dashboard task scores, student-change charts, category scores, and speed comparisons, while naming exact match as the secondary binary outcome.
+- [ ] Make the primary metric and denominator explicit in generic exported capability fields and the study report. Use that metric consistently for defended-versus-undefended comparisons and `R_D`; do not add a cross-task aggregate score or teacher-gap closure.
+- [ ] Validate a SQuAD example with partial token overlap where F1 differs from exact match through the complete study report and defense comparisons. Preserve the existing label-accuracy and numeric-exact-match behavior for the other tasks.
+
+### 7. Preserve experiment dimensions and aggregate paired runs
+
+- [ ] Hybrid: record explicit task, model identity, defense condition, attack schedule, query budget, query-order seed, and training seed for every run. Keep query-order and training seeds separate even when they share a default value.
+- [ ] Keep immutable run identities and the four-slot view for an individual run. Scope slot selection to its full experiment dimensions so a newer result under another condition cannot silently replace it.
+- [ ] Add a separate study report that pairs compatible conditions by their declared dimensions and seeds, then aggregates paired results with sample counts and uncertainty. Record the aggregation method and report missing pairs rather than substituting unrelated runs.
+- [ ] Validate two conditions with overlapping slot names and multiple seeds, including an incomplete pair. Confirm individual runs remain inspectable and only compatible pairs enter study comparisons.
+
+### 8. Evaluate the adapters produced by the declared run
+
+- [x] Point checked-in task evaluation configs and the standalone task training default at `artifacts/tasks/TASK/sSEED-bBUDGET/attacker`, matching the launcher's actual output structure. Gold adapters remain separate under `.../gold` and must be selected explicitly.
+- [ ] Prefer generating evaluation configs from the run manifest, carrying task, seed, budget, student role, suite, model identity, and exact adapter path together. Record those identities in evaluation output.
+- [ ] Validate attacker and gold evaluation config generation against a declared run. Fail clearly when its exact adapter is absent or its manifest disagrees with the selected run.
+
+### 9. Match the complete training fingerprint before skipping
+
+- [ ] Hybrid: replace the dataset-only completion check with a deterministic fingerprint covering training-data hashes, base model and immutable revision, resolved training configuration, and serialization. Include tokenizer and chat-template identity wherever they affect training.
+- [ ] Store the fingerprint and its inputs in the run and training manifests. Skip completed training only when the fingerprint matches and the expected adapter is present. Treat legacy manifests without the fingerprint as unverified.
+- [ ] Preserve resumability for compatible checkpoints and completed adapters. Refuse reuse of an incompatible checkpoint or adapter and require a distinct run output or explicit retraining.
+- [ ] Validate that an unchanged run skips correctly, while changes to data, model revision, training settings, or serialization prevent reuse. Confirm evaluation provenance identifies the adapter actually trained.
+
+### 10. Enforce policy decisions before victim inference
+
+- [ ] Hybrid: connect the policy library to a campaign simulator with explicit, stable account identities. Enforce admission, queueing, challenges, and output-release ordering before allowing victim inference or releasing a response.
+- [ ] Add an HTTP wrapper for live service evaluation using the same enforcement path. Bind requests to controlled experiment accounts; document that the experiment does not implement production authentication.
+- [ ] Validate that refused requests never invoke the victim, queued requests wait for admission, and challenged requests require successful verification before proceeding. Confirm the simulator and HTTP wrapper enforce the same ordering.
+
+### 11. Enforce campaign attempt and elapsed-time budgets
+
+- [ ] Paper: add a campaign-wide attempted-request counter for `B_A` and a deadline for `T_A`. Charge every retry, filler request, and failed request as an attempt, across every account in the campaign.
+- [ ] Include waiting and challenge solving in elapsed campaign time. Prevent new attempts beyond either budget and explicitly account for pending requests and responses that miss the deadline. Keep the ordinary undefended collector available separately.
+- [ ] Validate retries, failures, filler traffic, concurrent accounts, and deadline boundaries. Record the budget or deadline that terminated each campaign.
+
+### 12. Solve challenges and collect released responses
+
+- [ ] Paper: integrate the existing solver and verifier into the campaign client so attackers can solve challenges and continue extracting within their budgets.
+- [ ] Record hashes attempted, solver hardware, solving time, queue time, verification outcomes, and released outputs. Charge solving and waiting to campaign costs and distinguish measured costs from estimates.
+- [ ] Validate successful solving followed by response release, failed verification, and solving that runs past the deadline. A challenge event alone must never count as stopped extraction.
+
+### 13. Implement the declared attack schedule matrix
+
+- [ ] Hybrid: implement pure extraction, within-account benign/extraction mixtures, slow traffic, and fixed-total-budget Sybil campaigns as the primary schedules. Record schedule settings and seeds, and share campaign budgets across Sybil accounts.
+- [ ] Add paraphrases, benign-matched adaptation, and reset schedules as secondary experiments. Define what resets, what persists, and what each schedule costs before running it.
+- [ ] Freeze the primary and secondary matrix before final testing and revise the paper if schedules are deferred. Validate mixture composition, timing, and shared Sybil budget accounting.
+
+### 14. Keep fixed schedules distinct from active extraction
+
+- [ ] Repo first: keep seeded fixed schedules as the reproducible primary study and identify them explicitly as fixed query selection in manifests and reports.
+- [ ] Move active extraction to an optional extension in the paper. If retained as an evaluated claim, implement diversity and student-uncertainty selection, retrain the student, update subsequent choices, and run the complete feedback loop against each compared defense.
+- [ ] Validate schedule reproducibility. For any active extension, retain selection and model-update history that demonstrates choices changed using the updated student. Never label fixed replay as adaptive extraction.
+
+### 15. Generate realistic task-matched benign clients
+
+- [ ] Paper: build disclosed client generators covering specialist, repetitive, batch, bursty, and short accounts, with varied lengths, topic concentration, repetition, and arrival times.
+- [ ] Preserve short accounts even when they never complete a scoring window. Retain client and source identities through generation, and keep consecutive-row slicing available only for plumbing checks.
+- [ ] Validate generated workload distributions and role separation. Include concentrated benign specialists in false-positive and utility results because their behavior can resemble extraction.
+
+### 16. Support rare-event claims with independent samples
+
+- [ ] Hybrid: pursue the paper's target of about 3,000 independent benign calibration clients and 3,000 independent benign test clients per endpoint, with enough independent score-calibration windows, where the available data support those counts.
+- [ ] Report actual client, source-document, and window counts, dependence assumptions, uncertainty, and the resolution supported by the sample. Narrow rare-event claims when independent data are insufficient; do not replace independent clients with correlated pseudo-accounts.
+- [ ] Validate that reports distinguish the existing 22-account and 107-window smoke run from an adequately sampled study, including targets that cannot be resolved by the available sample.
+
+### 17. Limit robustness evaluation to the declared tasks
+
+- [ ] Hybrid: evaluate task-matched benign robustness and a later-time holdout where source timestamps support one. Record timestamp provenance and split rules; disclose when the available data cannot support a genuine temporal holdout.
+- [ ] Keep WildChat/LMSYS general-chat studies outside this implementation matrix and remove corresponding manuscript promises. They are not dependencies of the task extraction study.
+- [ ] Validate source/client separation for each retained task holdout. Report only task-matched robustness supported by independent data and the frozen protocol.
+
+### 18. Keep story families in one role
+
+- [ ] Hybrid: retain deterministic exact deduplication and add conservative AG News story-family grouping using available metadata and audited similarity matches. Group derivatives, near duplicates, and paraphrase families together where identified.
+- [ ] Freeze and version grouping before evaluation, carry family identities through role separation checks, and record the matching procedure and audit decisions. Disclose residual semantic overlap.
+- [ ] Validate known rewritten-story families and review false merges. Regenerate affected task splits and downstream artifacts when family assignments change.
+
+### 19. Bound upstream artifact reproduction
+
+- [ ] Repo first: keep the account-policy experiment as the main contribution and define upstream reproduction as a separately bounded check.
+- [ ] If retaining the reproduction claim, add the pinned upstream artifact, a reproduction manifest, and a runner for all fourteen declared pairs and adapted baselines. Preserve upstream settings and disclose adaptation details and deviations.
+- [ ] Otherwise remove the promised reproduction table from the paper and describe the detector score as an implementation based on prior work. Validate any retained reproduction claim against complete, inspectable results rather than local plumbing checks.
+
+### 20. Add an alert-only aggregate monitor
+
+- [ ] Paper, secondary priority: after account-level campaigns work, add a separate aggregate monitor over 1,500-request windows and record campaign alert outcomes, especially for Sybil schedules.
+- [ ] Define window construction and alert calibration separately from account enforcement. An aggregate alert must not automatically block or escalate individual accounts.
+- [ ] Validate an aggregate shift spread across accounts and confirm enabling the monitor leaves account enforcement decisions unchanged.
+
+### 21. Train released-token-matched controls
+
+- [ ] Paper, high priority: automate both matched-volume and matched-prefix controls using released response tokens from the corresponding defended campaign. Match tokens rather than selected prompt counts.
+- [ ] Freeze the selection rule for each control, pair task, base model, training recipe, and seeds with the defended run, and record the target token count, achieved count, and residual mismatch.
+- [ ] Train and evaluate both controls alongside attacker and gold-reference adapters. Validate partial campaign delivery and token-boundary mismatches so reports can distinguish selective supervision removal from returning fewer tokens.
+
+### 22. Recalibrate ablations and sensitivity experiments
+
+- [ ] Hybrid: prioritize instantaneous versus accumulated evidence, no decay, direct blocking, and a small window-size sweep. Freeze the runnable matrix before final testing.
+- [ ] Recalibrate each variant using its own score and policy calibration on the separated benign roles and the declared operating targets. Record thresholds and achieved rates so inherited thresholds do not confound the comparison.
+- [ ] Treat overlapping windows, proof-of-work hardware and difficulty, long-input stress, and reference contamination as secondary experiments. Validate variant identities and calibration provenance, and remove unrun variants from the paper's promised matrix.
+
+### 23. Derive escalation and supervision from one event ledger
+
+- [ ] Paper, high priority: create a campaign event ledger linking attempts, account identities, decisions, queueing, challenges, inference, response releases, timestamps, and released token counts with stable identifiers.
+- [ ] Define and derive `J_ell`, `Q_ell`, censoring indicators, and campaign totals from that ledger. Distinguish reaching a level from receiving supervision, and account for requests still pending at budget or deadline termination.
+- [ ] Add the declared survival analysis with explicit event definitions and censoring rules. Keep existing traffic stop metrics as operational diagnostics, and validate challenged-then-released, refused, pending, and right-censored campaigns.
+
+### 24. Report defense capability and validate reduction metrics
+
+- [ ] Paper for the narrow study: establish positive undefended transfer on development data before freezing the defense experiment. Record the learnability gate and its result without using final test outcomes for recipe selection.
+- [ ] Implement defended capability and `R_D` using each task's primary metric, with explicit validity checks for its reference scores and denominator. Retain raw scores and explain why the ratio is unavailable when its interpretation fails.
+- [ ] Add budget curves and cost to a declared capability target, reporting targets not reached within observed budgets. Validate positive, zero, and negative undefended transfer cases.
+
+### 25. Score legitimate task quality and unconditional utility
+
+- [ ] Hybrid, high priority: retain released legitimate responses and task references so narrow-task requests can receive task-aware scoring alongside operational traffic metrics.
+- [ ] Report served-only quality with its denominator and unconditional utility over every submitted legitimate request. Assign zero utility to refusals, timeouts, and abandonment, including responses that miss the declared client deadline.
+- [ ] Validate incomplete and deadline-missed campaigns, including no served responses. Restrict utility claims to the declared task endpoints and their task references; general-chat quality evaluation is outside this scope.
+
+### 26. Respect clustering and separate seed variation
+
+- [ ] Paper: implement paired source-document bootstrap intervals for task scores and client/campaign resampling for traffic outcomes. Preserve the intended pairing and resampling unit in exported results.
+- [ ] Report each seed's result, the across-seed mean, and SD separately from sampling uncertainty. Keep existing item-level intervals only as descriptive supplementary statistics.
+- [ ] Apply Holm correction only when conducting the declared family of formal tests. Validate grouped documents, repeated requests from the same client, paired campaigns, and missing seed pairs without treating correlated items as independent.
+
+### 27. Measure serving overhead under matched load
+
+- [ ] Hybrid: add focused timing for embeddings, completed-window scoring, scoring-trigger requests, time to first token, overall request latency, throughput, and scoped peak memory.
+- [ ] Run one controlled matched-load experiment with and without the defense, recording hardware, load, warmup, concurrency, and measurement boundaries. Distinguish component compute costs from intentional queueing and challenge delays.
+- [ ] Validate that scoring costs attach to the requests that trigger them and that peak memory covers the declared serving components. Keep this experiment bounded until defense campaigns work.
+
+### 28. Link protocol, resources, supervision, and results
+
+- [ ] Hybrid: add a unified study manifest reusing existing hashes and manifests through immutable identifiers. Link the declared matrix, protocol and serialization, source grouping, campaign settings, calibration, solver details, released supervision and tokens, model fingerprints, adapters, and evaluation results.
+- [ ] Record measured resource costs with their measurement methods and mark unavailable measurements explicitly. Do not infer actual time, memory, hardware utilization, or cost from configured settings.
+- [ ] Validate artifact links and identity consistency, report missing artifacts, and make the declared study's result artifacts inspectable. Ensure a result can be traced back to its exact campaign, released training data, calibration, and adapter.
+
+Implement shared serialization, client/source identities, and the campaign event ledger before regenerating calibration artifacts or running defended campaigns. Enforce admission, budgets, and challenge handling before interpreting schedule results. Prioritize released-token controls, defense capability, and legitimate utility once campaigns work. Define experiment dimensions and training fingerprints before generating evaluation configs and study reports. Freeze the task/model matrix and corresponding paper scope before final testing; add only declared task-matched secondary experiments whose prerequisites and independent data support them. The retired general pipeline and general-chat evaluation are outside this checklist. Update related existing tests and documentation as each item lands, and regenerate affected artifacts and reports before using them for paper claims.
 
 ## Limitations
 
-- The paper's victim is Qwen2.5-3B-Instruct, with Qwen2.5-0.5B-Instruct and 1.5B-Instruct students. The configs still use the repository's Qwen3.5-9B teacher and Qwen3.5-2B-Base student until that switch is made. With Qwen2.5, set `target_modules` to the attention projections as the paper specifies.
+- The draft names Qwen2.5-3B-Instruct with Qwen2.5-0.5B-Instruct and 1.5B-Instruct students, while default configs use Qwen3.5-9B and Qwen3.5-2B-Base and the Colab task session uses a quantized Qwen3.5 teacher. Freeze the intended models and align the implementation and manuscript before final runs. If retaining Qwen2.5, configure the attention projection targets specified by that protocol.
 - `distill collect` retries failed requests. That suits the undefended baseline. Defended runs need a client that counts every attempt against B_A and solves proof-of-work challenges.
 - The legitimate pools are task-matched prompt sets, not client traces. Grouping them into accounts and timing them is part of the harness evaluation.
 - Grouping AG News by exact text keeps duplicates together but not paraphrases or rewrites of the same story.

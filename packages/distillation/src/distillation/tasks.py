@@ -10,8 +10,9 @@ they stay in gold-answers.jsonl and the frozen suites.
 
 import hashlib
 import json
+import random
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,10 +22,45 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenSuite, save_json
-from distillation.benchmarks.suites import GSM8K_EVAL_SUFFIX, _select
-from distillation.corpus import DatasetSpec, normalized
 from distillation.io import canonical_json, read_jsonl, write_jsonl
 from distillation.schemas import LedgerRecord, Message, PromptRecord, PromptSource, SFTRecord
+
+
+@dataclass(frozen=True)
+class DatasetSpec:
+	"""A public dataset pinned to an immutable Hub revision."""
+
+	repository: str
+	revision: str
+	license: str
+	configuration: str | None = None
+
+
+def normalized(text: str) -> str:
+	"""Matches the evaluator's audit normalization so build and eval checks agree."""
+	return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _select(items: list[BenchmarkItem], limit: int, seed: int) -> list[BenchmarkItem]:
+	"""Round-robin shuffled categories for the development suite."""
+	groups: dict[str, list[BenchmarkItem]] = defaultdict(list)
+	for item in items:
+		groups[item.category].append(item)
+	rng = random.Random(seed)
+	for group in groups.values():
+		rng.shuffle(group)
+	categories = sorted(groups)
+	rng.shuffle(categories)
+	selected: list[BenchmarkItem] = []
+	while any(groups.values()) and (limit == 0 or len(selected) < limit):
+		for category in categories:
+			if groups[category] and (limit == 0 or len(selected) < limit):
+				selected.append(groups[category].pop())
+	return sorted(selected, key=lambda item: item.id)
+
+
+GSM8K_EVAL_SUFFIX = "\nSolve step by step. End with #### followed by the final numeric answer."
+
 
 TaskName = Literal["ag_news", "squad", "gsm8k"]
 Role = Literal[

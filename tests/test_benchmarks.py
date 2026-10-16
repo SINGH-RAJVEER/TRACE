@@ -1,9 +1,6 @@
 """Scoring and comparison checks use fixtures, never downloaded model weights."""
 
-import asyncio
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,17 +22,12 @@ from distillation.benchmarks.models import (
 )
 from distillation.benchmarks.reporting import build_report, experiments, paired, summarize, wilson
 from distillation.benchmarks.runner import audit_training, run_evaluation
-from distillation.benchmarks.scoring import (
-	code_test_script,
-	python_candidate,
-	score_answer,
-	score_code,
-)
-from distillation.benchmarks.suites import _select, convert_row
+from distillation.benchmarks.scoring import score_answer
 from distillation.schemas import Message, TeacherGeneration, TeacherGenerationRequest, TokenUsage
+from distillation.tasks import _select
 
 
-def item(identifier: str = "q1", metric: str = "choice_accuracy") -> BenchmarkItem:
+def item(identifier: str = "q1", metric: str = "label_accuracy") -> BenchmarkItem:
 	return BenchmarkItem.model_validate(
 		{
 			"id": identifier,
@@ -45,7 +37,7 @@ def item(identifier: str = "q1", metric: str = "choice_accuracy") -> BenchmarkIt
 			"messages": [{"role": "user", "content": f"Distinct held-out question {identifier}"}],
 			"metric": metric,
 			"answer": "1200" if metric == "numeric_exact_match" else "A",
-			"choices": ["first", "second"],
+			"choices": ["A", "B"],
 		}
 	)
 
@@ -166,41 +158,7 @@ def test_freeze_detects_mutation_and_training_overlap(tmp_path: Path) -> None:
 	assert str(training) in audit_training(path, [training])
 
 
-def test_public_formats_and_sampling() -> None:
-	arc = convert_row(
-		"arc_challenge",
-		0,
-		{
-			"id": "x",
-			"question": "Science?",
-			"choices": {"text": ["a", "b"], "label": ["1", "2"]},
-			"answerKey": "2",
-		},
-		42,
-	)
-	assert arc.answer == "B"
-	truth = {
-		"Question": "True?",
-		"Best Answer": "true",
-		"Best Incorrect Answer": "false",
-		"Category": "fixture",
-	}
-	for seed in range(8):
-		converted = convert_row("truthfulqa", 0, truth, seed)
-		assert converted.choices[ord(converted.answer) - 65] == "true"
-	code = convert_row(
-		"humaneval",
-		0,
-		{
-			"task_id": "HumanEval/0",
-			"prompt": "def add(a, b):\n",
-			"entry_point": "add",
-			"test": "def check(candidate):\n\tassert candidate(1,2) == 3",
-		},
-		42,
-	)
-	assert "check(add)" in code.test_code
-	assert code.test_code not in code.messages[0].content
+def test_development_sampling() -> None:
 	items = [item(str(i)).model_copy(update={"category": f"subject-{i % 3}"}) for i in range(12)]
 	assert len({i.category for i in _select(items, 3, 42)}) == 3
 	assert _select(items, 4, 42) == _select(items, 4, 42)
@@ -310,65 +268,6 @@ def test_comparison_contract_separates_incompatible_runs_and_detects_missing_ite
 		build_report(tmp_path, key)
 
 
-@pytest.mark.parametrize(
-	("candidate", "passes"),
-	[
-		("def add(a, b): return a + b", True),
-		("print('debug');\ndef add(a, b): return a + b", True),
-		("def add(a, b): return 0", False),
-		("import sys; sys.exit(0)", False),
-		("import os; os._exit(0)", False),
-	],
-)
-def test_trusted_code_wrapper_requires_completed_assertions(candidate: str, passes: bool) -> None:
-	# These candidates are fixed, trusted unit-test fixtures, not model output.
-	script = code_test_script(candidate, "assert add(1, 2) == 3")
-	result = subprocess.run(
-		[sys.executable, "-I", "-"], input=script, capture_output=True, text=True, timeout=5
-	)
-	assert (result.returncode == 0) is passes
-
-
-@pytest.mark.asyncio
-async def test_coding_execution_requires_isolation_and_cleans_up(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	calls: list[tuple[str, ...]] = []
-
-	class Process:
-		returncode: int | None = 0
-
-		async def communicate(self, data: bytes) -> tuple[bytes, bytes]:
-			assert b"exec(" in data
-			return b"", b""
-
-		async def wait(self) -> int:
-			return 0
-
-	async def create_process(*args: str, **kwargs: object) -> Process:
-		calls.append(args)
-		return Process()
-
-	monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
-	code = item().model_copy(update={"metric": "pass_at_1", "test_code": "assert add(1,2) == 3"})
-	assert await score_code(code, "def add(a,b): return a+b", "sha256:fixture", 10) == (True, "ok")
-	command = calls[0]
-	assert command[:2] == ("docker", "run")
-	for flag in (
-		"--network",
-		"--memory",
-		"--pids-limit",
-		"--read-only",
-		"--cap-drop",
-		"--security-opt",
-		"--user",
-	):
-		assert flag in command
-	assert command[command.index("--network") + 1] == "none"
-	assert calls[1][:3] == ("docker", "rm", "--force")
-	assert command[command.index("--name") + 1] == calls[1][3]
-
-
 @pytest.mark.asyncio
 async def test_dashboard_reads_artifacts_and_empty_state(tmp_path: Path) -> None:
 	app = create_app(tmp_path)
@@ -382,16 +281,12 @@ async def test_dashboard_reads_artifacts_and_empty_state(tmp_path: Path) -> None
 		assert (await client.get(f"/api/reports/{key}")).json()["demo"] is True
 
 
-def test_example_config_has_all_four_slots_without_loading_weights() -> None:
-	config = load_config(Path("configs/eval.example.toml"))
+@pytest.mark.parametrize("task", ["ag_news", "squad", "gsm8k"])
+def test_task_config_has_all_four_slots_without_loading_weights(task: str) -> None:
+	config = load_config(Path(f"configs/eval.{task}.toml"))
 	assert set(config.models) == {"teacher", "teacher_after", "student_before", "student_after"}
 	assert config.models["student_before"].adapter_path is None
 	assert config.models["student_after"].adapter_path is not None
 	before = config.models["student_before"].model_dump(exclude={"adapter_path"})
 	after = config.models["student_after"].model_dump(exclude={"adapter_path"})
 	assert before == after
-	assert python_candidate(item(), "```python\ndef f(): return 1\n```") == "def f(): return 1"
-	continuation = item().model_copy(
-		update={"code_prompt": "def add(a, b):\n", "entry_point": "add"}
-	)
-	assert "    return a + b" in python_candidate(continuation, "    return a + b")

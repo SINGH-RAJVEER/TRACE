@@ -4,8 +4,6 @@
 Usage: python3 scripts/pipeline.py SCENARIO [options]   (py -3 on Windows)
 
   teacher-host   Serve vLLM and the teacher API until interrupted
-  student-train  Collect from this repository's teacher API, then prepare and train
-  distill-local  Serve the teacher, collect, stop it, then prepare and train
   paper-tasks    Run the paper's AG News, SQuAD, and GSM8K study with its own ledgers
 
 `python3 scripts/pipeline.py SCENARIO --help` lists the options. See docs/run-scripts.md.
@@ -34,7 +32,7 @@ from pathlib import Path
 from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCENARIOS = ("teacher-host", "student-train", "distill-local", "paper-tasks")
+SCENARIOS = ("teacher-host", "paper-tasks")
 WINDOWS = sys.platform == "win32"
 
 
@@ -306,7 +304,7 @@ def main(argv: list[str]) -> int:
 	upstream = any(o == "--upstream-url" or o.startswith("--upstream-url=") for o in options)
 	# paper-tasks with --teacher-url collects from a teacher running elsewhere.
 	remote = any(o == "--teacher-url" or o.startswith("--teacher-url=") for o in options)
-	needs_vllm = not help_only and scenario != "student-train" and not upstream and not remote
+	needs_vllm = not help_only and not upstream and not remote
 	needs_gpu = not help_only and (scenario != "teacher-host" or not upstream)
 	os.environ["DISTILL_RUNTIME"] = select_runtime(needs_gpu, needs_vllm)
 	python = prepare_app_env(os.environ["DISTILL_RUNTIME"], train=False)

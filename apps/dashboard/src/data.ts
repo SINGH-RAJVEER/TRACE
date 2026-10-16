@@ -1,15 +1,21 @@
-import { benchmarkLabels, slots, type Report, type Slot } from "./types";
+import { benchmarkLabels, slots, type Report, type Slot, type Summary, type Paired } from "./types";
 
 export const title = (name: string) => benchmarkLabels[name] ?? name;
 export const format = (value: number | null | undefined, suffix = "", digits = 1) => value == null || !Number.isFinite(value) ? "n/a" : `${value.toFixed(digits)}${suffix}`;
 export const signed = (value: number | null | undefined, suffix = "", digits = 1) => value == null ? "n/a" : `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}${suffix}`;
-export const coding = (benchmark: string) => benchmark === "humaneval" || benchmark === "mbpp";
 export const seconds = (value: number) => value < 1 ? `${+value.toFixed(2)}s` : value < 10 ? `${+value.toFixed(1)}s` : `${Math.round(value)}s`;
+
+export const taskScore = (summary: Summary | undefined, benchmark: string) => benchmark === "squad" ? summary?.f1 ?? null : summary?.score ?? null;
+export const taskInterval = (summary: Summary | undefined, benchmark: string) => benchmark === "squad" ? summary?.f1_ci95 : summary?.ci95;
+export const taskDelta = (comparison: Paired | undefined, benchmark: string) => benchmark === "squad" ? comparison?.f1_delta_pp : comparison?.delta_pp;
+export const taskDeltaInterval = (comparison: Paired | undefined, benchmark: string) => benchmark === "squad" ? comparison?.f1_ci95 : comparison?.ci95;
+export const metricLabel = (benchmark: string) => benchmark === "squad" ? "token F1" : benchmark === "gsm8k" ? "numeric exact match" : "label accuracy";
 
 export function scoreRows(report: Report, benchmarks: string[]) {
 	return benchmarks.map(benchmark => Object.assign({ benchmark, name: title(benchmark) }, ...slots.map(slot => {
 		const summary = report.scores[slot]?.[benchmark];
-		return { [slot]: summary?.score ?? null, [`${slot}_error`]: summary?.score == null ? null : [summary.score - summary.ci95[0], summary.ci95[1] - summary.score] };
+		const score = taskScore(summary, benchmark), interval = taskInterval(summary, benchmark);
+		return { [slot]: score, [`${slot}_error`]: score == null || !interval ? null : [score - interval[0], interval[1] - score] };
 	})));
 }
 

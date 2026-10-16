@@ -2,14 +2,14 @@
 
 This benchmark compares the unprotected teacher before harness deployment with the same teacher behind the harness afterward. It measures whether genuine users still receive responses while extraction attempts slow down, receive rate limits, and eventually get blocked. Student training and the existing four-slot model-quality comparison are separate experiments.
 
-The benchmark creates a held-out synthetic traffic suite. It does not add anything to the transfer corpus, collection ledger, training data, or public quality suite. Only explicitly running `benchmark traffic run` sends its requests. The harness itself is future work; the benchmark establishes its measurement contract now.
+The benchmark creates a held-out synthetic traffic suite. It does not add anything to the task prompt pools, collection ledgers, training data, or task capability suites. Only explicitly running `benchmark traffic run` sends its requests. The harness decision library is in `packages/harness` ([harness.md](harness.md)); its HTTP server is future work, so this benchmark establishes the measurement contract now.
 
 ## Freeze the traffic
 
 ```bash
 devenv shell
 uv run distill benchmark traffic freeze \
-	--output data/benchmarks/traffic.json \
+	--output data/traffic/suite.json \
 	--genuine-count 48 \
 	--attack-count 144 \
 	--duration-seconds 60 \

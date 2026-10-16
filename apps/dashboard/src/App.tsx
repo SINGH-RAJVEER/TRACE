@@ -9,7 +9,7 @@ import { Speed } from "./components/speed";
 import { Answers } from "./components/answers";
 import { Method } from "./components/method";
 import { Traffic } from "./components/traffic";
-import { coding, format, signed, title } from "./data";
+import { format, signed, title, taskScore, metricLabel } from "./data";
 import { labels, slots, type Experiment, type Report, type Slot } from "./types";
 
 function exportReport(report: Report) {
@@ -19,13 +19,6 @@ function exportReport(report: Report) {
 	link.download = `distillation-${report.id}.json`;
 	link.click();
 	URL.revokeObjectURL(url);
-}
-
-function inScope(scope: string, benchmark: string) {
-	if (scope === "all") return true;
-	if (scope === "general") return !coding(benchmark);
-	if (scope === "coding") return coding(benchmark);
-	return scope === benchmark;
 }
 
 export default function App() {
@@ -67,13 +60,13 @@ export default function App() {
 		});
 		return () => controller.abort();
 	}, [selection, reload]);
-	const benchmarks = report?.benchmarks.filter(b => inScope(scope, b)) ?? [];
+	const benchmarks = report?.benchmarks.filter(b => scope === "all" || scope === b) ?? [];
 	const available = active.filter(slot => report?.runs[slot]);
 	return <div className="app-shell">
 		<header className="topbar">
-			<div><h1>Distillation benchmarks</h1><p>Model quality, genuine access, and resistance to extraction.</p></div>
+			<div><h1>Task extraction study</h1><p>Task capability, legitimate access, and resistance to extraction.</p></div>
 			<div className="actions">
-				<Button variant={view === "quality" ? "outline" : "ghost"} aria-pressed={view === "quality"} onClick={() => setView("quality")}>Model quality</Button>
+				<Button variant={view === "quality" ? "outline" : "ghost"} aria-pressed={view === "quality"} onClick={() => setView("quality")}>Task capability</Button>
 				<Button variant={view === "traffic" ? "outline" : "ghost"} aria-pressed={view === "traffic"} onClick={() => setView("traffic")}>Harness traffic</Button>
 				{view === "quality" && experiments.length > 0 && <div className="field"><label htmlFor="experiment">Experiment</label><Choice id="experiment" label="Experiment" value={selection} onChange={setSelection} options={experiments.map(e => ({ value: e.id, label: `${e.name}${e.demo ? " (simulated)" : ""} · ${new Date(e.updated_at).toLocaleDateString()}` }))} /></div>}
 				<Button variant="outline" onClick={() => setReload(v => v + 1)} aria-label="Reload results"><RefreshCw size={15} />Reload</Button>
@@ -87,10 +80,10 @@ export default function App() {
 				{loading && <div className="empty" role="status"><LoaderCircle className="loading-icon" />Loading results</div>}
 				{!loading && !report && !error && <div className="empty">
 					<h2>No benchmark runs yet</h2>
-					<p>Freeze a benchmark suite, then evaluate the teacher and student to fill this dashboard.</p>
-					<pre>uv run --extra eval distill benchmark freeze --output data/benchmarks/suite.json{"\n"}uv run distill benchmark run --config configs/eval.example.toml --stage before</pre>
+					<p>Build a task and evaluate the victim and student to fill this dashboard.</p>
+					<pre>uv run --extra eval distill tasks build --task ag_news{"\n"}uv run distill benchmark run --config configs/eval.ag_news.toml --stage before</pre>
 					<p>To preview the dashboard with simulated data:</p>
-					<pre>uv run distill benchmark demo{"\n"}uv run distill benchmark dashboard --results-dir outputs/benchmark-demo</pre>
+					<pre>uv run distill benchmark demo{"\n"}uv run distill benchmark dashboard --results-dir outputs/tasks-demo/ag_news</pre>
 				</div>}
 				{!loading && report && <>
 					{report.demo && <div role="status" className="notice demo"><strong>Simulated data.</strong> These numbers are fixtures for previewing the dashboard. No model was evaluated.</div>}
@@ -99,16 +92,14 @@ export default function App() {
 					<Tabs defaultValue="accuracy">
 						<div className="toolbar">
 							<TabsList aria-label="Views">
-								<TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+								<TabsTrigger value="accuracy">Task scores</TabsTrigger>
 								<TabsTrigger value="speed">Speed</TabsTrigger>
 								<TabsTrigger value="answers">Answers</TabsTrigger>
 								<TabsTrigger value="method">Method</TabsTrigger>
 							</TabsList>
 							<div className="filters">
-								<div className="field inline"><label htmlFor="scope">Benchmarks</label><Choice id="scope" label="Benchmarks" value={scope} onChange={setScope} options={[
+								<div className="field inline"><label htmlFor="scope">Tasks</label><Choice id="scope" label="Tasks" value={scope} onChange={setScope} options={[
 									{ value: "all", label: "All" },
-									{ value: "general", label: "General knowledge and reasoning" },
-									{ value: "coding", label: "Coding" },
 									...report.benchmarks.map(b => ({ value: b, label: title(b) })),
 								]} /></div>
 								<div className="run-toggles" role="group" aria-label="Runs shown in charts">
@@ -131,32 +122,25 @@ export default function App() {
 }
 
 function Summary({ report }: { report: Report }) {
-	const { student_before: before, student_after: after, teacher, teacher_after: teacherAfter } = report.macro;
+	const task = report.benchmarks[0];
+	const score = (slot: Slot) => taskScore(report.scores[slot]?.[task], task);
+	const before = score("student_before"), after = score("student_after");
 	const change = before != null && after != null ? after - before : null;
 	const tiles: { label: string; value: string; caption: string; slot?: Slot; tone?: "up" | "down" }[] = [
-		{ label: labels.student_before, value: format(before, "%"), caption: "average accuracy", slot: "student_before" },
-		{ label: labels.student_after, value: format(after, "%"), caption: "average accuracy", slot: "student_after" },
+		{ label: labels.student_before, value: format(before, "%"), caption: metricLabel(task), slot: "student_before" },
+		{ label: labels.student_after, value: format(after, "%"), caption: metricLabel(task), slot: "student_after" },
 		{ label: "Student change", value: signed(change, " pp"), caption: "percentage points", tone: change == null || change === 0 ? undefined : change > 0 ? "up" : "down" },
-		{ label: labels.teacher, value: format(teacher, "%"), caption: "average accuracy (target)", slot: "teacher" },
-		{ label: labels.teacher_after, value: format(teacherAfter, "%"), caption: "average accuracy", slot: "teacher_after" },
-		{ label: "Teacher gap closed", value: format(report.gap_closure_percent, "%", 0), caption: "of the student–teacher gap" },
+		{ label: labels.teacher, value: format(score("teacher"), "%"), caption: metricLabel(task), slot: "teacher" },
+		{ label: labels.teacher_after, value: format(score("teacher_after"), "%"), caption: metricLabel(task), slot: "teacher_after" },
 	];
 	return <section className="summary" aria-label="Summary">
-		<p className="headline">{headline(before, after, teacher, report.gap_closure_percent)}</p>
+		<p className="headline">{before == null || after == null
+			? `${title(task)}. The student comparison appears once both runs are recorded.`
+			: `${title(task)} ${metricLabel(task)} after distillation is ${after.toFixed(1)}%, a change of ${signed(change, " percentage points")} from ${before.toFixed(1)}%.`}</p>
 		<dl className="tiles">{tiles.map(tile => <div key={tile.label}>
 			<dt>{tile.slot && <SlotSwatch slot={tile.slot} />}{tile.label}</dt>
 			<dd className={tile.tone}>{tile.value}<span>{tile.caption}</span></dd>
 		</div>)}</dl>
-		<p className="small-note">Averages give every benchmark equal weight and always cover the full suite; the filters below only affect the charts.</p>
+		<p className="small-note">Scores describe this task and adapter. Defended and undefended conditions are separate experiments.</p>
 	</section>;
-}
-
-function headline(before?: number, after?: number, teacher?: number, gap?: number | null) {
-	if (before == null || after == null) return "Results so far. The student's before/after comparison appears once both student runs are recorded.";
-	const delta = after - before;
-	const direction = Math.abs(delta) < .05 ? "unchanged from" : delta > 0 ? `up ${delta.toFixed(1)} points from` : `down ${Math.abs(delta).toFixed(1)} points from`;
-	let text = `After distillation the student averages ${after.toFixed(1)}%, ${direction} ${before.toFixed(1)}%.`;
-	if (teacher != null) text += ` The teacher averages ${teacher.toFixed(1)}%`;
-	if (teacher != null) text += gap != null ? `, so the student closed ${gap.toFixed(0)}% of the gap.` : ".";
-	return text;
 }

@@ -23,11 +23,9 @@ from distillation.training import (
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 benchmark_app = typer.Typer(no_args_is_help=True)
-app.add_typer(benchmark_app, name="benchmark", help="Freeze, score, and compare public benchmarks.")
+app.add_typer(benchmark_app, name="benchmark", help="Score and compare frozen paper tasks.")
 traffic_app = typer.Typer(no_args_is_help=True)
 benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
-corpus_app = typer.Typer(no_args_is_help=True)
-app.add_typer(corpus_app, name="corpus", help="Build the transfer prompt corpus.")
 tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks", help="Build the paper's AG News, SQuAD, and GSM8K tasks.")
 app.add_typer(run_app, name="run", help="Run a whole pipeline scenario on this machine.")
@@ -117,81 +115,21 @@ def prepare_command(
 def review_command(
 	ledger_path: Annotated[Path, typer.Option("--ledger", exists=True, dir_okay=False)],
 	output_path: Annotated[Path, typer.Option("--output", dir_okay=False)],
-	references_path: Annotated[
-		Path | None, typer.Option("--references", exists=True, dir_okay=False)
-	] = None,
-	overrides_path: Annotated[
-		Path | None, typer.Option("--overrides", exists=True, dir_okay=False)
-	] = None,
 	config_path: Annotated[
 		Path | None, typer.Option("--config", exists=True, dir_okay=False)
 	] = None,
-	code_image: Annotated[str | None, typer.Option("--code-image")] = None,
-	code_timeout_seconds: Annotated[int, typer.Option(min=1)] = 10,
 ) -> None:
-	"""Validate teacher responses against the answer key and write review decisions.
-
-	--config rejects records longer than the training max_length. --code-image runs Python
-	tests in an isolated Docker container; without it, code is only parsed. Decisions in
-	--overrides, such as human reviews, replace the automatic ones.
-	"""
+	"""Review response usability without gold labels. --config checks training length."""
 	from distillation.review import review_ledger
 
 	with LiveProgress() as live:
 		summary = review_ledger(
 			ledger_path=ledger_path,
-			references_path=references_path,
 			output_path=output_path,
-			overrides_path=overrides_path,
 			config_path=config_path,
-			code_image=code_image,
-			code_timeout_seconds=code_timeout_seconds,
 			progress=live.update,
 		)
 	typer.echo(json.dumps(summary, indent="\t", sort_keys=True))
-
-
-@corpus_app.command("build")
-def corpus_build_command(
-	output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)] = Path(
-		"data/prompts"
-	),
-	authored_path: Annotated[Path, typer.Option("--authored", dir_okay=False)] = Path(
-		"data/authored/prompts.jsonl"
-	),
-	profile: Annotated[str, typer.Option()] = "standard",
-	seed: int = 42,
-	validation_fraction: Annotated[float, typer.Option(min=0.0, max=0.5)] = 0.04,
-	max_prompt_chars: Annotated[int, typer.Option(min=100)] = 3000,
-	families: Annotated[str, typer.Option(help="Comma-separated subset of families")] = "",
-) -> None:
-	"""Download pinned public prompt sets, add authored prompts, and write the corpus.
-
-	Profiles: quick (about 7,200 prompts), standard (about 36,100), full (about 75,900).
-	"""
-	from distillation.corpus import build_corpus
-
-	manifest = build_corpus(
-		output_dir=output_dir,
-		authored_path=authored_path,
-		profile=profile,
-		seed=seed,
-		validation_fraction=validation_fraction,
-		max_prompt_chars=max_prompt_chars,
-		families=[name.strip() for name in families.split(",") if name.strip()] or None,
-		log=lambda message: console.print(f"[bold]corpus[/] {escape(message)}"),
-	)
-	typer.echo(
-		json.dumps(
-			{
-				"total": manifest["total"],
-				"splits": manifest["splits"],
-				"families": manifest["families"],
-				"output_dir": str(output_dir),
-			},
-			indent="\t",
-		)
-	)
 
 
 @tasks_app.command("build")
@@ -298,20 +236,6 @@ def train_command(
 	typer.echo(f"adapter={output_dir}")
 
 
-@benchmark_app.command("freeze")
-def freeze_command(
-	output: Annotated[Path, typer.Option("--output")],
-	benchmarks: str = "gsm8k,arc_challenge,mmlu,truthfulqa,humaneval,mbpp",
-	limit: Annotated[int, typer.Option(min=0)] = 200,
-	seed: int = 42,
-) -> None:
-	"""Freeze publisher test questions. Limit 0 selects every question."""
-	from distillation.benchmarks.suites import freeze_suite
-
-	suite = freeze_suite(output, [name.strip() for name in benchmarks.split(",")], limit, seed)
-	typer.echo(f"questions={len(suite.items)} sha256={suite.sha256} output={output}")
-
-
 @benchmark_app.command("run")
 def benchmark_run_command(
 	config: Annotated[Path, typer.Option("--config", exists=True)],
@@ -342,7 +266,7 @@ def benchmark_run_command(
 
 @benchmark_app.command("report")
 def report_command(
-	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/benchmarks"),
+	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/tasks/ag_news"),
 	comparison: Annotated[str, typer.Option("--comparison")] = "",
 	output: Annotated[Path | None, typer.Option("--output")] = None,
 ) -> None:
@@ -361,18 +285,22 @@ def report_command(
 
 @benchmark_app.command("demo")
 def demo_command(
-	output_dir: Annotated[Path, typer.Option("--output-dir")] = Path("outputs/benchmark-demo"),
+	task: Annotated[
+		str, typer.Option(help="Paper task to simulate: ag_news, squad, gsm8k.")
+	] = "ag_news",
+	output_dir: Annotated[Path | None, typer.Option("--output-dir")] = None,
 ) -> None:
 	"""Create labeled simulated artifacts for a dashboard preview."""
 	from distillation.benchmarks.demo import create_demo
 
-	create_demo(output_dir)
+	output_dir = output_dir or Path("outputs/tasks-demo") / task
+	create_demo(output_dir, task=task)
 	typer.echo(f"Simulated dashboard fixtures written to {output_dir}")
 
 
 @benchmark_app.command("dashboard")
 def dashboard_command(
-	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/benchmarks"),
+	results_dir: Annotated[Path, typer.Option("--results-dir")] = Path("outputs/tasks/ag_news"),
 	frontend_dir: Annotated[Path, typer.Option("--frontend-dir")] = Path("apps/dashboard/dist"),
 	port: Annotated[int, typer.Option(min=1, max=65535)] = 8002,
 	traffic_results_dir: Annotated[Path, typer.Option("--traffic-results-dir")] = Path(
