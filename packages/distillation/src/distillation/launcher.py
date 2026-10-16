@@ -272,7 +272,7 @@ class Launcher:
 					*shlex.split(os.environ.get("VLLM_EXTRA_ARGS", "")),
 				],
 				vllm_log,
-				{},
+				_vllm_env(),
 			)
 			self.log(f"vLLM log: {vllm_log}")
 			self.wait_for_http(
@@ -688,6 +688,21 @@ def _find_vllm() -> str:
 		)
 	venv = Path(".venv-vllm/bin/vllm")
 	return str(venv) if venv.is_file() else ""
+
+
+def _vllm_env() -> dict[str, str]:
+	"""Disables the FlashInfer sampler when no CUDA toolkit is installed.
+
+	FlashInfer JIT-compiles its top-k/top-p sampling kernel with nvcc on first use, so a host
+	with only the NVIDIA driver fails engine startup. vLLM's PyTorch sampler needs no compiler.
+	An explicit VLLM_USE_FLASHINFER_SAMPLER setting is left alone.
+	"""
+	if "VLLM_USE_FLASHINFER_SAMPLER" in os.environ:
+		return {}
+	cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH") or "/usr/local/cuda"
+	if shutil.which("nvcc") or (Path(cuda_home) / "bin" / "nvcc").is_file():
+		return {}
+	return {"VLLM_USE_FLASHINFER_SAMPLER": "0"}
 
 
 def _signal_group(process: subprocess.Popen[bytes], *, kill: bool) -> None:
