@@ -18,8 +18,8 @@ build/
 .jj/
 artifacts/
 outputs/
-data/benchmarks/
 data/tasks/
+data/traffic/
 *.tsbuildinfo
 
 # Environment files

@@ -8,8 +8,10 @@ Students learn from teacher-generated text through sequence-level supervised fin
 
 ```text
 apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
+apps/harness-api/         Protected teacher API: the harness in front of the teacher gateway
 apps/dashboard/           Read-only task and traffic results with shadcn controls
 packages/distillation/    Task splits, collection, usability review, training, evaluation
+packages/harness/         Extraction detector, calibration, and graduated access policy
 configs/                  Task training recipe, per-task evaluation, traffic settings
 docs/                     Protocol, operations, metrics, and manuscript revisions
 scripts/                  Cross-platform task-study and teacher-host launcher
@@ -21,6 +23,14 @@ Requirements are Python 3.14, uv, and optionally just. NixOS users can enter `de
 
 ```bash
 cp .env.example .env
+just start
+```
+
+`just start` builds the task corpora, loads the teacher, collects ledgers, benchmarks the teacher and base student, trains and benchmarks the baseline students, then starts the extraction harness alongside the teacher. It collects a separate protected ledger, trains a fresh student on usable protected responses, and benchmarks that student on the same frozen tests. Capability and before/after traffic reports are written under `artifacts/start`. See [docs/run-scripts.md](docs/run-scripts.md#complete-pipeline) for options, outputs, and resuming.
+
+For collection and training without automatic benchmarks or the protected cycle:
+
+```bash
 just paper-tasks
 ```
 
@@ -60,9 +70,9 @@ uv run distill benchmark demo
 uv run distill benchmark dashboard --results-dir outputs/tasks-demo/ag_news
 ```
 
-## Paper status
+## Extraction policy and paper status
 
-The account-policy implementation is developed separately. The existing [traffic benchmark guide](docs/harness-benchmarks.md) describes its measurement contract. Synthetic traffic fixtures do not enter task training or capability scores.
+`packages/harness` implements query embeddings, window MMD scores, benign-only calibration, accumulated account evidence, and graduated access actions. See [docs/harness.md](docs/harness.md) and [docs/harness-benchmarks.md](docs/harness-benchmarks.md). Synthetic traffic fixtures do not enter task training or capability scores.
 
 Configured experiments and passing software tests do not establish extraction effectiveness or defense utility. Establish positive undefended transfer on development data before final defense testing, then compare paired defended and undefended students with matched supervision controls. Track manuscript changes in [docs/paper-revision-todo.md](docs/paper-revision-todo.md).
 

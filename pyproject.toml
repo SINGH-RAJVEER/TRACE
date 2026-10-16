@@ -5,6 +5,8 @@ description = "Hosted-teacher sequence distillation research environment"
 requires-python = ">=3.14,<3.15"
 dependencies = [
 	"distillation-core",
+	"extraction-harness",
+	"harness-api",
 	"teacher-api"
 ]
 
@@ -15,18 +17,25 @@ train = [
 eval = [
 	"distillation-core[eval]"
 ]
+embed = [
+	"extraction-harness[embed]"
+]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
 distillation-core = { workspace = true }
+extraction-harness = { workspace = true }
+harness-api = { workspace = true }
 teacher-api = { workspace = true }
 
 [tool.uv.workspace]
 members = [
+	"apps/harness-api",
 	"apps/teacher-api",
-	"packages/distillation"
+	"packages/distillation",
+	"packages/harness"
 ]
 
 [dependency-groups]

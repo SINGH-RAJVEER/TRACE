@@ -44,11 +44,22 @@ def summarize_traffic(samples: list[TrafficSample], seconds: float) -> dict[str,
 	blocked = sum(s.decision == "block" for s in samples)
 	known = sum(s.decision != "unknown" for s in samples)
 	with_tokens = [s for s in successes if s.output_tokens is not None]
+	# Noise is known only when the harness log covered every successful response.
+	noise_known = all(s.noised is not None for s in successes)
+	noised = sum(bool(s.noised) for s in successes)
 	return {
 		"n": n,
 		"succeeded": len(successes),
 		"success_percent": 100 * len(successes) / n if n else None,
 		"success_ci95": wilson(len(successes), n) if n else None,
+		# Successful responses that were keyed noise rather than the teacher's answer. For
+		# genuine users these are silent corruptions; for extraction, worthless supervision.
+		"noised": noised if noise_known else None,
+		"noised_percent": 100 * noised / n if n and noise_known else None,
+		"useful_succeeded": len(successes) - noised if noise_known else None,
+		"useful_success_percent": 100 * (len(successes) - noised) / n
+		if n and noise_known
+		else None,
 		"blocked": blocked,
 		"confirmed_block_percent": 100 * blocked / n if n else None,
 		# Without full decision coverage, zero observed blocks is not a measured FPR.
