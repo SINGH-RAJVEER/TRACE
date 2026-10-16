@@ -170,10 +170,11 @@ class Study:
 
 	def calibrate(self, task: str) -> Path:
 		from harness.calibration import (
-			BenignRequest,
 			HarnessConfig,
 			calibrate,
 			load_calibration,
+			pooled_accounts,
+			requests_sha256,
 			save_calibration,
 		)
 		from harness.encoder import BGEEncoder
@@ -182,25 +183,36 @@ class Study:
 			path = self.calibration_root / task
 			load_calibration(path)
 			return path
-		path = self.root / task / "calibration"
-		if (path / "calibration.json").exists():
-			load_calibration(path)
-			return path
-		self.pipeline.launcher.log(
-			f"{task}: calibrating on pooled benign accounts; this does not validate real-user FPR"
-		)
 		groups = {}
 		for role in ("fitting", "score_calibration", "policy_calibration"):
 			prompts = read_jsonl(
 				self.pipeline.task_dir(task) / "legitimate" / f"{role}.jsonl", PromptRecord
 			)
-			groups[role] = [
-				BenignRequest(
-					account=f"{role}-{index // 500}",
-					text=next(m.content for m in reversed(prompt.prompt) if m.role == "user"),
+			groups[role] = pooled_accounts(
+				(
+					(
+						prompt.example_id,
+						next(m.content for m in reversed(prompt.prompt) if m.role == "user"),
+					)
+					for prompt in prompts
+				),
+				role,
+				500,
+				HarnessConfig().seed,
+			)
+		path = self.root / task / "calibration"
+		if (path / "calibration.json").exists():
+			existing, _ = load_calibration(path)
+			# Calibrations from before the shuffle sliced article-ordered SQuAD pools.
+			if existing.sha256 != {role: requests_sha256(rows) for role, rows in groups.items()}:
+				raise LaunchError(
+					f"{path} was calibrated on different benign accounts; "
+					"start a fresh --run-dir or remove that calibration"
 				)
-				for index, prompt in enumerate(prompts)
-			]
+			return path
+		self.pipeline.launcher.log(
+			f"{task}: calibrating on pooled benign accounts; this does not validate real-user FPR"
+		)
 		# Small task pools cannot supply twenty 100-request references. Keep the window
 		# fixed and record the supported reference count in the calibration artifact.
 		count = min(20, len(groups["fitting"]) // 100)

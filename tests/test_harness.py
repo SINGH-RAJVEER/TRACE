@@ -16,6 +16,7 @@ from harness.calibration import (
 	fit_threshold,
 	load_calibration,
 	peak_per_minute,
+	pooled_accounts,
 	save_calibration,
 )
 from harness.mmd import Array, WindowScorer, kernel, mmd2_unbiased
@@ -84,6 +85,16 @@ def test_thresholds_use_strict_exceedance_and_report_achieved_rates() -> None:
 	assert fit_threshold([7, 7, 7, 1], 0.25) == (7, 0.0)
 	assert fit_threshold([3, 2, 1], 0.01) == (3, 0.0)
 	assert peak_per_minute([0, 10, 59.9, 60, 61, 200]) == 4
+
+
+def test_pooled_accounts_break_up_source_ordered_groups() -> None:
+	# Five articles of 100 consecutive questions each, as SQuAD pools are written.
+	rows = [(f"q{index}", f"article-{index // 100}") for index in range(500)]
+	accounts = pooled_accounts(rows, "pool", 100, seed=42)
+	assert accounts == pooled_accounts(rows, "pool", 100, seed=42)
+	assert sorted(request.text for request in accounts) == sorted(text for _, text in rows)
+	first = [request.text for request in accounts if request.account == "pool-00000"]
+	assert len(first) == 100 and len(set(first)) == 5
 
 
 def test_accumulators_follow_their_update_rules() -> None:
