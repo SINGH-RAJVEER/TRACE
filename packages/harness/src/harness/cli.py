@@ -158,6 +158,49 @@ def watermark_command(
 	typer.echo(json.dumps(result, indent="\t"))
 
 
+@app.command("bench")
+def bench_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+	task: Annotated[
+		str, typer.Option(help="noise format: ag_news, squad, gsm8k, or text")
+	] = "text",
+	accumulator: str = "paper",
+	limit: Annotated[int, typer.Option(min=1)] = 2000,
+	encode: Annotated[bool, typer.Option(help="time the BGE encoder too")] = True,
+	device: str | None = None,
+) -> None:
+	"""Time the harness's own serving costs, unit by unit, for the paper's Table X.
+
+	Replays up to --limit requests from a request file as one account. Victim inference is
+	excluded; measure it with the traffic benchmark at the same load and hardware.
+	"""
+	from harness.bench import serving_costs
+
+	calibration, scorer = load_calibration(calibration_dir)
+	texts = [request.text for request in read_requests(requests)[:limit]]
+	encoder = None
+	if encode:
+		from harness.encoder import BGEEncoder
+
+		encoder = BGEEncoder(device=device)
+	report = serving_costs(
+		calibration=calibration,
+		scorer=scorer,
+		texts=texts,
+		encoder=encoder,
+		task=task,
+		accumulator=accumulator,
+		key=deception_key(required=False),
+	)
+	text = json.dumps(report, indent="\t")
+	if output:
+		output.parent.mkdir(parents=True, exist_ok=True)
+		output.write_text(text + "\n", encoding="utf-8")
+	typer.echo(text)
+
+
 @app.command("pool-accounts")
 def pool_accounts_command(
 	pool: Annotated[Path, typer.Option(exists=True, dir_okay=False)],

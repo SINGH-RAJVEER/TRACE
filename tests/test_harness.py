@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import pytest
 from harness.accumulators import AccumulatorSpec
+from harness.bench import serving_costs
 from harness.calibration import (
 	BenignRequest,
 	Calibration,
@@ -176,3 +177,24 @@ def test_quota_and_rate_baselines_block_for_the_horizon() -> None:
 	rate = RatePolicy(2, horizon_seconds=1000, horizon_attempts=1000)
 	actions = [rate.admit("a", "q", t).action for t in (0, 1, 2, 100)]
 	assert actions == ["serve", "serve", "refuse", "refuse"]
+
+
+def test_serving_cost_benchmark_times_each_unit_separately(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	calibration, scorer = calibrated
+	texts = [f"request {i}" for i in range(60)]
+	report = serving_costs(
+		calibration=calibration, scorer=scorer, texts=texts, encoder=FakeEncoder(), task="gsm8k"
+	)
+	units = report["units"]
+	assert units["embedding_per_request"]["n"] == 60
+	assert units["mmd_per_completed_window"]["n"] == 6
+	assert units["admit_per_scoring_trigger_request"]["n"] == 6
+	assert units["admit_per_other_request"]["n"] == 54
+	assert units["noise_per_request"]["p95_ms"] >= units["noise_per_request"]["p50_ms"] >= 0
+	assert report["peak_policy_memory_bytes"] > 0
+	plain = serving_costs(calibration=calibration, scorer=scorer, texts=texts)
+	assert plain["units"]["embedding_per_request"] is None
+	with pytest.raises(ValueError, match="at least one window"):
+		serving_costs(calibration=calibration, scorer=scorer, texts=texts[:5])
