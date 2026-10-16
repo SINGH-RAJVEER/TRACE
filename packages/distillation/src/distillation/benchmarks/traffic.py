@@ -117,6 +117,8 @@ class TrafficSample(StrictModel):
 	provider_request_id: str | None = None
 	# Retry-After is evidence only; the fixed replay never retries or adapts its pace.
 	retry_after: str | None = None
+	# Seconds spent solving a proof-of-work challenge, when the harness required one.
+	challenge_seconds: float | None = Field(default=None, ge=0)
 
 
 class TrafficRun(StrictModel):
