@@ -94,27 +94,6 @@ def test_training_admission_rejects_empty_or_overlapping_validation(tmp_path: Pa
 		_validate_dataset_splits(config)
 
 
-def test_preflight_cli_never_calls_training(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-	from distillation import cli
-	from typer.testing import CliRunner
-
-	dataset = tmp_path / "train.jsonl"
-	write_jsonl(dataset, [])
-	config = tmp_path / "train.toml"
-	config.write_text(f'base_model="local"\ndataset_path="{dataset}"\noutput_dir="{tmp_path}"\n')
-
-	def forbidden_training(config: TrainingConfig) -> Path:
-		pytest.fail("preflight invoked training")
-
-	monkeypatch.setattr(cli, "train", forbidden_training)
-	monkeypatch.setattr(cli, "preflight_training", lambda config: {"checked": True})
-	result = CliRunner().invoke(cli.app, ["train", "--config", str(config), "--preflight-only"])
-	assert result.exit_code == 0, result.output
-	assert '"checked": true' in result.output
-
-
 def test_resume_uses_newest_complete_checkpoint_of_the_same_run(tmp_path: Path) -> None:
 	dataset = tmp_path / "train.jsonl"
 	write_jsonl(dataset, [])

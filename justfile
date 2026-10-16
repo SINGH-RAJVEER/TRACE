@@ -91,7 +91,11 @@ preflight-train config="configs/train.example.toml":
 
 # Construct a tiny native trainer; its training method is intercepted before optimization.
 test-training-setup:
-	DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py
+	DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py -k native_setup
+
+# Run offline optimizer, interruption/resume, adapter reload, and preflight checks.
+test-training:
+	DISTILL_TEST_TRAINING_STACK=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 uv run --extra train pytest tests/test_training_stack.py
 
 # Two machines, teacher side: serve vLLM and the teacher API. See docs/run-scripts.md.
 teacher-host *args:
