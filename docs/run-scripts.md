@@ -269,3 +269,22 @@ The launcher's generation check passed. A direct upstream request returned `56` 
 Colab returned HTTP 429 when a second SSH connection was opened while the tunnel was active. Use OpenSSH multiplexing to share one connection between the tunnel and management commands, with the same `ControlPath` for both. A dedicated Ed25519 key is selected with `-i` for both OpenSSH and the Colab proxy. The first cold load and generation took over a minute while the NVIDIA driver populated its CUDA compilation cache; subsequent requests completed normally.
 
 Deployment files and local logs are under the ignored `artifacts/colab-teacher/` directory: `manifest.json` pins the model and release archive hashes; `validation.json`, `upstream-validation.json`, and `gpu-samples.txt` record the successful checks; `api.log` and `tunnel.log` hold local service logs. Colab's files, server PID, and log are under `/content/capstone-teacher/`. These detached processes continue after the launching terminal exits, while the Colab runtime and local machine remain available. No automatic runtime recreation or service restart is configured.
+
+### 8-bit continuation
+
+The 8-bit profile uses `Qwen3.5-9B-Q8_0.gguf` from the same pinned [Unsloth revision](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5) and llama.cpp release above. The checkpoint is 9,527,502,048 bytes, with SHA-256 `809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4`. This is GGUF Q8_0 weight quantization. Use the model alias `Qwen3.5-9B-Q8_0` and API provider `colab-llamacpp-q8_0` so each newly collected row identifies the quantized teacher.
+
+Start the server with the preceding Q4 command, replacing the model path and alias with Q8_0 and setting `--ctx-size 16384 --parallel 4`. This allocates four 4,096-token slots. Keep `--n-gpu-layers 99 --jinja --reasoning off --reasoning-format deepseek`, and verify GPU offload and a real generation before collection. The local API and tunnel use ports 18010 and 18011 as above. Set `TEACHER_TIMEOUT_SECONDS=600`; the local continuation also gives its `TeacherAPIGateway` a 600-second timeout, since the collector CLI's default gateway timeout is shorter.
+
+The continuation uses the existing `quick` corpus, temperature 0, a 1,024-token output limit, no seed, thinking disabled, four workers, and three attempts per prompt. It validates resume identity before appending to `data/teacher/ledger.jsonl`, retains historical teacher metadata, and skips every existing example ID, including collector-rejected records. Those rejected responses still need review; finishing collection does not make them accepted training data.
+
+Live T4 checks on 2026-10-16 returned `56` for `7 * 8` through both the upstream server and authenticated teacher API, with no reasoning content; an unauthenticated API request returned HTTP 401. During collection, GPU memory was 8,999 MiB out of 15,360 MiB and sampled utilization reached 94%. The first 14 Q8 ledger rows finished with `stop`, had the expected model, provider, and generation parameters, and contained no thought tags. The original 1,083 records were verified as an unchanged byte prefix, and no duplicate IDs were present. These checks establish that continuation works; the 7,208-prompt collection was still running when checked.
+
+Local continuation artifacts are under ignored `artifacts/colab-teacher/q8/`: `manifest.json` pins downloads, `validation.json` records authenticated generation, `baseline.json` and `ledger-before-q8.jsonl` preserve the starting ledger, and `progress.json` reports counts. `startup.log`, `api.log`, `tunnel.log`, and `collection.log` hold service output; matching `.pid` files identify the processes. `exit.json` is written only when the collector finishes or fails. The continuation locks `artifacts/colab-teacher/quick-collection.lock` against another continuation process. A fresh Colab runtime needs its model files installed again; the ledger remains on the local machine.
+
+Inspect progress from the repository root:
+
+```bash
+cat artifacts/colab-teacher/q8/progress.json
+tail -n 10 artifacts/colab-teacher/q8/collection.log
+```
