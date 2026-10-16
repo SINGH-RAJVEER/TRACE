@@ -30,7 +30,8 @@ model = "Qwen/Qwen3.5-2B-Base"
 revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 eos_token = "<|im_end|>"
 precision = "bf16"
-load_in_4bit = true
+# Must match the adapter's qlora setting; evaluation rejects a mismatch.
+load_in_4bit = false
 
 [models.student_after]
 backend = "local"
@@ -38,7 +39,8 @@ model = "Qwen/Qwen3.5-2B-Base"
 revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 eos_token = "<|im_end|>"
 precision = "bf16"
-load_in_4bit = true
+# Must match the adapter's qlora setting; evaluation rejects a mismatch.
+load_in_4bit = false
 # The adapter configs/train.distill.toml writes during a --corpus run.
 adapter_path = "artifacts/qwen3.5-2b-distilled-r128"
 

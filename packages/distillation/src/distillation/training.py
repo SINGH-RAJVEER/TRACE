@@ -50,7 +50,7 @@ class TrainingConfig(BaseModel):
 	save_total_limit: int = Field(default=2, ge=1)
 	seed: int = 42
 	precision: Literal["bf16", "fp16", "fp32"] = "bf16"
-	qlora: bool = True
+	qlora: bool = False
 	loss_type: Literal["nll", "dft"] = "nll"
 	attn_implementation: Literal["sdpa", "eager", "flash_attention_2"] = "sdpa"
 	optimizer: Literal[

@@ -136,7 +136,7 @@ To keep more KV cache than fits on the GPU, set `VLLM_KV_OFFLOADING_SIZE` to a s
 
 A GPU that also drives a display already has about 1 GB in use. vLLM refuses to start when free memory is below `VLLM_GPU_MEMORY_UTILIZATION` times the total; lower the value if the log reports that.
 
-For training, the 2B student's 4-bit text model takes about 2 to 3 GB, because its 248K-token embedding stays unquantized, and the rank-128 adapter with its optimizer state about 2 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB with room to spare. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`.
+For training, the 2B student's BF16 text model takes about 3.8 GB, and the rank-128 adapter with its optimizer state about 2 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB with room to spare. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`. Set `qlora = true` only as a last resort, and set `load_in_4bit = true` for both student slots of the evaluation config to match.
 
 ## Pipeline options
 
@@ -204,7 +204,7 @@ The script reads `.env` from the repository root. Variables already set in the s
 ## Platform notes
 
 - vLLM does not run natively on Windows. On Windows, start an OpenAI-compatible server separately, for example vLLM under WSL2, and pass `--upstream-url`. The script stops with this message instead of trying to install vLLM.
-- QLoRA needs bitsandbytes, which the training extra installs only on Linux. On Windows, set `qlora = false` in the training config or train under WSL2.
+- QLoRA needs bitsandbytes, which the training extra installs only on Linux. The example configs train without it; on Windows, keep `qlora = false` or train under WSL2.
 - On Windows, the `just` recipes run through PowerShell 7 (`pwsh`), as the justfile's `windows-shell` sets. Running `py -3 scripts\pipeline.py` directly needs only Python.
 
 ## Colab over SSH

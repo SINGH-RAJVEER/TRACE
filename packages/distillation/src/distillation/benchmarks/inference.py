@@ -27,7 +27,13 @@ class LocalModel:
 			config.precision
 		]
 		quantization = (
-			BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=dtype)
+			# Matches QLoRA training so an adapter runs on the base it was trained on.
+			BitsAndBytesConfig(
+				load_in_4bit=True,
+				bnb_4bit_quant_type="nf4",
+				bnb_4bit_compute_dtype=dtype,
+				bnb_4bit_use_double_quant=True,
+			)
 			if config.load_in_4bit
 			else None
 		)
@@ -149,6 +155,8 @@ def validate_adapter(config: ModelConfig) -> list[Path]:
 	trained = manifest["config"]
 	if trained["base_model"] != config.model or trained["base_revision"] != config.revision:
 		raise ValueError("adapter manifest does not match evaluation base model and revision")
+	if trained.get("qlora", False) != config.load_in_4bit:
+		raise ValueError("load_in_4bit must match the adapter's qlora training setting")
 	from distillation.training import _sha256
 
 	paths = [Path(trained["dataset_path"])]

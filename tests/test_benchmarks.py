@@ -281,6 +281,9 @@ def test_adapter_identity_and_data_integrity(tmp_path: Path) -> None:
 		validate_adapter(config)
 	with pytest.raises(ValueError, match="does not match"):
 		validate_adapter(config.model_copy(update={"model": "different"}))
+	data.write_text("original")
+	with pytest.raises(ValueError, match="qlora"):
+		validate_adapter(config.model_copy(update={"load_in_4bit": True}))
 
 
 def test_comparison_contract_separates_incompatible_runs_and_detects_missing_items(
