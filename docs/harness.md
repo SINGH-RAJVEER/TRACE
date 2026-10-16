@@ -142,6 +142,33 @@ The numbers describe the construction, not the detector:
 - **MMD.** The extractor's first window received the smallest possible p-value, 1/108. That account is a contiguous slice of the AG News training file, whose row order appears to carry its own distribution shift. Its label mix was balanced, so labels are not the cause.
 - **Sample size.** With 22 calibration accounts, the 2% and 1% targets cannot be met. The L3 and L4 thresholds fell back to the largest benign value, with an achieved rate of 0.
 
+## Serving cost
+
+`harness bench` times the harness's own work unit by unit, for the paper's Table X. It replays up to `--limit` requests from a request file as one account and reports p50 and p95 milliseconds per unit, along with the peak Python heap allocated while admitting them. A window-scoring cost is never reported as a per-request latency, so admission is split into requests that complete a window and requests that do not.
+
+```bash
+uv run --extra embed harness bench \
+	--calibration artifacts/harness/ag_news \
+	--requests benign_test.jsonl \
+	--task ag_news --output outputs/harness/bench-ag_news.json
+```
+
+`--no-encode` skips the encoder and uses random unit embeddings, which leave the other units' costs unchanged. Victim inference is excluded; measure it with the traffic benchmark at the same load and hardware.
+
+Measured on 2026-10-16 on an AMD Ryzen AI 9 HX 370 with no GPU, using the AG News smoke calibration (100-request windows, 20 reference windows, 107 calibration windows) and 1,000 benign requests:
+
+| Unit | p50 (ms) | p95 (ms) |
+| --- | --- | --- |
+| Embedding per request, BGE on CPU | 14.3 | 19.0 |
+| MMD per completed window | 5.9 | 6.5 |
+| Risk update per completed window | 0.006 | 0.013 |
+| Noise per request, AG News | 0.010 | 0.013 |
+| Noise per request, GSM8K | 0.039 | 0.048 |
+| Admission per scoring-trigger request | 6.2 | 6.4 |
+| Admission per other request | 0.005 | 0.008 |
+
+Peak policy memory was about 1.2 MB. Embedding dominates the harness's per-request cost on CPU, and a GPU would change that row most. Each figure comes from one run on one machine, without warm-up control, so treat it as indicative.
+
 ## Protected API
 
 `apps/harness-api` puts the harness in front of the teacher API and serves the same contract, `POST /v1/teacher/generate`. The task collector, the evaluator, and the traffic benchmark can point at it unchanged.
@@ -172,7 +199,7 @@ A 428 body carries the challenge's `nonce`, `prefix`, `difficulty`, and `expires
 
 **Consistent metadata.** Output token counts are recounted with `HARNESS_TOKENIZER_MODEL` and `HARNESS_TOKENIZER_REVISION` when set, and omitted from every response otherwise. Input token counts are omitted from every response, because a noise response has none to report. The tests check that a noise response matches an ordinary L3 response in status, headers, fields, usage, model, and identifier format, and that it makes no teacher call.
 
-**Decision log.** `HARNESS_DECISION_LOG`, `outputs/harness/decisions.jsonl` by default, records every decision with level, statistic, p-value, deception flag, and witness, along with redemptions, deceptions, fallbacks, and aggregate alerts. Requests appear as SHA-256 digests, never as text. Risk values never appear in responses.
+**Decision log.** `HARNESS_DECISION_LOG`, `outputs/harness/decisions.jsonl` by default, records every decision with level, statistic, p-value, deception flag, and witness, along with redemptions, noise responses, and aggregate alerts. Requests appear as SHA-256 digests, never as text. Risk values never appear in responses. When a client sends `X-Benchmark-Request`, a test correlation ID, the log records it with each event; it never affects a decision. The traffic benchmark uses it to learn which responses were noise.
 
 **Test clock.** With `HARNESS_TEST_CLOCK=true`, the server reads the time from `X-Harness-Time` and returns `X-Harness-Release-At` instead of waiting, so simulated schedules replay without real delays.
 
