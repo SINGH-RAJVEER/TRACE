@@ -28,6 +28,8 @@ traffic_app = typer.Typer(no_args_is_help=True)
 benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
 corpus_app = typer.Typer(no_args_is_help=True)
 app.add_typer(corpus_app, name="corpus", help="Build the transfer prompt corpus.")
+tasks_app = typer.Typer(no_args_is_help=True)
+app.add_typer(tasks_app, name="tasks", help="Build the paper's AG News, SQuAD, and GSM8K tasks.")
 app.add_typer(run_app, name="run", help="Run a whole pipeline scenario on this machine.")
 
 
@@ -190,6 +192,62 @@ def corpus_build_command(
 			indent="\t",
 		)
 	)
+
+
+@tasks_app.command("build")
+def tasks_build_command(
+	task: Annotated[str, typer.Option(help="ag_news, squad, or gsm8k")],
+	output_dir: Annotated[Path | None, typer.Option("--output-dir", file_okay=False)] = None,
+	seed: int = 42,
+	development_limit: Annotated[int, typer.Option(min=0)] = 1000,
+) -> None:
+	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
+
+	Writes attacker.jsonl, gold-answers.jsonl, legitimate/*.jsonl, development-suite.json,
+	test-suite.json, and manifest.json into --output-dir, by default data/tasks/TASK.
+	"""
+	from distillation.tasks import build_task
+
+	directory = output_dir or Path("data/tasks") / task
+	manifest = build_task(
+		task=task,
+		output_dir=directory,
+		seed=seed,
+		development_limit=development_limit,
+		log=lambda message: console.print(f"[bold]tasks[/] {escape(message)}"),
+	)
+	summary = {
+		key: manifest[key] for key in ("roles", "filtered", "truncated", "max_output_tokens")
+	}
+	typer.echo(json.dumps({**summary, "output_dir": str(directory)}, indent="\t"))
+
+
+@tasks_app.command("budget")
+def tasks_budget_command(
+	task_dir: Annotated[Path, typer.Option("--task-dir", exists=True, file_okay=False)],
+	budget: Annotated[int, typer.Option(min=1)],
+	seed: int = 42,
+	output_dir: Annotated[Path | None, typer.Option("--output-dir", file_okay=False)] = None,
+	ledger_path: Annotated[
+		Path | None, typer.Option("--ledger", exists=True, dir_okay=False)
+	] = None,
+) -> None:
+	"""Select a seeded, nested attacker budget and, with --ledger, its collected records.
+
+	Writes prompts.jsonl, gold-train.jsonl, budget.json, and with --ledger ledger.jsonl into
+	--output-dir, by default TASK_DIR/runs/sSEED-bBUDGET.
+	"""
+	from distillation.tasks import budget_run
+
+	directory = output_dir or task_dir / "runs" / f"s{seed}-b{budget}"
+	summary = budget_run(
+		task_dir=task_dir,
+		budget=budget,
+		seed=seed,
+		output_dir=directory,
+		ledger_path=ledger_path,
+	)
+	typer.echo(json.dumps({**summary, "output_dir": str(directory)}, indent="\t"))
 
 
 @app.command("download-model")

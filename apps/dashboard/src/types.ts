@@ -13,6 +13,7 @@ export const isBefore = (slot: Slot) => slot === "student_before" || slot === "t
 export const colors: Record<Slot, string> = Object.fromEntries(slots.map(slot => [slot, modelColors[modelOf(slot)]])) as Record<Slot, string>;
 export const benchmarkLabels: Record<string, string> = {
 	gsm8k: "GSM8K", arc_challenge: "ARC-Challenge", mmlu: "MMLU", truthfulqa: "TruthfulQA", humaneval: "HumanEval", mbpp: "MBPP",
+	ag_news: "AG News", squad: "SQuAD 1.1",
 };
 export const statusLabels: Record<string, string> = {
 	ok: "Answered", invalid: "Unparseable", truncated: "Truncated", test_failed: "Tests failed", timeout: "Test timeout", error: "API error",

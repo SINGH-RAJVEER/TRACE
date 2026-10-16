@@ -68,6 +68,10 @@ The collection command deliberately requires a terms-review reference. Standard 
 
 See [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for the API contract, data formats, and training instructions.
 
+## Paper tasks
+
+The paper's distillation study uses narrow task APIs: AG News classification and SQuAD 1.1 question answering, plus GSM8K as a generative task. `distill tasks build` splits each pinned dataset into development, attacker, and legitimate pools, keeps gold answers out of the attacker's files, and freezes development and test suites. `distill tasks budget` selects nested, seeded attacker budgets. See [docs/paper-tasks.md](docs/paper-tasks.md).
+
 ## Benchmarks and dashboard
 
 The evaluation setup supports GSM8K, ARC-Challenge, MMLU, TruthfulQA, HumanEval, and MBPP. Run the teacher and base student before training, then reevaluate the teacher and evaluate the distilled student after training. The initial teacher score stays the fixed gap-closure reference; reevaluation measures teacher drift. It records accuracy or executable pass@1, confidence intervals, paired gains and regressions, agreement, latency, throughput, failures, and reproducibility metadata. It does not start distillation.

@@ -33,12 +33,16 @@ class BenchmarkItem(StrictModel):
 	category: str
 	question: str
 	messages: list[Message] = Field(min_length=1)
-	metric: Literal["numeric_exact_match", "choice_accuracy", "pass_at_1"]
+	metric: Literal[
+		"numeric_exact_match", "choice_accuracy", "pass_at_1", "label_accuracy", "squad"
+	]
 	answer: str
 	choices: list[str] = Field(default_factory=list)
 	test_code: str = ""
 	code_prompt: str = ""
 	entry_point: str = ""
+	# Every accepted gold answer for SQuAD; empty for other metrics.
+	answers: list[str] = Field(default_factory=list)
 
 
 class DatasetSource(StrictModel):
@@ -64,6 +68,10 @@ class FrozenSuite(StrictModel):
 
 	def digest(self) -> str:
 		payload = self.model_dump(mode="json", exclude={"sha256", "created_at"})
+		# Suites frozen before the answers field existed keep their hash.
+		for item in payload["items"]:
+			if not item["answers"]:
+				del item["answers"]
 		return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 	def verify(self) -> None:
@@ -141,6 +149,8 @@ class SampleResult(StrictModel):
 	response: str
 	prediction: str | None
 	correct: bool
+	# Token F1 against the best gold answer, for SQuAD; None for other metrics.
+	f1: float | None = Field(default=None, ge=0, le=1)
 	status: Literal["ok", "invalid", "truncated", "error", "test_failed", "timeout"]
 	latency_seconds: float = Field(ge=0)
 	usage: TokenUsage = Field(default_factory=TokenUsage)
