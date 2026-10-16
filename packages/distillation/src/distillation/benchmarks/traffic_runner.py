@@ -2,11 +2,13 @@
 
 import asyncio
 import hashlib
+import json
 import os
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
@@ -53,6 +55,22 @@ def solve_challenge(prefix: str, difficulty: int) -> int:
 		if int.from_bytes(digest) >> (256 - difficulty) == 0:
 			return counter
 		counter += 1
+
+
+def _noised_requests(log: Path, run_id: str) -> set[str]:
+	"""Request IDs of this run that the harness answered with noise, from its decision log."""
+	if not log.is_file():
+		raise ValueError(f"harness log not found: {log}")
+	prefix = f"{run_id}:"
+	noised: set[str] = set()
+	for line in log.read_text(encoding="utf-8").split("\n"):
+		if not line.strip():
+			continue
+		event = json.loads(line)
+		correlation = event.get("benchmark_request") or ""
+		if event.get("event") == "noise" and correlation.startswith(prefix):
+			noised.add(correlation.removeprefix(prefix))
+	return noised
 
 
 def _completion(response: httpx.Response, backend: str) -> tuple[bool, int | None, str]:
@@ -120,7 +138,12 @@ async def run_traffic(
 					completed_seconds=began,
 					status="error",
 				)
-				headers = {"Accept": "application/json", "X-Benchmark-Actor": item.actor_id}
+				headers = {
+					"Accept": "application/json",
+					"X-Benchmark-Actor": item.actor_id,
+					# A run-unique correlation ID that the harness logs but never decides on.
+					"X-Benchmark-Request": f"{run_id}:{item.id}",
+				}
 				if key := keys[item.actor_id]:
 					headers["Authorization"] = f"Bearer {key}"
 				payload: dict[str, Any] = {
@@ -189,6 +212,10 @@ async def run_traffic(
 			samples = await asyncio.gather(*(send(item) for item in suite.requests))
 		finally:
 			pool.shutdown(cancel_futures=True)
+	if target.harness_log is not None:
+		noised = _noised_requests(target.harness_log, run_id)
+		for sample in samples:
+			sample.noised = sample.request_id in noised
 	run = TrafficRun(
 		id=run_id,
 		phase=phase,
