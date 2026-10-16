@@ -232,6 +232,16 @@ class Launcher:
 				self.distill("download-model", model, "--revision", revision)
 			vllm_port = os.environ.get("VLLM_PORT") or "8001"
 			vllm_log = LOG_DIR / "vllm.log"
+			# A CPU buffer for KV blocks evicted from the GPU, so repeated prefixes such as
+			# shared system prompts are reloaded from RAM instead of recomputed.
+			offload = []
+			if offload_size := os.environ.get("VLLM_KV_OFFLOADING_SIZE"):
+				offload = [
+					"--kv-offloading-size",
+					offload_size,
+					"--kv-offloading-backend",
+					os.environ.get("VLLM_KV_OFFLOADING_BACKEND") or "native",
+				]
 			# Qwen3.5 checkpoints include a vision encoder; text-only serving skips it and its
 			# profiling, leaving that memory for the KV cache. No reasoning parser: it would
 			# move <think> text out of the content that the smoke test and collector check.
@@ -256,6 +266,7 @@ class Launcher:
 					"--default-chat-template-kwargs",
 					'{"enable_thinking": false}',
 					"--language-model-only",
+					*offload,
 					*shlex.split(os.environ.get("VLLM_EXTRA_ARGS", "")),
 				],
 				vllm_log,
