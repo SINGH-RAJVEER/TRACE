@@ -431,6 +431,7 @@ class Study:
 		save_json(self.root / "status.json", {"status": "running"})
 		launcher.install("train")
 		self.pipeline.build_tasks()
+		self.pipeline.validate_ledgers()
 		freeze(
 			self.root / "tasks.json",
 			{task: self.pipeline.manifest(task) for task in self.pipeline.tasks},

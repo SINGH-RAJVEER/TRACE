@@ -413,6 +413,41 @@ class TaskPipeline:
 				missing += len(wanted - have)
 		return missing
 
+	def validate_ledgers(self) -> None:
+		"""Check every resume ledger before loading a teacher or sending requests."""
+		from distillation.collection import CollectionOptions, _existing_example_ids
+		from distillation.io import JSONLValidationError, read_jsonl
+		from distillation.schemas import PromptRecord
+
+		for task, budgets in self.plan.items():
+			path = self.ledger(task)
+			prompts = {}
+			for seed in self.seeds:
+				for prompt in read_jsonl(
+					self.run_dir(task, seed, budgets[-1]) / "prompts.jsonl", PromptRecord
+				):
+					prompts[prompt.example_id] = prompt
+			try:
+				_existing_example_ids(
+					path,
+					list(prompts.values()),
+					CollectionOptions(
+						terms_review_id=self.terms_review_id,
+						max_output_tokens=int(self.manifest(task)["max_output_tokens"]),
+						enable_thinking=False,
+						concurrency=self.concurrency,
+					),
+				)
+			except (JSONLValidationError, UnicodeError) as error:
+				raise LaunchError(
+					f"{error}; teacher not started. Inspect recovery with "
+					f"uv run distill ledger repair --input {shlex.quote(str(path))}, "
+					"then add --apply to back up and repair while collection is stopped."
+				) from error
+			except ValueError as error:
+				raise LaunchError(f"cannot resume {path}: {error}") from error
+			self.launcher.log(f"{task}: collection ledger validated")
+
 	def collect(self, teacher_url: str, token: str) -> None:
 		for task, budgets in self.plan.items():
 			# The output limit is part of the task contract, so it comes from the build, never
@@ -667,6 +702,7 @@ def paper_tasks_command(
 		os.environ["TEACHER_TERMS_REVIEW_ID"] = pipeline.terms_review_id
 		launcher.install("train")
 		pipeline.build_tasks()
+		pipeline.validate_ledgers()
 		if missing := pipeline.uncollected():
 			launcher.log(f"{missing} prompts still need teacher responses")
 			if teacher_url:

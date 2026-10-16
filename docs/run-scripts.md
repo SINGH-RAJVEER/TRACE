@@ -64,7 +64,7 @@ Default calibration groups legitimate fitting, score-calibration, and policy-cal
 | `TASK/sSEED/traffic-results/`, `traffic-report.json` | Paired traffic results |
 | `TASK/sSEED/credentials.json`, `accounts.json` | Restricted client credentials and account mappings |
 
-Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
+Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. All planned baseline ledgers and their resume contracts are validated before loading the teacher. For damaged files, use the [ledger recovery command](distillation-pipeline.md#recover-a-damaged-collection-ledger) to back up the original, preserve valid responses, and recollect missing IDs. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
 
 The protected service keeps account evidence in memory. After interrupted collection, partial ledgers, events, and attempts move into `protected/interrupted/ATTEMPT/`, then the full campaign starts again against fresh service state. Only the new completed campaign supplies training data. Archived responses never mix into it; archived logs retain additional query and proof costs.
 
