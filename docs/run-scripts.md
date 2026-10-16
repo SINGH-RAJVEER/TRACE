@@ -132,6 +132,8 @@ VLLM_EXTRA_ARGS="--quantization fp8"
 
 The script already passes `--language-model-only`, so the vision encoder takes no GPU memory. Only one layer in four keeps a KV cache, about 32 KB per token in BF16, so the default 8,192-token context and `--concurrency 16` should fit in what remains. Keep the KV cache in BF16: the one run with `--kv-cache-dtype fp8` on an RTX 4000 Ada failed while FlashInfer compiled a kernel at startup, which needs `nvcc` from a CUDA toolkit. vLLM still downloads the BF16 checkpoint and quantizes it while loading, so the machine, or the WSL virtual machine, needs enough system memory to read it.
 
+To keep more KV cache than fits on the GPU, set `VLLM_KV_OFFLOADING_SIZE` to a size in GiB, for example `16`. vLLM then moves KV blocks evicted from GPU memory into that much pinned system RAM and reloads them when a later request shares the prefix, instead of recomputing it. This does not reduce the GPU memory vLLM reserves or let a single request exceed the GPU's KV capacity; it raises the prefix cache hit rate across requests. Leave enough RAM for loading the checkpoint as well. This differs from `--cpu-offload-gb`, which offloads model weights and slows every forward pass. Offloading with Qwen3.5's hybrid attention layers has not been tested in this repository; check `vllm.log` at startup.
+
 A GPU that also drives a display already has about 1 GB in use. vLLM refuses to start when free memory is below `VLLM_GPU_MEMORY_UTILIZATION` times the total; lower the value if the log reports that.
 
 For training, the 2B student's 4-bit text model takes about 2 to 3 GB, because its 248K-token embedding stays unquantized, and the rank-128 adapter with its optimizer state about 2 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB with room to spare. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`.
@@ -181,6 +183,8 @@ The script reads `.env` from the repository root. Variables already set in the s
 | `VLLM_MAX_MODEL_LEN` | 8192 | Context length; lower it to save KV cache memory |
 | `VLLM_GPU_MEMORY_UTILIZATION` | 0.90 | Fraction of GPU memory vLLM may use |
 | `VLLM_EXTRA_ARGS` | empty | Extra `vllm serve` flags, split like a shell command line, so quotes group words |
+| `VLLM_KV_OFFLOADING_SIZE` | empty | GiB of system RAM for KV cache blocks evicted from the GPU, passed as `--kv-offloading-size`; empty disables offloading |
+| `VLLM_KV_OFFLOADING_BACKEND` | `native` | `--kv-offloading-backend`, `native` or `lmcache`; used only when a size is set |
 | `VLLM_STARTUP_TIMEOUT` | 1800 | Seconds to wait for vLLM to load the downloaded model and start serving |
 | `VLLM_SPEC` | `vllm` | Package spec installed into `.venv-vllm` |
 | `VLLM_PYTHON` | `3.12` (devenv sets a Nix path) | Interpreter for `.venv-vllm` |
