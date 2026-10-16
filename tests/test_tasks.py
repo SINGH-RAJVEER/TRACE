@@ -1,5 +1,6 @@
 import hashlib
 import json
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -149,3 +150,91 @@ def test_suites_without_gold_answer_lists_keep_their_hash(tmp_path: Path) -> Non
 	legacy = hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 	assert suite.sha256 == legacy
 	assert json.loads((tmp_path / "manifest.json").read_text())["max_output_tokens"] == 16
+
+
+def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import distillation.launcher as launcher
+	from distillation.cli import app
+	from typer.testing import CliRunner
+
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
+	monkeypatch.setenv("DISTILL_MAX_OUTPUT_TOKENS", "1024")
+	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
+	build_task(task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows())
+	(tmp_path / "configs").mkdir()
+	(tmp_path / "configs/train.task.toml").write_text(
+		'base_model = "student"\ndataset_path = "unused.jsonl"\noutput_dir = "unused"\n'
+		"seed = 0\nlearning_rate = 2e-4\nchat_template_kwargs = { enable_thinking = false }\n"
+	)
+	steps: list[str] = []
+
+	def distill(self: launcher.Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		if args[0] == "collect":
+			assert args[args.index("--max-output-tokens") + 1] == "16"
+			steps.append("collect")
+			prompts = read_jsonl(Path(args[args.index("--input") + 1]), PromptRecord)
+			output = Path(args[args.index("--output") + 1])
+			have = (
+				{r.example_id for r in read_jsonl(output, LedgerRecord)}
+				if output.is_file()
+				else set()
+			)
+			with output.open("a") as ledger:
+				for prompt in prompts:
+					if prompt.example_id not in have:
+						ledger.write(_ledger(prompt).model_dump_json() + "\n")
+		elif args[0] == "train":
+			config = Path(args[args.index("--config") + 1])
+			values = tomllib.loads(config.read_text())
+			steps.append(f"train {config.parent.name} {config.name}")
+			output = Path(values["output_dir"])
+			output.mkdir(parents=True)
+			digest = hashlib.sha256(Path(values["dataset_path"]).read_bytes()).hexdigest()
+			(output / "training-manifest.json").write_text(json.dumps({"dataset_sha256": digest}))
+		else:
+			if args[0] == "review":
+				# The length check loads the tokenizer, which needs the training stack.
+				assert "--references" not in args
+				args = args[: args.index("--config")]
+			result = CliRunner().invoke(app, list(args))
+			assert result.exit_code == 0, result.output
+
+	monkeypatch.setattr(launcher.Launcher, "distill", distill)
+	monkeypatch.setattr(
+		launcher.Launcher,
+		"start_teacher_stack",
+		lambda self, host, port, upstream_url, api_log: steps.append("serve"),
+	)
+	monkeypatch.setattr(launcher.Launcher, "stop_background", lambda self: steps.append("stop"))
+	command = ["paper-tasks", "--tasks", "ag_news", "--seeds", "42,1", "--budgets", "40,80,99999"]
+
+	result = CliRunner().invoke(launcher.run_app, command)
+	assert result.exit_code == 0, result.output
+	trained = [
+		f"train s{s}-b{b} train.{k}.toml"
+		for s in (42, 1)
+		for b in (40, 80)
+		for k in ("attacker", "gold")
+	]
+	assert steps == ["serve", "collect", "collect", "stop", *trained, "stop"]
+	task_dir = tmp_path / "data/tasks/ag_news"
+	assert len(read_jsonl(task_dir / "ledger.jsonl", LedgerRecord)) <= 160
+	assert not (tmp_path / "data/teacher").exists()
+	run = task_dir / "runs/s42-b40"
+	attacker = tomllib.loads((run / "train.attacker.toml").read_text())
+	assert attacker["dataset_path"] == "data/tasks/ag_news/runs/s42-b40/train.jsonl"
+	assert attacker["output_dir"] == "artifacts/tasks/ag_news/s42-b40/attacker"
+	assert attacker["seed"] == 42
+	assert attacker["chat_template_kwargs"] == {"enable_thinking": False}
+	assert len(read_jsonl(run / "train.jsonl", SFTRecord)) == 40
+	gold = tomllib.loads((run / "train.gold.toml").read_text())
+	assert gold["dataset_path"] == "data/tasks/ag_news/runs/s42-b40/gold-train.jsonl"
+
+	# Everything is collected and trained, so a rerun neither serves the teacher nor trains.
+	steps.clear()
+	result = CliRunner().invoke(launcher.run_app, command)
+	assert result.exit_code == 0, result.output
+	assert steps == ["stop"]
