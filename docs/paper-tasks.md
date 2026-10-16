@@ -371,6 +371,40 @@ This checklist applies to the task-only extraction and account-policy study. It 
 
 Implement shared serialization, client/source identities, and the campaign event ledger before regenerating calibration artifacts or running defended campaigns. Enforce admission, budgets, and challenge handling before interpreting schedule results. Prioritize released-token controls, defense capability, and legitimate utility once campaigns work. Define experiment dimensions and training fingerprints before generating evaluation configs and study reports. Freeze the task/model matrix and corresponding paper scope before final testing; add only declared task-matched secondary experiments whose prerequisites and independent data support them. The retired general pipeline and general-chat evaluation are outside this checklist. Update related existing tests and documentation as each item lands, and regenerate affected artifacts and reports before using them for paper claims.
 
+### Repository audit findings (2026-10-16)
+
+A comparison of `paper/main.tex` with the merged harness, `just paper-tasks`, and `just start` found the gaps below. Manuscript-side fixes are under [manuscript discrepancies](paper-revision-todo.md#manuscript-discrepancies-found-against-the-repository-2026-10-16).
+
+Progress against the numbered items above, none of them complete:
+
+- Item 10: `apps/harness-api` enforces decisions before victim inference over HTTP with account keys, and `harness replay` drives the same policy offline. No campaign simulator calls the policy directly.
+- Item 12: `distillation/campaign.py` solves challenges and records per-prompt challenge counts and solve seconds. It does not record hashes attempted, solver hardware, or queue and release wait.
+- Item 20: `harness/monitor.py` and its calibration exist, but calibration skips the monitor at the current task-pool sizes (see below).
+- Item 23: `campaign.events.jsonl` and the harness decision log exist, but `J_ell` and `Q_ell` are not derived from them.
+- Item 27: `harness bench` times the harness's own units; the matched-load victim comparison is still missing.
+- Item 9: `_trained` now rejects reuse when the dataset hash or recorded config differs, but tokenizer, template, and model-revision identity are not part of the fingerprint.
+
+New findings:
+
+- [ ] Run a detectability check before defended campaigns. The attacker and legitimate pools come from one hash-split training split (`tasks.py`, `_role`), and `study.py` calibrates on uniform 500-request accounts, so a pure extractor should look benign to the MMD score. Replay one budget's `prompts.jsonl` as a single account with `harness replay` and compare its peak level with the benign maxima.
+- [ ] Add the missing defended arms to `just start`. `study.py` hardcodes `HARNESS_ACCUMULATOR=paper` and `HARNESS_POLICY=mmd`; Table VI and the primary contrast also need `instantaneous` and `quota` campaigns, each with its own ledger, adapter, and evaluation.
+- [ ] Wire the development transfer gate (item 24) into `just start`, so defended campaigns stop or are flagged when the undefended development gain is not positive.
+- [ ] Consume `legitimate/benign_test.jsonl`. It is written by `distill tasks build` but nothing reads it, so there is no held-out account FPR. Replay it through each frozen policy.
+- [ ] Replace the pooled calibration accounts in `study.py` (`account=f"{role}-{index // 500}"`, no timestamps) with the item 15 client generator. The current construction gives about 22 AG News, 16 SQuAD, and 2 GSM8K policy-calibration accounts, so the 1% L4 threshold is the benign maximum, and `rate_per_minute` is never fitted, so the rate baseline does not exist.
+- [ ] Stop silently lowering reference windows. `study.py` uses `min(20, fitting // 100)`; record the count prominently in the run manifest or draw references with replacement.
+- [ ] Make the aggregate monitor run at task-pool sizes, or record its skip in every report. It needs 30,000 fitting requests; AG News has about 21,600 and SQuAD about 15,800.
+- [ ] Add the development sweep over learning rate {1e-4, 2e-4} and epochs {1, 2, 3}, or freeze the fixed recipe in `configs/train.task.toml` and the paper.
+- [ ] Make legitimate traffic task-matched. `just start` freezes one generic chat suite (`benchmarks/traffic.py`, `GENUINE_PROMPTS`) shared by all tasks; its 48 requests across 4 genuine actors never complete a 100-request window, and responses get no task score. Item 25 needs task-matched benign accounts scored with each task's metric.
+- [ ] Charge failures to the campaign instead of aborting. `ProtectedTeacher.generate` raises on any non-block error, and `_collect_one` retries up to three times without charging retries to B_A (item 11).
+- [ ] Join noise flags into the protected ledger. Under `HARNESS_L4_ACTION=deceive`, noise responses count as received supervision in `campaign.json`; mark them from the decision log as the traffic runner does.
+- [ ] Add the study-level report: `G_D`, `Delta_D`, `R_D` with its validity rule, per-seed results with mean and SD, budget curves, and cost to target. `reporting.paired` bootstraps independent items; replace it with source-document clusters for SQuAD (item 26).
+- [ ] Default `HARNESS_L4_ACTION` and `harness replay --l4-action` to `refuse`, the paper's main policy. Only `just start` defaults to `refuse` today.
+- [ ] Embed only the detector serialization (item 1). `harness_api.app.current_turn` embeds the whole user turn, including the fixed task instruction from `AG_NEWS_PROMPT`, `SQUAD_PROMPT`, and `GSM8K_EVAL_SUFFIX`.
+- [ ] Apply L2 spacing on entry (item 3). `MMDPolicy._respond` updates `last_release` only at L2 and above, so the first L2 request ignores the previous L0 or L1 admission.
+- [ ] Add a direct-block mode to `MMDPolicy` and a stride option for rolling windows, or remove those ablations (item 22).
+- [ ] Default `just start` and `just paper-tasks` to `ag_news,squad` until the GSM8K decision is frozen.
+- [ ] Fix stale text: `configs/train.task.toml` comments still say the paper uses Qwen2.5 and attention-only LoRA targets; the Limitations section below repeats the Qwen2.5 note; and `docs/harness.md` lists the campaign layer as not implemented although `campaign.py` and `just start` exist.
+
 ## Limitations
 
 - The draft names Qwen2.5-3B-Instruct with Qwen2.5-0.5B-Instruct and 1.5B-Instruct students, while default configs use Qwen3.5-9B and Qwen3.5-2B-Base and the Colab task session uses a quantized Qwen3.5 teacher. Freeze the intended models and align the implementation and manuscript before final runs. If retaining Qwen2.5, configure the attention projection targets specified by that protocol.
