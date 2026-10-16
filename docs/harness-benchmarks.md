@@ -48,6 +48,20 @@ Requests follow their frozen offsets independently of earlier responses. A concu
 
 `apps/harness-api` implements this contract; see [harness.md](harness.md#protected-api). A challenged attempt returns HTTP 428 with `throttle` and a challenge body. The runner answers it, and the final response decides the sample's outcome. The harness omits output token counts unless `HARNESS_TOKENIZER_MODEL` is set, so compare delivered token throughput across phases only with that setting. Request throughput is unaffected.
 
+### Noise ground truth
+
+By default the harness answers L4 accounts with keyed noise that looks like an ordinary throttled response, so a client cannot tell it apart and a noise response counts as a success. To measure what each class actually received, the runner sends `X-Benchmark-Request: RUN_ID:REQUEST_ID` with every request, and the harness writes that ID into its experimenter-only decision log. Set `harness_log` on the target to that log's path:
+
+```toml
+[targets.after]
+backend = "teacher_api"
+base_url = "http://127.0.0.1:8003"
+service_revision = "harness-v1"
+harness_log = "outputs/harness/decisions.jsonl"
+```
+
+After the replay, the runner reads the log and marks each sample's `noised` field. A missing log file stops the run rather than reporting unknown noise as none. Without `harness_log`, `noised` stays empty and the noise fields below are unavailable. The log must be readable from the machine running the benchmark; copy it over first when the harness runs elsewhere.
+
 The protected endpoint must return `X-Harness-Decision` on every response, including rejected requests. Accepted values are `allow`, `throttle`, and `block`.
 
 | Decision or response | Recorded meaning |
@@ -79,6 +93,8 @@ Every frozen request remains in its class denominator, including failures, inval
 | `latency_p50`, `latency_p95` | Dispatch-to-completion latency among successful requests, in seconds. Includes server delays, generation, and network time. |
 | `schedule_delay_p95`, `end_to_end_p95` | p95 scheduled-to-dispatch delay and scheduled-to-completion delay respectively, over all requests. |
 | `successful_requests_per_second` | Successful requests divided by the greater of the frozen replay duration and last completion offset. Failed and blocked attempts still consume observation time. |
+| `noised`, `noised_percent` | Successful responses that were keyed noise, and `100 × noised / n`. Available only when the harness log covers every successful response. For genuine requests these are silent corruptions: false positives that were never shown as blocks. |
+| `useful_succeeded`, `useful_success_percent` | Successful responses that carried the teacher's answer: `succeeded − noised`, and `100 × useful_succeeded / n`. For extraction requests this is the supervision the attacker actually obtained. |
 | `successful_output_tokens_per_second` | Known output tokens from successful responses divided by the same observation time. Missing counts are not invented; `token_coverage` gives the fraction of successful responses with known counts. |
 
 The comparison reports after-minus-before success in percentage points, p95 successful-latency change, and `100 × (1 − after throughput / before throughput)` for delivered requests per second. Throughput reduction is unavailable when the baseline delivers no responses and can be negative if throughput increases. Interpret attack throughput alongside explicit decisions and operational errors; an unavailable server is not evidence of a working detector. Genuine throttling is recorded separately from false-positive blocking because it can harm users even if their requests eventually succeed.
