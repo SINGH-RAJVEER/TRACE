@@ -184,7 +184,15 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 			with output.open("a") as ledger:
 				for prompt in prompts:
 					if prompt.example_id not in have:
-						ledger.write(_ledger(prompt).model_dump_json() + "\n")
+						record = _ledger(prompt)
+						record.teacher.parameters = {
+							"temperature": 0.0,
+							"max_output_tokens": 16,
+							"seed": None,
+							"enable_thinking": False,
+						}
+						record.teacher.terms_review_id = "test-approval"
+						ledger.write(record.model_dump_json() + "\n")
 		elif args[0] == "train":
 			config = Path(args[args.index("--config") + 1])
 			values = tomllib.loads(config.read_text())

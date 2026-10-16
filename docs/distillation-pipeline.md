@@ -140,6 +140,24 @@ Use 64 output tokens for SQuAD and 256 for GSM8K, identically in collection and 
 
 Collection resumes by `example_id`, rejects duplicate input IDs, and verifies prompt, split, task, source metadata, parameters, and approval identity before appending. Each finished response persists immediately. A sibling attempts ledger records successful and failed calls. The raw ledger retains the actual served model, provider, endpoint, generation settings, request IDs, usage, finish reasons, and collection checks. Resume cannot detect a provider replacing weights behind an unchanged endpoint, so archive deployment identity separately.
 
+### Recover a damaged collection ledger
+
+`just start` and `just paper-tasks` validate every planned task ledger before starting the teacher. A `JSONLValidationError` containing NUL bytes, such as `data/tasks/gsm8k/ledger.jsonl:1933: invalid record`, means an existing ledger row cannot be parsed. The teacher can still be healthy. The bytes alone do not identify how the file was damaged.
+
+Stop collection before repairing a ledger. Without `--apply`, this command previews recovery counts and changes no files:
+
+```bash
+uv run distill ledger repair --input data/tasks/gsm8k/ledger.jsonl
+uv run distill ledger repair --input data/tasks/gsm8k/ledger.jsonl --apply
+VLLM_USE_FLASHINFER_SAMPLER=0 just start --concurrency 8
+```
+
+`--apply` writes a byte-for-byte `ledger.jsonl.recovery-ID.bak`, quarantines invalid rows in a sibling `.rejected.bin`, and writes a `.report.json` with counts, hashes, original line numbers, and byte offsets. It then atomically replaces the ledger with all schema-valid rows in their original order, including valid rows after the damaged section. It strips NUL padding only outside an otherwise complete record. NUL bytes inside generated text or other JSON fields cause that row to be quarantined. Clean rows retain their original bytes, and a missing final newline is restored before collection can append another response. A clean ledger is left unchanged.
+
+Duplicate example IDs stop recovery without choosing a response or replacing the ledger. Collection still validates the full resume contract after repair. Only missing IDs are queried again, and repairing GSM8K leaves the AG News and SQuAD ledgers unchanged. Existing attempt logs are retained. Damaged responses remain in the backup and quarantine; recovery does not invent replacements.
+
+### Review and preparation
+
 The collector rejects empty responses, nonterminal finish reasons, and thinking traces in non-thinking mode. Other responses remain pending until review. `distill review` accepts nonempty responses that fit the student training length and were not collector-rejected. It has no gold-answer input or correctness filter. Wrong and malformed teacher answers remain in attacker supervision. The review summary records status, rejection reasons, accepted task counts, and whether length was checked.
 
 Preparation writes reviewed, accepted, deduplicated prompt-completion rows and a preparation manifest. It refuses the test split and removes prompts or source groups shared across splits. Pass the original prompt inventory through `--prompts`; grouping and held-out separation also depend on the task build. Explicit rejection wins over the low-level `--accept-pending` bypass, which is only for plumbing checks.

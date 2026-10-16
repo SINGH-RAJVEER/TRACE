@@ -47,6 +47,42 @@ class Teacher:
 		pass
 
 
+def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
+	build_task(
+		task="ag_news",
+		output_dir=Path("data/tasks/ag_news"),
+		rows={
+			"train": [{"text": f"News story {i}", "label": i % 4} for i in range(500)],
+			"test": [{"text": "Held-out news article", "label": 0}],
+		},
+	)
+	Path("configs").mkdir()
+	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
+	ledger = Path("data/tasks/ag_news/ledger.jsonl")
+	ledger.write_bytes(b"\x00" * 64 + b"\n")
+	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
+	monkeypatch.setattr(
+		Study, "ensure_teacher", lambda self: pytest.fail("teacher loaded before checking ledger")
+	)
+
+	def distill(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		result = CliRunner().invoke(app, list(args))
+		assert result.exit_code == 0, result.output
+
+	monkeypatch.setattr(Launcher, "distill", distill)
+	result = CliRunner().invoke(
+		run_app, ["start", "--tasks", "ag_news", "--seeds", "42", "--budgets", "1", "--no-gold"]
+	)
+	assert result.exit_code == 1
+	assert "ledger.jsonl:1: invalid record" in result.output
+	assert "ledger repair" in result.output
+	assert ledger.read_bytes() == b"\x00" * 64 + b"\n"
+
+
 def test_start_runs_both_students_and_reports_with_services_stopped_before_training(
 	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

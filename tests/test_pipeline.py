@@ -58,6 +58,98 @@ class PartiallyFailingTeacher(FakeTeacher):
 		return await super().generate(request)
 
 
+def test_ledger_recovery_preserves_valid_responses_and_resumes_missing_ids(
+	tmp_path: Path,
+) -> None:
+	from distillation.cli import app
+	from distillation.io import JSONLValidationError
+	from typer.testing import CliRunner
+
+	prompts, ledger = tmp_path / "prompts.jsonl", tmp_path / "ledger.jsonl"
+	options = CollectionOptions(terms_review_id="approval")
+	write_jsonl(prompts, [prompt("one"), prompt("two")])
+	asyncio.run(
+		collect(input_path=prompts, output_path=ledger, teacher=FakeTeacher(), options=options)
+	)
+	first, second = ledger.read_bytes().splitlines(keepends=True)
+	damaged = second.replace(b"Answer to", b"Answer\x00to")
+	original = first + b"\x00" * 32 + b"\n" + damaged + b"\x00" * 16 + second + b'{"partial":'
+	ledger.write_bytes(original)
+	with pytest.raises(JSONLValidationError, match="ledger.jsonl:2: invalid record"):
+		read_jsonl(ledger, LedgerRecord)
+	command = ["ledger", "repair", "--input", str(ledger)]
+	preview = CliRunner().invoke(app, command)
+	assert preview.exit_code == 0, preview.output
+	assert ledger.read_bytes() == original
+	assert not list(tmp_path.glob("*.bak"))
+	result = CliRunner().invoke(app, [*command, "--apply"])
+	assert result.exit_code == 0, result.output
+	report = json.loads(result.output)
+	assert report["valid_records"] == 2
+	assert report["recovered_nul_padding"] == 1
+	assert report["rejected_records"] == 3
+	assert Path(report["backup"]).read_bytes() == original
+	assert ledger.read_bytes() == first + second
+	assert Path(report["report"]).exists()
+	assert (
+		Path(report["quarantine"]).read_bytes() == b"\x00" * 32 + b"\n" + damaged + b'{"partial":'
+	)
+	clean = CliRunner().invoke(app, [*command, "--apply"])
+	assert clean.exit_code == 0, clean.output
+	assert not json.loads(clean.output)["changed"]
+	assert len(list(tmp_path.glob("*.bak"))) == 1
+	write_jsonl(prompts, [prompt("one"), prompt("two"), prompt("three")])
+	teacher = FakeTeacher()
+	assert asyncio.run(
+		collect(input_path=prompts, output_path=ledger, teacher=teacher, options=options)
+	) == (1, 2)
+	assert teacher.calls == 1
+	assert ledger.read_bytes().startswith(first + second)
+	with pytest.raises(ValueError, match="resume mismatch"):
+		asyncio.run(
+			collect(
+				input_path=prompts,
+				output_path=ledger,
+				teacher=FakeTeacher(),
+				options=replace(options, terms_review_id="other"),
+			)
+		)
+
+
+def test_ledger_recovery_refuses_duplicate_ids(tmp_path: Path) -> None:
+	from distillation.cli import app
+
+	# Duplicate otherwise valid records must still fail, rather than silently dropping one.
+	from distillation.schemas import CollectionAttempt, QualityRecord, TeacherMetadata
+	from typer.testing import CliRunner
+
+	now = datetime.now(UTC)
+	record = LedgerRecord(
+		**prompt("duplicate").model_dump(),
+		attempt_id="attempt",
+		teacher=TeacherMetadata(
+			provider="fixture",
+			model="fixture",
+			endpoint="fixture",
+			generated_at=now,
+			parameters={},
+			terms_review_id="approval",
+		),
+		completion=[Message(role="assistant", content="answer")],
+		quality=QualityRecord(status="pending", checks=[], reviewer="test"),
+		usage=TokenUsage(),
+		attempts=[CollectionAttempt(attempt_id="attempt", attempted_at=now, status="succeeded")],
+	)
+	ledger = tmp_path / "ledger.jsonl"
+	write_jsonl(ledger, [record, record])
+	original = ledger.read_bytes()
+	result = CliRunner().invoke(app, ["ledger", "repair", "--input", str(ledger), "--apply"])
+	assert result.exit_code != 0
+	assert "duplicate" in result.output
+	assert ledger.read_bytes() == original
+	assert not list(tmp_path.glob("*.bak"))
+
+
 def prompt(example_id: str) -> PromptRecord:
 	return PromptRecord(
 		example_id=example_id,

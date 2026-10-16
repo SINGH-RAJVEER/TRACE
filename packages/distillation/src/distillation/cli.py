@@ -28,7 +28,27 @@ traffic_app = typer.Typer(no_args_is_help=True)
 benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
 tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks", help="Build the paper's AG News, SQuAD, and GSM8K tasks.")
+ledger_app = typer.Typer(no_args_is_help=True)
+app.add_typer(ledger_app, name="ledger", help="Inspect and recover damaged collection ledgers.")
 app.add_typer(run_app, name="run", help="Run a whole pipeline scenario on this machine.")
+
+
+@ledger_app.command("repair")
+def ledger_repair_command(
+	input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+	apply: Annotated[
+		bool,
+		typer.Option("--apply", help="Back up, quarantine invalid rows, and replace the ledger."),
+	] = False,
+) -> None:
+	"""Preview recovery, or apply it while collection is stopped. No model requests are made."""
+	from distillation.ledger import repair_ledger
+
+	try:
+		report = repair_ledger(input_path, apply=apply)
+	except (ValueError, OSError) as error:
+		raise typer.BadParameter(str(error)) from None
+	typer.echo(json.dumps(report, indent="\t"))
 
 
 @app.command("collect")
