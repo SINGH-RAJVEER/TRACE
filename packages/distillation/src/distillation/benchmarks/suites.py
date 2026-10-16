@@ -19,6 +19,7 @@ CATALOG = {
 	"mbpp": ("google-research-datasets/mbpp", "sanitized", "test", "cc-by-4.0"),
 }
 TRUTHFULQA_REVISION = "d71c110897f5d31c5d7f309e7bc316c152f6f031"
+GSM8K_EVAL_SUFFIX = "\nSolve step by step. End with #### followed by the final numeric answer."
 
 
 def _choice_item(
@@ -60,8 +61,7 @@ def convert_row(benchmark: str, index: int, row: dict[str, Any], seed: int) -> B
 			messages=[
 				Message(
 					role="user",
-					content=row["question"]
-					+ "\nSolve step by step. End with #### followed by the final numeric answer.",
+					content=row["question"] + GSM8K_EVAL_SUFFIX,
 				)
 			],
 			metric="numeric_exact_match",

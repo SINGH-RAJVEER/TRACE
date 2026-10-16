@@ -4,14 +4,40 @@ import ast
 import asyncio
 import re
 import shutil
+import string
 import subprocess
 import uuid
+from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 from distillation.benchmarks.models import BenchmarkItem
 
 
+def squad_normalize(text: str) -> str:
+	"""The official SQuAD v1.1 normalization: lowercase, no punctuation or articles."""
+	text = "".join(char for char in text.lower() if char not in set(string.punctuation))
+	return " ".join(re.sub(r"\b(a|an|the)\b", " ", text).split())
+
+
+def squad_f1(item: BenchmarkItem, response: str) -> float:
+	"""Token F1 against the best-matching gold answer, as in the official script."""
+	predicted = squad_normalize(response).split()
+	best = 0.0
+	for answer in item.answers:
+		gold = squad_normalize(answer).split()
+		common = sum((Counter(predicted) & Counter(gold)).values())
+		if common:
+			precision, recall = common / len(predicted), common / len(gold)
+			best = max(best, 2 * precision * recall / (precision + recall))
+	return best
+
+
 def extract_answer(item: BenchmarkItem, response: str) -> str | None:
+	if item.metric == "label_accuracy":
+		answer = response.strip().strip("\"'").rstrip(".").strip().casefold()
+		return next((label for label in item.choices if label.casefold() == answer), None)
+	if item.metric == "squad":
+		return squad_normalize(response) or None
 	if item.metric == "choice_accuracy":
 		answer = response.strip()
 		if re.fullmatch(r"[A-Z]", answer) and ord(answer) - 65 < len(item.choices):
@@ -31,6 +57,9 @@ def extract_answer(item: BenchmarkItem, response: str) -> str | None:
 
 def score_answer(item: BenchmarkItem, response: str) -> tuple[str | None, bool]:
 	prediction = extract_answer(item, response)
+	if item.metric == "squad":
+		accepted = {squad_normalize(answer) for answer in item.answers}
+		return prediction, prediction is not None and prediction in accepted
 	if item.metric == "numeric_exact_match":
 		expected = extract_answer(item, item.answer)
 	else:

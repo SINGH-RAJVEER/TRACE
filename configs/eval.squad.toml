@@ -1,0 +1,46 @@
+# Paper task: squad. Build it with `distill tasks build --task squad`. See docs/paper-tasks.md.
+# The output limit is part of the task contract and matches the collection limit.
+experiment = "paper-squad-v1"
+suite_path = "data/tasks/squad/test-suite.json"
+output_dir = "outputs/tasks/squad"
+# Adapter evaluation adds its own training files; list any other transfer data here.
+training_paths = []
+code_image = "python:3.12-slim"
+code_timeout_seconds = 10
+
+[generation]
+max_output_tokens = 64
+seed = 42
+temperature = 0
+enable_thinking = false
+
+[models.teacher]
+backend = "teacher_api"
+model = "Qwen/Qwen3.5-9B"
+revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+base_url = "http://127.0.0.1:8000"
+
+[models.student_before]
+backend = "local"
+model = "Qwen/Qwen3.5-2B-Base"
+revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+eos_token = "<|im_end|>"
+precision = "bf16"
+# Must match the adapter's qlora setting; evaluation rejects a mismatch.
+load_in_4bit = false
+
+[models.student_after]
+backend = "local"
+model = "Qwen/Qwen3.5-2B-Base"
+revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+eos_token = "<|im_end|>"
+precision = "bf16"
+load_in_4bit = false
+# One adapter per seed and budget; point this at the run being evaluated.
+adapter_path = "artifacts/tasks/squad/s42-b2000"
+
+[models.teacher_after]
+backend = "teacher_api"
+model = "Qwen/Qwen3.5-9B"
+revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+base_url = "http://127.0.0.1:8000"

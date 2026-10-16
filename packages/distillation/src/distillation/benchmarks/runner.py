@@ -24,7 +24,12 @@ from distillation.benchmarks.models import (
 	load_suite,
 	save_json,
 )
-from distillation.benchmarks.scoring import resolve_code_image, score_answer, score_code
+from distillation.benchmarks.scoring import (
+	resolve_code_image,
+	score_answer,
+	score_code,
+	squad_f1,
+)
 from distillation.io import append_jsonl
 from distillation.schemas import TeacherGenerationRequest
 from distillation.teacher import Teacher
@@ -42,7 +47,8 @@ def audit_training(suite_path: Path, paths: list[Path]) -> dict[str, str]:
 	hashes: dict[str, str] = {}
 	for path in dict.fromkeys(paths):
 		hashes[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-		for line_number, line in enumerate(path.read_text().splitlines(), 1):
+		# Split on newlines only; str.splitlines also breaks on separators inside JSON strings.
+		for line_number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
 			if not line.strip():
 				continue
 			row = json.loads(line)
@@ -117,6 +123,7 @@ async def run_evaluation(
 					response="",
 					prediction=None,
 					correct=False,
+					f1=0.0 if item.metric == "squad" else None,
 					status="error",
 					latency_seconds=time.perf_counter() - start,
 				)
@@ -138,6 +145,10 @@ async def run_evaluation(
 						item, text, code_image_id, config.code_timeout_seconds
 					)
 					prediction = "passed" if correct else None
+				# Invalid and truncated answers stay in the SQuAD denominator with F1 zero.
+				f1 = None
+				if item.metric == "squad":
+					f1 = squad_f1(item, text) if status == "ok" else 0.0
 				result = SampleResult(
 					item_id=item.id,
 					benchmark=item.benchmark,
@@ -145,6 +156,7 @@ async def run_evaluation(
 					response=text,
 					prediction=prediction,
 					correct=correct,
+					f1=f1,
 					status=cast(
 						Literal["ok", "invalid", "truncated", "error", "test_failed", "timeout"],
 						status,

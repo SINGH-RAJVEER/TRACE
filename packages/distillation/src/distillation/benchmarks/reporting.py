@@ -31,6 +31,22 @@ def percentile(values: list[float], fraction: float) -> float | None:
 	return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
+def mean_ci(values: list[float]) -> list[float]:
+	"""Normal-approximation 95% interval for a mean, in percent."""
+	if len(values) < 2:
+		return [100 * values[0]] * 2 if values else [0, 0]
+	mean = statistics.fmean(values)
+	radius = 1.959963984540054 * statistics.stdev(values) / math.sqrt(len(values))
+	return [100 * (mean - radius), 100 * (mean + radius)]
+
+
+def _f1_summary(samples: list[SampleResult]) -> dict[str, Any]:
+	values = [sample.f1 for sample in samples if sample.f1 is not None]
+	if not values or len(values) != len(samples):
+		return {}
+	return {"f1": 100 * statistics.fmean(values), "f1_ci95": mean_ci(values)}
+
+
 def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 	correct = sum(sample.correct for sample in samples)
 	latencies = [sample.latency_seconds for sample in samples if sample.status != "error"]
@@ -51,6 +67,7 @@ def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 		"latency_p95": percentile(latencies, 0.95),
 		"tokens_per_second": tokens / seconds if seconds else None,
 		"token_coverage": len(known) / len(samples) if samples else 0,
+		**_f1_summary(samples),
 	}
 
 
@@ -79,7 +96,18 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 		and right[key].prediction is not None
 		and left[key].benchmark not in {"humaneval", "mbpp"}
 	]
+	f1_deltas = [
+		(right[key].f1 or 0) - (left[key].f1 or 0)
+		for key in sorted(left)
+		if left[key].f1 is not None and right[key].f1 is not None
+	]
+	f1_comparison = (
+		{"f1_delta_pp": 100 * statistics.fmean(f1_deltas), "f1_ci95": mean_ci(f1_deltas)}
+		if f1_deltas and len(f1_deltas) == n
+		else {}
+	)
 	return {
+		**f1_comparison,
 		"n": len(deltas),
 		"delta_pp": 100 * statistics.mean(deltas),
 		"ci95": [bootstrap[49], bootstrap[1949]],

@@ -2,6 +2,8 @@
 
 The benchmark setup evaluates the teacher and base student before distillation, then reevaluates the teacher and evaluates the distilled student after training. The teacher stays untrained; its first score is the fixed gap-closure reference, and its second score measures drift. It does not start collection or training. Run each phase yourself when its models and data are ready. The dashboard reads completed evaluation artifacts; it never triggers inference.
 
+The paper's AG News, SQuAD, and GSM8K tasks have their own frozen suites, label-accuracy and SQuAD exact-match and F1 scoring, and evaluation configs; see [paper-tasks.md](paper-tasks.md).
+
 The [harness traffic benchmark](harness-benchmarks.md) measures a separate before/after comparison around harness deployment. It replays simulated genuine users alongside distillation attempts to measure genuine request success, false-positive blocks, throttling, delivered extraction throughput, and observed stopping behavior. Its workload stays outside the distillation corpus and public quality scores. Open **Harness traffic** in the dashboard to view those results.
 
 ## Public benchmark suite

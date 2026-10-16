@@ -22,6 +22,7 @@ data/teacher/
 data/processed/
 data/prompts/
 data/benchmarks/
+data/tasks/
 *.tsbuildinfo
 
 # Environment files
