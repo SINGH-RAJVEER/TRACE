@@ -9,7 +9,7 @@ The benchmark creates a held-out synthetic traffic suite. It does not add anythi
 ```bash
 devenv shell
 uv run distill benchmark traffic freeze \
-	--output data/benchmarks/traffic.json \
+	--output data/traffic/suite.json \
 	--genuine-count 48 \
 	--attack-count 144 \
 	--duration-seconds 60 \
