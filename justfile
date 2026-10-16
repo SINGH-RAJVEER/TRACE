@@ -108,3 +108,7 @@ student-train *args:
 # One machine: run the whole distillation.
 distill-local *args:
 	{{python}} scripts/pipeline.py distill-local {{args}}
+
+# The paper's AG News, SQuAD, and GSM8K study, with its own ledgers and adapters. See docs/paper-tasks.md.
+paper-tasks *args:
+	{{python}} scripts/pipeline.py paper-tasks {{args}}

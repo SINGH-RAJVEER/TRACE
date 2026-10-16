@@ -20,6 +20,37 @@ Every request for a task uses one fixed serialization, in the attacker pool, the
 - **SQuAD:** an instruction to answer with a short span, then `Passage: <context>` and `Question: <question>`. Contexts longer than 6,000 characters are cut at a word boundary before querying, training, and evaluation alike; the manifest counts how often this happens. No pinned row currently needs it. Answer positions are never used to filter or window passages.
 - **GSM8K:** the problem followed by the same instruction the general GSM8K benchmark uses, ending with `####` and the final number.
 
+## Run the whole study
+
+```bash
+just paper-tasks
+just paper-tasks --tasks ag_news --seeds 42 --budgets 500,2000
+just paper-tasks --teacher-url http://TEACHER_IP:8000
+```
+
+This command is separate from the general corpus run (`just distill-local`). It never reads `data/prompts/` or `data/teacher/ledger.jsonl`. Each task keeps its own ledger in `data/tasks/TASK/ledger.jsonl` and its own adapters in `artifacts/tasks/TASK/`, so the two workflows produce different ledgers and different models.
+
+Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
+
+1. Builds each task that has no `data/tasks/TASK/manifest.json`, and reuses existing builds.
+2. Drops budgets larger than a task's attacker pool and logs them. GSM8K skips 8,000 this way.
+3. Writes the prompts of every seed's largest budget. Starts vLLM and the teacher API on loopback, or uses `--teacher-url`, and collects those prompts into the task ledger at the task's own output limit, ignoring `DISTILL_MAX_OUTPUT_TOKENS`. Then it stops a locally started teacher. If the ledgers already hold every planned prompt, the teacher is not started.
+4. For every task, seed, and budget, writes the budget's ledger subset, reviews it without gold labels, prepares `train.jsonl`, and trains the attacker student. It also trains the gold-label reference on `gold-train.jsonl`, unless you pass `--no-gold`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--tasks` | `ag_news,squad,gsm8k` | Tasks to run |
+| `--seeds` | `42,1,20` | Paired seeds; each orders its own attacker queries and sets the training seed |
+| `--budgets` | `500,2000,8000` | Attacker query budgets B_A |
+| `--gold/--no-gold` | `--gold` | Also train the gold-label reference student |
+| `--config` | `configs/train.task.toml` | Recipe copied into each run with that run's dataset, output directory, and seed |
+| `--teacher-url` | none | Collect from a running teacher API instead of starting vLLM here |
+| `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#pipeline-options) | Local teacher and collection settings |
+
+Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. The full default matrix is three tasks, three seeds, and up to three budgets, with two students each, which is 48 training runs. Pass smaller `--tasks`, `--seeds`, or `--budgets` to run part of it, and declare any reduced matrix before final testing.
+
+Evaluation is not part of this command; see [Evaluate](#evaluate). The sections below describe the individual steps it runs.
+
 ## Build
 
 ```bash

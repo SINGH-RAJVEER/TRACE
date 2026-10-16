@@ -7,6 +7,7 @@
 | `teacher-host` | Two machines, teacher side | Starts vLLM with Qwen3.5-9B on loopback and the teacher API on the network, then runs until interrupted |
 | `student-train` | Two machines, student side | Builds or reuses the corpus, checks the monorepo teacher API, collects and reviews responses, prepares the splits, and trains the Qwen3.5-2B adapter |
 | `distill-local` | One machine | Builds or reuses the corpus, starts vLLM and the teacher API on loopback, collects a ledger, stops both to free GPU memory, then reviews, prepares, and trains |
+| `paper-tasks` | One machine, or the student side with `--teacher-url` | Runs the paper's AG News, SQuAD, and GSM8K study with its own ledgers and adapters, separate from the corpus run; see [paper-tasks.md](paper-tasks.md#run-the-whole-study) |
 
 ```bash
 python3 scripts/pipeline.py distill-local

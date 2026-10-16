@@ -6,6 +6,7 @@ valid. Each long step runs as a `distill` subprocess that draws its own progress
 started here run in their own process group so they can be stopped as a whole.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -19,7 +20,7 @@ import time
 import tomllib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
 from typing import Annotated, Any
@@ -36,6 +37,11 @@ DEFAULT_PROMPTS = Path("data/prompts/all-splits.jsonl")
 DEFAULT_LEDGER = Path("data/teacher/ledger.jsonl")
 DEFAULT_CONFIG = Path("configs/train.example.toml")
 CORPUS_CONFIG = Path("configs/train.distill.toml")
+TASK_CONFIG = Path("configs/train.task.toml")
+TASK_ROOT = Path("data/tasks")
+TASK_ARTIFACTS = Path("artifacts/tasks")
+# The keys of distillation.tasks.TASKS, which imports the dataset stack.
+TASK_NAMES = ("ag_news", "squad", "gsm8k")
 LOG_DIR = Path("artifacts/logs")
 PIPELINE_SCRIPT = Path("scripts/pipeline.py")
 STOP_SECONDS = 30
@@ -466,6 +472,218 @@ class Pipeline:
 		self.launcher.distill("train", "--config", str(self.config))
 
 
+@dataclass
+class TaskPipeline:
+	"""The paper's narrow-task study, kept apart from the general corpus run.
+
+	Each task has its own prompt pools, ledger, and adapters under data/tasks/TASK and
+	artifacts/tasks/TASK. Collection queries the largest budget of every seed once; smaller
+	budgets are prefixes of it. Review never uses gold labels: it only drops empty responses
+	and responses longer than the training limit.
+	"""
+
+	launcher: Launcher
+	terms_review_id: str
+	tasks: list[str]
+	seeds: list[int]
+	budgets: list[int]
+	config: Path
+	concurrency: int
+	gold: bool
+	plan: dict[str, list[int]] = field(default_factory=dict)
+
+	def validate(self) -> None:
+		if not self.terms_review_id:
+			raise LaunchError(
+				"set --terms-review-id or TEACHER_TERMS_REVIEW_ID "
+				"(see docs/distillation-pipeline.md)"
+			)
+		unknown = [task for task in self.tasks if task not in TASK_NAMES]
+		if unknown or not self.tasks:
+			raise LaunchError(f"--tasks must name tasks from {', '.join(TASK_NAMES)}")
+		if not self.seeds or not self.budgets:
+			raise LaunchError("--seeds and --budgets must each name at least one value")
+		if not self.config.is_file():
+			raise LaunchError(f"training config not found: {self.config}")
+
+	def task_dir(self, task: str) -> Path:
+		return TASK_ROOT / task
+
+	def manifest(self, task: str) -> dict[str, Any]:
+		path = self.task_dir(task) / "manifest.json"
+		return dict(json.loads(path.read_text(encoding="utf-8")))
+
+	def ledger(self, task: str) -> Path:
+		return self.task_dir(task) / "ledger.jsonl"
+
+	def run_dir(self, task: str, seed: int, budget: int) -> Path:
+		return self.task_dir(task) / "runs" / f"s{seed}-b{budget}"
+
+	def build_tasks(self) -> None:
+		"""Builds missing tasks and keeps only the budgets each attacker pool can supply."""
+		for task in self.tasks:
+			directory = self.task_dir(task)
+			if (directory / "manifest.json").is_file():
+				self.launcher.log(f"using the existing {task} build in {directory}")
+			else:
+				self.launcher.log(f"building {task} into {directory} (downloads the dataset)")
+				self.launcher.distill(
+					"tasks", "build", "--task", task, "--output-dir", str(directory)
+				)
+			pool = int(self.manifest(task)["roles"]["attacker"])
+			budgets = sorted(budget for budget in set(self.budgets) if budget <= pool)
+			if skipped := sorted(set(self.budgets) - set(budgets)):
+				self.launcher.log(
+					f"{task}: skipping budgets {', '.join(map(str, skipped))}, "
+					f"larger than its attacker pool of {pool}",
+					"yellow",
+				)
+			if not budgets:
+				raise LaunchError(f"{task}: no budget fits its attacker pool of {pool}")
+			self.plan[task] = budgets
+			# The largest budget's prompts are what collection queries.
+			for seed in self.seeds:
+				self.budget(task, seed, budgets[-1])
+
+	def budget(self, task: str, seed: int, budget: int, *, with_ledger: bool = False) -> None:
+		args = [
+			"tasks",
+			"budget",
+			"--task-dir",
+			str(self.task_dir(task)),
+			"--budget",
+			str(budget),
+			"--seed",
+			str(seed),
+			"--output-dir",
+			str(self.run_dir(task, seed, budget)),
+		]
+		if with_ledger:
+			args += ["--ledger", str(self.ledger(task))]
+		self.launcher.distill(*args)
+
+	def uncollected(self) -> int:
+		"""Prompts of the planned budgets that the task ledgers do not hold yet."""
+		missing = 0
+		for task, budgets in self.plan.items():
+			have = _example_ids(self.ledger(task))
+			for seed in self.seeds:
+				wanted = _example_ids(self.run_dir(task, seed, budgets[-1]) / "prompts.jsonl")
+				missing += len(wanted - have)
+		return missing
+
+	def collect(self, teacher_url: str, token: str) -> None:
+		for task, budgets in self.plan.items():
+			# The output limit is part of the task contract, so it comes from the build, never
+			# from DISTILL_MAX_OUTPUT_TOKENS.
+			limit = str(self.manifest(task)["max_output_tokens"])
+			for seed in self.seeds:
+				prompts = self.run_dir(task, seed, budgets[-1]) / "prompts.jsonl"
+				self.launcher.log(f"collecting {task} seed {seed} into {self.ledger(task)}")
+				self.launcher.distill(
+					"collect",
+					"--input",
+					str(prompts),
+					"--output",
+					str(self.ledger(task)),
+					"--teacher-url",
+					teacher_url,
+					"--terms-review-id",
+					self.terms_review_id,
+					"--concurrency",
+					str(self.concurrency),
+					"--max-output-tokens",
+					limit,
+					"--no-thinking",
+					env={"TEACHER_API_TOKEN": token},
+				)
+
+	def train_all(self) -> None:
+		with self.config.open("rb") as source:
+			base = tomllib.load(source)
+		for task, budgets in self.plan.items():
+			for seed in self.seeds:
+				for budget in budgets:
+					self.train_run(base, task, seed, budget)
+
+	def train_run(self, base: dict[str, Any], task: str, seed: int, budget: int) -> None:
+		"""Trains the attacker student, and with --gold the gold-label reference, for one run."""
+		directory = self.run_dir(task, seed, budget)
+		name = f"{task} s{seed}-b{budget}"
+		self.budget(task, seed, budget, with_ledger=True)
+		kinds = [("attacker", directory / "train.jsonl")]
+		if self.gold:
+			kinds.append(("gold", directory / "gold-train.jsonl"))
+		for kind, dataset in kinds:
+			output = TASK_ARTIFACTS / task / f"s{seed}-b{budget}" / kind
+			config = directory / f"train.{kind}.toml"
+			values = {key: value for key, value in base.items() if key != "validation_dataset_path"}
+			values |= {"dataset_path": str(dataset), "output_dir": str(output), "seed": seed}
+			config.write_text(_toml(values), encoding="utf-8")
+			if kind == "attacker":
+				reviews = directory / "reviews.jsonl"
+				self.launcher.log(f"{name}: reviewing responses without gold labels")
+				self.launcher.distill(
+					"review",
+					"--ledger",
+					str(directory / "ledger.jsonl"),
+					"--output",
+					str(reviews),
+					"--config",
+					str(config),
+				)
+				self.launcher.distill(
+					"prepare",
+					"--input",
+					str(directory / "ledger.jsonl"),
+					"--output",
+					str(dataset),
+					"--prompts",
+					str(directory / "prompts.jsonl"),
+					"--reviews",
+					str(reviews),
+				)
+			if _trained(output, dataset):
+				self.launcher.log(f"{name}: the {kind} adapter in {output} is already trained")
+				continue
+			self.launcher.log(f"{name}: training the {kind} student into {output}")
+			self.launcher.distill("train", "--config", str(config))
+
+
+def _example_ids(path: Path) -> set[str]:
+	if not path.is_file():
+		return set()
+	with path.open(encoding="utf-8") as source:
+		return {json.loads(line)["example_id"] for line in source if line.strip()}
+
+
+def _trained(output: Path, dataset: Path) -> bool:
+	"""Whether output holds a finished adapter trained on dataset's current contents."""
+	manifest = output / "training-manifest.json"
+	if not manifest.is_file():
+		return False
+	recorded = json.loads(manifest.read_text(encoding="utf-8")).get("dataset_sha256")
+	return bool(recorded == hashlib.sha256(dataset.read_bytes()).hexdigest())
+
+
+def _toml(values: dict[str, Any]) -> str:
+	"""Serializes a flat training config. JSON strings, numbers, and arrays are valid TOML."""
+
+	def value(item: Any) -> str:
+		if isinstance(item, dict):
+			return "{ " + ", ".join(f"{key} = {value(entry)}" for key, entry in item.items()) + " }"
+		return json.dumps(item)
+
+	return "".join(f"{key} = {value(item)}\n" for key, item in values.items() if item is not None)
+
+
+def _numbers(text: str, option: str) -> list[int]:
+	try:
+		return [int(part) for part in text.split(",") if part.strip()]
+	except ValueError:
+		raise LaunchError(f"{option} must be comma-separated integers") from None
+
+
 def scenario(name: str, body: Callable[[Launcher], None]) -> None:
 	"""Runs a scenario, always stopping its services, and exits 130 after Ctrl+C."""
 	launcher = Launcher(name)
@@ -680,6 +898,83 @@ def distill_local_command(
 		launcher.log("done; the adapter and training manifest are in the config's output_dir")
 
 	scenario("distill-local", body)
+
+
+@run_app.command("paper-tasks")
+def paper_tasks_command(
+	tasks: Annotated[
+		str, typer.Option(help="Comma-separated tasks: ag_news, squad, and gsm8k.")
+	] = "ag_news,squad,gsm8k",
+	seeds: Annotated[
+		str, typer.Option(help="Comma-separated seeds; each orders its own attacker queries.")
+	] = "42,1,20",
+	budgets: Annotated[
+		str,
+		typer.Option(help="Comma-separated query budgets; those above a task's pool are skipped."),
+	] = "500,2000,8000",
+	gold: Annotated[
+		bool, typer.Option(help="Also train the gold-label reference student for every run.")
+	] = True,
+	teacher_url: Annotated[
+		str,
+		typer.Option(help="Collect from a running teacher API instead of starting one here."),
+	] = "",
+	token: Annotated[
+		str,
+		typer.Option(envvar="TEACHER_API_TOKEN", help="Teacher API bearer token."),
+	] = "",
+	port: PortOption = 8000,
+	upstream_url: UpstreamUrlOption = "",
+	terms_review_id: TermsReviewIdOption = "",
+	config: Annotated[
+		Path, typer.Option(dir_okay=False, help="Training recipe copied into every run.")
+	] = TASK_CONFIG,
+	concurrency: ConcurrencyOption = 4,
+) -> None:
+	"""Run the paper's AG News, SQuAD, and GSM8K extraction study.
+
+	Separate from the general corpus: each task has its own ledger in data/tasks/TASK and its
+	own adapters in artifacts/tasks/TASK/sSEED-bBUDGET. Builds missing tasks, collects every
+	seed's largest budget, stops a locally started teacher, then trains one attacker student
+	per task, seed, and budget, plus the gold-label reference unless --no-gold.
+	"""
+
+	def body(launcher: Launcher) -> None:
+		pipeline = TaskPipeline(
+			launcher=launcher,
+			terms_review_id=terms_review_id,
+			tasks=[task.strip() for task in tasks.split(",") if task.strip()],
+			seeds=_numbers(seeds, "--seeds"),
+			budgets=_numbers(budgets, "--budgets"),
+			config=config,
+			concurrency=concurrency,
+			gold=gold,
+		)
+		pipeline.validate()
+		os.environ["TEACHER_TERMS_REVIEW_ID"] = pipeline.terms_review_id
+		launcher.install("train")
+		pipeline.build_tasks()
+		if missing := pipeline.uncollected():
+			launcher.log(f"{missing} prompts still need teacher responses")
+			if teacher_url:
+				url = teacher_url.rstrip("/")
+				launcher.wait_for_http(f"{url}/healthz", '"ready"', 60, "Waiting for the teacher")
+				launcher.smoke_test(url, token)
+				pipeline.collect(url, token)
+			else:
+				LOG_DIR.mkdir(parents=True, exist_ok=True)
+				launcher.start_teacher_stack(
+					"127.0.0.1", port, upstream_url, LOG_DIR / "teacher-api.log"
+				)
+				pipeline.collect(f"http://127.0.0.1:{port}", token)
+				launcher.log("stopping the teacher to free GPU memory for training")
+				launcher.stop_background()
+		else:
+			launcher.log("every planned prompt already has a teacher response")
+		pipeline.train_all()
+		launcher.log(f"done; adapters are in {TASK_ARTIFACTS}/TASK/sSEED-bBUDGET")
+
+	scenario("paper-tasks", body)
 
 
 def _find_vllm() -> str:
