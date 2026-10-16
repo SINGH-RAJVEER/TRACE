@@ -15,7 +15,7 @@ The `harness` command comes with the package. Replays with precomputed embedding
 
 | Step | Module | Paper |
 | --- | --- | --- |
-| Embed the current user turn with `BAAI/bge-small-en-v1.5` at revision `5c38ec7`, CLS pooling, unit length, 512-token limit with truncations counted | `encoder.py` | III-B |
+| Embed the detector serialization of the current user turn (`serialization.py`: the AG News article, the SQuAD question then passage, or the GSM8K problem, without fixed service instructions) with `BAAI/bge-small-en-v1.5` at revision `5c38ec7`, CLS pooling, unit length, 512-token limit with truncations counted | `encoder.py` | III-B |
 | Score a window of `w_a` queries: unbiased squared MMD, kernel = mean of four RBF kernels at 0.5, 1, 2, and 4 times the median-distance bandwidth, averaged over 20 fixed reference windows, negative estimates kept | `mmd.py` | Eq. 1 |
 | Turn a score into its upper-tail rank among benign calibration scores | `calibration.py` | Eq. 3 |
 | Accumulate evidence per account and map it to a level | `accumulators.py`, `calibration.py` | Eq. 4, III-C |
@@ -105,6 +105,7 @@ uv run --extra embed harness calibrate \
 	--fitting fitting.jsonl \
 	--score-calibration score_calibration.jsonl \
 	--policy-calibration policy_calibration.jsonl \
+	--task ag_news \
 	--output-dir artifacts/harness/ag_news
 ```
 
@@ -113,6 +114,8 @@ uv run --extra embed harness calibrate \
 | Fitting | Draws the 20 reference windows and sets the kernel bandwidth from up to 2,000 other fitting queries |
 | Score calibration | Each account's complete, non-overlapping windows form the null score distribution |
 | Policy calibration | Each account horizon's highest statistic sets the level thresholds and the baseline cutoffs |
+
+`--task` selects the detector serialization, `detector-v1`, recorded in the artifact with per-role truncation counts. Each request's `text` is the full user turn; calibration, replay, and the API strip the same fixed task instructions before embedding. A turn that does not follow its task's template is embedded whole. The default `text` embeds whole turns for services without a template. The API refuses to start when `HARNESS_TASK` differs from the calibration's task, and task artifacts without the current serialization must be recalibrated.
 
 The output directory holds `calibration.json` and `references.npy`. The JSON records the configuration, encoder identity and truncation count, bandwidth, sorted calibration scores, thresholds and achieved rates per accumulator, baseline cutoffs, counts, and SHA-256 hashes of each input and of the reference array. Loading verifies the reference hash. An existing calibration is never overwritten.
 

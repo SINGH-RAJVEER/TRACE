@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from harness.accumulators import DEFAULT_ACCUMULATORS, AccumulatorSpec
 from harness.encoder import Encoder
 from harness.mmd import SCALES, Array, WindowScorer, median_bandwidth
+from harness.serialization import SERIALIZATION, Task, detector_text
 
 LEVELS = 4
 
@@ -29,6 +30,8 @@ class HarnessConfig(BaseModel):
 
 	model_config = ConfigDict(extra="forbid")
 
+	# Selects the detector serialization; "text" embeds whole user turns.
+	task: Task = "text"
 	window_size: int = Field(default=100, ge=2)
 	reference_windows: int = Field(default=20, ge=1)
 	bandwidth_sample: int = Field(default=2000, ge=2)
@@ -79,6 +82,8 @@ class Calibration(BaseModel):
 
 	config: HarnessConfig
 	encoder: dict[str, Any]
+	# Detector serialization version; None in artifacts from before it was recorded.
+	serialization: str | None = None
 	sigma: float
 	calibration_scores: list[float]
 	thresholds: dict[str, LevelThresholds]
@@ -230,8 +235,19 @@ def calibrate(
 
 	size = config.window_size
 	rng = random.Random(config.seed)
+	truncated: dict[str, int] = {}
+
+	def embed(requests: list[BenignRequest], role: str) -> Array:
+		"""Embed the detector serialization and count inputs the encoder truncated."""
+		before = getattr(encoder, "truncated", None)
+		rows = encoder.encode([detector_text(config.task, request.text) for request in requests])
+		after = getattr(encoder, "truncated", None)
+		if isinstance(before, int) and isinstance(after, int):
+			truncated[f"{role}_truncated"] = after - before
+		return rows
+
 	report(f"embedding {len(fitting):,} fitting requests")
-	fitted = encoder.encode([request.text for request in fitting])
+	fitted = embed(fitting, "fitting")
 	needed = size * config.reference_windows
 	if len(fitted) < needed:
 		raise ValueError(f"fitting needs at least {needed} requests for the reference windows")
@@ -252,7 +268,7 @@ def calibrate(
 		streams = account_streams(requests)
 		if embedded is None:
 			report(f"embedding {len(requests):,} {label} requests from {len(streams):,} accounts")
-			embedded = encoder.encode([request.text for request in requests])
+			embedded = embed(requests, label.replace("-", "_"))
 		rows: dict[str, list[int]] = {}
 		for index, request in enumerate(requests):
 			rows.setdefault(request.account, []).append(index)
@@ -272,7 +288,7 @@ def calibrate(
 		return result
 
 	report(f"embedding {len(score_calibration):,} score-calibration requests")
-	null_embedded = encoder.encode([request.text for request in score_calibration])
+	null_embedded = embed(score_calibration, "score_calibration")
 	null_scores = sorted(
 		score
 		for account in stream_scores(score_calibration, "score-calibration", null_embedded)
@@ -284,6 +300,7 @@ def calibrate(
 	calibration = Calibration(
 		config=config,
 		encoder=encoder.identity(),
+		serialization=SERIALIZATION,
 		sigma=sigma,
 		calibration_scores=null_scores,
 		thresholds={},
@@ -315,6 +332,7 @@ def calibrate(
 		"policy_calibration_accounts": len(account_streams(policy_calibration)),
 		"policy_calibration_horizons": len(units),
 		"policy_calibration_unscored_horizons": sum(not scores for scores in units),
+		**truncated,
 	}
 	policy_horizons = [
 		horizon
@@ -406,6 +424,11 @@ def save_calibration(directory: Path, calibration: Calibration, references: Arra
 
 def load_calibration(directory: Path) -> tuple[Calibration, WindowScorer]:
 	calibration = Calibration.model_validate_json((directory / "calibration.json").read_text())
+	if calibration.config.task != "text" and calibration.serialization != SERIALIZATION:
+		raise ValueError(
+			f"calibration uses detector serialization {calibration.serialization}, "
+			f"not {SERIALIZATION}; recalibrate"
+		)
 	path = directory / "references.npy"
 	if hashlib.sha256(path.read_bytes()).hexdigest() != calibration.sha256.get("references"):
 		raise ValueError("reference windows differ from the calibration artifact")

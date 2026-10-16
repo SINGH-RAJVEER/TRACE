@@ -19,6 +19,7 @@ from harness.deception import keyed_unit
 from harness.encoder import Encoder
 from harness.mmd import Array, WindowScorer
 from harness.pow import Challenge, ChallengeBook
+from harness.serialization import detector_text
 
 Action = Literal["serve", "challenge", "refuse"]
 
@@ -261,7 +262,7 @@ class MMDPolicy(_HorizonPolicy):
 		if embedding is None:
 			if self.encoder is None:
 				raise ValueError("pass an embedding or configure an encoder")
-			embedding = self.encoder.encode([text])[0]
+			embedding = self.encoder.encode([detector_text(self.calibration.config.task, text)])[0]
 		state.buffer.append(np.asarray(embedding, dtype=np.float64))
 		state.buffer_digests.append(request_digest(text))
 		p_value: float | None = None

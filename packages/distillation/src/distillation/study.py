@@ -203,10 +203,12 @@ class Study:
 		path = self.root / task / "calibration"
 		if (path / "calibration.json").exists():
 			existing, _ = load_calibration(path)
-			# Calibrations from before the shuffle sliced article-ordered SQuAD pools.
-			if existing.sha256 != {role: requests_sha256(rows) for role, rows in groups.items()}:
+			# Older calibrations sliced article-ordered SQuAD pools or embedded whole turns.
+			if existing.config.task != task or existing.sha256 != {
+				role: requests_sha256(rows) for role, rows in groups.items()
+			}:
 				raise LaunchError(
-					f"{path} was calibrated on different benign accounts; "
+					f"{path} was calibrated on different benign accounts or detector input; "
 					"start a fresh --run-dir or remove that calibration"
 				)
 			return path
@@ -220,7 +222,7 @@ class Study:
 			raise LaunchError(f"{task}: calibration needs at least 100 fitting prompts")
 		self.pipeline.launcher.log(f"{task}: calibration window=100, reference_windows={count}")
 		calibration, references = calibrate(
-			config=HarnessConfig(reference_windows=count),
+			config=HarnessConfig.model_validate({"task": task, "reference_windows": count}),
 			encoder=BGEEncoder(device="cpu"),
 			fitting=groups["fitting"],
 			score_calibration=groups["score_calibration"],
