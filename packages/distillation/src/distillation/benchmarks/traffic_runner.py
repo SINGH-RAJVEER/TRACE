@@ -1,9 +1,11 @@
 """Replay a fixed schedule against the real HTTP path without hidden retries."""
 
 import asyncio
+import hashlib
 import os
 import time
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -41,6 +43,16 @@ class _ChatResponse(BaseModel):
 	model: str = Field(min_length=1)
 	choices: list[_ChatChoice] = Field(min_length=1)
 	usage: _ChatUsage | None = None
+
+
+def solve_challenge(prefix: str, difficulty: int) -> int:
+	"""The smallest counter whose SHA-256 of prefix + counter has `difficulty` leading zero bits."""
+	counter = 0
+	while True:
+		digest = hashlib.sha256(f"{prefix}{counter}".encode()).digest()
+		if int.from_bytes(digest) >> (256 - difficulty) == 0:
+			return counter
+		counter += 1
 
 
 def _completion(response: httpx.Response, backend: str) -> tuple[bool, int | None, str]:
@@ -85,6 +97,9 @@ async def run_traffic(
 		keys[actor] = os.environ[env] if env else ""
 	run_id = uuid.uuid4().hex
 	semaphore = asyncio.Semaphore(config.max_in_flight)
+	loop = asyncio.get_running_loop()
+	# Challenges are solved in processes: hashlib holds the GIL for short inputs.
+	pool = ProcessPoolExecutor()
 	async with httpx.AsyncClient(
 		base_url=f"{target.base_url.rstrip('/')}/",
 		timeout=config.timeout_seconds,
@@ -127,6 +142,20 @@ async def run_traffic(
 					)
 				try:
 					response = await client.post(path, json=payload, headers=headers)
+					if response.status_code == 428:
+						# Answering the harness's challenge is part of the protocol, not a retry:
+						# the same frozen request stays one sample.
+						challenge = response.json()["challenge"]
+						solving = time.perf_counter()
+						counter = await loop.run_in_executor(
+							pool,
+							solve_challenge,
+							str(challenge["prefix"]),
+							int(challenge["difficulty"]),
+						)
+						result.challenge_seconds = time.perf_counter() - solving
+						proof = {"X-Harness-Proof": f"{challenge['nonce']}:{counter}"}
+						response = await client.post(path, json=payload, headers=headers | proof)
 					result.http_status = response.status_code
 					result.retry_after = response.headers.get("retry-after")
 					result.provider_request_id = response.headers.get("x-request-id")
@@ -156,7 +185,10 @@ async def run_traffic(
 				append_jsonl(config.output_dir / f"{run_id}.samples.jsonl", [result])
 				return result
 
-		samples = await asyncio.gather(*(send(item) for item in suite.requests))
+		try:
+			samples = await asyncio.gather(*(send(item) for item in suite.requests))
+		finally:
+			pool.shutdown(cancel_futures=True)
 	run = TrafficRun(
 		id=run_id,
 		phase=phase,
