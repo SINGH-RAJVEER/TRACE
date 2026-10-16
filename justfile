@@ -81,7 +81,7 @@ review:
 prepare:
 	uv run distill prepare --input data/teacher/ledger.jsonl --output data/processed/train.jsonl --prompts data/prompts/all-splits.jsonl --reviews data/teacher/ledger.reviews.jsonl
 
-# Train with the example QLoRA configuration.
+# Train with the example LoRA configuration.
 train-example:
 	uv run --extra train distill train --config configs/train.example.toml
 

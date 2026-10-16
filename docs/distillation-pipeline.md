@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository implements a black-box teacher to open-weight student experiment. The teacher is a hosted chat model available through an OpenAI-compatible `POST /chat/completions` endpoint. The student is a Hugging Face causal language model trained with LoRA or QLoRA.
+This repository implements a black-box teacher to open-weight student experiment. The teacher is a hosted chat model available through an OpenAI-compatible `POST /chat/completions` endpoint. The student is a Hugging Face causal language model trained with LoRA on a BF16 base, or optionally with QLoRA.
 
 The current method is sequence-level distillation. The collector saves the teacher's generated text, and TRL trains the student with cross-entropy on completion tokens. It does not use teacher logits.
 
@@ -27,7 +27,7 @@ uv run --extra train python -c 'import torch; print(torch.cuda.is_available())'
 
 The `eval` extra installs datasets and huggingface-hub. The `train` extra installs PyTorch, Transformers, datasets, Accelerate, PEFT, TRL, and, on Linux, bitsandbytes and flash-linear-attention. These extras stay optional because the API and pipeline tests do not need the large training stack. Select the extra on subsequent `uv run` commands as shown above, since uv synchronizes the environment for each invocation.
 
-QLoRA also requires a compatible NVIDIA GPU and a working host driver. The shell provides the compiler and library paths; the CUDA runtime dependencies come from the locked training wheels. The vLLM teacher described below runs as a separate upstream service with its own environment, either on this machine or another host.
+Training on a GPU, and QLoRA in particular, requires a compatible NVIDIA GPU and a working host driver. The shell provides the compiler and library paths; the CUDA runtime dependencies come from the locked training wheels. The vLLM teacher described below runs as a separate upstream service with its own environment, either on this machine or another host.
 
 ## Adopted model pairing
 
@@ -213,7 +213,7 @@ The trainer:
 - Uses completion-only loss through TRL `SFTTrainer`.
 - Passes the same template arguments to the prompt, full conversation, and TRL tokenization. Empty Qwen thought wrappers are part of the prefilling prompt and are excluded from the loss.
 - Applies LoRA to all linear layers of the text model, including the linear-attention projections. The vision encoder and MTP head are not loaded.
-- Uses NF4, double quantization, and BF16 compute when `qlora = true`.
+- Loads the base in `precision` by default. With `qlora = true`, it uses NF4, double quantization, and BF16 compute instead.
 - Seeds before model and adapter construction. Uses explicit cross-entropy, disables packing, and sets non-reentrant gradient checkpointing.
 - Evaluates and saves every epoch when validation is supplied, loads the checkpoint with lowest validation loss, and evaluates the exported adapter at the end. `eval_strategy="steps"` is available; best-checkpoint selection requires `save_steps` to be a multiple of `eval_steps`.
 - Saves the adapter, tokenizer, template hash, resolved base revision when available, both dataset hashes, preparation manifests, resolved training arguments, the checkpoint it resumed from, checkpoint choice, final validation metrics, package versions, uv lock hash, JJ revision, and available GPU/CUDA/driver metadata.
@@ -230,7 +230,9 @@ Liger, black-box on-policy training, and data-selection methods need separate co
 
 `selective_gradient_checkpointing=true` enables TRL 1.15's selective activation checkpointing when `gradient_checkpointing=true`. It saves attention outputs instead of recomputing them during backward, exchanging additional activation memory for less recomputation. The default remains off until you measure the tradeoff on the training machine. The current recipe uses non-reentrant checkpointing and does not configure DeepSpeed ZeRO-3.
 
-Set `qlora = false` for BF16 or FP16 LoRA when memory permits. Change `precision` to match the GPU. Four-bit training requires CUDA and bitsandbytes. CPU execution is suitable for API and pipeline tests, not the example QLoRA run.
+Both example configs set `qlora = false`. A 4-bit base costs small students more accuracy than it saves memory: the 2B student's text weights take about 3.8 GB in BF16, while activations dominate peak memory. Training on a quantized base also lets the adapter partly learn to correct quantization error, which mixes that recovery into the measured distillation gain. Set `qlora = true` only when the BF16 base does not fit; four-bit training requires CUDA and bitsandbytes. Change `precision` to match the GPU. CPU execution is suitable for API and pipeline tests, not the example training runs.
+
+Evaluate an adapter on the same base it was trained on. Set `load_in_4bit` in both student slots of the evaluation config to the adapter's `qlora` value. The evaluator loads four-bit models with the same NF4 and double-quantization settings as training, and rejects an adapter whose `qlora` setting differs from `load_in_4bit`.
 
 If the base tokenizer has no chat template, set `chat_template_path` to a reviewed local Jinja template. Treat that template as part of the trained artifact. Before loading model weights, the trainer tokenizes every record and checks that prompt tokens are an exact prefix of the full sequence, that supervised completion tokens include the EOS token, and that no sequence exceeds `max_length`. Filter unsuitable records or change the reviewed template/limit rather than silently truncating teacher answers. The pinned Transformers API needs `return_dict=false` for these token-list checks. The configuration keeps `warmup_ratio`, which the locked Transformers version receives as fractional `warmup_steps`.
 

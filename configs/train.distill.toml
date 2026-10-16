@@ -26,12 +26,15 @@ select_best_checkpoint = true
 save_total_limit = 3
 seed = 42
 precision = "bf16"
-qlora = true
+# Train LoRA on the BF16 base. A 4-bit base costs small models more accuracy than it saves
+# memory, and the adapter would partly learn to correct quantization error. Set qlora = true
+# only when BF16 does not fit, and then set load_in_4bit = true for both eval student slots.
+qlora = false
 # TRL 1.15 uses the fused LM head for ordinary NLL without full vocabulary logits.
 loss_type = "nll"
 attn_implementation = "sdpa"
-# "auto" uses paged AdamW for QLoRA on native Linux, which pages its state into system memory
-# when the GPU runs short, and fused AdamW otherwise, including under WSL 2.
+# "auto" uses fused AdamW, or paged AdamW for QLoRA on native Linux, which pages its state
+# into system memory when the GPU runs short.
 optimizer = "auto"
 # "auto" trains without offloading; on a CUDA out-of-memory error it resumes from the last
 # checkpoint with activations kept in system memory, and remembers that for later resumes.
