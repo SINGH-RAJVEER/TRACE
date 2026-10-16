@@ -19,7 +19,15 @@ from distillation.schemas import (
 	TeacherMetadata,
 	TokenUsage,
 )
-from distillation.tasks import GoldRecord, budget_run, build_task
+from distillation.tasks import (
+	AG_NEWS_PROMPT,
+	GSM8K_EVAL_SUFFIX,
+	SQUAD_PROMPT,
+	GoldRecord,
+	budget_run,
+	build_task,
+)
+from harness.serialization import detector_text
 
 
 def _ag_news_rows() -> dict[str, list[dict[str, Any]]]:
@@ -247,3 +255,13 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 	result = CliRunner().invoke(launcher.run_app, command)
 	assert result.exit_code == 0, result.output
 	assert steps == ["stop"]
+
+
+def test_detector_text_strips_each_task_template() -> None:
+	assert detector_text("ag_news", AG_NEWS_PROMPT.format(text="Markets rally")) == "Markets rally"
+	squad = SQUAD_PROMPT.format(context="Paris is in France.", question="Where is Paris?")
+	assert detector_text("squad", squad) == "Where is Paris?\n\nParis is in France."
+	assert detector_text("gsm8k", "Add 2 and 3." + GSM8K_EVAL_SUFFIX) == "Add 2 and 3."
+	# Off-template turns and template-free services embed the whole turn.
+	assert detector_text("ag_news", "Summarize this.") == "Summarize this."
+	assert detector_text("text", squad) == squad

@@ -8,6 +8,7 @@ from harness.calibration import BenignRequest, Calibration
 from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
+from harness.serialization import detector_text
 
 
 def make_policy(
@@ -77,7 +78,8 @@ def replay(
 	if policy == "mmd":
 		if encoder is None:
 			raise ValueError("the mmd policy needs an encoder")
-		embeddings = encoder.encode([request.text for request in requests])
+		task = calibration.config.task
+		embeddings = encoder.encode([detector_text(task, request.text) for request in requests])
 	peaks: list[int] = []
 	unit_of: dict[str, int] = {}
 	scored: set[int] = set()

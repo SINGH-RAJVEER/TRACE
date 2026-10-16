@@ -90,6 +90,7 @@ def _app(
 	calibration, scorer, aggregate = artifacts
 	forced = calibration.model_copy(deep=True)
 	forced.thresholds["paper"].thresholds = levels
+	forced.config.task = settings.get("HARNESS_TASK", "text")
 	log = tmp_path / f"decisions-{len(list(tmp_path.iterdir()))}.jsonl"
 	teacher = Teacher()
 	app = create_app(

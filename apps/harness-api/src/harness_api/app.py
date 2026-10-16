@@ -43,6 +43,7 @@ from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
 from harness.policy import Decision, MMDPolicy, Policy
 from harness.replay import make_policy
+from harness.serialization import detector_text
 
 from harness_api.settings import Settings
 
@@ -155,6 +156,10 @@ def create_app(
 		calibration, scorer = load_calibration(config.calibration_dir)
 		if aggregate_scorer is None:
 			aggregate_scorer = load_aggregate(config.calibration_dir, calibration)
+	# The detector serialization follows the calibration, so both must name the served task.
+	served_task = calibration.config.task
+	if served_task != config.task:
+		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
 	policy: Policy
 	if config.policy == "mmd":
 		policy = MMDPolicy(
@@ -351,7 +356,7 @@ def create_app(
 				waiting.decision, waiting.request, waiting.text, binding, x_benchmark_request
 			)
 		embedding = (
-			(await asyncio.to_thread(encoder.encode, [text]))[0]
+			(await asyncio.to_thread(encoder.encode, [detector_text(served_task, text)]))[0]
 			if needs_embeddings and encoder is not None
 			else None
 		)

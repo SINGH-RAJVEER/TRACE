@@ -17,6 +17,7 @@ from harness.calibration import (
 	save_calibration,
 )
 from harness.replay import replay
+from harness.serialization import Task
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 KEY_ENV = "HARNESS_DECEPTION_KEY"
@@ -54,6 +55,10 @@ def calibrate_command(
 	score_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
 	policy_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
 	output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
+	task: Annotated[
+		Task,
+		typer.Option(help="ag_news, squad, gsm8k, or text: selects the detector serialization."),
+	] = "text",
 	window_size: Annotated[int, typer.Option(min=2)] = 100,
 	seed: int = 42,
 	device: str | None = None,
@@ -66,7 +71,7 @@ def calibrate_command(
 	from harness.encoder import BGEEncoder
 
 	calibration, references = calibrate(
-		config=HarnessConfig(window_size=window_size, seed=seed),
+		config=HarnessConfig(task=task, window_size=window_size, seed=seed),
 		encoder=BGEEncoder(device=device),
 		fitting=read_requests(fitting),
 		score_calibration=read_requests(score_calibration),

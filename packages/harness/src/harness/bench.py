@@ -18,6 +18,7 @@ from harness.deception import noise
 from harness.encoder import Encoder
 from harness.mmd import Array, WindowScorer
 from harness.policy import MMDPolicy
+from harness.serialization import detector_text
 
 
 def _quantiles(seconds: list[float]) -> dict[str, float | int | None]:
@@ -55,7 +56,7 @@ def serving_costs(
 		rows = []
 		for text in texts:
 			started = time.perf_counter()
-			rows.append(encoder.encode([text])[0])
+			rows.append(encoder.encode([detector_text(calibration.config.task, text)])[0])
 			embed_seconds.append(time.perf_counter() - started)
 		embeddings: Array = np.stack(rows)
 	else:
