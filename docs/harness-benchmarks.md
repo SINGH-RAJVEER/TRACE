@@ -2,7 +2,7 @@
 
 This benchmark compares the unprotected teacher before harness deployment with the same teacher behind the harness afterward. It measures whether genuine users still receive responses while extraction attempts slow down, receive rate limits, and eventually get blocked. Student training and the existing four-slot model-quality comparison are separate experiments.
 
-The benchmark creates a held-out synthetic traffic suite. It does not add anything to the transfer corpus, collection ledger, training data, or public quality suite. Only explicitly running `benchmark traffic run` sends its requests. The harness itself is future work; the benchmark establishes its measurement contract now.
+The benchmark creates a held-out synthetic traffic suite. It does not add anything to the task prompt pools, collection ledgers, training data, or task capability suites. Only explicitly running `benchmark traffic run` sends its requests. The harness is in `packages/harness`, served over HTTP by `apps/harness-api` ([harness.md](harness.md)).
 
 ## Freeze the traffic
 
@@ -40,11 +40,13 @@ Use the same model, model configuration, hardware, authentication principals, an
 
 Both `teacher_api` and `openai` backends use real HTTP requests. For `teacher_api`, `base_url` is the server root. For `openai`, include the API prefix such as `/v1` in `base_url`; the runner appends `chat/completions`. Both request the same non-thinking generation contract used elsewhere in this project.
 
-Requests follow their frozen offsets independently of earlier responses. A concurrency ceiling limits in-flight requests; excess requests wait locally. Each result records scheduled, actual start, and completion times. The report warns when p95 client scheduling delay exceeds 100 ms. Increase client capacity or reduce the offered load before interpreting a replay with substantial local queueing. Timeouts include HTTP processing after dispatch; end-to-end delay also includes local queueing. The runner does not retry, honor `Retry-After` by rescheduling, or replace failures, so the denominator and offered workload stay fixed. Interrupted sample journals are retained but are not complete reports.
+Requests follow their frozen offsets independently of earlier responses. A concurrency ceiling limits in-flight requests; excess requests wait locally. Each result records scheduled, actual start, and completion times. The report warns when p95 client scheduling delay exceeds 100 ms. Increase client capacity or reduce the offered load before interpreting a replay with substantial local queueing. Timeouts include HTTP processing after dispatch; end-to-end delay also includes local queueing. The runner does not retry, honor `Retry-After` by rescheduling, or replace failures, so the denominator and offered workload stay fixed. Answering a proof-of-work challenge is part of the harness protocol rather than a retry: the runner solves it in a process pool, resends the same request with the proof, and records both exchanges as one sample with the solving time in `challenge_seconds`. Interrupted sample journals are retained but are not complete reports.
 
 `X-Benchmark-Actor` carries an opaque actor ID. The runner never sends the ground-truth label or scenario. This header is a test correlation ID, not trustworthy authentication. For policies keyed by authenticated users or API keys, configure `actor_key_envs` under both targets, using the actor IDs from the frozen suite and separate environment-provided test credentials. A shared `api_key_env` is also supported, but shared credentials may cause the harness to treat all actors as one principal. The current teacher wrapper does not implement per-actor detection. Credential values and response bodies are excluded from result artifacts.
 
-## Decision telemetry for the future harness
+## Decision telemetry
+
+`apps/harness-api` implements this contract; see [harness.md](harness.md#protected-api). A challenged attempt returns HTTP 428 with `throttle` and a challenge body. The runner answers it, and the final response decides the sample's outcome. The harness omits output token counts unless `HARNESS_TOKENIZER_MODEL` is set, so compare delivered token throughput across phases only with that setting. Request throughput is unaffected.
 
 The protected endpoint must return `X-Harness-Decision` on every response, including rejected requests. Accepted values are `allow`, `throttle`, and `block`.
 
