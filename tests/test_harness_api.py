@@ -128,6 +128,31 @@ async def _solved(client: httpx.AsyncClient, actor: str, text: str) -> httpx.Res
 
 
 @pytest.mark.asyncio
+async def test_protected_collector_solves_real_api_challenges_and_collects_noise(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from distillation.campaign import ProtectedTeacher
+
+	app, teacher, log = _app(artifacts, tmp_path, [-10, -10, -10, -10], HARNESS_TASK="ag_news")
+	gateway = ProtectedTeacher("http://harness", "", transport=httpx.ASGITransport(app=app))
+	gateway.client.headers["X-Benchmark-Actor"] = "extractor"
+	try:
+		for _ in range(3):
+			generation = await gateway.generate(
+				TeacherGenerationRequest(
+					messages=[Message(role="user", content="Classify this article")],
+					max_output_tokens=16,
+				)
+			)
+			assert generation.message.content
+	finally:
+		await gateway.close()
+	assert gateway.challenges == 2
+	assert teacher.calls == 1
+	assert any(json.loads(line)["event"] == "noise" for line in log.read_text().splitlines())
+
+
+@pytest.mark.asyncio
 async def test_traffic_benchmark_runs_through_the_harness_with_one_sample_per_request(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:

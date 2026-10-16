@@ -84,6 +84,37 @@ def collect_command(
 	typer.echo(f"collected={collected} skipped={skipped} output={output_path}")
 
 
+@app.command("collect-protected")
+def collect_protected_command(
+	input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	summary: Annotated[Path, typer.Option(dir_okay=False)],
+	teacher_url: str,
+	terms_review_id: str,
+	max_output_tokens: Annotated[int, typer.Option(min=1, max=32768)],
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+) -> None:
+	"""Collect an ordered protected campaign, solving challenges and recording refusals."""
+	from distillation.campaign import ProtectedTeacher, collect_campaign
+
+	result = asyncio.run(
+		collect_campaign(
+			prompts_path=input_path,
+			ledger_path=output,
+			summary_path=summary,
+			teacher=ProtectedTeacher(teacher_url, token),
+			options=CollectionOptions(
+				terms_review_id=terms_review_id,
+				max_output_tokens=max_output_tokens,
+				enable_thinking=False,
+				concurrency=1,
+				max_attempts=1,
+			),
+		)
+	)
+	typer.echo(json.dumps(result, indent="\t"))
+
+
 @app.command("prepare")
 def prepare_command(
 	input_path: Annotated[Path, typer.Option("--input", exists=True, dir_okay=False)],
@@ -240,6 +271,9 @@ def train_command(
 def benchmark_run_command(
 	config: Annotated[Path, typer.Option("--config", exists=True)],
 	stage: Annotated[str, typer.Option("--stage")] = "before",
+	slot: Annotated[
+		str, typer.Option(help="Evaluate one model slot instead of a whole stage.")
+	] = "",
 ) -> None:
 	"""Evaluate one phase on the identical frozen suite.
 
@@ -251,7 +285,9 @@ def benchmark_run_command(
 	if stage not in STAGE_SLOTS:
 		raise typer.BadParameter("stage must be before, after, or all")
 	settings = load_config(config)
-	slots = STAGE_SLOTS[stage]
+	if slot and slot not in STAGE_SLOTS["all"]:
+		raise typer.BadParameter(f"slot must be one of {', '.join(STAGE_SLOTS['all'])}")
+	slots = tuple(s for s in STAGE_SLOTS["all"] if s == slot) if slot else STAGE_SLOTS[stage]
 	if any(slot not in settings.models for slot in slots):
 		raise typer.BadParameter(f"config must define models for {', '.join(slots)}")
 	for slot in slots:

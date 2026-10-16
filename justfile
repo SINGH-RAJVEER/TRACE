@@ -77,6 +77,10 @@ test-training:
 teacher-host *args:
 	{{python}} scripts/pipeline.py teacher-host {{args}}
 
+# Run collection, training, evaluation, and a second extraction through the harness.
+start *args:
+	{{python}} scripts/pipeline.py start {{args}}
+
 # The paper's AG News, SQuAD, and GSM8K study, with its own ledgers and adapters. See docs/paper-tasks.md.
 paper-tasks *args:
 	{{python}} scripts/pipeline.py paper-tasks {{args}}

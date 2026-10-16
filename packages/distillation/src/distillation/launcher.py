@@ -23,7 +23,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 import typer
@@ -115,9 +115,9 @@ class Launcher:
 		self.log(f"started {name} (pid {process.pid})")
 		return process
 
-	def stop_background(self) -> None:
+	def stop_background(self, *, keep: int = 0) -> None:
 		"""Stops services newest first: terminate, then kill after 30 seconds."""
-		while self.background:
+		while len(self.background) > keep:
 			name, process = self.background.pop()
 			if process.poll() is not None:
 				continue
@@ -330,6 +330,7 @@ class TaskPipeline:
 	config: Path
 	concurrency: int
 	gold: bool
+	artifact_root: Path = TASK_ARTIFACTS
 	plan: dict[str, list[int]] = field(default_factory=dict)
 
 	def validate(self) -> None:
@@ -455,7 +456,7 @@ class TaskPipeline:
 		if self.gold:
 			kinds.append(("gold", directory / "gold-train.jsonl"))
 		for kind, dataset in kinds:
-			output = TASK_ARTIFACTS / task / f"s{seed}-b{budget}" / kind
+			output = self.artifact_root / task / f"s{seed}-b{budget}" / kind
 			config = directory / f"train.{kind}.toml"
 			values = {key: value for key, value in base.items() if key != "validation_dataset_path"}
 			values |= {"dataset_path": str(dataset), "output_dir": str(output), "seed": seed}
@@ -483,7 +484,7 @@ class TaskPipeline:
 					"--reviews",
 					str(reviews),
 				)
-			if _trained(output, dataset):
+			if _trained(output, dataset, config):
 				self.launcher.log(f"{name}: the {kind} adapter in {output} is already trained")
 				continue
 			self.launcher.log(f"{name}: training the {kind} student into {output}")
@@ -497,13 +498,22 @@ def _example_ids(path: Path) -> set[str]:
 		return {json.loads(line)["example_id"] for line in source if line.strip()}
 
 
-def _trained(output: Path, dataset: Path) -> bool:
+def _trained(output: Path, dataset: Path, config: Path | None = None) -> bool:
 	"""Whether output holds a finished adapter trained on dataset's current contents."""
 	manifest = output / "training-manifest.json"
 	if not manifest.is_file():
 		return False
-	recorded = json.loads(manifest.read_text(encoding="utf-8")).get("dataset_sha256")
-	return bool(recorded == hashlib.sha256(dataset.read_bytes()).hexdigest())
+	recorded = json.loads(manifest.read_text(encoding="utf-8"))
+	if recorded.get("dataset_sha256") != hashlib.sha256(dataset.read_bytes()).hexdigest():
+		raise LaunchError(f"{output} was trained on different data; choose a new output directory")
+	if config:
+		with config.open("rb") as source:
+			values = tomllib.load(source)
+		if any(recorded.get("config", {}).get(key) != value for key, value in values.items()):
+			raise LaunchError(
+				f"{output} has a different training recipe; choose a new output directory"
+			)
+	return True
 
 
 def _toml(values: dict[str, Any]) -> str:
@@ -511,7 +521,10 @@ def _toml(values: dict[str, Any]) -> str:
 
 	def value(item: Any) -> str:
 		if isinstance(item, dict):
-			return "{ " + ", ".join(f"{key} = {value(entry)}" for key, entry in item.items()) + " }"
+			entries = (
+				f"{key} = {value(entry)}" for key, entry in item.items() if entry is not None
+			)
+			return "{ " + ", ".join(entries) + " }"
 		return json.dumps(item)
 
 	return "".join(f"{key} = {value(item)}\n" for key, item in values.items() if item is not None)
@@ -675,6 +688,65 @@ def paper_tasks_command(
 		launcher.log(f"done; adapters are in {TASK_ARTIFACTS}/TASK/sSEED-bBUDGET")
 
 	scenario("paper-tasks", body)
+
+
+@run_app.command("start")
+def start_command(
+	tasks: Annotated[str, typer.Option(help="Comma-separated tasks.")] = "ag_news,squad,gsm8k",
+	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42,1,20",
+	budgets: Annotated[str, typer.Option(help="Comma-separated query budgets.")] = "500,2000,8000",
+	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
+	run_dir: Annotated[Path, typer.Option(help="Protected runs and all benchmark results.")] = Path(
+		"artifacts/start"
+	),
+	calibration_root: Annotated[
+		Path | None,
+		typer.Option(help="Existing per-task calibrations; otherwise fit pooled benign accounts."),
+	] = None,
+	l4_action: Annotated[Literal["refuse", "deceive"], typer.Option()] = "refuse",
+	gold: Annotated[
+		bool, typer.Option(help="Also train and benchmark gold reference adapters.")
+	] = True,
+	teacher_url: Annotated[str, typer.Option(help="Use an existing repository teacher API.")] = "",
+	upstream_url: UpstreamUrlOption = "",
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+	port: PortOption = 8000,
+	harness_port: Annotated[int, typer.Option(min=1, max=65535)] = 8003,
+	terms_review_id: TermsReviewIdOption = "",
+	concurrency: ConcurrencyOption = 4,
+) -> None:
+	"""Build corpora, collect, train, benchmark, deploy the harness, and repeat extraction.
+
+	The protected student starts from the same base model. Services run locally for the
+	experiment and stop before student training. No GPU experiment runs during --help.
+	"""
+	from distillation.study import Study
+
+	def body(launcher: Launcher) -> None:
+		pipeline = TaskPipeline(
+			launcher=launcher,
+			terms_review_id=terms_review_id,
+			tasks=list(dict.fromkeys(t.strip() for t in tasks.split(",") if t.strip())),
+			seeds=list(dict.fromkeys(_numbers(seeds, "--seeds"))),
+			budgets=list(dict.fromkeys(_numbers(budgets, "--budgets"))),
+			config=config,
+			concurrency=concurrency,
+			gold=gold,
+		)
+		pipeline.artifact_root = run_dir / "baseline-adapters"
+		Study(
+			pipeline,
+			run_dir,
+			teacher_url,
+			token,
+			port,
+			upstream_url,
+			harness_port,
+			calibration_root,
+			l4_action,
+		).run()
+
+	scenario("start", body)
 
 
 def _find_vllm() -> str:

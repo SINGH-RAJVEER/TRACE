@@ -1,11 +1,12 @@
 # Run scripts
 
-`scripts/pipeline.py` runs the task study on Linux, macOS, and Windows. Only two scenarios are supported:
+`scripts/pipeline.py` runs the task study on Linux, macOS, and Windows.
 
 | Scenario | Purpose |
 | --- | --- |
 | `teacher-host` | Start vLLM on loopback and the authenticated teacher API on the network; serve until interrupted |
 | `paper-tasks` | Build tasks, collect budgeted responses, stop a locally hosted teacher, review usability, and train attacker and gold-reference adapters |
+| `start` | Run the full study and benchmarks, then protected extraction, fresh student training, and another benchmark |
 
 ```bash
 just paper-tasks
@@ -16,7 +17,58 @@ python3 scripts/pipeline.py paper-tasks --help
 
 On Windows, use `py -3 scripts\pipeline.py`. The bootstrap accepts Python 3.9 or newer and installs the Python 3.14 workspace. Relative option paths resolve against the repository root. just forwards options unquoted, so values cannot contain spaces.
 
-The launcher first loads `.env` and installs the workspace. After validating command options, it installs the training stack and, when needed, vLLM. It then invokes the task builder, collector, reviewer, preparation, and trainer as foreground subprocesses. See [paper-tasks.md](paper-tasks.md#run-the-whole-study) for the task matrix and all options.
+The launcher first loads `.env` and installs the workspace. After validating command options, it installs the training stack and, when needed, vLLM. It then invokes the task builder, collector, reviewer, preparation, and trainer as foreground subprocesses. `start` requires uv, directly or through devenv, to install the complete workspace. See [paper-tasks.md](paper-tasks.md#run-the-whole-study) for the task matrix and all options.
+
+## Complete pipeline
+
+Set `TEACHER_TERMS_REVIEW_ID` in `.env`, then run:
+
+```bash
+just start
+# Smaller matrix, with the same stages:
+just start --tasks ag_news --seeds 42 --budgets 500 --no-gold
+# Existing teacher API or existing OpenAI-compatible inference server:
+just start --teacher-url http://TEACHER_IP:8000
+just start --upstream-url http://127.0.0.1:18011/v1
+just start --help
+```
+
+Defaults match `paper-tasks`: AG News, SQuAD, and GSM8K; seeds 42, 1, and 20; budgets 500, 2,000, and 8,000, skipping budgets larger than a task's pool. This trains 24 undefended attacker adapters and 24 gold references, then up to 24 protected adapters. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+
+The stages run in this order:
+
+1. Download missing task datasets and build disjoint prompt pools and frozen tests. Reuse existing manifests and append missing baseline responses to `data/tasks/TASK/ledger.jsonl`.
+2. Download and serve the teacher through vLLM and the teacher API, or connect to the supplied server. Collect each seed's largest budget, evaluate the teacher, and replay the frozen genuine/extraction traffic benchmark against the unprotected endpoint.
+3. Stop managed teacher services, evaluate the unmodified student, review and prepare baseline ledgers, train attacker and optional gold-reference adapters, and benchmark the trained students.
+4. Calibrate the harness on benign pools, restart the teacher, and reevaluate it to measure drift. Start the authenticated protected API on loopback port 8003 alongside the teacher.
+5. Collect the same largest budget through a fresh protected service instance for every task and seed. Solve proof-of-work challenges, log confirmed refusals, and save received text in a separate ledger. Replay the same traffic benchmark with independent authenticated actor accounts.
+6. Stop managed services. Prepare each budget's received responses, review usability without gold answers, run training preflight, and train a fresh protected student. If no usable responses remain, skip training and record the reason.
+7. Benchmark trained protected students on the same frozen tests and write capability reports, paired traffic reports, and completion status.
+
+`distill benchmark run --slot SLOT` evaluates one model independently. The launcher separates teacher and student work to free managed teacher GPU memory. Identical teacher/base-student results are shared across budgets and conditions with their original IDs and timestamps. Every adapter gets its own evaluation. Capability reports use the unprotected teacher as the common reference. Traffic reports measure protected endpoint request success, refusals, throttling, latency, and challenge cost. Synthetic traffic never enters student training, and its HTTP success rate does not measure task-answer correctness.
+
+L4 refuses by default. Use `--l4-action deceive` with a fresh `--run-dir` for the separate deception condition. Its ledger includes deceptive text received by the client. A 403 counts as refusal only with `X-Harness-Decision: block`; authentication errors, failed proofs, server failures, and timeouts stop collection.
+
+Default calibration groups legitimate fitting, score-calibration, and policy-calibration pools into consecutive 500-request accounts. It uses a 100-request window and up to 20 reference windows as the fitting pool permits, recording the count. These artificial accounts exercise the pipeline and do not establish real-user false-positive rates. Supply independently prepared calibrations with `--calibration-root PATH`, containing `PATH/TASK/calibration.json` and its reference arrays for every selected task. Calibration and the BGE encoder use CPU.
+
+`--run-dir` defaults to `artifacts/start`. Paths below are relative to it:
+
+| Path | Contents |
+| --- | --- |
+| `protocol.json`, `tasks.json`, `traffic.json` | Frozen options, manifests, traffic suite |
+| `baseline-adapters/TASK/sSEED-bBUDGET/attacker` and `gold` | Baseline adapters |
+| `TASK/sSEED-bBUDGET/protected/ledger.jsonl` | Received responses from the largest campaign |
+| `TASK/sSEED-bBUDGET/protected/campaign.json` and `.events.jsonl` | Query counts, refusals, proof costs, outcomes |
+| `TASK/sSEED-bBUDGET/protected/train.jsonl`, `adapter/`, `training-status.json` | Protected data, adapter, or skip reason |
+| `TASK/sSEED-bBUDGET/benchmarks/`, `report.*.json` | Capability runs and reports |
+| `TASK/sSEED/traffic-results/`, `traffic-report.json` | Paired traffic results |
+| `TASK/sSEED/credentials.json`, `accounts.json` | Restricted client credentials and account mappings |
+
+Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
+
+The protected service keeps account evidence in memory. After interrupted collection, partial ledgers, events, and attempts move into `protected/interrupted/ATTEMPT/`, then the full campaign starts again against fresh service state. Only the new completed campaign supplies training data. Archived responses never mix into it; archived logs retain additional query and proof costs.
+
+The harness runs locally for this experiment and stops on completion or interruption. Only services started here are stopped. External teachers and upstream servers keep running, so use another GPU or stop an external local server before student work when memory is shared. Logs live in `artifacts/logs/`. `status.json` becomes `complete` only after reports are written. Outstanding paper experiments and analyses remain in [paper-tasks.md](paper-tasks.md#implementation-todo).
 
 ## Task-study operation
 
@@ -26,9 +78,9 @@ Each task writes `data/tasks/TASK/ledger.jsonl`; budgets and generated training 
 
 Review checks response usability and training length without consulting gold labels. Gold completions train a separate reference adapter on the same prompts. The training recipe is `configs/train.task.toml`; generated copies set dataset, adapter directory, and training seed for each run.
 
-Locally started services run in separate process groups and log under `artifacts/logs/`. The launcher stops them before training. Ctrl+C stops those services; during training the trainer saves a checkpoint before exiting. A later run resumes collection by example ID and training from checkpoints, and skips completed adapters whose dataset fingerprint matches. Dataset-only matching is a known limitation; the full training fingerprint remains on the implementation checklist.
+Locally started services run in separate process groups and log under `artifacts/logs/`. The launcher stops them before training. Ctrl+C stops those services; during training the trainer saves a checkpoint before exiting. A later run resumes collection by example ID and training from checkpoints. Completed adapters must match the dataset hash and explicitly configured training settings before they are reused. Checkpoint resume also checks the trainer's fingerprint, including the chat template.
 
-Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. No evaluation runs automatically.
+Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. `paper-tasks` does not run evaluation automatically; `start` includes it.
 
 ## Runtime selection
 

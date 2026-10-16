@@ -23,6 +23,14 @@ Requirements are Python 3.14, uv, and optionally just. NixOS users can enter `de
 
 ```bash
 cp .env.example .env
+just start
+```
+
+`just start` builds the task corpora, loads the teacher, collects ledgers, benchmarks the teacher and base student, trains and benchmarks the baseline students, then starts the extraction harness alongside the teacher. It collects a separate protected ledger, trains a fresh student on usable protected responses, and benchmarks that student on the same frozen tests. Capability and before/after traffic reports are written under `artifacts/start`. See [docs/run-scripts.md](docs/run-scripts.md#complete-pipeline) for options, outputs, and resuming.
+
+For collection and training without automatic benchmarks or the protected cycle:
+
+```bash
 just paper-tasks
 ```
 
