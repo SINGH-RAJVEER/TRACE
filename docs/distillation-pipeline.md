@@ -6,7 +6,7 @@ This repository implements the paper's task-specific teacher-to-student extracti
 
 The current method is sequence-level distillation. The collector saves the teacher's generated text, and TRL trains the student with cross-entropy on completion tokens. It does not use teacher logits.
 
-The protection wrapper discussed in the paper lives in `packages/harness`; see [harness.md](harness.md).
+The protection wrapper discussed in the paper is outside this implementation.
 
 ## Development environment
 
