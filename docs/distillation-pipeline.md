@@ -56,6 +56,8 @@ Point `TEACHER_UPSTREAM_BASE_URL` at `http://127.0.0.1:8001/v1`. After starting 
 
 Qwen3.5 needs a vLLM release that supports the `Qwen3_5ForConditionalGeneration` architecture; pin `VLLM_SPEC` to such a release for a paper run. Do not add the `--reasoning-parser qwen3` flag from the model card. It moves `<think>` text out of the response content, where the smoke test and the collector's thought-marker check look for it.
 
+vLLM's FlashInfer top-k/top-p sampler compiles a CUDA kernel with `nvcc` the first time it runs. On hosts that have only the NVIDIA driver and no CUDA toolkit (no `nvcc` on `PATH` or under `CUDA_HOME`), the launcher sets `VLLM_USE_FLASHINFER_SAMPLER=0` so vLLM falls back to its PyTorch sampler. Set the variable yourself to override this.
+
 `scripts/pipeline.py` does all of this for you, on two machines or one, and runs the non-thinking check automatically. See [run-scripts.md](run-scripts.md).
 
 ## Authorization gate
