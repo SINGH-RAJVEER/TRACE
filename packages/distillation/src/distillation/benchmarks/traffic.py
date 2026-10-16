@@ -71,6 +71,9 @@ class TrafficTarget(StrictModel):
 	api_key_env: str = ""
 	# Actor IDs are opaque. Ground-truth labels never enter HTTP requests.
 	actor_key_envs: dict[str, str] = Field(default_factory=dict)
+	# The protected API's decision log, readable after the run, marks which responses were
+	# noise. Clients cannot tell noise apart, so success alone overstates what an attacker got.
+	harness_log: Path | None = None
 
 
 class TrafficConfig(StrictModel):
@@ -117,6 +120,11 @@ class TrafficSample(StrictModel):
 	provider_request_id: str | None = None
 	# Retry-After is evidence only; the fixed replay never retries or adapts its pace.
 	retry_after: str | None = None
+	# Seconds spent solving a proof-of-work challenge, when the harness required one.
+	challenge_seconds: float | None = Field(default=None, ge=0)
+	# Whether the harness served keyed noise instead of the teacher's answer, from its
+	# experimenter-only decision log. None when no harness log was attached.
+	noised: bool | None = None
 
 
 class TrafficRun(StrictModel):

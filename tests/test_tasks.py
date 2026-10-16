@@ -192,7 +192,9 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 			output = Path(values["output_dir"])
 			output.mkdir(parents=True)
 			digest = hashlib.sha256(Path(values["dataset_path"]).read_bytes()).hexdigest()
-			(output / "training-manifest.json").write_text(json.dumps({"dataset_sha256": digest}))
+			(output / "training-manifest.json").write_text(
+				json.dumps({"dataset_sha256": digest, "config": values})
+			)
 		else:
 			if args[0] == "review":
 				# The length check loads the tokenizer, which needs the training stack.

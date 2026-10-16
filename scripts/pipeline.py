@@ -5,6 +5,7 @@ Usage: python3 scripts/pipeline.py SCENARIO [options]   (py -3 on Windows)
 
   teacher-host   Serve vLLM and the teacher API until interrupted
   paper-tasks    Run the paper's AG News, SQuAD, and GSM8K study with its own ledgers
+  start          Run the whole study, benchmarks, and protected extraction/training
 
 `python3 scripts/pipeline.py SCENARIO --help` lists the options. See docs/run-scripts.md.
 
@@ -32,7 +33,7 @@ from pathlib import Path
 from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCENARIOS = ("teacher-host", "paper-tasks")
+SCENARIOS = ("teacher-host", "paper-tasks", "start")
 WINDOWS = sys.platform == "win32"
 
 
@@ -301,6 +302,8 @@ def main(argv: list[str]) -> int:
 	load_dotenv()
 	enter_devenv_if_nixos(argv)
 	help_only = "-h" in options or "--help" in options
+	if scenario == "start" and resolve_runtime() == "pip":
+		die("start requires uv to install the complete locked workspace; install uv and retry")
 	upstream = any(o == "--upstream-url" or o.startswith("--upstream-url=") for o in options)
 	# paper-tasks with --teacher-url collects from a teacher running elsewhere.
 	remote = any(o == "--teacher-url" or o.startswith("--teacher-url=") for o in options)
