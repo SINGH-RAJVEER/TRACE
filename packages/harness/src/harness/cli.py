@@ -13,6 +13,7 @@ from harness.calibration import (
 	HarnessConfig,
 	calibrate,
 	load_calibration,
+	pooled_accounts,
 	save_calibration,
 )
 from harness.replay import replay
@@ -206,21 +207,22 @@ def pool_accounts_command(
 	pool: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
 	output: Annotated[Path, typer.Option(dir_okay=False)],
 	requests_per_account: Annotated[int, typer.Option(min=1)] = 500,
+	seed: Annotated[int, typer.Option(help="Seed of the row shuffle before slicing.")] = 42,
 ) -> None:
-	"""Turn a prompt pool into accounts of consecutive requests, for plumbing checks only.
+	"""Turn a prompt pool into accounts of shuffled requests, for plumbing checks only.
 
-	These accounts sample the task uniformly, so they are not realistic legitimate clients.
-	Real calibration needs accounts built with per-client topic concentration and timing.
+	Rows are shuffled before slicing, so these accounts sample the task uniformly. They are not
+	realistic legitimate clients. Real calibration needs accounts built with per-client topic
+	concentration and timing.
 	"""
-	rows: list[BenignRequest] = []
+	keyed: list[tuple[str, str]] = []
 	with pool.open(encoding="utf-8") as source:
 		for index, line in enumerate(line for line in source if line.strip()):
 			record = json.loads(line)
 			messages = record.get("prompt") or record.get("messages") or []
 			text = next(m["content"] for m in reversed(messages) if m["role"] == "user")
-			rows.append(
-				BenignRequest(account=f"{pool.stem}-{index // requests_per_account:05d}", text=text)
-			)
+			keyed.append((str(record.get("example_id", index)), text))
+	rows = pooled_accounts(keyed, pool.stem, requests_per_account, seed)
 	output.parent.mkdir(parents=True, exist_ok=True)
 	output.write_text("".join(row.model_dump_json() + "\n" for row in rows), encoding="utf-8")
 	typer.echo(f"wrote {len(rows):,} requests in {len({r.account for r in rows}):,} accounts")

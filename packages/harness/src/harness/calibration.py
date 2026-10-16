@@ -109,6 +109,22 @@ class Calibration(BaseModel):
 		return sum(statistic > threshold for threshold in values)
 
 
+def pooled_accounts(
+	rows: Iterable[tuple[str, str]], prefix: str, size: int, seed: int
+) -> list[BenignRequest]:
+	"""Accounts of `size` consecutive requests over a seeded shuffle of (key, text) rows.
+
+	Task pools keep source order, which groups SQuAD questions by article. Slicing that order
+	gives single-topic accounts and windows that score above a broad extractor, so rows are
+	ordered by a hash of their key first. These accounts remain pooled smoke fixtures.
+	"""
+	ordered = sorted(rows, key=lambda row: hashlib.sha256(f"{seed}:{row[0]}".encode()).digest())
+	return [
+		BenignRequest(account=f"{prefix}-{index // size:05d}", text=text)
+		for index, (_, text) in enumerate(ordered)
+	]
+
+
 def account_streams(requests: Iterable[BenignRequest]) -> dict[str, list[BenignRequest]]:
 	streams: dict[str, list[BenignRequest]] = {}
 	for request in requests:
@@ -192,7 +208,7 @@ def nested_thresholds(values: list[float], targets: Iterable[float]) -> LevelThr
 	return LevelThresholds(thresholds=thresholds, achieved=achieved, units=len(values))
 
 
-def _hash(requests: list[BenignRequest]) -> str:
+def requests_sha256(requests: list[BenignRequest]) -> str:
 	payload = "\n".join(request.model_dump_json() for request in requests)
 	return hashlib.sha256(payload.encode()).hexdigest()
 
@@ -320,9 +336,9 @@ def calibrate(
 	_calibrate_aggregate(calibration, fitted, sigma, score_calibration, null_embedded, report)
 	calibration.encoder = encoder.identity()
 	calibration.sha256 = {
-		"fitting": _hash(fitting),
-		"score_calibration": _hash(score_calibration),
-		"policy_calibration": _hash(policy_calibration),
+		"fitting": requests_sha256(fitting),
+		"score_calibration": requests_sha256(score_calibration),
+		"policy_calibration": requests_sha256(policy_calibration),
 	}
 	return calibration, references
 

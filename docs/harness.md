@@ -130,7 +130,7 @@ Replay sends requests through one policy in file order, writing one decision per
 
 ## Accounts
 
-`harness pool-accounts` turns a prompt pool, such as `data/tasks/ag_news/legitimate/fitting.jsonl`, into accounts of consecutive requests. It exists for plumbing checks only. Those accounts are neither realistic clients nor independent samples. Real calibration needs legitimate accounts built with per-client topic concentration and timing, and enough of them: the paper asks for about 3,000 independent benign calibration accounts and 3,000 test accounts per endpoint for the 1% target.
+`harness pool-accounts` turns a prompt pool, such as `data/tasks/ag_news/legitimate/fitting.jsonl`, into 500-request accounts after a seeded shuffle of its rows (`--seed`, default 42). Task pools keep source order, which groups SQuAD questions by article, so slicing them unshuffled would make every account and window single-topic. It exists for plumbing checks only. Those accounts are neither realistic clients nor independent samples. Real calibration needs legitimate accounts built with per-client topic concentration and timing, and enough of them: the paper asks for about 3,000 independent benign calibration accounts and 3,000 test accounts per endpoint for the 1% target.
 
 ## Smoke run
 
