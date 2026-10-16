@@ -272,18 +272,22 @@ uv run --extra train distill train --config configs/train.example.toml --preflig
 
 Preflight prints data hashes, record and supervised-token counts, maximum sequence length, template identity, EOS, loss/attention settings, and whether validation is enabled. It may download tokenizer files. It makes no teacher calls, loads no model weights, and creates no adapter. Passing preflight checks data and serialization; it does not prove GPU capacity, numerical stability, or task quality.
 
-The token report also includes minimum, median, and nearest-rank 95th-percentile lengths, total tokens, and the supervised fraction. Use these values to compare data budgets and choose an appropriate length limit. `just preflight-train` runs the same safe command, and `just test-training-setup` runs the opt-in construction tests below.
+The token report also includes minimum, median, and nearest-rank 95th-percentile lengths, total tokens, and the supervised fraction. Use these values to compare data budgets and choose an appropriate length limit. `just preflight-train` runs the same safe command. `just test-training-setup` runs only the opt-in construction checks; `just test-training` also runs optimization and checkpoint-resume checks.
 
-An opt-in test constructs TRL and PEFT against a tiny random local Qwen3.5 checkpoint saved in the same multimodal layout as the real ones, with an extra MTP tensor. It checks that only the text model loads, with the saved weights and a tied output head, that LoRA covers the linear-attention and full-attention projections but not the convolution, plus actual completion labels, empty-thought-prefix masking, fused-loss configuration, and validation/warmup settings. The test replaces the optimizer-running entry point with an inspection function, so it never trains. Its QLoRA variant skips when CUDA is unavailable:
+The opt-in tests build tiny random Qwen3.5 checkpoints locally, with no model downloads. A construction check uses the real multimodal checkpoint layout with an extra MTP tensor and verifies that only the saved text weights load, the output head stays tied, LoRA covers both attention types, and actual completion labels mask the prompt and empty thinking prefix. Its QLoRA variant requires CUDA; opting in without the required Python dependencies fails rather than silently skipping them.
+
+The CPU runtime check trains for four optimizer steps, verifies nonzero adapter updates, interrupts a separate run with SIGTERM, and resumes its saved optimizer and scheduler for exactly the two remaining steps. The final adapter must match the uninterrupted run tensor-for-tensor. It reloads the saved adapter through PEFT, runs a forward pass, validates the evaluation manifest, and verifies that changed training data is refused without overwriting the adapter. The preflight CLI check deletes the fixture's model weights, then runs real tokenizer/data validation, including overlong and fully masked targets, and verifies that no adapter is created.
+
+The CPU runtime fixture uses full-attention layers and substitutes a differentiable PyTorch reference for TRL's GPU-only scoring kernel. It exercises real LoRA, autograd, optimization, serialization, and resume, but does not validate CUDA/Triton kernels, hybrid-attention execution, BF16 numerics, or GPU memory capacity. The separate construction check retains the hybrid model layout.
 
 ```bash
-DISTILL_TEST_TRAINING_STACK=1 uv run --extra train pytest tests/test_training_stack.py
+just test-training
 ```
 
 Keep tests in a separate uv environment if another process is synchronizing this checkout's environment:
 
 ```bash
-UV_PROJECT_ENVIRONMENT=/tmp/distillation-checks uv run --extra train pytest
+UV_PROJECT_ENVIRONMENT=/tmp/distillation-checks just test-training
 ```
 
 ## Evaluation
