@@ -8,8 +8,10 @@ Students learn from teacher-generated text through sequence-level supervised fin
 
 ```text
 apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
+apps/harness-api/         Protected teacher API: the harness in front of the teacher gateway
 apps/dashboard/           Read-only task and traffic results with shadcn controls
 packages/distillation/    Task splits, collection, usability review, training, evaluation
+packages/harness/         Extraction detector, calibration, and graduated access policy
 configs/                  Task training recipe, per-task evaluation, traffic settings
 docs/                     Protocol, operations, metrics, and manuscript revisions
 scripts/                  Cross-platform task-study and teacher-host launcher
@@ -60,9 +62,9 @@ uv run distill benchmark demo
 uv run distill benchmark dashboard --results-dir outputs/tasks-demo/ag_news
 ```
 
-## Paper status
+## Extraction policy and paper status
 
-The account-policy implementation is developed separately. The existing [traffic benchmark guide](docs/harness-benchmarks.md) describes its measurement contract. Synthetic traffic fixtures do not enter task training or capability scores.
+`packages/harness` implements query embeddings, window MMD scores, benign-only calibration, accumulated account evidence, and graduated access actions. See [docs/harness.md](docs/harness.md) and [docs/harness-benchmarks.md](docs/harness-benchmarks.md). Synthetic traffic fixtures do not enter task training or capability scores.
 
 Configured experiments and passing software tests do not establish extraction effectiveness or defense utility. Establish positive undefended transfer on development data before final defense testing, then compare paired defended and undefended students with matched supervision controls. Track manuscript changes in [docs/paper-revision-todo.md](docs/paper-revision-todo.md).
 
