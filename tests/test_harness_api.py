@@ -9,6 +9,7 @@ import httpx
 import numpy as np
 import pytest
 from distillation.benchmarks.traffic import TrafficConfig, TrafficTarget, freeze_traffic
+from distillation.benchmarks.traffic_reporting import summarize_traffic
 from distillation.benchmarks.traffic_runner import run_traffic, solve_challenge
 from distillation.schemas import (
 	Message,
@@ -241,3 +242,52 @@ async def test_gsm8k_noise_keeps_the_answer_format_within_the_limit(
 	content = response.json()["message"]["content"]
 	assert teacher.calls == 1 and content.rsplit("\n", 1)[1].startswith("#### ")
 	assert len(content.split()) <= 16
+
+
+@pytest.mark.asyncio
+async def test_traffic_benchmark_separates_noise_from_useful_responses(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	suite_path = tmp_path / "traffic.json"
+	suite = freeze_traffic(suite_path, genuine_count=12, attack_count=12, duration_seconds=0.05)
+	app, _, log = _app(artifacts, tmp_path, [-1.0] * 4, HARNESS_TASK="ag_news")
+	attached = TrafficTarget(base_url="http://harness/", service_revision="noise", harness_log=log)
+	plain = TrafficTarget(base_url="http://harness/", service_revision="noise")
+	results = []
+	for target in (attached, plain):
+		config = TrafficConfig(
+			experiment="noise",
+			suite_path=suite_path,
+			output_dir=tmp_path / "results",
+			model="fake-model",
+			model_revision="fake-v1",
+			targets={"before": plain, "after": target},
+		)
+		results.append(await run_traffic(config, "after", transport=httpx.ASGITransport(app=app)))
+	with_log, without_log = results
+	assert len(with_log.samples) == len(suite.requests)
+	assert all(sample.noised is not None for sample in with_log.samples)
+	assert all(sample.noised is None for sample in without_log.samples)
+	summary = summarize_traffic(with_log.samples, 1.0)
+	assert summary["noised"] > 0
+	assert summary["useful_succeeded"] == summary["succeeded"] - summary["noised"]
+	assert summarize_traffic(without_log.samples, 1.0)["noised"] is None
+	noise_events = [json.loads(line) for line in log.read_text().splitlines() if '"noise"' in line]
+	assert all(
+		event["benchmark_request"].startswith(with_log.id)
+		or event["benchmark_request"].startswith(without_log.id)
+		for event in noise_events
+	)
+	missing = TrafficTarget(
+		base_url="http://harness/", service_revision="noise", harness_log=tmp_path / "none.jsonl"
+	)
+	config = TrafficConfig(
+		experiment="noise",
+		suite_path=suite_path,
+		output_dir=tmp_path / "results",
+		model="fake-model",
+		model_revision="fake-v1",
+		targets={"before": plain, "after": missing},
+	)
+	with pytest.raises(ValueError, match="harness log not found"):
+		await run_traffic(config, "after", transport=httpx.ASGITransport(app=app))

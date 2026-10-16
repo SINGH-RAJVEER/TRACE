@@ -55,6 +55,7 @@ class Pending:
 	request: TeacherGenerationRequest
 	binding: str
 	text: str
+	benchmark_request: str | None
 
 
 def current_turn(request: TeacherGenerationRequest) -> str:
@@ -254,7 +255,11 @@ def create_app(
 		)
 
 	async def release(
-		decision: Decision, request: TeacherGenerationRequest, text: str, binding: str
+		decision: Decision,
+		request: TeacherGenerationRequest,
+		text: str,
+		binding: str,
+		benchmark_request: str | None,
 	) -> JSONResponse:
 		headers = {"X-Harness-Decision": decision_header(decision)}
 		if config.test_clock:
@@ -269,6 +274,7 @@ def create_app(
 				"noise",
 				account=decision.account,
 				request_digest=hashlib.sha256(binding.encode()).hexdigest(),
+				benchmark_request=benchmark_request,
 			)
 		try:
 			if content is not None and template:
@@ -302,7 +308,9 @@ def create_app(
 		x_benchmark_actor: str | None = Header(default=None),
 		x_harness_proof: str | None = Header(default=None),
 		x_harness_time: str | None = Header(default=None),
+		x_benchmark_request: str | None = Header(default=None),
 	) -> JSONResponse:
+		# X-Benchmark-Request is a test correlation ID: it is logged, never used to decide.
 		account = resolve(authorization, x_benchmark_actor)
 		if account is None:
 			return _error(401, "unauthorized", "unknown API key", None)
@@ -328,12 +336,20 @@ def create_app(
 					and isinstance(policy, MMDPolicy)
 					and policy.redeem(waiting.decision, binding, int(counter), now)
 				)
-			log.write("redeem", account=account, request_digest=digest, solved=solved)
+			log.write(
+				"redeem",
+				account=account,
+				request_digest=digest,
+				solved=solved,
+				benchmark_request=x_benchmark_request,
+			)
 			if not solved or waiting is None:
 				return _error(
 					403, "challenge_failed", "the challenge answer was not accepted", "throttle"
 				)
-			return await release(waiting.decision, waiting.request, waiting.text, binding)
+			return await release(
+				waiting.decision, waiting.request, waiting.text, binding, x_benchmark_request
+			)
 		embedding = (
 			(await asyncio.to_thread(encoder.encode, [text]))[0]
 			if needs_embeddings and encoder is not None
@@ -351,7 +367,9 @@ def create_app(
 				monitor.add(embedding, account, now) if monitor and embedding is not None else None
 			)
 			if decision.challenge is not None:
-				pending[decision.challenge.nonce] = Pending(decision, request, binding, text)
+				pending[decision.challenge.nonce] = Pending(
+					decision, request, binding, text, x_benchmark_request
+				)
 		if window is not None:
 			task = asyncio.create_task(score_aggregate(window))
 			background.add(task)
@@ -371,6 +389,7 @@ def create_app(
 			else decision.statistic,
 			witness=list(decision.witness),
 			request_digest=digest,
+			benchmark_request=x_benchmark_request,
 		)
 		if decision.action == "refuse":
 			return _error(403, "blocked", "request refused", "block")
@@ -387,6 +406,6 @@ def create_app(
 				status_code=428,
 				headers={"X-Harness-Decision": "throttle"},
 			)
-		return await release(decision, request, text, binding)
+		return await release(decision, request, text, binding, x_benchmark_request)
 
 	return app
