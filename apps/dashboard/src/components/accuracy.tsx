@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ErrorBar, ReferenceLine, XAxis, YAxis } from "recharts";
 import { ChartTooltip } from "./ui/chart";
 import { Plot, Swatch, SlotSwatch, Tip, barCursor, barStyle, ink, runLegend, tick, xTitle, yTitle } from "./plot";
-import { coding, format, heat, heatRamp, scoreRows, signed, title } from "../data";
+import { format, heat, heatRamp, scoreRows, signed, title, taskScore, taskInterval, taskDelta, taskDeltaInterval } from "../data";
 import { labels, modelColors, type Report, type Slot } from "../types";
 
 const percent = (value: number) => `${Math.round(value * 10) / 10}%`;
@@ -15,15 +15,15 @@ const outcomes = [
 export function Accuracy({ report, benchmarks, available }: { report: Report; benchmarks: string[]; available: Slot[] }) {
 	const rows = scoreRows(report, benchmarks);
 	return <div className="plots-grid">
-		<Plot wide tall name="Accuracy by benchmark" legend={runLegend(available)}
-			note="Share of questions answered correctly. Whiskers show 95% Wilson intervals. Use the paired-change chart to assess before/after differences. Coding benchmarks report pass@1 on the official tests.">
+		<Plot wide tall name="Task capability" legend={runLegend(available)}
+			note="AG News label accuracy, SQuAD token F1, and GSM8K numeric exact match. Whiskers show descriptive 95% item intervals.">
 			<BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barGap={2} barCategoryGap="22%">
 				<CartesianGrid vertical={false} />
 				<XAxis dataKey="name" tick={tick} tickLine={false} />
-				<YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={percent} tick={tick} tickLine={false} axisLine={false} width={56} label={yTitle("Accuracy (%)")} />
+				<YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={percent} tick={tick} tickLine={false} axisLine={false} width={56} label={yTitle("Task score (%)")} />
 				<ChartTooltip cursor={barCursor} content={props => <Tip {...props} value={(v, entry) => {
 					const summary = report.scores[entry.dataKey as Slot]?.[entry.payload?.benchmark as string];
-					return <>{format(v, "%")} <small>{summary?.correct}/{summary?.n}</small></>;
+					return <>{format(v, "%")} <small>{entry.payload?.benchmark === "squad" ? `${summary?.n} questions` : `${summary?.correct}/${summary?.n}`}</small></>;
 				}} />} />
 				{available.map(slot => <Bar key={slot} name={labels[slot]} dataKey={slot} {...barStyle(slot)} maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false}>
 					<ErrorBar dataKey={`${slot}_error`} width={4} strokeWidth={1.5} stroke={ink.secondary} direction="y" />
@@ -41,15 +41,16 @@ function Change({ report, benchmarks }: { report: Report; benchmarks: string[] }
 	const student = report.comparisons.student_gain, teacher = report.comparisons.teacher_drift;
 	if (!student && !teacher) return <Plot name="Change after distillation" note="Appears once before and after runs are recorded." />;
 	const rows = benchmarks.map(b => {
-		const s = student?.[b], t = teacher?.[b];
-		return { name: title(b), student: s?.delta_pp, teacher: t?.delta_pp,
-			student_error: s ? [s.delta_pp - s.ci95[0], s.ci95[1] - s.delta_pp] : null,
-			teacher_error: t ? [t.delta_pp - t.ci95[0], t.ci95[1] - t.delta_pp] : null };
+		const s = taskDelta(student?.[b], b), t = taskDelta(teacher?.[b], b);
+		const si = taskDeltaInterval(student?.[b], b), ti = taskDeltaInterval(teacher?.[b], b);
+		return { name: title(b), student: s, teacher: t,
+			student_error: s == null || !si ? null : [s - si[0], si[1] - s],
+			teacher_error: t == null || !ti ? null : [t - ti[0], ti[1] - t] };
 	});
 	return <Plot name="Student gain and teacher drift" legend={[
 		{ key: "student", label: "Student gain", swatch: <Swatch color={modelColors.student} /> },
 		{ key: "teacher", label: "Teacher drift", swatch: <Swatch color={modelColors.teacher} /> },
-	]} note="After minus before, in percentage points, on the same questions. Whiskers show 95% paired bootstrap intervals. The teacher's second run measures drift without training the teacher.">
+	]} note="After minus before, in percentage points, on the same questions. Whiskers show descriptive 95% paired item intervals, using token F1 for SQuAD. The teacher's second run measures drift without training the teacher.">
 		<BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, bottom: 20, left: 8 }} barGap={2} barCategoryGap="24%">
 			<CartesianGrid horizontal={false} />
 			<XAxis type="number" tick={tick} tickLine={false} tickFormatter={v => signed(v, "", 0)} label={xTitle("Change (percentage points)")} />
@@ -67,7 +68,7 @@ function Outcomes({ report, benchmarks }: { report: Report; benchmarks: string[]
 	if (!comparison) return <Plot name="Student answers, question by question" note="Appears once both student runs are recorded." />;
 	const rows = benchmarks.filter(b => comparison[b]).map(b => ({ name: title(b), ...comparison[b] }));
 	return <Plot name="Student answers, question by question" legend={outcomes.map(o => ({ key: o.key, label: o.label, swatch: <Swatch color={o.color} /> }))}
-		note="Each bar is every question in that benchmark. It shows how many answers the student flipped after distillation, not just the net score.">
+		note="Each bar counts exact-match outcomes for every question, including secondary SQuAD exact match. It shows how many answers the student flipped after distillation, not just the net score.">
 		<BarChart data={rows} layout="vertical" stackOffset="expand" margin={{ top: 4, right: 16, bottom: 20, left: 8 }} barCategoryGap="28%">
 			<XAxis type="number" tick={tick} tickLine={false} tickFormatter={v => `${Math.round(v * 100)}%`} ticks={[0, .25, .5, .75, 1]} label={xTitle("Share of questions")} />
 			<YAxis type="category" dataKey="name" tick={tick} tickLine={false} axisLine={false} width={96} />
@@ -78,15 +79,15 @@ function Outcomes({ report, benchmarks }: { report: Report; benchmarks: string[]
 }
 
 function Agreement({ report, benchmarks }: { report: Report; benchmarks: string[] }) {
-	const rows = benchmarks.filter(b => !coding(b)).map(b => ({
+	const rows = benchmarks.map(b => ({
 		name: title(b),
 		student_before: report.comparisons.teacher_student_before?.[b]?.answer_agreement,
 		student_after: report.comparisons.teacher_student_after?.[b]?.answer_agreement,
 	}));
 	const shown = (["student_before", "student_after"] as const).filter(slot => rows.some(row => row[slot] != null));
-	if (!rows.length || !shown.length) return <Plot name="How often the student agrees with the teacher" note="Needs a teacher and student run from the same phase, on non-coding benchmarks." />;
+	if (!rows.length || !shown.length) return <Plot name="How often the student agrees with the teacher" note="Needs a victim and student run from the same phase." />;
 	return <Plot name="How often the student agrees with the teacher" legend={runLegend(shown)}
-		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. Coding tasks are excluded.">
+		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. The denominator contains pairs with parseable predictions; inspect coverage in the report.">
 		<BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barGap={2} barCategoryGap="28%">
 			<CartesianGrid vertical={false} />
 			<XAxis dataKey="name" tick={tick} tickLine={false} />
@@ -104,8 +105,8 @@ function Subjects({ report, benchmarks, available }: { report: Report; benchmark
 		return category === benchmark ? title(benchmark) : `${title(benchmark)} · ${category.replaceAll("_", " ")}`;
 	};
 	return <section className="plot wide">
-		<div className="plot-header"><h2>Accuracy by subject</h2></div>
-		<p className="plot-note">Same accuracy as above, split by subject. Brighter cells score higher. Subjects with few questions (n) swing a lot from chance alone.</p>
+		<div className="plot-header"><h2>Task score by category</h2></div>
+		<p className="plot-note">Same task metric as above, split by category. Brighter cells score higher. Subjects with few questions (n) swing a lot from chance alone.</p>
 		<div className="heat-legend" aria-label="Color scale"><span>0%</span><span className="heat-bar" style={{ background: `linear-gradient(to right, ${heatRamp.join(", ")})` }} /><span>100%</span></div>
 		<div className="table-scroll"><table className="heatmap">
 			<thead><tr><th>Subject</th><th className="num">n</th>{available.map(slot => <th key={slot}><span className="th-run"><SlotSwatch slot={slot} />{labels[slot]}</span></th>)}</tr></thead>
@@ -114,7 +115,7 @@ function Subjects({ report, benchmarks, available }: { report: Report; benchmark
 				<td className="num muted">{Object.values(values)[0]?.n ?? "n/a"}</td>
 				{available.map(slot => {
 					const value = values[slot];
-					return <td key={slot} style={heat(value?.score)} title={value ? `${value.correct}/${value.n} correct · 95% CI ${value.ci95.map(v => v.toFixed(1)).join("–")}%` : "Not recorded"}>{format(value?.score, "%")}</td>;
+					return <td key={slot} style={heat(taskScore(value, key.split("/")[0]))} title={value ? `${value.n} questions · 95% CI ${taskInterval(value, key.split("/")[0])?.map(v => v.toFixed(1)).join("–") ?? "n/a"}%` : "Not recorded"}>{format(taskScore(value, key.split("/")[0]), "%")}</td>;
 				})}
 			</tr>)}</tbody>
 		</table></div>

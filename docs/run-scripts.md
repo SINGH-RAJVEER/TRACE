@@ -1,48 +1,34 @@
 # Run scripts
 
-`scripts/pipeline.py` runs the whole pipeline from one command per machine, on Linux, macOS, and Windows. It takes a scenario name and that scenario's options:
+`scripts/pipeline.py` runs the task study on Linux, macOS, and Windows. Only two scenarios are supported:
 
-| Scenario | Machine | What it does |
-| --- | --- | --- |
-| `teacher-host` | Two machines, teacher side | Starts vLLM with Qwen3.5-9B on loopback and the teacher API on the network, then runs until interrupted |
-| `student-train` | Two machines, student side | Builds or reuses the corpus, checks the monorepo teacher API, collects and reviews responses, prepares the splits, and trains the Qwen3.5-2B adapter |
-| `distill-local` | One machine | Builds or reuses the corpus, starts vLLM and the teacher API on loopback, collects a ledger, stops both to free GPU memory, then reviews, prepares, and trains |
-| `paper-tasks` | One machine, or the student side with `--teacher-url` | Runs the paper's AG News, SQuAD, and GSM8K study with its own ledgers and adapters, separate from the corpus run; see [paper-tasks.md](paper-tasks.md#run-the-whole-study) |
-
-```bash
-python3 scripts/pipeline.py distill-local
-python3 scripts/pipeline.py student-train --help
-```
-
-On Windows, start it with `py -3 scripts\pipeline.py`. Any Python 3.9 or newer can start the script, because it uses only the standard library until the workspace environment exists. Run it from any directory. Relative paths in options resolve against the repository root.
-
-The same scenarios are `just` recipes, which pick `python3` or `py -3` for the platform. Options after the recipe name go straight to the scenario:
-
-```bash
-just teacher-host
-just student-train --teacher-url http://10.0.0.5:8000 --corpus quick --concurrency 8
-just distill-local
-```
-
-`just` passes options through unquoted, so option values cannot contain spaces.
-
-The script does its work in two stages. First it loads `.env`, selects a runtime, installs the workspace packages, and installs vLLM when the scenario starts it. Then it hands the options to `distill run <scenario>` inside the workspace environment, which starts the services and runs each step. `distill run` also works on its own from the repository root once the environment exists, for example `uv run distill run student-train --help`.
-
-## Progress
-
-Each long step reports what it is doing while it runs:
-
-| Step | What you see |
+| Scenario | Purpose |
 | --- | --- |
-| Installing packages | uv's or pip's own download and install progress |
-| Model download | `distill download-model` fetches the teacher weights into the Hugging Face cache before vLLM starts, with file and byte progress. vLLM then loads from the cache |
-| vLLM and teacher API startup | A spinner with the elapsed time and the newest line of `artifacts/logs/vllm.log`, such as checkpoint shard loading |
-| Corpus build | One line per dataset family, between the dataset downloads' own progress bars |
-| Collection | A bar with prompts done out of the total (resumed records count as done), rate, time remaining, and counts of new, rejected, and retried requests |
-| Review | A bar over the ledger records, then one over the Docker code tests when `REVIEW_CODE_IMAGE` is set |
-| Training | The trainer's step progress bar, preceded by the student weight download |
+| `teacher-host` | Start vLLM on loopback and the authenticated teacher API on the network; serve until interrupted |
+| `paper-tasks` | Build tasks, collect budgeted responses, stop a locally hosted teacher, review usability, and train attacker and gold-reference adapters |
 
-Progress goes to stderr, so the result lines on stdout stay machine readable. When stderr is not a terminal, for example when the output is redirected to a log file, the bars become a plain line every 30 seconds.
+```bash
+just paper-tasks
+just paper-tasks --tasks ag_news,squad --seeds 42,1,20 --budgets 500,2000,8000
+just paper-tasks --teacher-url http://TEACHER_IP:8000
+python3 scripts/pipeline.py paper-tasks --help
+```
+
+On Windows, use `py -3 scripts\pipeline.py`. The bootstrap accepts Python 3.9 or newer and installs the Python 3.14 workspace. Relative option paths resolve against the repository root. just forwards options unquoted, so values cannot contain spaces.
+
+The launcher first loads `.env` and installs the workspace. After validating command options, it installs the training stack and, when needed, vLLM. It then invokes the task builder, collector, reviewer, preparation, and trainer as foreground subprocesses. See [paper-tasks.md](paper-tasks.md#run-the-whole-study) for the task matrix and all options.
+
+## Task-study operation
+
+Copy `.env.example` to `.env` and set `TEACHER_TERMS_REVIEW_ID`. A local run starts the teacher only when planned prompts are missing from task ledgers. `--teacher-url` uses an existing repository teacher API and requires its server root, not its upstream OpenAI URL. `--upstream-url` uses an existing OpenAI-compatible model server while starting the repository API locally.
+
+Each task writes `data/tasks/TASK/ledger.jsonl`; budgets and generated training configs live in `data/tasks/TASK/runs/sSEED-bBUDGET/`. Adapters live in `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `gold`. The launcher queries the largest supported budget for each seed and reuses responses for smaller nested budgets. Task output limits are fixed at 16 tokens for AG News, 64 for SQuAD, and 256 for GSM8K.
+
+Review checks response usability and training length without consulting gold labels. Gold completions train a separate reference adapter on the same prompts. The training recipe is `configs/train.task.toml`; generated copies set dataset, adapter directory, and training seed for each run.
+
+Locally started services run in separate process groups and log under `artifacts/logs/`. The launcher stops them before training. Ctrl+C stops those services; during training the trainer saves a checkpoint before exiting. A later run resumes collection by example ID and training from checkpoints, and skips completed adapters whose dataset fingerprint matches. Dataset-only matching is a known limitation; the full training fingerprint remains on the implementation checklist.
+
+Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. No evaluation runs automatically.
 
 ## Runtime selection
 
@@ -80,84 +66,11 @@ Startup downloads the model into the Hugging Face cache, waits for vLLM to load 
 | `--port` | `TEACHER_PORT` or 8000 | Teacher API port |
 | `--upstream-url` | none | Use an existing OpenAI-compatible server instead of starting vLLM |
 
-## Student machine
+## GPU settings
 
-Start the teacher with `just teacher-host` on the teacher machine. Set the same `TEACHER_API_TOKEN` and an approval reference in the student machine's `.env`, then use the teacher API's server root:
+Set `VLLM_EXTRA_ARGS="--quantization fp8"` when the teacher needs quantization on a compatible GPU. The launcher uses `--language-model-only` and disables thinking. Lower `VLLM_GPU_MEMORY_UTILIZATION` when a display or other workload consumes memory. Set `VLLM_MAX_MODEL_LEN` for the actual serving context and concurrency, and measure the resulting memory use.
 
-```dotenv
-TEACHER_API_TOKEN=the-same-token-as-the-teacher
-TEACHER_TERMS_REVIEW_ID=your-review-reference
-```
-
-```bash
-just student-train --teacher-url http://10.0.0.5:8000 --corpus quick --concurrency 8
-```
-
-The script installs the training stack, waits up to 60 seconds for `/healthz` to report `ready`, sends one smoke generation, and collects through `/v1/teacher/generate`. The teacher API handles the upstream model URL, API key, model ID, and provider identity. Use the server root for `--teacher-url`.
-
-After collection, the script runs `distill review`, `distill prepare`, and `distill train`. Preparation writes to the `dataset_path` in the training config. Collection resumes by `example_id`, and training resumes from the newest checkpoint in the config's `output_dir` (see [Checkpoints and resuming](distillation-pipeline.md#checkpoints-and-resuming)). Ctrl+C during training saves a checkpoint before the script exits. `--token` overrides `TEACHER_API_TOKEN`; the launcher passes the credential to the collector in an environment variable, so it never appears in the process list.
-
-## Single machine
-
-```bash
-just distill-local
-```
-
-Copy `.env.example` to `.env` and set `TEACHER_TERMS_REVIEW_ID` before the first run. With no data source options, this command uses `DISTILL_CORPUS`, defaulting to `standard`, and `configs/train.distill.toml`. It installs the training dependencies, checks for the corpus and builds it if needed, starts the teacher, creates or resumes `data/teacher/ledger.jsonl`, stops the teacher, reviews the responses against the answer key, prepares both dataset splits, and trains the student. It needs no prebuilt corpus or manual review file. Set `DISTILL_CONCURRENCY`, `DISTILL_MAX_OUTPUT_TOKENS`, and optionally `DISTILL_SEED` in `.env` to configure collection without extra flags.
-
-Both servers bind to loopback and log to `artifacts/logs/` (`vllm.log` and `teacher-api.log`). Each runs in its own process group, so stopping it also stops vLLM's engine processes. After collection, the script stops the teacher API and vLLM before training, because vLLM reserves most of the GPU for the teacher and leaves too little for training alongside it. The machine therefore needs enough GPU memory for the teacher during collection (see the model pairing in [distillation-pipeline.md](distillation-pipeline.md)). Lower `VLLM_MAX_MODEL_LEN` or add `--quantization fp8` to `VLLM_EXTRA_ARGS` if vLLM runs out of memory. `--upstream-url` skips vLLM and uses an existing server instead.
-
-## Full run with the prompt corpus
-
-A run with no data source options starts from the `standard` prompt corpus. Set `DISTILL_CORPUS` in `.env` or pass `--corpus` with a profile from [prompt-corpus.md](prompt-corpus.md):
-
-```bash
-just distill-local --corpus standard --concurrency 8
-```
-
-The prompt files are not in the repository. Corpus mode builds into `data/prompts/`, or beside an explicit `--prompts` path, after installing the Python environment. It downloads the pinned public datasets and the held-out benchmark questions, which takes a few minutes. A later run reuses the existing files when the manifest's profile matches and the prompt and answer-key files are present; otherwise it rebuilds them. Unless you pass them yourself, corpus mode also selects the adjacent `references.jsonl` and `--config configs/train.distill.toml`. The build is deterministic and a prompt keeps the same ID and text in every profile, so moving from `quick` to `standard` reuses the responses already in the ledger. To build the corpus on its own, run `just corpus standard`.
-
-An explicit `--corpus` overrides `DISTILL_CORPUS`. Supplying `--references`, `--reviews`, `--accept-pending`, or a custom `--prompts` path disables automatic corpus selection, so existing custom-data workflows keep their own prompts and config. Add `--corpus PROFILE` explicitly to combine corpus building with those options.
-
-With `--references`, the script runs `distill review` after collection. It checks every teacher response against the answer key, rejects responses that would exceed the training config's `max_length`, and writes `data/teacher/ledger.reviews.jsonl` plus a `.summary.json` with counts by status and rejection reason. Preparation then uses those decisions. A `--reviews` file passed at the same time holds human decisions that override the automatic ones. Set `REVIEW_CODE_IMAGE=python:3.12-slim` to run the Python tests in the same isolated Docker container the benchmarks use; without it, code is only parsed.
-
-The same default corpus workflow runs on two machines with `just student-train --teacher-url http://TEACHER_IP:8000`.
-
-### GPUs with 20 to 24 GB
-
-The teacher's BF16 text weights take about 18 GB, so a 20 GB card such as the RTX 4000 Ada must quantize them. Ada and newer GPUs support FP8, which brings the weights to roughly 11 GB; the embedding and output layers stay in BF16. Add this line to `.env`:
-
-```dotenv
-VLLM_EXTRA_ARGS="--quantization fp8"
-```
-
-The script already passes `--language-model-only`, so the vision encoder takes no GPU memory. Only one layer in four keeps a KV cache, about 32 KB per token in BF16, so the default 8,192-token context and `--concurrency 16` should fit in what remains. Keep the KV cache in BF16: the one run with `--kv-cache-dtype fp8` on an RTX 4000 Ada failed while FlashInfer compiled a kernel at startup, which needs `nvcc` from a CUDA toolkit. vLLM still downloads the BF16 checkpoint and quantizes it while loading, so the machine, or the WSL virtual machine, needs enough system memory to read it.
-
-To keep more KV cache than fits on the GPU, set `VLLM_KV_OFFLOADING_SIZE` to a size in GiB, for example `16`. vLLM then moves KV blocks evicted from GPU memory into that much pinned system RAM and reloads them when a later request shares the prefix, instead of recomputing it. This does not reduce the GPU memory vLLM reserves or let a single request exceed the GPU's KV capacity; it raises the prefix cache hit rate across requests. Leave enough RAM for loading the checkpoint as well. This differs from `--cpu-offload-gb`, which offloads model weights and slows every forward pass. Offloading with Qwen3.5's hybrid attention layers has not been tested in this repository; check `vllm.log` at startup.
-
-A GPU that also drives a display already has about 1 GB in use. vLLM refuses to start when free memory is below `VLLM_GPU_MEMORY_UTILIZATION` times the total; lower the value if the log reports that.
-
-For training, the 2B student's BF16 text model takes about 3.8 GB, and the rank-128 adapter with its optimizer state about 2 GB, so batches of 4 at the config's 3,072-token limit should fit in 20 GB with room to spare. These figures are estimates, not measurements. If training runs out of memory, halve `per_device_batch_size` and double `gradient_accumulation_steps`. Set `qlora = true` only as a last resort, and set `load_in_4bit = true` for both student slots of the evaluation config to match.
-
-## Pipeline options
-
-`student-train` and `distill-local` share these options:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--terms-review-id` | `TEACHER_TERMS_REVIEW_ID` | Approval reference written into every ledger record; required |
-| `--corpus` | `DISTILL_CORPUS` or `standard`, when no other data source is supplied | Build or reuse the `quick`, `standard`, or `full` prompt corpus and use its prompts, answer key, and `configs/train.distill.toml` |
-| `--references` | none | Answer key from `distill corpus build`; reviews the ledger automatically before preparation |
-| `--reviews` | none | Review decisions JSONL. With `--references`, they override the automatic decisions. Custom-data runs need reviews or references unless accepting pending records |
-| `--accept-pending` | off | Train on unreviewed records, for plumbing tests only |
-| `--prompts` | `data/prompts/all-splits.jsonl` | Prompt JSONL, written by `distill corpus build` |
-| `--ledger` | `data/teacher/ledger.jsonl` | Teacher ledger JSONL |
-| `--config` | `configs/train.distill.toml` in corpus mode; otherwise `configs/train.example.toml` | Training config |
-| `--concurrency` | `DISTILL_CONCURRENCY` or 4 | Parallel teacher requests |
-| `--max-output-tokens` | `DISTILL_MAX_OUTPUT_TOKENS` or 1024 | Teacher output limit |
-| `--seed` | `DISTILL_SEED` or none | Teacher sampling seed |
-
-`student-train` also takes `--teacher-url` (required, the teacher API server root) and `--token` (default `TEACHER_API_TOKEN`). `distill-local` also takes `--port` and `--upstream-url`.
+`VLLM_KV_OFFLOADING_SIZE` and `VLLM_KV_OFFLOADING_BACKEND` configure optional KV offloading; they do not reduce model-weight memory. Hybrid-attention offloading needs validation on the actual server. For student training, adjust batch size and accumulation together if needed. `qlora=true` requires matching `load_in_4bit=true` in both student evaluation slots. Hardware fits are estimates until measured with the selected task recipe.
 
 ## Environment variables
 
@@ -165,10 +78,7 @@ The script reads `.env` from the repository root. Variables already set in the s
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DISTILL_CORPUS` | `standard` | Automatic corpus profile when no data source option is supplied |
 | `DISTILL_CONCURRENCY` | 4 | Parallel teacher requests |
-| `DISTILL_MAX_OUTPUT_TOKENS` | 1024 | Maximum generated tokens per teacher response |
-| `DISTILL_SEED` | none | Optional teacher sampling seed, separate from the training config's seed |
 | `TEACHER_TERMS_REVIEW_ID` | none | Required approval reference recorded in the ledger |
 | `TEACHER_UPSTREAM_BASE_URL` | local vLLM URL in the example; empty in the standalone API | Standalone API's OpenAI-compatible upstream; launchers use their managed vLLM URL or explicit `--upstream-url` |
 | `TEACHER_UPSTREAM_MODEL` | `Qwen/Qwen3.5-9B` | Model vLLM serves, and the name the teacher API requests |
@@ -192,7 +102,6 @@ The script reads `.env` from the repository root. Variables already set in the s
 | `VLLM_BIN` | none | Existing vLLM executable to use instead |
 | `HF_HUB_OFFLINE` | disabled, `0` in the example | `1` or `true` skips the model download and uses the Hugging Face cache as is |
 | `DISTILL_RUNTIME` | `auto` | Automatically select a runtime, or force `devenv`, `uv`, or `pip` |
-| `REVIEW_CODE_IMAGE` | none | Docker image for running Python tests during review, for example `python:3.12-slim` |
 | `TOKENIZERS_PARALLELISM` | `false` for training | Tokenizer worker parallelism |
 | `PYTORCH_ALLOC_CONF` | `expandable_segments:True` for training | CUDA allocator settings; the launcher supplies this only when neither allocator variable is set |
 | `PYTORCH_CUDA_ALLOC_CONF` | none | Legacy allocator override; clear `PYTORCH_ALLOC_CONF` in `.env` before using it |
@@ -202,90 +111,22 @@ The script reads `.env` from the repository root. Variables already set in the s
 | `LD_LIBRARY_PATH` | generated on Linux in devenv | Nix C++ runtime, zlib, and `/run/opengl-driver/lib`; leave unset on other platforms |
 | `TRITON_LIBCUDA_PATH` | `/run/opengl-driver/lib` on Linux in devenv | Host driver path for Triton; leave unset on other platforms |
 
+
 ## Platform notes
 
 - vLLM does not run natively on Windows. On Windows, start an OpenAI-compatible server separately, for example vLLM under WSL2, and pass `--upstream-url`. The script stops with this message instead of trying to install vLLM.
 - QLoRA needs bitsandbytes, which the training extra installs only on Linux. The example configs train without it; on Windows, keep `qlora = false` or train under WSL2.
 - On Windows, the `just` recipes run through PowerShell 7 (`pwsh`), as the justfile's `windows-shell` sets. Running `py -3 scripts\pipeline.py` directly needs only Python.
 
-## Colab over SSH
+## Existing Colab task session
 
-Google's [Colab CLI](https://github.com/googlecolab/google-colab-cli) implements [SSH over a WebSocket proxy](https://github.com/googlecolab/google-colab-cli/blob/main/docs/06_ssh_access.md). `SESSION` is a session name, not a hostname or credential; use `colab sessions` to find an existing session or create a named T4 session with `colab new -s teacher-t4 --gpu T4`. Check `colab ssh --help` after installing with `uv tool install google-colab-cli`, because older published versions can lack the SSH command. The CLI accepts `--auth oauth2` for browser authorization or `--auth adc` for existing Application Default Credentials; `colab auth` instead authenticates services inside the VM. SSH requires an Ed25519 or ECDSA key. See the CLI's [authentication documentation](https://github.com/googlecolab/google-colab-cli/blob/main/docs/04_automation_and_utility.md).
+The local task session uses the Colab `Qwen3.5-9B-Q8_0` teacher through the authenticated API at `http://127.0.0.1:18010`. This is a quantized deployment with a different identity from the default vLLM config; retain its actual model/provider metadata in all results.
 
-The [Colab FAQ](https://research.google.com/colaboratory/faq.html#disallowed-activities) disallows SSH on managed runtimes running free of charge without a positive compute-unit balance, and says a paid plan with a positive balance removes that restriction. GPU availability and runtime lifetime remain limited.
-
-After starting the teacher API on the remote machine with `python3 scripts/pipeline.py teacher-host --host 127.0.0.1`, forward it to local port 18000:
+The task collector is `artifacts/paper-tasks-colab/collect.py`; task ledgers remain under `data/tasks/`. The existing `artifacts/colab-teacher/q8/` directory holds shared teacher deployment and SSH connection state. Keep that state while the teacher is in use. Task collection resumes by example ID and exports each seed/budget subset after collection.
 
 ```bash
-ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:18000:127.0.0.1:8000 -o ProxyCommand="colab ssh --proxy-mode -s %h" root@teacher-t4
+cat artifacts/paper-tasks-colab/progress.json
+tail -n 10 artifacts/paper-tasks-colab/collection.log
 ```
 
-Keep that connection open and point the local student launcher at `http://127.0.0.1:18000`, using the same `TEACHER_API_TOKEN`. If SSH cannot find `colab`, use its absolute executable path in `ProxyCommand`.
-
-The current `Qwen/Qwen3.5-9B` teacher needs quantization on a 16 GB T4: the [upstream vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.5-9B) budgets 22 GB for BF16. T4 meets [vLLM's general GPU requirement](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/), but a compatible quantized checkpoint, FP16 activations, and working Qwen3.5 hybrid-attention kernels still need a real generation check. [vLLM's quantization table](https://docs.vllm.ai/en/latest/features/quantization/#supported-hardware) lists AWQ, GPTQ, and bitsandbytes for Turing; the native FP8 W8A8 path described for Ada above is unsupported there. The GGUF configuration below passed live inference through SSH on a T4; the repository's default vLLM command remains unverified on that GPU.
-
-### Selected T4 profile
-
-Use the text-only `Qwen3.5-9B-Q4_K_M.gguf` from [unsloth/Qwen3.5-9B-GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5), pinned to revision `3885219b6810b007914f3a7950a8d1b469d598a5`. The file is 5,680,522,464 bytes, about 5.29 GiB, with SHA-256 `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8`. Hugging Face's [llama.cpp deployment catalog](https://endpoints.huggingface.co/catalog/collection/qwen?inferenceServer=llamacpp) lists this model and quantization for a single T4. The file size excludes runtime buffers and cache; the measurements below cover two short generations rather than a full-context stress test.
-
-The verified deployment uses the official [llama.cpp b11669 release](https://github.com/ggml-org/llama.cpp/releases/tag/b11669), commit `620d2225c`, with its Ubuntu x64 CUDA 12.8 binary and matching `cudart` archive. Both release archive digests and the GGUF checksum were checked before startup. This avoids changing Colab's installed CUDA 13 toolkit. For a source build, use the CUDA backend with `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=75` and a CUDA toolkit that supports T4's compute capability 7.5. Start the [OpenAI-compatible server](https://github.com/ggml-org/llama.cpp/blob/b11669/tools/server/README.md) on the Colab runtime after downloading and checking the pinned GGUF:
-
-```bash
-llama-server \
-	--model /content/models/Qwen3.5-9B-Q4_K_M.gguf \
-	--alias Qwen3.5-9B-Q4_K_M \
-	--host 127.0.0.1 --port 8001 \
-	--n-gpu-layers 99 --ctx-size 4096 --parallel 1 \
-	--jinja --reasoning off --reasoning-format deepseek
-```
-
-Keep the vision projector unloaded for text collection. The explicit single slot avoids automatic parallelism reserving extra memory. `--reasoning off` disables thinking in the template. The DeepSeek-format response parser removes the template's empty thinking markers; `--reasoning-format none` instead includes those synthetic markers in the content even when the model generated no reasoning, which makes the launcher's smoke check fail. Check a direct upstream response as well as the teacher API: `reasoning_content` must be absent or empty, and the content must contain the requested answer without thought tags. Collector requests continue to send `enable_thinking=false`.
-
-An alternative to installing the repository on Colab is to forward only this model server and run the teacher API locally:
-
-```bash
-ssh -N -o ExitOnForwardFailure=yes \
-	-L 127.0.0.1:18001:127.0.0.1:8001 \
-	-o ProxyCommand="~/.local/bin/colab ssh --proxy-mode -s %h" \
-	root@SESSION
-```
-
-Replace the executable path with the CLI location on the local machine and `SESSION` with the actual session name. In another local terminal, with `TEACHER_TERMS_REVIEW_ID` configured as usual:
-
-```bash
-TEACHER_UPSTREAM_MODEL=Qwen3.5-9B-Q4_K_M \
-TEACHER_PROVIDER_NAME=colab-llamacpp-q4_k_m \
-	python3 scripts/pipeline.py teacher-host --host 127.0.0.1 \
-	--upstream-url http://127.0.0.1:18001/v1
-```
-
-This keeps the existing local teacher API at `http://127.0.0.1:8000`, records the quantized model alias and provider, and uses the launcher's generation check. Confirm GPU offload in the remote server log and inspect `nvidia-smi` under an actual request before collecting data. Start collection with concurrency 1 and persist its ledger locally so a Colab runtime expiration does not discard the responses.
-
-### Verified deployment on 2026-10-16
-
-The existing T4 runtime was registered locally as `colab`, with no new runtime allocation. The model server runs on Colab loopback port 8001. Its SSH tunnel listens locally on port 18011, and the authenticated teacher API listens at `http://127.0.0.1:18010`; the usual local ports were already occupied. Start this API with the preceding environment overrides, `--port 18010`, and `--upstream-url http://127.0.0.1:18011/v1`. The existing `.env` supplies the teacher API token and terms reference. Model responses identify `Qwen3.5-9B-Q4_K_M` and provider `colab-llamacpp-q4_k_m`.
-
-The launcher's generation check passed. A direct upstream request returned `56` for `7 * 8` with no reasoning content, and the authenticated teacher API returned the same answer plus a complete 60-token explanatory response without thought tags. An unauthenticated generation request returned HTTP 401. During those requests, GPU memory reached 5,277 MiB out of 15,360 MiB and utilization reached 98%. These are deployment checks, not benchmark scores or an assessment of quantization quality.
-
-Colab returned HTTP 429 when a second SSH connection was opened while the tunnel was active. Use OpenSSH multiplexing to share one connection between the tunnel and management commands, with the same `ControlPath` for both. A dedicated Ed25519 key is selected with `-i` for both OpenSSH and the Colab proxy. The first cold load and generation took over a minute while the NVIDIA driver populated its CUDA compilation cache; subsequent requests completed normally.
-
-Deployment files and local logs are under the ignored `artifacts/colab-teacher/` directory: `manifest.json` pins the model and release archive hashes; `validation.json`, `upstream-validation.json`, and `gpu-samples.txt` record the successful checks; `api.log` and `tunnel.log` hold local service logs. Colab's files, server PID, and log are under `/content/capstone-teacher/`. These detached processes continue after the launching terminal exits, while the Colab runtime and local machine remain available. No automatic runtime recreation or service restart is configured.
-
-### 8-bit continuation
-
-The 8-bit profile uses `Qwen3.5-9B-Q8_0.gguf` from the same pinned [Unsloth revision](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5) and llama.cpp release above. The checkpoint is 9,527,502,048 bytes, with SHA-256 `809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4`. This is GGUF Q8_0 weight quantization. Use the model alias `Qwen3.5-9B-Q8_0` and API provider `colab-llamacpp-q8_0` so each newly collected row identifies the quantized teacher.
-
-Start the server with the preceding Q4 command, replacing the model path and alias with Q8_0 and setting `--ctx-size 16384 --parallel 4`. This allocates four 4,096-token slots. Keep `--n-gpu-layers 99 --jinja --reasoning off --reasoning-format deepseek`, and verify GPU offload and a real generation before collection. The local API and tunnel use ports 18010 and 18011 as above. Set `TEACHER_TIMEOUT_SECONDS=600`; the local continuation also gives its `TeacherAPIGateway` a 600-second timeout, since the collector CLI's default gateway timeout is shorter.
-
-The continuation uses the existing `quick` corpus, temperature 0, a 1,024-token output limit, no seed, thinking disabled, four workers, and three attempts per prompt. It validates resume identity before appending to `data/teacher/ledger.jsonl`, retains historical teacher metadata, and skips every existing example ID, including collector-rejected records. Those rejected responses still need review; finishing collection does not make them accepted training data.
-
-Live T4 checks on 2026-10-16 returned `56` for `7 * 8` through both the upstream server and authenticated teacher API, with no reasoning content; an unauthenticated API request returned HTTP 401. During collection, GPU memory was 8,999 MiB out of 15,360 MiB and sampled utilization reached 94%. The first 14 Q8 ledger rows finished with `stop`, had the expected model, provider, and generation parameters, and contained no thought tags. The original 1,083 records were verified as an unchanged byte prefix, and no duplicate IDs were present. These checks establish that continuation works; the 7,208-prompt collection was still running when checked.
-
-Local continuation artifacts are under ignored `artifacts/colab-teacher/q8/`: `manifest.json` pins downloads, `validation.json` records authenticated generation, `baseline.json` and `ledger-before-q8.jsonl` preserve the starting ledger, and `progress.json` reports counts. `startup.log`, `api.log`, `tunnel.log`, and `collection.log` hold service output; matching `.pid` files identify the processes. `exit.json` is written only when the collector finishes or fails. The continuation locks `artifacts/colab-teacher/quick-collection.lock` against another continuation process. A fresh Colab runtime needs its model files installed again; the ledger remains on the local machine.
-
-Inspect progress from the repository root:
-
-```bash
-cat artifacts/colab-teacher/q8/progress.json
-tail -n 10 artifacts/colab-teacher/q8/collection.log
-```
+Check the actual process and exit artifact before starting a second collector. The task session's concurrency and selected tasks are recorded in its plan; these are collection settings, not evidence of completed training or evaluation.

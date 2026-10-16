@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Scatter, ScatterChart, XAxis, YAxis, ZAxis } from "recharts";
 import { ChartTooltip, ChartTooltipContent } from "./ui/chart";
 import { Plot, SlotSwatch, Tip, barCursor, barStyle, lineCursor, runLegend, tick, useLog, valueAxis, xTitle, yTitle } from "./plot";
-import { format, histogram, seconds, title } from "../data";
+import { format, histogram, seconds, title, taskScore } from "../data";
 import { colors, isBefore, labels, statusLabels, type Report, type Slot } from "../types";
 
 const rate = (value: number) => value >= 100 ? `${Math.round(value)}` : `${+value.toFixed(1)}`;
@@ -53,19 +53,19 @@ function Distribution({ report, benchmarks, available }: { report: Report; bench
 
 function Tradeoff({ report, benchmarks, available }: { report: Report; benchmarks: string[]; available: Slot[] }) {
 	const scale = useLog();
-	const series = available.map(slot => ({ slot, points: benchmarks.map(b => ({ benchmark: title(b), latency: report.scores[slot]?.[b]?.latency_p50, score: report.scores[slot]?.[b]?.score })).filter(p => p.latency != null && p.latency > 0 && p.score != null) }));
+	const series = available.map(slot => ({ slot, points: benchmarks.map(b => ({ benchmark: title(b), latency: report.scores[slot]?.[b]?.latency_p50, score: taskScore(report.scores[slot]?.[b], b) })).filter(p => p.latency != null && p.latency > 0 && p.score != null) }));
 	const values = series.flatMap(s => s.points.map(p => p.latency));
-	return <Plot name="Accuracy vs. speed" legend={runLegend(available)} scale={scale}
-		note="One dot per model run and benchmark. Up is more accurate, left is faster, so the best trade-off sits top-left. Hollow dots are before distillation, filled dots after.">
+	return <Plot name="Task score vs. speed" legend={runLegend(available)} scale={scale}
+		note="One dot per model run and benchmark. Up is a higher task score, left is faster, so the best trade-off sits top-left. Hollow dots are before distillation, filled dots after.">
 		<ScatterChart key={String(scale.log)} margin={{ top: 8, right: 16, bottom: 20, left: 8 }}>
 			<CartesianGrid />
 			<XAxis dataKey="latency" name="Median time" {...valueAxis(scale.log, values, seconds)} tick={tick} tickLine={false} label={xTitle("Median seconds per answer", scale.log)} />
-			<YAxis dataKey="score" name="Accuracy" type="number" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`} tick={tick} tickLine={false} axisLine={false} width={56} label={yTitle("Accuracy (%)")} />
+			<YAxis dataKey="score" name="Task score" type="number" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`} tick={tick} tickLine={false} axisLine={false} width={56} label={yTitle("Task score (%)")} />
 			<ZAxis range={[70, 70]} />
 			<ChartTooltip cursor={false} content={({ active, payload }) => {
 				const point = payload?.[0]?.payload as { benchmark: string; latency: number; score: number; slot: Slot } | undefined;
 				if (!active || !point) return null;
-				return <ChartTooltipContent active payload={[{ name: "Accuracy", value: point.score, dataKey: "score" }, { name: "Median time", value: point.latency, dataKey: "latency" }]}
+				return <ChartTooltipContent active payload={[{ name: "Task score", value: point.score, dataKey: "score" }, { name: "Median time", value: point.latency, dataKey: "latency" }]}
 					label={point.benchmark} heading={() => <><SlotSwatch slot={point.slot} />{labels[point.slot]} · {point.benchmark}</>}
 					value={(v, entry) => entry.dataKey === "score" ? format(v, "%") : seconds(v)} swatch={() => null} />;
 			}} />

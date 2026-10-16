@@ -40,7 +40,7 @@ export function Answers({ report, benchmarks, available }: { report: Report; ben
 		{examples.slice(current * pageSize, current * pageSize + pageSize).map(example => <article className="example" key={example.item.id}>
 			<div className="example-heading"><span>{title(example.item.benchmark)} · {example.item.category.replaceAll("_", " ")}</span><code>{example.item.id}</code></div>
 			<pre className="question">{example.item.question}</pre>
-			{example.item.choices.length > 0 && <ol type="A" className="choices">{example.item.choices.map((choice, i) => <li key={i}>{choice}</li>)}</ol>}
+			{example.item.choices.length > 0 && <ul className="choices">{example.item.choices.map((choice, i) => <li key={i}>{choice}</li>)}</ul>}
 			<p className="reference"><span>Expected answer</span>{example.item.answer}</p>
 			<div className="answers-grid">{available.map(slot => {
 				const result = example.results[slot];
@@ -55,7 +55,6 @@ export function Answers({ report, benchmarks, available }: { report: Report; ben
 					<small>Parsed answer: {result?.prediction ?? "none"} · {format(result?.latency_seconds, "s", 2)}</small>
 				</div>;
 			})}</div>
-			{example.item.test_code && <details><summary>Official tests</summary><pre>{example.item.test_code}</pre></details>}
 		</article>)}
 		{examples.length > pageSize && <div className="pagination">
 			<Button variant="outline" size="sm" disabled={current === 0} onClick={() => setPage(current - 1)}><ArrowLeft size={14} />Previous</Button>

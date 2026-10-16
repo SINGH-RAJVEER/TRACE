@@ -25,9 +25,7 @@ from distillation.benchmarks.models import (
 	save_json,
 )
 from distillation.benchmarks.scoring import (
-	resolve_code_image,
 	score_answer,
-	score_code,
 	squad_f1,
 )
 from distillation.io import append_jsonl
@@ -81,12 +79,6 @@ async def run_evaluation(
 	if model_config.chat_template_path:
 		artifact_paths.append(model_config.chat_template_path)
 	artifact_hashes = {str(path): _sha256(path) for path in artifact_paths}
-	# Resolve once to an immutable local image ID, before paying for any inference.
-	code_image_id = (
-		resolve_code_image(config.code_image)
-		if any(i.metric == "pass_at_1" for i in suite.items)
-		else None
-	)
 	if model_config.backend == "local" and not re.fullmatch(r"[0-9a-f]{40}", model_config.revision):
 		raise ValueError("local evaluation requires an immutable 40-character model revision")
 	if (
@@ -128,7 +120,7 @@ async def run_evaluation(
 					latency_seconds=time.perf_counter() - start,
 				)
 			else:
-				latency = time.perf_counter() - start  # Excludes coding tests and scoring.
+				latency = time.perf_counter() - start  # Excludes scoring.
 				text = generation.message.content
 				prediction, correct = score_answer(item, text)
 				status: str = "ok" if prediction is not None else "invalid"
@@ -139,12 +131,6 @@ async def run_evaluation(
 					)
 				elif "<think>" in text or "</think>" in text:
 					correct, status = False, "invalid"
-				elif item.metric == "pass_at_1":
-					assert code_image_id is not None
-					correct, status = await score_code(
-						item, text, code_image_id, config.code_timeout_seconds
-					)
-					prediction = "passed" if correct else None
 				# Invalid and truncated answers stay in the SQuAD denominator with F1 zero.
 				f1 = None
 				if item.metric == "squad":
@@ -158,7 +144,7 @@ async def run_evaluation(
 					correct=correct,
 					f1=f1,
 					status=cast(
-						Literal["ok", "invalid", "truncated", "error", "test_failed", "timeout"],
+						Literal["ok", "invalid", "truncated", "error"],
 						status,
 					),
 					latency_seconds=latency,
@@ -196,8 +182,6 @@ async def run_evaluation(
 		suite_sha256=suite.sha256,
 		generation=config.generation,
 		model=model_config,
-		code_image_id=code_image_id,
-		code_timeout_seconds=config.code_timeout_seconds,
 		training_sha256=training_hashes,
 		artifact_sha256=artifact_hashes,
 		packages=packages,

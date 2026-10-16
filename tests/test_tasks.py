@@ -161,7 +161,6 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
-	monkeypatch.setenv("DISTILL_MAX_OUTPUT_TOKENS", "1024")
 	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
 	build_task(task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows())
 	(tmp_path / "configs").mkdir()

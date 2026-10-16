@@ -1,6 +1,6 @@
 # This comparison is before/after harness deployment, independent of student training.
 experiment = "qwen3.5-teacher-harness-v1"
-suite_path = "data/benchmarks/traffic.json"
+suite_path = "data/traffic/suite.json"
 output_dir = "outputs/traffic-benchmarks"
 model = "Qwen/Qwen3.5-9B"
 model_revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"

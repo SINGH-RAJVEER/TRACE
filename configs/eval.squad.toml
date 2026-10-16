@@ -5,8 +5,6 @@ suite_path = "data/tasks/squad/test-suite.json"
 output_dir = "outputs/tasks/squad"
 # Adapter evaluation adds its own training files; list any other transfer data here.
 training_paths = []
-code_image = "python:3.12-slim"
-code_timeout_seconds = 10
 
 [generation]
 max_output_tokens = 64
@@ -37,7 +35,7 @@ eos_token = "<|im_end|>"
 precision = "bf16"
 load_in_4bit = false
 # One adapter per seed and budget; point this at the run being evaluated.
-adapter_path = "artifacts/tasks/squad/s42-b2000"
+adapter_path = "artifacts/tasks/squad/s42-b2000/attacker"
 
 [models.teacher_after]
 backend = "teacher_api"

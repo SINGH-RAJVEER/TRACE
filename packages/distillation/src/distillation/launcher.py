@@ -33,10 +33,6 @@ from distillation.progress import console
 
 DEFAULT_TEACHER_MODEL = "Qwen/Qwen3.5-9B"
 DEFAULT_TEACHER_REVISION = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
-DEFAULT_PROMPTS = Path("data/prompts/all-splits.jsonl")
-DEFAULT_LEDGER = Path("data/teacher/ledger.jsonl")
-DEFAULT_CONFIG = Path("configs/train.example.toml")
-CORPUS_CONFIG = Path("configs/train.distill.toml")
 TASK_CONFIG = Path("configs/train.task.toml")
 TASK_ROOT = Path("data/tasks")
 TASK_ARTIFACTS = Path("artifacts/tasks")
@@ -317,164 +313,8 @@ class Launcher:
 
 
 @dataclass
-class Pipeline:
-	"""Options shared by student-train and distill-local, and the steps that use them."""
-
-	launcher: Launcher
-	terms_review_id: str
-	corpus: str
-	references: Path | None
-	reviews: Path | None
-	accept_pending: bool
-	prompts: Path
-	ledger: Path
-	config: Path
-	concurrency: int
-	max_output_tokens: int
-	seed: int | None
-
-	def validate(self) -> None:
-		if not self.terms_review_id:
-			raise LaunchError(
-				"set --terms-review-id or TEACHER_TERMS_REVIEW_ID "
-				"(see docs/distillation-pipeline.md)"
-			)
-		if not (
-			self.corpus
-			or self.references
-			or self.reviews
-			or self.accept_pending
-			or self.prompts != DEFAULT_PROMPTS
-		):
-			# Without a data source, run the whole loop from the prompt corpus.
-			self.corpus = os.environ.get("DISTILL_CORPUS") or "standard"
-			self.launcher.log(f"no data source given; using the {self.corpus} prompt corpus")
-		if self.corpus:
-			if self.corpus not in {"quick", "standard", "full"}:
-				raise LaunchError("--corpus must be quick, standard, or full")
-			self.references = self.references or self.prompts.parent / "references.jsonl"
-			if self.config == DEFAULT_CONFIG:
-				self.config = CORPUS_CONFIG
-		if not self.reviews and not self.references and not self.accept_pending:
-			raise LaunchError(
-				"pass --references PATH or --reviews PATH, or --accept-pending for a plumbing test"
-			)
-		if self.reviews and not self.reviews.is_file():
-			raise LaunchError(f"reviews file not found: {self.reviews}")
-		if not self.corpus:
-			if self.references and not self.references.is_file():
-				raise LaunchError(f"references file not found: {self.references}")
-			if not self.prompts.is_file():
-				raise LaunchError(
-					f"prompts file not found: {self.prompts}; pass --corpus PROFILE or run "
-					"just corpus"
-				)
-		if not self.config.is_file():
-			raise LaunchError(f"training config not found: {self.config}")
-
-	def build_corpus_if_needed(self) -> None:
-		"""Builds the --corpus profile unless it is already in place.
-
-		The build is deterministic, so a prompt keeps its example_id and text across rebuilds
-		and profiles.
-		"""
-		if not self.corpus or not self.references:
-			return
-		directory = self.prompts.parent
-		manifest = directory / "manifest.json"
-		if manifest.is_file() and self.prompts.is_file() and self.references.is_file():
-			current = json.loads(manifest.read_text(encoding="utf-8")).get("profile", "")
-			if current == self.corpus:
-				self.launcher.log(f"using the existing {self.corpus} prompt corpus in {directory}")
-				return
-		self.launcher.log(
-			f"building the {self.corpus} prompt corpus into {directory} (downloads public datasets)"
-		)
-		self.launcher.distill(
-			"corpus", "build", "--profile", self.corpus, "--output-dir", str(directory)
-		)
-		if not self.prompts.is_file() or not self.references.is_file():
-			raise LaunchError(f"corpus build did not write {self.prompts} and {self.references}")
-
-	def collect(self, teacher_url: str, token: str) -> None:
-		args = [
-			"collect",
-			"--input",
-			str(self.prompts),
-			"--output",
-			str(self.ledger),
-			"--teacher-url",
-			teacher_url,
-			"--terms-review-id",
-			self.terms_review_id,
-			"--concurrency",
-			str(self.concurrency),
-			"--max-output-tokens",
-			str(self.max_output_tokens),
-			"--no-thinking",
-		]
-		if self.seed is not None:
-			args += ["--seed", str(self.seed)]
-		# The token travels in the environment so it never appears in the process list.
-		self.launcher.log(f"collecting teacher responses into {self.ledger}")
-		self.launcher.distill(*args, env={"TEACHER_API_TOKEN": token})
-
-	def review(self) -> None:
-		"""Checks the ledger against the answer key; the decisions become the reviews."""
-		if not self.references:
-			return
-		output = self.ledger.with_name(f"{self.ledger.stem}.reviews.jsonl")
-		args = [
-			"review",
-			"--ledger",
-			str(self.ledger),
-			"--references",
-			str(self.references),
-			"--output",
-			str(output),
-			"--config",
-			str(self.config),
-		]
-		if self.reviews:
-			args += ["--overrides", str(self.reviews)]
-		if image := os.environ.get("REVIEW_CODE_IMAGE"):
-			args += ["--code-image", image]
-		self.launcher.log(f"reviewing teacher responses into {output}")
-		self.launcher.distill(*args)
-		self.reviews = output
-
-	def prepare_and_train(self) -> None:
-		self.review()
-		with self.config.open("rb") as source:
-			config = tomllib.load(source)
-		datasets = [("train", str(config["dataset_path"]))]
-		if validation := config.get("validation_dataset_path"):
-			datasets.append(("validation", str(validation)))
-		for split, path in datasets:
-			args = [
-				"prepare",
-				"--input",
-				str(self.ledger),
-				"--output",
-				path,
-				"--split",
-				split,
-				"--prompts",
-				str(self.prompts),
-			]
-			if self.reviews:
-				args += ["--reviews", str(self.reviews)]
-			if self.accept_pending:
-				args.append("--accept-pending")
-			self.launcher.log(f"preparing {split} data into {path}")
-			self.launcher.distill(*args)
-		self.launcher.log(f"training the student with {self.config}")
-		self.launcher.distill("train", "--config", str(self.config))
-
-
-@dataclass
 class TaskPipeline:
-	"""The paper's narrow-task study, kept apart from the general corpus run.
+	"""The paper's task extraction study.
 
 	Each task has its own prompt pools, ledger, and adapters under data/tasks/TASK and
 	artifacts/tasks/TASK. Collection queries the largest budget of every seed once; smaller
@@ -575,7 +415,7 @@ class TaskPipeline:
 	def collect(self, teacher_url: str, token: str) -> None:
 		for task, budgets in self.plan.items():
 			# The output limit is part of the task contract, so it comes from the build, never
-			# from DISTILL_MAX_OUTPUT_TOKENS.
+			# from an environment override.
 			limit = str(self.manifest(task)["max_output_tokens"])
 			for seed in self.seeds:
 				prompts = self.run_dir(task, seed, budgets[-1]) / "prompts.jsonl"
@@ -715,43 +555,8 @@ TermsReviewIdOption = Annotated[
 		help="Approval reference written into every ledger record.",
 	),
 ]
-CorpusOption = Annotated[
-	str,
-	typer.Option(
-		help="quick, standard, or full. Builds or reuses the corpus in data/prompts, "
-		"and uses its prompts, answer key, and "
-		"configs/train.distill.toml. Without --references, --reviews, --accept-pending, "
-		"or --prompts, defaults to DISTILL_CORPUS, or standard.",
-	),
-]
-ReferencesOption = Annotated[
-	Path | None,
-	typer.Option(
-		dir_okay=False,
-		help="Answer key from distill corpus build; reviews the ledger before preparation.",
-	),
-]
-ReviewsOption = Annotated[
-	Path | None,
-	typer.Option(
-		dir_okay=False,
-		help="Review decisions JSONL; with --references, they override the automatic ones.",
-	),
-]
-AcceptPendingOption = Annotated[
-	bool, typer.Option(help="Train on unreviewed records (plumbing tests only).")
-]
-PromptsOption = Annotated[Path, typer.Option(dir_okay=False, help="Prompt JSONL.")]
-LedgerOption = Annotated[Path, typer.Option(dir_okay=False, help="Teacher ledger JSONL.")]
-ConfigOption = Annotated[Path, typer.Option(dir_okay=False, help="Training TOML.")]
 ConcurrencyOption = Annotated[
 	int, typer.Option(envvar="DISTILL_CONCURRENCY", min=1, help="Parallel teacher requests.")
-]
-MaxOutputTokensOption = Annotated[
-	int, typer.Option(envvar="DISTILL_MAX_OUTPUT_TOKENS", min=1, help="Teacher output limit.")
-]
-SeedOption = Annotated[
-	int | None, typer.Option(envvar="DISTILL_SEED", help="Teacher sampling seed.")
 ]
 PortOption = Annotated[
 	int, typer.Option(envvar="TEACHER_PORT", min=1, max=65535, help="Teacher API port.")
@@ -787,117 +592,12 @@ def teacher_host_command(
 		launcher.start_teacher_stack(host, port, upstream_url, None)
 		launcher.log(f"teacher API ready on {host}:{port}", "bold green")
 		launcher.log("on the student machine run:")
-		launcher.log(f"  just student-train --teacher-url http://{_address()}:{port}")
+		launcher.log(f"  just paper-tasks --teacher-url http://{_address()}:{port}")
 		launcher.log("with the same TEACHER_API_TOKEN set on that machine")
 		launcher.log("press Ctrl+C to stop")
 		launcher.supervise()
 
 	scenario("teacher-host", body)
-
-
-@run_app.command("student-train")
-def student_train_command(
-	teacher_url: Annotated[
-		str,
-		typer.Option(help="Teacher API server root, for example http://10.0.0.5:8000."),
-	],
-	token: Annotated[
-		str,
-		typer.Option(envvar="TEACHER_API_TOKEN", help="Teacher API bearer token."),
-	] = "",
-	terms_review_id: TermsReviewIdOption = "",
-	corpus: CorpusOption = "",
-	references: ReferencesOption = None,
-	reviews: ReviewsOption = None,
-	accept_pending: AcceptPendingOption = False,
-	prompts: PromptsOption = DEFAULT_PROMPTS,
-	ledger: LedgerOption = DEFAULT_LEDGER,
-	config: ConfigOption = DEFAULT_CONFIG,
-	concurrency: ConcurrencyOption = 4,
-	max_output_tokens: MaxOutputTokensOption = 1024,
-	seed: SeedOption = None,
-) -> None:
-	"""Collect from this repository's teacher API, then prepare the dataset and train."""
-
-	def body(launcher: Launcher) -> None:
-		url = teacher_url.rstrip("/")
-		pipeline = Pipeline(
-			launcher=launcher,
-			terms_review_id=terms_review_id,
-			corpus=corpus,
-			references=references,
-			reviews=reviews,
-			accept_pending=accept_pending,
-			prompts=prompts,
-			ledger=ledger,
-			config=config,
-			concurrency=concurrency,
-			max_output_tokens=max_output_tokens,
-			seed=seed,
-		)
-		pipeline.validate()
-		launcher.install("train")
-		pipeline.build_corpus_if_needed()
-		launcher.wait_for_http(f"{url}/healthz", '"ready"', 60, "Waiting for the teacher")
-		launcher.smoke_test(url, token)
-		pipeline.collect(url, token)
-		pipeline.prepare_and_train()
-		launcher.log("done; the adapter and training manifest are in the config's output_dir")
-
-	scenario("student-train", body)
-
-
-@run_app.command("distill-local")
-def distill_local_command(
-	port: PortOption = 8000,
-	upstream_url: UpstreamUrlOption = "",
-	terms_review_id: TermsReviewIdOption = "",
-	corpus: CorpusOption = "",
-	references: ReferencesOption = None,
-	reviews: ReviewsOption = None,
-	accept_pending: AcceptPendingOption = False,
-	prompts: PromptsOption = DEFAULT_PROMPTS,
-	ledger: LedgerOption = DEFAULT_LEDGER,
-	config: ConfigOption = DEFAULT_CONFIG,
-	concurrency: ConcurrencyOption = 4,
-	max_output_tokens: MaxOutputTokensOption = 1024,
-	seed: SeedOption = None,
-) -> None:
-	"""Run the whole distillation on this machine.
-
-	Starts the teacher on 127.0.0.1, collects, stops the teacher to free GPU memory, then
-	prepares the dataset and trains the student.
-	"""
-
-	def body(launcher: Launcher) -> None:
-		pipeline = Pipeline(
-			launcher=launcher,
-			terms_review_id=terms_review_id,
-			corpus=corpus,
-			references=references,
-			reviews=reviews,
-			accept_pending=accept_pending,
-			prompts=prompts,
-			ledger=ledger,
-			config=config,
-			concurrency=concurrency,
-			max_output_tokens=max_output_tokens,
-			seed=seed,
-		)
-		pipeline.validate()
-		# The teacher API refuses requests until it has an approval reference.
-		os.environ["TEACHER_TERMS_REVIEW_ID"] = pipeline.terms_review_id
-		launcher.install("train")
-		pipeline.build_corpus_if_needed()
-		LOG_DIR.mkdir(parents=True, exist_ok=True)
-		launcher.start_teacher_stack("127.0.0.1", port, upstream_url, LOG_DIR / "teacher-api.log")
-		pipeline.collect(f"http://127.0.0.1:{port}", os.environ.get("TEACHER_API_TOKEN", ""))
-		launcher.log("stopping the teacher to free GPU memory for training")
-		launcher.stop_background()
-		pipeline.prepare_and_train()
-		launcher.log("done; the adapter and training manifest are in the config's output_dir")
-
-	scenario("distill-local", body)
 
 
 @run_app.command("paper-tasks")
@@ -933,7 +633,7 @@ def paper_tasks_command(
 ) -> None:
 	"""Run the paper's AG News, SQuAD, and GSM8K extraction study.
 
-	Separate from the general corpus: each task has its own ledger in data/tasks/TASK and its
+	Each task has its own ledger in data/tasks/TASK and its
 	own adapters in artifacts/tasks/TASK/sSEED-bBUDGET. Builds missing tasks, collects every
 	seed's largest budget, stops a locally started teacher, then trains one attacker student
 	per task, seed, and budget, plus the gold-label reference unless --no-gold.

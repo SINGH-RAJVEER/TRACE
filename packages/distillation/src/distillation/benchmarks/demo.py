@@ -15,45 +15,47 @@ from distillation.benchmarks.models import (
 	SampleResult,
 	save_json,
 )
-from distillation.benchmarks.suites import CATALOG
 from distillation.schemas import Message, TokenUsage
+from distillation.tasks import AG_NEWS_LABELS, TASKS
 
 
-def create_demo(directory: Path) -> None:
+def create_demo(directory: Path, *, task: str = "ag_news") -> None:
+	if task not in TASKS:
+		raise ValueError("task must be ag_news, squad, or gsm8k")
+	spec = TASKS[task]
 	if list(directory.glob("*.json")):
 		raise ValueError("demo directory contains artifacts; choose an empty directory")
 	now = datetime.now(UTC)
 	items = []
-	for benchmark in CATALOG:
-		for i in range(24):
-			coding = benchmark in {"humaneval", "mbpp"}
-			question = (
-				f"Simulated {benchmark} question {i + 1}. "
-				"This is a dashboard fixture, not a public benchmark question."
+	for i in range(24):
+		question = f"Simulated {task} question {i + 1}. This is a dashboard fixture."
+		answer = (
+			AG_NEWS_LABELS[i % 4]
+			if task == "ag_news"
+			else "fixture span"
+			if task == "squad"
+			else "42"
+		)
+		items.append(
+			BenchmarkItem(
+				id=f"demo:{task}:{i}",
+				benchmark=task,
+				category=task,
+				question=question,
+				messages=[Message(role="user", content=question)],
+				metric=spec.metric,
+				answer=answer,
+				choices=list(AG_NEWS_LABELS) if task == "ag_news" else [],
+				answers=[answer] if task == "squad" else [],
 			)
-			items.append(
-				BenchmarkItem(
-					id=f"demo:{benchmark}:{i}",
-					benchmark=benchmark,
-					category=["algebra", "history", "computer_science"][i % 3]
-					if benchmark == "mmlu"
-					else benchmark,
-					question=question,
-					messages=[Message(role="user", content=question)],
-					metric="pass_at_1" if coding else "choice_accuracy",
-					answer="passes tests" if coding else "A",
-					choices=[]
-					if coding
-					else ["Correct fixture answer", "Incorrect fixture answer"],
-				)
-			)
+		)
 	suite = FrozenSuite(
 		seed=42,
 		created_at=now,
 		items=items,
 		sources=[
 			DatasetSource(
-				benchmark=b,
+				benchmark=task,
 				repository="synthetic/dashboard-fixture",
 				revision="synthetic-v1",
 				configuration="demo",
@@ -63,7 +65,6 @@ def create_demo(directory: Path) -> None:
 				available=24,
 				selected=24,
 			)
-			for b in CATALOG
 		],
 	)
 	suite.sha256 = suite.digest()
@@ -82,9 +83,8 @@ def create_demo(directory: Path) -> None:
 					benchmark=item.benchmark,
 					category=item.category,
 					response="Simulated passing answer" if correct else "Simulated failing answer",
-					prediction=("passed" if item.metric == "pass_at_1" else "A")
-					if correct
-					else "B",
+					prediction=item.answer if correct else "wrong",
+					f1=float(correct) if task == "squad" else None,
 					correct=correct,
 					status="ok",
 					latency_seconds=rng.uniform(1.1, 3.8) if teacher else rng.uniform(0.3, 1.5),
@@ -95,12 +95,12 @@ def create_demo(directory: Path) -> None:
 			)
 		run = EvaluationRun(
 			id=f"demo-{slot}",
-			experiment="Dashboard preview",
+			experiment=f"Dashboard preview: {task}",
 			slot=slot,
 			started_at=now,
 			completed_at=now,
 			suite_sha256=suite.sha256,
-			generation=GenerationConfig(),
+			generation=GenerationConfig(max_output_tokens=spec.max_output_tokens),
 			model=ModelConfig(
 				backend="openai",
 				model="simulated-teacher" if teacher else "simulated-student",
