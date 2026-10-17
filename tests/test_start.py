@@ -276,7 +276,7 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 		concurrency=1,
 		max_attempts=1,
 	)
-	broken = True
+	broken, failing = True, False
 
 	async def response(request: httpx.Request) -> httpx.Response:
 		payload = TeacherGenerationRequest.model_validate_json(request.content)
@@ -284,6 +284,8 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 		if question == "1":
 			return httpx.Response(403, headers={"X-Harness-Decision": "block"})
 		if question == "2" and broken:
+			return httpx.Response(401)
+		if question == "2" and failing:
 			return httpx.Response(502)
 		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
 
@@ -328,6 +330,20 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 		== result
 	)
 	assert ledger.read_bytes() == before
+	# A server error is charged to the budget as a failed attempt rather than replaced.
+	failing = True
+	charged = tmp_path / "charged"
+	result = await collect_campaign(
+		prompts_path=prompts,
+		ledger_path=charged / "ledger.jsonl",
+		summary_path=charged / "campaign.json",
+		teacher=teacher(),
+		options=options,
+	)
+	assert (result["queries"], result["blocked"], result["failed"]) == (3, 1, 1)
+	assert result["received"] == result["ledger_records"] == 1
+	events = (charged / "campaign.events.jsonl").read_text().splitlines()
+	assert json.loads(events[2])["status"] == "failed"
 	# A generic 403 must not be counted as a confirmed policy refusal.
 	gateway = ProtectedTeacher(
 		"http://fixture", "bad", transport=httpx.MockTransport(lambda request: httpx.Response(403))

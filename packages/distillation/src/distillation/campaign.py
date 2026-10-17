@@ -20,6 +20,15 @@ class PolicyRefusal(Exception):
 	"""An explicitly attributed refusal, which consumes a query but returns no training text."""
 
 
+class AttemptFailed(Exception):
+	"""One request that failed without a policy refusal, such as a server error, timeout, or
+	rejected proof. It consumes a query and returns no training text (paper Section IV-C)."""
+
+
+# A run of failures this long means the service, not one request, is broken; stop collection.
+MAX_CONSECUTIVE_FAILURES = 10
+
+
 class ProtectedTeacher:
 	def __init__(
 		self, url: str, token: str, *, transport: httpx.AsyncBaseTransport | None = None
@@ -33,7 +42,7 @@ class ProtectedTeacher:
 		self.challenges = 0
 		self.challenge_seconds = 0.0
 
-	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+	async def _generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
 		payload = request.model_dump(mode="json")
 		response = await self.client.post("v1/teacher/generate", json=payload)
 		if response.status_code == 428:
@@ -54,10 +63,23 @@ class ProtectedTeacher:
 			)
 		if response.status_code == 403 and response.headers.get("X-Harness-Decision") == "block":
 			raise PolicyRefusal
-		# Auth failures, expired proofs, timeouts, and upstream errors fail the run. They are
-		# never counted as evidence that the extraction policy blocked a request.
-		response.raise_for_status()
+		# Missing or rejected credentials, and generic 403s without a harness decision, mean the
+		# run is misconfigured, so they stop it. Other failures are charged to the budget as
+		# failed attempts and never counted as evidence that the policy blocked a request.
+		if response.status_code == 401 or (
+			response.status_code == 403 and "X-Harness-Decision" not in response.headers
+		):
+			response.raise_for_status()
+		if response.is_error:
+			raise AttemptFailed(f"HTTP {response.status_code}")
 		return TeacherGeneration.model_validate(response.json())
+
+	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+		"""One attempted request. Transport errors and timeouts are failed attempts."""
+		try:
+			return await self._generate(request)
+		except httpx.TransportError as error:
+			raise AttemptFailed(type(error).__name__) from error
 
 	async def close(self) -> None:
 		await self.client.aclose()
@@ -118,9 +140,9 @@ async def collect_campaign(
 					await AsyncPath(path).rename(archive / path.name)
 		await AsyncPath(ledger_path.parent).mkdir(parents=True, exist_ok=True)
 		await AsyncPath(ledger_path).touch(exist_ok=True)
-		blocked = 0
+		blocked = failed = consecutive = 0
 		for index, prompt in enumerate(prompts, 1):
-			status = "error"
+			status, error_detail = "error", None
 			challenges = teacher.challenges
 			challenge_seconds = teacher.challenge_seconds
 			try:
@@ -128,8 +150,14 @@ async def collect_campaign(
 			except PolicyRefusal:
 				blocked += 1
 				status = "blocked"
+				consecutive = 0
+			except AttemptFailed as error:
+				failed += 1
+				consecutive += 1
+				status, error_detail = "failed", str(error)
 			else:
 				status = "received"
+				consecutive = 0
 				append_jsonl(ledger_path, [record])
 			finally:
 				with events.open("a", encoding="utf-8") as output:
@@ -138,6 +166,7 @@ async def collect_campaign(
 							{
 								"example_id": prompt.example_id,
 								"status": status,
+								"error": error_detail,
 								"contract": contract,
 								"challenges": teacher.challenges - challenges,
 								"challenge_seconds": teacher.challenge_seconds - challenge_seconds,
@@ -147,12 +176,18 @@ async def collect_campaign(
 					)
 			from distillation.progress import console
 
-			console.print(f"Protected collection {index}/{len(prompts)}: {status}")
+			console.print(f"Protected collection {index}/{len(prompts)}: {error_detail or status}")
+			if consecutive >= MAX_CONSECUTIVE_FAILURES:
+				raise RuntimeError(
+					f"{consecutive} consecutive failed requests; the protected service is down"
+				)
 		summary = {
 			"contract": contract,
 			"queries": len(prompts),
 			"blocked": blocked,
-			"received": len(prompts) - blocked,
+			# Failed attempts are charged to the budget and never replaced.
+			"failed": failed,
+			"received": len(prompts) - blocked - failed,
 			"ledger_records": sum(
 				bool(line.strip())
 				for line in (await AsyncPath(ledger_path).read_text()).splitlines()
