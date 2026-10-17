@@ -32,6 +32,16 @@ from distillation.launcher import (
 )
 from distillation.schemas import LedgerRecord, PromptRecord, SFTRecord
 
+# The defended services of Table VI and the primary contrast: harness policy and accumulator.
+DEFENSES: dict[str, tuple[str, str]] = {
+	"full": ("mmd", "paper"),
+	"instantaneous": ("mmd", "instantaneous"),
+	"quota": ("quota", "paper"),
+}
+# The accumulators the paper reports: the full policy, its baseline, and the memory ablations.
+# The e-value accumulators stay in the library but out of study calibrations and reports.
+DECLARED_ACCUMULATORS = ("paper", "instantaneous", "paper_no_memory", "paper_no_decay")
+
 
 def freeze(path: Path, value: dict[str, Any]) -> None:
 	"""Prevent an existing run directory from silently changing its protocol."""
@@ -40,6 +50,25 @@ def freeze(path: Path, value: dict[str, Any]) -> None:
 			raise LaunchError(f"{path} changed; select a new --run-dir")
 	else:
 		save_json(path, value)
+
+
+class _MemoEncoder:
+	"""Embeds each distinct text once, so several replays of one pool share the encoder cost."""
+
+	def __init__(self, encoder: Any) -> None:
+		self.encoder = encoder
+		self.rows: dict[str, Any] = {}
+
+	def encode(self, texts: list[str]) -> Any:
+		import numpy as np
+
+		missing = [text for text in dict.fromkeys(texts) if text not in self.rows]
+		if missing:
+			self.rows.update(zip(missing, self.encoder.encode(missing), strict=True))
+		return np.stack([self.rows[text] for text in texts])
+
+	def identity(self) -> dict[str, Any]:
+		return dict(self.encoder.identity())
 
 
 @dataclass
@@ -54,6 +83,7 @@ class Study:
 	calibration_root: Path | None
 	l4_action: Literal["refuse", "deceive"]
 	references: dict[str, EvaluationRun] = field(default_factory=dict)
+	arms: tuple[str, ...] = tuple(DEFENSES)
 
 	@property
 	def protected_url(self) -> str:
@@ -76,8 +106,11 @@ class Study:
 	def run_dir(self, task: str, seed: int, budget: int) -> Path:
 		return self.root / task / f"s{seed}-b{budget}"
 
+	def protected_dir(self, task: str, seed: int, budget: int, arm: str) -> Path:
+		return self.run_dir(task, seed, budget) / "protected" / arm
+
 	def evaluation(
-		self, task: str, seed: int, budget: int, kind: str, *, protected: bool = False
+		self, task: str, seed: int, budget: int, kind: str, *, arm: str | None = None
 	) -> Path:
 		with self.pipeline.config.open("rb") as source:
 			training = tomllib.load(source)
@@ -92,8 +125,8 @@ class Study:
 		)
 		directory = self.run_dir(task, seed, budget)
 		adapter = (
-			directory / "protected" / "adapter"
-			if protected
+			self.protected_dir(task, seed, budget, arm) / "adapter"
+			if arm
 			else self.pipeline.artifact_root / task / f"s{seed}-b{budget}" / kind
 		)
 		teacher = ModelConfig(
@@ -103,7 +136,7 @@ class Study:
 			base_url=self.url,
 			api_key_env="TEACHER_API_TOKEN" if self.token else "",
 		)
-		condition = "protected" if protected else kind
+		condition = f"protected-{arm}" if arm else kind
 		config = EvaluationConfig(
 			experiment=f"start-{task}-s{seed}-b{budget}-{condition}",
 			suite_path=self.pipeline.task_dir(task) / "test-suite.json",
@@ -163,17 +196,36 @@ class Study:
 					# endpoint utility is measured separately by the paired traffic replay.
 					for slot in slots:
 						if slot in {"teacher", "teacher_after"}:
-							self.benchmark(
-								self.evaluation(task, seed, budget, "attacker", protected=True),
-								slot,
-							)
+							for arm in self.arms:
+								self.benchmark(
+									self.evaluation(task, seed, budget, "attacker", arm=arm), slot
+								)
+
+	def pooled(self, task: str, role: str) -> list[Any]:
+		"""One legitimate pool as shuffled 500-request accounts, as harness BenignRequests."""
+		from harness.calibration import HarnessConfig, pooled_accounts
+
+		prompts = read_jsonl(
+			self.pipeline.task_dir(task) / "legitimate" / f"{role}.jsonl", PromptRecord
+		)
+		return pooled_accounts(
+			(
+				(
+					prompt.example_id,
+					next(m.content for m in reversed(prompt.prompt) if m.role == "user"),
+				)
+				for prompt in prompts
+			),
+			role,
+			500,
+			HarnessConfig().seed,
+		)
 
 	def calibrate(self, task: str) -> Path:
 		from harness.calibration import (
 			HarnessConfig,
 			calibrate,
 			load_calibration,
-			pooled_accounts,
 			requests_sha256,
 			save_calibration,
 		)
@@ -183,30 +235,19 @@ class Study:
 			path = self.calibration_root / task
 			load_calibration(path)
 			return path
-		groups = {}
-		for role in ("fitting", "score_calibration", "policy_calibration"):
-			prompts = read_jsonl(
-				self.pipeline.task_dir(task) / "legitimate" / f"{role}.jsonl", PromptRecord
-			)
-			groups[role] = pooled_accounts(
-				(
-					(
-						prompt.example_id,
-						next(m.content for m in reversed(prompt.prompt) if m.role == "user"),
-					)
-					for prompt in prompts
-				),
-				role,
-				500,
-				HarnessConfig().seed,
-			)
+		groups = {
+			role: self.pooled(task, role)
+			for role in ("fitting", "score_calibration", "policy_calibration")
+		}
 		path = self.root / task / "calibration"
 		if (path / "calibration.json").exists():
 			existing, _ = load_calibration(path)
 			# Older calibrations sliced article-ordered SQuAD pools or embedded whole turns.
-			if existing.config.task != task or existing.sha256 != {
-				role: requests_sha256(rows) for role, rows in groups.items()
-			}:
+			if (
+				existing.config.task != task
+				or set(existing.config.accumulators) != set(DECLARED_ACCUMULATORS)
+				or existing.sha256 != {role: requests_sha256(rows) for role, rows in groups.items()}
+			):
 				raise LaunchError(
 					f"{path} was calibrated on different benign accounts or detector input; "
 					"start a fresh --run-dir or remove that calibration"
@@ -221,8 +262,15 @@ class Study:
 		if not count:
 			raise LaunchError(f"{task}: calibration needs at least 100 fitting prompts")
 		self.pipeline.launcher.log(f"{task}: calibration window=100, reference_windows={count}")
+		defaults = HarnessConfig().accumulators
 		calibration, references = calibrate(
-			config=HarnessConfig.model_validate({"task": task, "reference_windows": count}),
+			config=HarnessConfig.model_validate(
+				{
+					"task": task,
+					"reference_windows": count,
+					"accumulators": {name: defaults[name] for name in DECLARED_ACCUMULATORS},
+				}
+			),
 			encoder=BGEEncoder(device="cpu"),
 			fitting=groups["fitting"],
 			score_calibration=groups["score_calibration"],
@@ -232,7 +280,63 @@ class Study:
 		save_calibration(path, calibration, references)
 		return path
 
-	def start_harness(self, task: str, seed: int, calibration: Path) -> dict[str, str]:
+	def calibration_report(self, task: str, path: Path) -> None:
+		"""Record the per-task calibration settings the paper discloses in Section III-B."""
+		from harness.calibration import load_calibration
+
+		calibration, _ = load_calibration(path)
+		save_json(
+			self.root / task / "calibration-report.json",
+			{
+				"calibration": str(path),
+				"serialization": calibration.serialization,
+				"window_size": calibration.config.window_size,
+				"reference_windows": calibration.config.reference_windows,
+				"sigma": calibration.sigma,
+				"counts": calibration.counts,
+				"thresholds": {
+					name: value.model_dump() for name, value in calibration.thresholds.items()
+				},
+				"baselines": {
+					name: value.model_dump() for name, value in calibration.baselines.items()
+				},
+				"aggregate_monitor": "skipped" if calibration.aggregate is None else "fitted",
+				"aggregate_skipped": calibration.aggregate_skipped,
+			},
+		)
+
+	def benign_holdout(self, task: str, path: Path) -> None:
+		"""Replay the held-out benign pool through every frozen defense: account FPR_1 to FPR_4.
+
+		The accounts are pooled like the calibration accounts, so these rates check the
+		pipeline on unseen requests and do not establish real-user false-positive rates.
+		"""
+		from harness.calibration import load_calibration
+		from harness.encoder import BGEEncoder
+		from harness.replay import replay
+
+		directory = self.root / task / "benign-test"
+		if all((directory / f"{arm}.json").exists() for arm in self.arms):
+			return
+		calibration, scorer = load_calibration(path)
+		requests = self.pooled(task, "benign_test")
+		encoder = _MemoEncoder(BGEEncoder(device="cpu"))
+		for arm in self.arms:
+			policy, accumulator = DEFENSES[arm]
+			summary = replay(
+				calibration=calibration,
+				scorer=scorer,
+				requests=requests,
+				output=directory / f"{arm}.decisions.jsonl",
+				policy=policy,
+				accumulator=accumulator,
+				encoder=encoder if policy == "mmd" else None,
+			)
+			save_json(directory / f"{arm}.json", summary)
+
+	def start_harness(
+		self, task: str, seed: int, calibration: Path, arm: str = "full"
+	) -> dict[str, str]:
 		from distillation.benchmarks.traffic import load_traffic_suite
 
 		actors = [
@@ -253,6 +357,9 @@ class Study:
 			accounts,
 			{hashlib.sha256(key.encode()).hexdigest(): actor for actor, key in keys.items()},
 		)
+		policy, accumulator = DEFENSES[arm]
+		decisions = self.root / task / f"s{seed}" / arm / "decisions.jsonl"
+		decisions.parent.mkdir(parents=True, exist_ok=True)
 		env = {
 			"HARNESS_HOST": "127.0.0.1",
 			"HARNESS_PORT": str(self.harness_port),
@@ -262,16 +369,16 @@ class Study:
 			"HARNESS_ACCOUNTS_FILE": str(accounts),
 			"HARNESS_TRUST_ACTOR_HEADER": "false",
 			"HARNESS_TEST_CLOCK": "false",
-			"HARNESS_POLICY": "mmd",
-			"HARNESS_ACCUMULATOR": "paper",
+			"HARNESS_POLICY": policy,
+			"HARNESS_ACCUMULATOR": accumulator,
 			"HARNESS_THRESHOLDS": "calibrated",
 			"HARNESS_L4_ACTION": self.l4_action,
 			"HARNESS_TASK": task,
 			"HARNESS_ENCODER_DEVICE": "cpu",
-			"HARNESS_DECISION_LOG": str(credentials.with_name("decisions.jsonl")),
+			"HARNESS_DECISION_LOG": str(decisions),
 			"HARNESS_DECEPTION_KEY_FILE": str(self.root / "deception.key"),
 		}
-		log = LOG_DIR / f"start-harness-{task}-s{seed}.log"
+		log = LOG_DIR / f"start-harness-{task}-s{seed}-{arm}.log"
 		process = self.pipeline.launcher.start(
 			"harness-api", [sys.executable, "-m", "harness_api"], log, env
 		)
@@ -280,17 +387,25 @@ class Study:
 		)
 		return keys
 
-	def traffic(self, task: str, seed: int, phase: str, keys: dict[str, str] | None = None) -> None:
+	def traffic(
+		self,
+		task: str,
+		seed: int,
+		phase: str,
+		keys: dict[str, str] | None = None,
+		arm: str = "full",
+	) -> None:
 		from distillation.benchmarks.traffic import TrafficConfig, TrafficTarget, load_traffic_suite
 
 		key_envs = {
 			a.id: f"START_TRAFFIC_{a.id}"
 			for a in load_traffic_suite(self.root / "traffic.json").actors
 		}
+		directory = self.root / task / f"s{seed}" / arm
 		values = TrafficConfig(
-			experiment=f"start-{task}-s{seed}-traffic",
+			experiment=f"start-{task}-s{seed}-{arm}-traffic",
 			suite_path=self.root / "traffic.json",
-			output_dir=self.root / task / f"s{seed}" / "traffic-results",
+			output_dir=directory / "traffic-results",
 			model=os.environ.get("TEACHER_UPSTREAM_MODEL") or DEFAULT_TEACHER_MODEL,
 			model_revision=os.environ.get("TEACHER_MODEL_REVISION") or DEFAULT_TEACHER_REVISION,
 			targets={
@@ -301,12 +416,12 @@ class Study:
 				),
 				"after": TrafficTarget(
 					base_url=self.protected_url,
-					service_revision=f"mmd-paper-{self.l4_action}",
+					service_revision=f"{arm}-{self.l4_action}",
 					actor_key_envs=key_envs,
 				),
 			},
 		)
-		config = self.root / task / f"s{seed}" / "traffic.toml"
+		config = directory / "traffic.toml"
 		config.parent.mkdir(parents=True, exist_ok=True)
 		config.write_text(_toml(values.model_dump(mode="json")), encoding="utf-8")
 		self.pipeline.launcher.distill(
@@ -320,8 +435,8 @@ class Study:
 			env={name: keys[actor] for actor, name in key_envs.items()} if keys else None,
 		)
 
-	def collect_protected(self, task: str, seed: int, budget: int, token: str) -> None:
-		directory = self.run_dir(task, seed, budget) / "protected"
+	def collect_protected(self, task: str, seed: int, budget: int, token: str, arm: str) -> None:
+		directory = self.protected_dir(task, seed, budget, arm)
 		directory.mkdir(parents=True, exist_ok=True)
 		self.pipeline.launcher.distill(
 			"collect-protected",
@@ -340,14 +455,16 @@ class Study:
 			env={"TEACHER_API_TOKEN": token},
 		)
 
-	def train_protected(self, task: str, seed: int, budget: int, largest: int) -> bool:
+	def train_protected(
+		self, task: str, seed: int, budget: int, largest: int, arm: str = "full"
+	) -> bool:
 		from distillation.preparation import prepare_sft_dataset
 
-		directory = self.run_dir(task, seed, budget) / "protected"
+		directory = self.protected_dir(task, seed, budget, arm)
 		directory.mkdir(parents=True, exist_ok=True)
 		prompts = self.pipeline.run_dir(task, seed, budget) / "prompts.jsonl"
 		wanted = {p.example_id for p in read_jsonl(prompts, PromptRecord)}
-		campaign = self.run_dir(task, seed, largest) / "protected"
+		campaign = self.protected_dir(task, seed, largest, arm)
 		ledger = directory / "budget-ledger.jsonl"
 		write_jsonl(
 			ledger,
@@ -382,7 +499,7 @@ class Study:
 				{"status": "skipped", "reason": "no_usable_responses"},
 			)
 			self.pipeline.launcher.log(
-				f"{task} s{seed}-b{budget}: no usable protected outputs; skipping training"
+				f"{task} s{seed}-b{budget} {arm}: no usable protected outputs; skipping training"
 			)
 			return False
 		if not _trained(directory / "adapter", dataset, config):
@@ -404,7 +521,7 @@ class Study:
 					directory.parent.parent / f"report.{directory.name}.json",
 					build_report(directory, experiment["id"]),
 				)
-		for directory in self.root.glob("*/s*/traffic-results"):
+		for directory in self.root.glob("*/s*/*/traffic-results"):
 			for experiment in traffic_experiments(directory)["experiments"]:
 				save_json(
 					directory.parent / "traffic-report.json",
@@ -422,6 +539,8 @@ class Study:
 			raise LaunchError("choose either --teacher-url or --upstream-url")
 		if any(budget < 1 for budget in self.pipeline.budgets):
 			raise LaunchError("query budgets must be positive")
+		if not self.arms or set(self.arms) - set(DEFENSES):
+			raise LaunchError(f"--arms must name defenses from {', '.join(DEFENSES)}")
 		freeze(
 			self.root / "protocol.json",
 			{
@@ -437,6 +556,7 @@ class Study:
 				or DEFAULT_TEACHER_REVISION,
 				"terms_review_id": self.pipeline.terms_review_id,
 				"l4_action": self.l4_action,
+				"arms": list(self.arms),
 				"calibration_root": str(self.calibration_root),
 			},
 		)
@@ -457,33 +577,39 @@ class Study:
 		self.baseline_evaluations(("teacher",))
 		for task in self.pipeline.tasks:
 			for seed in self.pipeline.seeds:
-				self.traffic(task, seed, "before")
+				for arm in self.arms:
+					self.traffic(task, seed, "before", arm=arm)
 		launcher.stop_background()
 		self.baseline_evaluations(("student_before",))
 		self.pipeline.train_all()
 		self.baseline_evaluations(("student_after",))
 		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
+		for task, path in calibrations.items():
+			self.calibration_report(task, path)
+			self.benign_holdout(task, path)
 		self.ensure_teacher()
 		self.baseline_evaluations(("teacher_after",))
-		# Restart only the protected service between seed campaigns. The teacher remains
-		# available, and each campaign gets fresh per-account and aggregate state.
+		# Restart only the protected service between campaigns. The teacher remains available,
+		# and each defense and seed gets fresh per-account and aggregate state.
 		for task, budgets in self.pipeline.plan.items():
 			for seed in self.pipeline.seeds:
-				teacher_processes = len(launcher.background)
-				keys = self.start_harness(task, seed, calibrations[task])
-				try:
-					self.collect_protected(task, seed, budgets[-1], keys["extractor"])
-					self.traffic(task, seed, "after", keys)
-				finally:
-					launcher.stop_background(keep=teacher_processes)
+				for arm in self.arms:
+					teacher_processes = len(launcher.background)
+					keys = self.start_harness(task, seed, calibrations[task], arm)
+					try:
+						self.collect_protected(task, seed, budgets[-1], keys["extractor"], arm)
+						self.traffic(task, seed, "after", keys, arm)
+					finally:
+						launcher.stop_background(keep=teacher_processes)
 		launcher.stop_background()
 		for task, budgets in self.pipeline.plan.items():
 			for seed in self.pipeline.seeds:
 				for budget in budgets:
-					if self.train_protected(task, seed, budget, budgets[-1]):
-						config = self.evaluation(task, seed, budget, "attacker", protected=True)
-						self.benchmark(config, "student_before")
-						self.benchmark(config, "student_after")
+					for arm in self.arms:
+						if self.train_protected(task, seed, budget, budgets[-1], arm):
+							config = self.evaluation(task, seed, budget, "attacker", arm=arm)
+							self.benchmark(config, "student_before")
+							self.benchmark(config, "student_after")
 		self.reports()
 		save_json(self.root / "status.json", {"status": "complete", "tasks": self.pipeline.plan})
 		launcher.log(

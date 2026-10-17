@@ -38,6 +38,8 @@ TASK_ROOT = Path("data/tasks")
 TASK_ARTIFACTS = Path("artifacts/tasks")
 # The keys of distillation.tasks.TASKS, which imports the dataset stack.
 TASK_NAMES = ("ag_news", "squad", "gsm8k")
+# The core study. GSM8K runs only when named, until its inclusion is frozen.
+CORE_TASKS = "ag_news,squad"
 LOG_DIR = Path("artifacts/logs")
 PIPELINE_SCRIPT = Path("scripts/pipeline.py")
 STOP_SECONDS = 30
@@ -651,8 +653,11 @@ def teacher_host_command(
 @run_app.command("paper-tasks")
 def paper_tasks_command(
 	tasks: Annotated[
-		str, typer.Option(help="Comma-separated tasks: ag_news, squad, and gsm8k.")
-	] = "ag_news,squad,gsm8k",
+		str,
+		typer.Option(
+			help="Comma-separated tasks: ag_news, squad, or gsm8k. GSM8K is an opt-in extension."
+		),
+	] = CORE_TASKS,
 	seeds: Annotated[
 		str, typer.Option(help="Comma-separated seeds; each orders its own attacker queries.")
 	] = "42,1,20",
@@ -679,7 +684,7 @@ def paper_tasks_command(
 	] = TASK_CONFIG,
 	concurrency: ConcurrencyOption = 4,
 ) -> None:
-	"""Run the paper's AG News, SQuAD, and GSM8K extraction study.
+	"""Run the paper's AG News and SQuAD extraction study, and GSM8K when named.
 
 	Each task has its own ledger in data/tasks/TASK and its
 	own adapters in artifacts/tasks/TASK/sSEED-bBUDGET. Builds missing tasks, collects every
@@ -728,7 +733,9 @@ def paper_tasks_command(
 
 @run_app.command("start")
 def start_command(
-	tasks: Annotated[str, typer.Option(help="Comma-separated tasks.")] = "ag_news,squad,gsm8k",
+	tasks: Annotated[
+		str, typer.Option(help="Comma-separated tasks. GSM8K is an opt-in extension.")
+	] = CORE_TASKS,
 	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42,1,20",
 	budgets: Annotated[str, typer.Option(help="Comma-separated query budgets.")] = "500,2000,8000",
 	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
@@ -740,6 +747,9 @@ def start_command(
 		typer.Option(help="Existing per-task calibrations; otherwise fit pooled benign accounts."),
 	] = None,
 	l4_action: Annotated[Literal["refuse", "deceive"], typer.Option()] = "refuse",
+	arms: Annotated[
+		str, typer.Option(help="Comma-separated defenses: full, instantaneous, and quota.")
+	] = "full,instantaneous,quota",
 	gold: Annotated[
 		bool, typer.Option(help="Also train and benchmark gold reference adapters.")
 	] = True,
@@ -780,6 +790,7 @@ def start_command(
 			harness_port,
 			calibration_root,
 			l4_action,
+			arms=tuple(dict.fromkeys(a.strip() for a in arms.split(",") if a.strip())),
 		).run()
 
 	scenario("start", body)

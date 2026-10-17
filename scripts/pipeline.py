@@ -4,7 +4,7 @@
 Usage: python3 scripts/pipeline.py SCENARIO [options]   (py -3 on Windows)
 
   teacher-host   Serve vLLM and the teacher API until interrupted
-  paper-tasks    Run the paper's AG News, SQuAD, and GSM8K study with its own ledgers
+  paper-tasks    Run the paper's AG News and SQuAD study, and GSM8K when named
   start          Run the whole study, benchmarks, and protected extraction/training
 
 `python3 scripts/pipeline.py SCENARIO --help` lists the options. See docs/run-scripts.md.

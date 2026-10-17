@@ -81,6 +81,6 @@ teacher-host *args:
 start *args:
 	{{python}} scripts/pipeline.py start {{args}}
 
-# The paper's AG News, SQuAD, and GSM8K study, with its own ledgers and adapters. See docs/paper-tasks.md.
+# The paper's AG News and SQuAD study (GSM8K when named), with its own ledgers and adapters. See docs/paper-tasks.md.
 paper-tasks *args:
 	{{python}} scripts/pipeline.py paper-tasks {{args}}

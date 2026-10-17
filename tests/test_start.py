@@ -105,6 +105,8 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	services: list[str] = []
 	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
 	monkeypatch.setattr(Study, "calibrate", lambda self, task: Path("calibration"))
+	monkeypatch.setattr(Study, "calibration_report", lambda self, task, path: None)
+	monkeypatch.setattr(Study, "benign_holdout", lambda self, task, path: None)
 	import distillation.benchmarks.traffic as traffic
 
 	freeze_traffic = traffic.freeze_traffic
@@ -116,9 +118,9 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 		services.append("teacher")
 		steps.append("serve")
 
-	def harness(self: Study, task: str, seed: int, calibration: Path) -> dict[str, str]:
+	def harness(self: Study, task: str, seed: int, calibration: Path, arm: str) -> dict[str, str]:
 		services.append("harness")
-		steps.append("harness")
+		steps.append(f"harness {arm}")
 		return {"extractor": "fixture", **{f"u{i:02}": "fixture" for i in range(6)}}
 
 	def stop(self: Launcher, *, keep: int = 0) -> None:
@@ -228,13 +230,17 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	command = ["start", "--tasks", "ag_news", "--seeds", "42", "--budgets", "4", "--no-gold"]
 	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
-	assert steps.index("train baseline") < steps.index("harness") < steps.index("train protected")
+	harnesses = [step for step in steps if step.startswith("harness")]
+	assert harnesses == ["harness full", "harness instantaneous", "harness quota"]
+	assert steps.index("train baseline") < steps.index(harnesses[0])
+	assert steps.index(harnesses[-1]) < steps.index("train protected")
 	assert steps.index("benchmark student_before") < steps.index("train baseline")
 	root = Path("artifacts/start/ag_news/s42-b4")
-	assert len(read_jsonl(root / "protected/train.jsonl", SFTRecord)) == 4
 	assert (root / "report.attacker.json").is_file()
-	assert (root / "report.protected.json").is_file()
-	assert (root.parent / "s42/traffic-report.json").is_file()
+	for arm in ("full", "instantaneous", "quota"):
+		assert len(read_jsonl(root / f"protected/{arm}/train.jsonl", SFTRecord)) == 4
+		assert (root / f"report.protected-{arm}.json").is_file()
+		assert (root.parent / f"s42/{arm}/traffic-report.json").is_file()
 	assert json.loads(Path("artifacts/start/status.json").read_text())["status"] == "complete"
 	baseline = Path("data/tasks/ag_news/ledger.jsonl").read_bytes()
 	steps.clear()
@@ -359,7 +365,7 @@ def test_empty_protected_campaign_skips_training(
 			)
 		],
 	)
-	write_jsonl(study.run_dir("ag_news", 42, 1) / "protected/ledger.jsonl", [])
+	write_jsonl(study.protected_dir("ag_news", 42, 1, "full") / "ledger.jsonl", [])
 
 	def review(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
 		assert args[0] == "review"
@@ -368,4 +374,4 @@ def test_empty_protected_campaign_skips_training(
 
 	monkeypatch.setattr(Launcher, "distill", review)
 	assert not study.train_protected("ag_news", 42, 1, 1)
-	assert not (study.run_dir("ag_news", 42, 1) / "protected/adapter").exists()
+	assert not (study.protected_dir("ag_news", 42, 1, "full") / "adapter").exists()
