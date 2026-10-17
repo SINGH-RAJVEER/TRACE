@@ -13,7 +13,7 @@ from anyio import Path as AsyncPath
 from harness.calibration import BenignRequest
 
 from distillation.benchmarks.models import BenchmarkItem, save_json
-from distillation.benchmarks.scoring import score_answer, squad_f1
+from distillation.benchmarks.scoring import evaluate_answer
 from distillation.campaign import AttemptFailed, BudgetExhausted, PolicyRefusal, ProtectedTeacher
 from distillation.schemas import TeacherGenerationRequest
 
@@ -55,6 +55,10 @@ async def measure_utility(
 		return dict(previous)
 	if not requests:
 		raise ValueError("utility requires at least one request")
+	if any(item.metric == "pass_at_1" for item in references.values()):
+		from coding.scoring import ensure_runtime
+
+		await asyncio.to_thread(ensure_runtime)
 	warmup = ProtectedTeacher(url, keys.get("warmup", keys.get("default", "")), transport=transport)
 	try:
 		item = references[str(requests[0].example_id)]
@@ -107,16 +111,11 @@ async def measure_utility(
 				else:
 					received = True
 					text = generation.message.content
-					prediction, correct = score_answer(item, text)
-					valid = (
-						prediction is not None
-						and generation.finish_reason in {"stop", "eos", "end_turn", "completed"}
-						and "<think>" not in text
-						and "</think>" not in text
-					)
-					status = "valid" if valid else "invalid"
+					score = await evaluate_answer(item, text, generation.finish_reason)
+					valid = score.status == "ok"
+					status = "valid" if valid else score.status
 					quality = (
-						(squad_f1(item, text) if item.metric == "squad" else float(correct))
+						(score.f1 if score.f1 is not None else float(score.correct))
 						if valid
 						else 0.0
 					)

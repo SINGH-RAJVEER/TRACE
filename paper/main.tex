@@ -1,4 +1,5 @@
 \documentclass[journal]{IEEEtran}
+\usepackage[T1]{fontenc}
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs,array,tabularx}
@@ -14,400 +15,351 @@
 \setlength{\@dblfpbot}{0pt plus 1fil}
 \makeatother
 \newcommand{\tbd}[1]{\textcolor{red!65!black}{[Pending: #1]}}
-\newcommand{\pending}{\textemdash}
+\newcommand{\pending}{\textnormal{N/M}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcommand{\I}{\mathbb{I}}
-\title{Detecting Model Extraction Probing with Semantic Embeddings, MMD, and Session-Level Behavioural Profiling}
+\title{Evaluating an account-level harness against multi-domain model distillation}
 \author{Rajveer~Singh, Dhruv~Deepak, Vansh~Kulshrestha, and Aryash~Kushwaha}
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Task APIs, such as a news classifier or a question-answering endpoint, return outputs that an attacker can collect to train a substitute model for the same task. Detecting this extraction is difficult when its queries resemble legitimate requests to the same endpoint. We study budgeted extraction from task APIs, in which an attacker spends a fixed number of attempted requests to distil a small student, and ask whether an access policy can reduce what that budget buys without denying service to legitimate users. The proposed wrapper compares query embeddings with benign reference traffic using maximum mean discrepancy (MMD), accumulates evidence within authenticated accounts, and applies progressively stronger access controls. Because the detector's signal is a change in the request distribution, a uniform extractor drawn from the task's own distribution serves as a negative control rather than an assumed detectable attack. The window statistic follows prior work; the contribution is the account-level policy and an evaluation of its effect on both extraction and legitimate use. On AG News classification and SQuAD question answering, the protocol measures the task capability a small distilled student retains at each query budget, with and without the policy and against matched released-token controls, together with legitimate users' completion, delay, and task utility. The study concerns task-specific extraction and makes no claim about general chat or general model quality. Experiments are pending; this draft specifies the system and evaluation without claiming measured effectiveness.
+An extraction defense can block suspicious accounts after they have already supplied enough responses to train a useful substitute. We study whether an account-level harness prevents useful distillation across different collection strategies while preserving legitimate access. A shared gateway serves news classification, extractive question answering, and generative math through one teacher. Each attack campaign collects across these domains and trains one student on all the responses it receives. The harness compares query embeddings with mixed benign reference traffic using maximum mean discrepancy, accumulates evidence within accounts, and applies throttling, proof of work, and refusal. The primary comparisons pair multiplexed, domain-sequential, and domain-specialist Sybil campaigns with their undefended runs, instantaneous MMD, and a query quota. Outcomes are learned capability in each domain, supervision released before intervention, and costs to legitimate specialists and generalists. Request and time limits define the comparison conditions; budget curves are secondary. The protocol retains same-distribution extraction as a failure control because request statistics cannot establish malicious intent. Input generators are implemented, but gateway enforcement, shared-student training, and effectiveness measurements remain pending. This draft presents the system and protocol without claiming that the harness stops the evaluated campaigns.
 \end{abstract}
 \begin{IEEEkeywords}
-Model extraction, knowledge distillation, maximum mean discrepancy, API security, sequential detection.
+Model extraction, knowledge distillation, access control, maximum mean discrepancy, API security.
 \end{IEEEkeywords}
 
 \section{Introduction}
-\IEEEPARstart{A}{n} API hides a model's weights, but its outputs still reveal how the model behaves. An extraction attacker collects input--output pairs and uses them to train a substitute~\cite{tramer2016stealing,orekondy2019knockoff}. The training process resembles knowledge distillation~\cite{hinton2015distilling}; the distinguishing feature is that the model owner has not authorised the transfer. Many deployed models sit behind task APIs that accept one kind of request and return a short, structured output, such as a topic label or an answer span. Each response is then a labelled training example for the same task, so an attacker with enough queries can distil the endpoint's behaviour into a much smaller model. The security question is whether a service can limit that transfer while continuing to serve legitimate clients.
+\IEEEPARstart{A}{n} API hides a model's weights, but its outputs can still supply training data for a substitute~\cite{tramer2016stealing,orekondy2019knockoff}. An attacker can collect answers from several application domains and combine them in one student. This resembles knowledge distillation~\cite{hinton2015distilling}, with the transfer performed without the model owner's authorisation. The defense must limit useful transfer while continuing to answer legitimate requests.
 
-Extraction need not copy a general assistant to cause harm. Model Leeching transfers task behaviour into a smaller model, while LoRD develops an extraction objective suited to language-model alignment~\cite{birch2023leeching,liang2025lord}. These results make narrow, budgeted extraction a practical threat: the attacker's cost is the number of requests it attempts, and its gain is the task capability its student retains. A defense should therefore be judged by how much capability a given budget still buys, not only by whether a detector eventually raises an alert.
+Detection alone does not establish that the defense worked. A late block may leave the attacker with a useful model. Throttling may delay collection while preserving its eventual training value. Blocking specialist users may reduce extraction at an unacceptable service cost. We therefore evaluate the harness through the student's learned capability and the legitimate service it preserves. Model Leeching and LoRD motivate the threat of learning useful behaviour from released language-model responses~\cite{birch2023leeching,liang2025lord}; neither implies that every collection strategy is detectable.
 
-Query history provides one possible signal. PRADA examines distances within a client's query stream, and VarDetect monitors changes in a user's latent query distribution~\cite{juuti2019prada,pal2021stateful}. Liu et al. apply benign-calibrated MMD to semantic embeddings of language-model API traffic~\cite{liu2026detector}. Their work motivates the window statistic used here. It does not establish the effectiveness of our proposed account policy, which requires separate calibration and testing.
+The proposed experiment uses one gateway, one teacher, and one student per campaign. AG News, SQuAD, and GSM8K provide distinct domains within that gateway. Campaigns change request order, timing, source distribution, or account ownership. The primary strategies multiplex domains in one account, submit domain blocks through one account, or distribute domains across specialist accounts. Each strategy is compared with its own successful undefended extraction baseline. Legitimate traffic includes both specialists and users who mix domains, so domain mixing alone cannot count as evidence of abuse.
 
-This paper asks whether accumulated account-level evidence can reduce the task capability an attacker extracts within a fixed request budget, at an acceptable cost to legitimate users of the same endpoint. We specify the scoring rule, the policy, and an evaluation on two task APIs, AG News classification and SQuAD question answering, with a small distilled student. We distinguish three outcomes: detecting unusual traffic, restricting response collection, and reducing the extracted model's capability. None implies the others automatically. In particular, a detector that recognises a topic shift may also penalise a legitimate specialist, and a late block may arrive after the attacker has learned enough. The study is deliberately narrow: it concerns task-specific extraction through a fixed endpoint, and it neither trains nor evaluates a general instruction-following or chat model.
+The paper asks four questions:
+\begin{enumerate}
+	\item Which collection strategies lose useful learned capability behind the harness?
+	\item How much supervision escapes before intervention, and does the policy prevent transfer within the declared limits or mainly delay collection?
+	\item What do legitimate specialists and generalists lose in completion, latency, and task utility?
+	\item What does accumulated evidence add beyond instantaneous MMD and a simple quota at comparable benign cost?
+\end{enumerate}
 
-This draft makes three contributions:
-\begin{itemize}
-\item An account-level access policy for task APIs that accumulates benign-calibrated MMD evidence across query windows and escalates from alerts to throttling, challenges, and refusal (Section~\ref{sec:system}).
-\item A budgeted-extraction protocol for AG News and SQuAD that measures, at each attempted-request budget, the task capability a small student retains with and without the policy, and separates reduced supervision volume from selective removal through matched released-token controls (Section~\ref{sec:eval}).
-\item A legitimate-utility protocol for the same endpoints that counts refusals, delays, and challenge costs for task-matched benign users, so that any reduction in extraction is reported alongside its cost (Section~\ref{sec:metrics}).
-\end{itemize}
+The contribution is an account-level enforcement study using an inherited window statistic. PRADA and VarDetect motivate the use of client history~\cite{juuti2019prada,pal2021stateful}, while Liu et al. motivate benign-calibrated MMD on semantic embeddings~\cite{liu2026detector}. We specify how that score controls response release and how the resulting supervision affects one student across domains. The experiment can reveal effective intervention, excessive benign cost, or campaigns the policy fails to distinguish. Its conclusions must follow the measured outcomes.
 
 \section{Background and related work}
-\subsection{Extraction and privacy attacks}
-An extraction attacker queries a victim $F$ to construct $D_A=\{(q_i,F(q_i))\}_{i=1}^{N}$, then trains a surrogate $\widehat F$. Task accuracy and fidelity to $F$ are different objectives: a student can match a victim's mistakes or answer correctly in a different way~\cite{jagielski2020high}. Both must be measured.
+\subsection{Extraction objectives}
+An attacker queries a victim $F$, obtains input--output pairs, and trains a surrogate $\widehat F$. Task accuracy and fidelity to the victim are different objectives. A student can answer correctly where the victim is wrong, or reproduce the victim's mistakes~\cite{jagielski2020high}. We report task quality and valid-output agreement separately.
 
-Natural-language extraction predates current instruction-following models. Krishna et al. extract BERT-based APIs with synthetic queries, and MeaeQ selects task-relevant, diverse queries from public text~\cite{krishna2020thieves,dai2023meaeq}. Model Leeching and LoRD extend the collection-and-training approach to language-model capabilities~\cite{birch2023leeching,liang2025lord}. Our text-response distillation baseline is inspired by this setting; it is not presented as a reproduction of LoRD's optimisation procedure.
+Krishna et al. extract language-model APIs with synthetic queries, and MeaeQ selects task-relevant, diverse queries from public text~\cite{krishna2020thieves,dai2023meaeq}. Model Leeching and LoRD extend response collection and training to language-model capabilities~\cite{birch2023leeching,liang2025lord}. Our primary attacker uses response-token cross-entropy. Multiplexing, domain blocks, and account splitting vary collection under this same learning procedure; they do not establish resistance to every distillation objective. A live active-selection extension requires its own select, train, update, and reselect loop.
 
-Extraction of model behaviour is distinct from extraction of training data. Fredrikson et al. study model inversion through confidence-bearing outputs; Carlini et al. recover memorised text from a language model~\cite{fredrikson2015model,carlini2021extracting}. Membership inference instead asks whether a record was used in training~\cite{shokri2017membership}. Repetitive prompts alone do not demonstrate any of these privacy attacks. Accordingly, the privacy-related tests below are optional, separately labelled experiments with explicit ground truth.
+Model-behaviour extraction also differs from recovery of training records or membership information~\cite{carlini2021extracting,shokri2017membership}. This study makes no privacy-protection claim and includes no training-data recovery experiment.
 
-\subsection{Stateful detection}
-PRADA, VarDetect, SEAT, and HODA use different properties of query streams: input distances, latent distributions, learned similarity, and sample hardness, respectively~\cite{juuti2019prada,pal2021stateful,zhang2021seat,sadeghzadeh2022hoda}. Their original assumptions and access requirements differ. Applying a score to text embeddings is an adaptation, not evidence that the original method has been reproduced.
+\subsection{Stateful detection and enforcement}
+PRADA, VarDetect, SEAT, and HODA use input distances, latent query distributions, learned similarity, and sample hardness under different access assumptions~\cite{juuti2019prada,pal2021stateful,zhang2021seat,sadeghzadeh2022hoda}. Adapting a score to text embeddings does not reproduce every original method. We use the MMD definition and released artifact of Liu et al. as the basis of the window score~\cite{liu2026detector,mmd2026artifact}. A fourteen-pair reproduction is outside this study's reported matrix.
 
-Liu et al. release an embedding-based evaluation with fourteen attacker--normal pairs and adapted baselines~\cite{liu2026detector}. We use that artifact for a separate reproduction check. The extension studied here is sequential enforcement: how evidence persists, which account receives an intervention, and how many useful responses remain available. Because the underlying window score is inherited, we do not add a duplicate ``ours'' row to claim a new window-level detector.
+The new evaluation concerns enforcement after scoring. It asks which account receives an intervention, what outputs remain available across the campaign, and what the student learns from them. A high detection rate cannot substitute for a capability result. A Sybil campaign can remain successful after some of its accounts are blocked.
 
-\subsection{Response-side defenses}
-Watermarking can support an ownership claim after extraction. DAWN embeds client-specific response watermarks, while Entangled Watermarking Embeddings link watermark features with task features~\cite{szyller2021dawn,jia2021entangled}. Such evidence serves a different purpose from stopping response collection.
+\subsection{Other defense mechanisms}
+Watermarks can support ownership claims after extraction~\cite{szyller2021dawn,jia2021entangled}. Proof of work raises the cost of obtaining predictions~\cite{dziedzic2022pow}. Antidistillation sampling, trace rewriting, and Knowledge Trap alter the training value of generated responses under other interfaces or assumptions~\cite{savani2025antidistillation,ma2026tracerewriting,dai2026knowledgetrap}. Our primary policy uses access controls and leaves released answers unchanged. The experiment measures whether those controls are sufficient for the declared campaigns.
 
-Proof of work increases the cost of obtaining predictions~\cite{dziedzic2022pow}. Antidistillation sampling and trace rewriting reduce the training value of generated responses, while Knowledge Trap redirects extraction toward less transferable knowledge~\cite{savani2025antidistillation,ma2026tracerewriting,dai2026knowledgetrap}. These methods require distinct interfaces or assumptions. Our main policy uses access controls and leaves served answers unchanged. It therefore tests the value of detection and enforcement without conflating it with an unspecified output-perturbation mechanism.
-
-\section{Threat model and proposed system}
+\section{Threat model and proposed harness}
 \label{sec:system}
-\subsection{System, adversary, and scope}
+\subsection{Shared gateway and campaign}
 \label{sec:threat-system}
-A wrapper observes the user-supplied request $q_t$, its arrival time, and an authenticated account identifier $a_t$ before invoking a hosted model $F$. It needs neither victim weights nor gradients. The wrapper can delay a request, require a challenge, or withhold a response. Model weights may be available to the experimenter for local deployment, but remain inaccessible to the simulated attacker and detector. In the experiments, bearer keys bind requests to stable experiment accounts. This binding gives reproducible attribution for the study; it does not establish production identity, prevent credential sharing, or impose a cost on creating accounts.
+One endpoint serves a fixed teacher $F$ across the domain set $\mathcal D=\{\text{AG News},\text{SQuAD},\text{GSM8K}\}$. Each request retains its domain's prompt serialization and output cap. Before inference, the harness observes the submitted content, arrival time, and authenticated experiment account. It needs no victim gradients or private training examples. The experimenter may host the victim locally; its weights remain unavailable to the attacker and detector.
 
-The attacker can choose public or synthetic prompts, train a student offline, paraphrase requests, vary timing, mix benign-looking requests with extraction, and coordinate several accounts. They know the detector design and can observe service actions, but cannot inspect its calibration data or internal risk values. We also test evasion using a separately estimated benign distribution. Reference poisoning is outside the main threat model; contamination is a sensitivity test.
+A campaign $C$ controls one or more accounts, collects from all domains, and pools every received response into one transfer dataset. It trains one student $\widehat F_C$ from a common base checkpoint. The attacker knows the detector design and observes service actions, but cannot read private calibration data or internal risk scores. Bearer keys provide stable experiment identities. They do not establish a production identity system or an economic cost for creating accounts.
 
-The attacker aims to recover task capability within an attempted-request budget $B_A$ and an elapsed-time budget $T_A$. All requests, including filler and unsuccessful attempts, consume $B_A$; delays and challenge solving consume $T_A$. Responses collected across accounts belong to one campaign. Account-specific controls cannot prevent a campaign that remains indistinguishable from legitimate traffic at every observable level. Aggregate alerts may reveal a shift, but cannot identify the responsible accounts without additional evidence.
+The campaign shares an attempted-submission limit $B_A$ and an elapsed-time limit $T_A$ across all its accounts. Failed queries, cover requests, and proof redemptions consume attempts. Waiting, solving, and any interleaved model updates consume elapsed time. Final offline training cost is reported separately. A policy reset never replenishes the campaign's resource allowance.
 
-\subsection{Query representation and window score}
+The harness maintains account state across domains and sessions within a policy horizon. It cannot infer authorisation from requests that have the same observable distribution as legitimate use. Mixed-domain extraction therefore remains a test case, not an assumed detectable pattern. The primary study uses no aggregate alert to assign blame to individual accounts.
+
+\subsection{Request representation and window score}
 \label{sec:score}
-The main encoder is \texttt{BAAI/bge-small-en-v1.5}~\cite{bge2023model}. We normalise embeddings to unit length. Embeddings use CLS pooling and represent the current user request under a versioned detector serialization, \texttt{detector-v1}, which excludes fixed service instructions and generated assistant text. It embeds the AG News article alone and, for SQuAD, the question followed by the passage, so the question survives when the encoder truncates a long passage. Calibration artifacts record the serialization version, encoder revision, and truncation counts, and calibrations from an incompatible serialization are not reused. The main input limit is 512 encoder tokens; the truncation rate and a long-input stress test are reported. Language and endpoint strata are fixed before calibration.
+Use \texttt{BAAI/bge-small-en-v1.5} with CLS pooling, unit-normalised embeddings, and a 512-token encoder limit~\cite{bge2023model}. The proposed gateway serialization embeds article text for AG News, the question followed by the passage for SQuAD, and problem text for GSM8K. It excludes fixed service instructions and generated answers. The question precedes the passage so encoder truncation preserves it where possible. Record truncation by domain.
 
-For embeddings $X=\{x_i\}_{i=1}^{m}$ and a reference sample $Z=\{z_j\}_{j=1}^{n}$, use the unbiased squared MMD estimator~\cite{gretton2012kernel}:
+The task interface and validated template determine the domain in this controlled experiment. A client-supplied label or a marker found inside arbitrary text is insufficient. Before gateway testing, version the mixed serialization, define unmatched-template handling, and use the same rules during fitting, calibration, and execution. The existing task-specific \texttt{detector-v1} parser supplies the content rules; mixed gateway dispatch is pending. Incompatible calibration artifacts must not be reused.
+
+For request embeddings $X=\{x_i\}_{i=1}^{m}$ and a reference window $Z=\{z_j\}_{j=1}^{n}$, use the unbiased squared MMD estimator~\cite{gretton2012kernel}:
 \begin{align}
 \widehat{\mathrm{MMD}}_u^2(X,Z)
-={}&\frac{1}{m(m-1)}\sum_{i\ne i'} k(x_i,x_{i'})\nonumber\\
- &+\frac{1}{n(n-1)}\sum_{j\ne j'} k(z_j,z_{j'})\nonumber\\
- &-\frac{2}{mn}\sum_{i,j}k(x_i,z_j).
+={}&\frac{1}{m(m-1)}\sum_{i\ne i'}k(x_i,x_{i'})\nonumber\\
+	&+\frac{1}{n(n-1)}\sum_{j\ne j'}k(z_j,z_{j'})\nonumber\\
+	&-\frac{2}{mn}\sum_{i,j}k(x_i,z_j).
 \label{eq:mmd}
 \end{align}
-Here $k(x,z)$ is the mean of four RBF kernels with bandwidths $c\sigma$, $c\in\{0.5,1,2,4\}$, and exponent $-\|x-z\|^2/[2(c\sigma)^2]$. The bandwidth $\sigma$ is the median nonzero pairwise distance in a fixed benign fitting sample. We retain negative finite-sample estimates instead of taking their square root. The score $s_j$ averages (\ref{eq:mmd}) over 20 disjoint reference windows of unique fitting prompts, drawn once from the fitting split and reused for that configuration. Reference and test window sizes match. If a task's fitting pool cannot supply 20 disjoint windows, report the number used.
+The kernel averages four RBF kernels with bandwidths $c\sigma$, $c\in\{0.5,1,2,4\}$, and exponent $-\|x-z\|^2/[2(c\sigma)^2]$. Fit $\sigma$ to the median nonzero distance in a fixed benign fitting sample. Retain negative finite-sample estimates. Average the score over up to 20 disjoint reference windows, drawn once from the mixed fitting workload and reused. Each reference has the same size as an account window. Record the achieved count and domain composition; repeated requests cannot fill references as new unique examples.
 
-Account windows contain $w_a=100$ consecutive requests and do not overlap in the primary protocol. Risk updates occur only when a window is complete. Until then, the previous policy level applies; a new account starts at L0. Short accounts remain in all denominators, and their unscored fraction is reported. Overlapping windows are a separate ablation requiring fresh policy calibration. Aggregate windows contain 1,500 requests and generate monitoring alerts only. Twenty 1,500-request reference windows require 30,000 fitting requests, more than the current AG News and SQuAD fitting pools provide; when a pool is too small, the aggregate monitor is not run and its omission is reported.
-
-For a mixture $P_\rho=(1-\rho)P_b+\rho P_a$, population squared MMD satisfies
-\begin{equation}
-\mathrm{MMD}^2(P_\rho,P_b)=\rho^2\mathrm{MMD}^2(P_a,P_b),
-\end{equation}
-by linearity of the kernel mean embedding. This explains signal dilution under this mixture model; it is not a finite-sample detection guarantee. Topic shift in legitimate traffic can produce the same kind of discrepancy.
+The primary account window contains $w_a=100$ consecutive requests across all domains and does not overlap. Score only completed windows. A new account starts at L0, so short accounts can remain unscored; keep them in benign utility denominators. The reference distribution is mixed gateway traffic. This can make a legitimate specialist more unusual than a multiplexed attacker whose domain mix matches the reference. Removing template instructions does not remove this limitation.
 
 \subsection{Accumulated evidence and calibration}
 \label{sec:profile}
-Separate benign splits serve four roles: fitting references and bandwidths, calibrating window scores, calibrating policy thresholds, and final testing. No attack-labelled example sets a detector threshold. Given $M$ benign calibration scores $s_i^{(0)}$, define the empirical upper-tail score
+Use separate benign roles for fitting references, score calibration, policy calibration, and final testing. Given $M$ benign calibration scores $s_i^{(0)}$, convert a window score $s_j$ to its empirical upper-tail rank:
 \begin{equation}
 p_j=\frac{1+\sum_{i=1}^{M}\I[s_i^{(0)}\geq s_j]}{M+1}.
 \end{equation}
-This rank is a measure of rarity under the calibration traffic, not the probability that an account is malicious. Dependence and distribution shift preclude an unconditional significance guarantee.
+This rank measures rarity under the calibration workload. It is not the probability that an account is malicious. Dependence and distribution shift limit its interpretation.
 
-Let $j$ index completed windows for account $a$. The proposed risk update is
+For completed window $j$ of account $a$, update
 \begin{equation}
 r_{a,j}=\max\{0,\lambda r_{a,j-1}-\log p_{a,j}-\kappa\},
 \quad r_{a,0}=0,
 \label{eq:risk}
 \end{equation}
-with preselected defaults $\lambda=0.9$ and $\kappa=1$. Ordinary windows reduce accumulated evidence; repeated unusual windows increase it. Decay is per completed window, not per second, so waiting alone does not erase the profile. This is a proposed engineering rule, not an optimal sequential test. Query-rate features are reserved for a separate baseline and ablation.
+with proposed defaults $\lambda=0.9$ and $\kappa=1$. Ordinary windows reduce accumulated evidence; repeated unusual windows increase it. Decay is per completed window, so waiting alone does not erase the profile. This rule does not promise to identify domain switching or recover an intent signal absent from the request score.
 
-A policy horizon ends after 24 hours or 10,000 attempted account requests, whichever comes first. Profiles persist across sessions within that horizon. For each benign policy-calibration account, record the maximum risk over its full horizon. Set nested thresholds $\theta_1\leq\cdots\leq\theta_4$ so that no more than $\beta_\ell$ of these maxima exceed $\theta_\ell$, using strict exceedance and conservative handling of ties. The nominal targets are $(0.10,0.05,0.02,0.01)$ for L1--L4. These are calibration targets, not measured test rates. If sample size or tied scores cannot support a target, report the achieved calibration rate and the resulting conservative threshold. Reports include actual account counts, scored counts, achieved calibration rates, and held-out rates. At the available sample sizes the 1\% target is resolution-limited and is not a validated rare-event guarantee.
+A policy horizon ends after 24 hours or 10,000 attempted account requests, whichever comes first. Fit nested thresholds $\theta_1\leq\cdots\leq\theta_4$ to the maximum risk over each complete benign policy-calibration horizon, with strict exceedance and conservative ties. Proposed L1--L4 targets are $(0.10,0.05,0.02,0.01)$. The account retains its highest level until reset. Calibrate each compared policy on the same benign roles and report achieved rates.
 
-Thresholds are fixed before attack evaluation. The policy level is the highest level reached so far in that horizon. This latch prevents rapid switching and simplifies false-escalation measurement; a block lasts to the horizon's end. Experiments across multiple horizons explicitly test the resulting reset opportunity. A per-window false-positive rate is never substituted for the probability that an account is escalated at least once.
+The 1\% false-block value is a nominal operating target. The available source pools and synthetic clients do not establish a deployment guarantee at that rate. Report independent account, source-document, and scored-window counts, as well as unscored accounts and uncertainty. No attack-labelled example or final student score sets a detector threshold.
 
-\subsection{Actions and causal ordering}
+\subsection{Actions and response release}
 \label{sec:policy}
-Table~\ref{tab:actions} defines the policy. A completed window includes the current request, is scored before victim inference, and can change the action for that request. A request that triggers L4 receives no victim output. L3 releases the ordinary output only after successful challenge verification. All received outputs, including outputs from filler queries, remain available to the attacker. No experiment treats the first L3 challenge as an automatic end to extraction. L2 spacing applies immediately on entry, relative to the previous admitted request at any level. Challenge verification precedes victim inference, the client's elapsed time includes waiting and solving, and redeeming a proof consumes another campaign attempt.
+Table~\ref{tab:actions} defines the proposed actions. A completed window includes the current query and can change its action before victim inference. An L4 triggering query receives no victim output. L2 spacing applies immediately on entry relative to the previous admitted query. An L3 response is available only after successful proof verification and inference. The solver may continue extracting within the campaign's remaining allowance.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Proposed actions. These are protocol settings, not results.}
+\caption{Policy actions. Values are proposed settings, not results.}
 \label{tab:actions}
 \begin{tabularx}{\columnwidth}{@{}lY@{}}\toprule
 Level & Action \\\midrule
-L0 & Serve normally. Maintain the query buffer. \\
-L1 & Serve normally and record an alert. Scoring frequency is unchanged. \\
-L2 & Enforce at least one second between admitted requests per account; queue excess requests. \\
-L3 & Apply L2 and require a per-response SHA-256 proof of work with 20 leading zero bits. Bind the nonce to account, request digest, and five-minute expiry; reject reuse. \\
-L4 & Refuse subsequent service for the remainder of the policy horizon. \\\bottomrule
+L0 & Serve normally and maintain the query buffer. \\
+L1 & Serve normally and record an alert. \\
+L2 & Space admitted queries by at least one second per account; queue excess queries. \\
+L3 & Apply L2 and require a SHA-256 proof with 20 leading zero bits. Bind it to the account, request, and five-minute expiry; reject reuse. \\
+L4 & Refuse service until the account's policy horizon resets. \\\bottomrule
 \end{tabularx}
 \end{table}
-The proof-of-work puzzle is an explicit experimental intervention, not a reproduction of the privacy-calibrated scheme in~\cite{dziedzic2022pow}. The attacker is allowed to solve it. Difficulty 16 and 24, accelerated solving, and different client hardware are sensitivity conditions. Challenge computation, queueing, retries, and abandonment are included in user costs. Successful answers are not assumed to imply unaffected user utility.
 
-\section{Evaluation protocol and pending results}
+This puzzle is an experimental intervention, not a reproduction of the privacy-calibrated proof-of-work scheme~\cite{dziedzic2022pow}. Record actual hashes, solver hardware, solving time, and verification outcomes. A challenge event alone never counts as stopped extraction. Responses from cover traffic can also train the student. Pending queries, failures, and outputs completed after the deadline remain visible in accounting; late outputs do not enter the bounded campaign's training set.
+
+\section{Evaluation protocol}
 \label{sec:eval}
-\textit{Draft status.} This section specifies planned experiments. Every \pending{} in a results table means ``not measured,'' never zero. Numerical settings are proposed defaults, not observations. Hardware, artifact revisions, sample counts, and calibrated thresholds remain explicit placeholders until implementation. Results prose will be added only after the protocol is run.
+\textit{Draft status.} Input generators exist, but the shared gateway, combined-student orchestration, and effectiveness measurements are pending. This section defines the proposed experiment. Freeze the final matrix before testing. N/M in a table means not measured; N/A means structurally inapplicable. Neither means zero.
 
-The evaluation asks: (RQ1) does accumulated evidence improve intervention at a matched account false-positive target; (RQ2) does intervention reduce extraction gains for small students; (RQ3) what can adaptive campaigns still collect; and (RQ4) what do legitimate users lose in availability, delay, and task utility?
-
-\subsection{Reproduction and data provenance}
+\subsection{Domains, splits, and shared student}
 \label{sec:eval-data}
-First reproduce the released MMD artifact~\cite{liu2026detector,mmd2026artifact} using its original splits, adapted baselines, 1,500-query windows, 95th-percentile threshold, and seeds $\{1,20,42\}$. Its 50 evaluation batches per condition are suitable for a reproduction check, not precise rare-event estimation. Preserve its statistic and sampling implementation in this track. The sequential protocol defined in Section~\ref{sec:system} is a separate experiment; its thresholds and scores need not numerically match the artifact.
-
-Table~\ref{tab:data} separates query-only detection resources from experiments requiring victim responses. Retain the artifact's fourteen pair identifiers in the run manifest; do not invent scenario counts or infer trained-student quality from query traces. Report reproduction deviations rather than importing published results into our tables.
+Table~\ref{tab:data} lists the gateway domains. Retain the existing source-group splits and frozen test suites. Reserve 10\% of training-source documents for development. Divide the remainder equally between attacker and legitimate pools, then divide legitimate data 40/20/20/20 across fitting, score calibration, policy calibration, and benign testing. Keep document derivatives and detected duplicates within one role. Pooling domains must preserve these assignments and source identities.
 
 \begin{table*}[!t]
 \centering\footnotesize
-\caption{Data sources and their experimental roles. ``Proxy'' indicates constructed client or attack traces, not verified real accounts or demonstrated privacy leakage.}
+\caption{Domains served by one gateway and evaluated through the same student adapter. Caps are frozen before campaign collection.}
 \label{tab:data}
-\begin{tabularx}{\textwidth}{@{}p{0.20\textwidth}YYY@{}}\toprule
-Source & Role & Legitimate comparison & Constraint \\\midrule
-Released MMD artifact~\cite{mmd2026artifact} & Query-only reproduction across its fourteen pairs & Released normal queries for each pair & Preserve its manifest and protocol; no student-quality claims \\
-AG News~\cite{zhang2015char} & Four-class capability extraction & Held-out news requests through the same task interface & Gold labels excluded from attacker training \\
-SQuAD 1.1~\cite{rajpurkar2016squad} & Context-grounded QA extraction & Held-out QA requests with the same context format & Split by source article; exclude test contexts from collection; gold answers excluded from attacker training \\
-GSM8K~\cite{cobbe2021gsm8k} & Optional generative extension & Held-out problems through the same task interface & Gold answers excluded from attacker training; inclusion frozen before final testing \\
-WildChat~\cite{zhao2024wildchat} & General-chat traffic and client proxies & Filtered English user turns & Hashed IP is not an authenticated account or person \\
-LMSYS-Chat-1M~\cite{zheng2024lmsys} & External benign-shift stress test & Filtered English conversations & Conversation IDs do not establish cross-session identity \\
-Synthetic private-record task & Optional privacy extension & Matched ordinary lookups & Known exposure and recovery ground truth required \\\bottomrule
+\begin{tabularx}{\textwidth}{@{}lYYY@{}}\toprule
+Domain & Request and response & Final evaluation & Output cap \\\midrule
+AG News~\cite{zhang2015char} & News article; one of four topic labels & Official test split; label accuracy & 16 new tokens \\
+SQuAD 1.1~\cite{rajpurkar2016squad} & Passage and question; short answer & Official development articles held for final testing; token F1 and secondary EM & 64 new tokens \\
+GSM8K~\cite{cobbe2021gsm8k} & Math problem; solution with a marked final number & Official test split; numeric exact match & Provisionally 256 new tokens \\\bottomrule
 \end{tabularx}
 \end{table*}
 
-For each service type, legitimate traffic must match the task interface. News extraction is compared with news use, and QA extraction with QA use; general chat is not the sole benign baseline for a narrow task API. Include authorised batch annotation, repeated templates, sustained specialist topics, and bursty requests as hard benign controls. Otherwise the detector may merely distinguish task or prompt format. Version \texttt{task-clients-v1} generates these task-matched clients from the legitimate pools: specialist accounts ordered by topic or article, with up to 200 requests; repetitive accounts that repeat up to 100 prompts three times; batch accounts of up to 500 requests at 0.1-second intervals; bursty accounts of up to 300 requests in bursts of 25 starting 60 seconds apart; and short accounts of at most 20 requests, with other arrivals two seconds apart. Source groups are disjoint across the four roles, although a document can contribute to several accounts within one role. These are disclosed synthetic workloads, not natural client traces, so account rates measured on them describe this workload rather than a deployment population. The AG News and SQuAD policy-calibration pools hold 10,836 and 8,079 requests, enough for at most 108 and 80 disjoint 100-request accounts.
+The teacher is \texttt{Qwen3.5-9B} in non-thinking mode, and the student is \texttt{Qwen3.5-2B-Base}~\cite{qwen2026qwen35}. Pin full model revisions, teacher precision or quantization, tokenizer, chat template, and generation settings. The base student must learn each answer format as well as the task. Measure it on the same serializations. These three domains do not establish general-chat capability or resistance to copying a general assistant. Coding requires a separate data and execution protocol before inclusion.
 
-WildChat contains hashed IP metadata~\cite{wildchat2024card}. Grouping by this field creates client proxies subject to shared networks and address changes. Remove duplicate conversation snapshots and repeated turns, retain observed timing where available, and label imputed timing. Filter known abuse and audit a stratified sample; absence of extraction labels is not proof of benign intent. The selected release and filters are recorded. LMSYS is used for query- or conversation-level shift analysis unless reliable account metadata is available~\cite{lmsys2023card}.
+Use deterministic teacher decoding with the caps in Table~\ref{tab:data}. A development-only pilot checks GSM8K truncation before its cap is frozen. Apply identical input serialization and truncation rules during collection, preparation, and evaluation. The attacker never reads gold answers. Wrong and malformed complete answers remain available to it; failures, empty responses, output-cap truncations, and overlength training records are excluded under documented rules and counted by domain. Pretraining contamination cannot be ruled out, so retain the base-student result.
 
-Split by the strongest available identity and by source document: 40\% fitting, 20\% score calibration, 20\% policy calibration, and 20\% final benign testing. Deduplicate before splitting; keep near-duplicate prompts, document derivatives, and paraphrase families together. Reserve attack-generation development documents separately from final attack evaluation. Preserve chronological order within each client and include a later-time benign holdout as a shift test. Neither final attacks nor final student test scores may influence detector selection. Reference updates are frozen during a run; an optional recalibration experiment uses separately reviewed benign data.
-
-Natural short conversations are retained. For controlled long-horizon tests, construct task-matched benign workloads with disclosed sampling rules, and report these separately from natural clients. Repeated samples from a small pool do not count as new independent accounts.
-
-\subsection{Small-model distillation study}
 \label{sec:eval-models}
-Use \texttt{Qwen3.5-9B} in non-thinking mode as the local victim and \texttt{Qwen3.5-2B-Base} as the student~\cite{qwen2026qwen35}. The models share a family and tokenizer, which removes unrelated tokenization effects. The student is a base checkpoint, so it learns each task's answer format from the transfer data as well as the task itself; the unmodified student, scored on the same serialization, is the baseline for both. This supports a controlled task-level study, not a claim of cloning a frontier service. Pin exact revisions, chat templates, and the victim's served precision or quantization. A student from another family is an optional extension, separately reported.
+Train one LoRA adapter per campaign, defense, and training seed on the combined released responses. Use response-token cross-entropy, mask prompt tokens, and expose neither victim logits nor gold labels. Proposed settings are rank 16, alpha 32, dropout 0.05, all linear text-model layers, BF16 base weights, AdamW, 3\% warm-up, effective batch size 16, and a 2,048-token limit~\cite{hu2022lora}. Measure per-domain exclusions and supervised tokens; a combined dataset does not make every example fit. Shuffle examples with a fixed training seed so collection order does not silently become a training curriculum.
 
-AG News classification and SQuAD 1.1 extractive QA are the core endpoints. GSM8K~\cite{cobbe2021gsm8k}, a generative task with a numeric final answer, is an optional extension; whether it is run is frozen before final testing. Each task is a separate service with one fixed request serialization, used identically for attacker queries, legitimate traffic, development, and final testing. For AG News, the service returns one of four textual labels; for QA, a short answer given the passage and question; for GSM8K, a solution ending in a marked final number. Use deterministic victim decoding with fixed output caps of 16 new tokens for AG News, 64 for SQuAD, and provisionally 256 for GSM8K. A development pilot of about 200 GSM8K prompts, drawn from the development split so that it spends no attacker budget, checks the GSM8K cap: if more than 2\% of pilot responses stop at the cap, the cap is raised and the pilot repeated. Report the pilot's size and finish-reason counts, and freeze every task's cap before main collection begins. Apply the same documented truncation rule before querying, training, and evaluation, and report how often it is invoked. Do not discard cases using test labels or answer locations. The attacker never sees gold answers, so no response is filtered by correctness: wrong and malformed complete answers remain in training, as they would for a real extractor. Filtering by correctness would also remove the victim errors that fidelity measures are meant to capture~\cite{jagielski2020high}. Only collector failures, responses truncated at the output cap, empty responses, and records exceeding the 2,048-token training limit are excluded, and each exclusion is counted.
+Select one shared recipe on development data before final testing. The proposed search crosses learning rates $\{10^{-4},2\times10^{-4}\}$ with $\{1,2,3\}$ epochs using the balanced undefended inventory and seed 42. Select the equal-weight mean of the three development primary scores solely for recipe choice, with fewer epochs and then lower learning rate breaking ties. Report every domain's development gain. Freeze the recipe across primary defense conditions. A separate gold-label student may assess task learnability on the same prompts; it is not an attacker condition or a guaranteed upper bound.
 
-Train students with response-token cross-entropy on released victim text only; mask prompt tokens. Neither logits nor private victim examples are available. Use LoRA~\cite{hu2022lora} on every linear layer of the student's text model, with rank 16, alpha 32, and dropout 0.05. Train the base weights unquantised in BF16 with AdamW, 3\% linear warm-up, effective batch size 16, and a 2,048-token limit. Six development candidates per task, the learning rates $\{10^{-4},2\times10^{-4}\}$ crossed with the epoch counts $\{1,2,3\}$, are trained at budget 2,000 with seed 42; the development suite selects the highest task-primary score, preferring fewer epochs and then the lower learning rate on ties. Freeze that recipe across defense conditions. Training holds out no validation split of victim responses, because one would spend attacker queries outside $B_A$. Log training tokens, steps, precision, peak memory, and GPU-hours; do not assume adapter training is cost-free.
+A per-domain transfer gate remains necessary for the shared student. If undefended development training fails to improve a domain, that domain cannot support a defense-effectiveness claim under this recipe. Diagnose or amend the protocol using development data only. Retain all final scores, failed gates, and ceiling effects. Neither a low defended score nor capacity sharing across tasks establishes that the harness prevented learning.
 
-Reserve 10\% of training-source documents for development before query generation. Divide the remaining source documents equally into disjoint legitimate-workload and attacker-query pools; apply the four-way benign split only within the legitimate pool. Use the official AG News and GSM8K test splits for final scoring. Split SQuAD's official development articles into an untouched final test set only; use training articles for development and collection. Group overlapping news content, QA articles, and repeated GSM8K problems to prevent collection--test leakage. Pretraining contamination cannot be ruled out, so evaluate every unmodified student and retain its score as a baseline.
+\subsection{Legitimate specialists and generalists}
+\label{sec:benign}
+The \texttt{gateway-clients-v1} generator separates domain profile from request style. Specialists stay within one domain. Generalists use at least two. Both profiles can issue ordinary, repetitive, batch, bursty, or short streams. Order specialist content by source group, or by topic when category references are supplied. These profiles approximate declared workloads, not observed user populations.
 
-\textit{Validity check.} Before testing a defense claim, measure victim quality, unmodified-student quality, and undefended distillation gain on development data. The transfer task must allow learning. If the undefended student fails to improve, report that setting as uninformative for anti-extraction effectiveness. Diagnose optimisation or teacher quality on development data only and document any protocol amendment before final testing. Keep all final results, including failures and ceiling effects. The pipeline records a failed transfer gate when the selected recipe's undefended development gain is not positive and stops final defense testing for that task; failed learning is never interpreted as extraction resistance.
+The generator cycles through five styles. With a proposed 100 requests per account, short accounts stop at 20; repetitive accounts repeat each selected prompt up to three times; batch arrivals are 0.1 seconds apart; bursts contain 25 queries and begin 60 seconds apart; other arrivals are two seconds apart. Accounts start together. Prompts are sampled without replacement across accounts except for disclosed within-account repetition. Source documents can contribute to several accounts within one role and must be clustered in uncertainty estimates.
 
-\textit{Execution tiers.} The core study uses the 2B student on both core tasks at $B_A\in\{500,2000,8000\}$ with no defense, instantaneous MMD, and the full policy, using three paired seeds $\{42,1,20\}$. Each seed fixes both the order of attacker queries and the training seed, and budgets nest: the 500-query set is a prefix of the 2,000-query set, which is a prefix of the 8,000-query set. GSM8K, if retained, runs at 500 and 2,000 queries only, because its attacker pool holds 3,389 problems. With attacker and gold-reference students, the undefended AG News and SQuAD matrix is 36 training runs, and retaining GSM8K adds 12, for 48. These counts exclude defended students and matched supervision controls, and they are planned runs, not completed experiments. Add quota and volume controls at 2,000 and 8,000 requests. Run the wider traffic sweeps with cached query embeddings before choosing any optional training extensions. A reduced compute budget must reduce the declared matrix in advance, rather than omit unfavourable completed runs.
+The proposed primary generalist share is 10\% of accounts, with 0\% and 30\% as sensitivity settings. Round to whole accounts and report the achieved share. Also report request-weighted domain proportions, per-account domain composition, lengths, styles, unique prompts, and source groups. Account shares and request shares differ when lengths differ. Generate the four benign roles from their corresponding separated source pools. Freeze their hashes and all calibration choices before final campaigns.
 
-\subsection{Attack schedules and resource accounting}
+Test both matched mixtures and a declared distribution shift between calibration and benign testing. A calibration with no generalists cannot by itself establish acceptable service to generalists. The source datasets contain no natural timing, so slow attacks use a stated synthetic rate. No later-time or general-chat trace study is claimed.
+
+\subsection{Campaign strategies and resource accounting}
 \label{sec:attacks}
-The primary extractor samples task-relevant public prompts without replacement and learns from victim responses. A stronger variant selects diverse prompts, then prioritises student uncertainty in batches of 100 using only the student's own predictions; it is an explicitly specified adaptation inspired by active query selection~\cite{dai2023meaeq}. Recompute its choices after each training update. Replay is valid only for a fixed query schedule; response-dependent attacks must be rerun against each defended service.
+Table~\ref{tab:schedules} separates the primary fixed strategies from deferred extensions. They all aim to train one student across domains. A1, A2, and A5 select the same prompts for a matched seed and domain allocation. They change order or account ownership. Their timing is an intended arrival schedule; actual submission and completion times must come from execution.
 
-\textit{Detectability check.} The attacker pool and the legitimate pools are hash-separated portions of the same training split, so a uniform extractor may induce the same request distribution as legitimate task traffic; an MMD statistic alone cannot then separate their intentions, and the uniform extractor serves as a negative control for query-distribution detection. Before interpreting any defense result, replay the seed-42 2,000-prompt attacker sequence as one account through each frozen policy and compare its level reaches with held-out benign clients. One replay is not a power estimate, and zero escalations do not show that every same-distribution campaign will escape.
+\begin{table*}[!t]
+\centering\footnotesize
+\caption{Campaign definitions and current scope. An input generator does not demonstrate execution or effectiveness.}
+\label{tab:schedules}
+\begin{tabularx}{\textwidth}{@{}llYY@{}}\toprule
+ID & Strategy & Account and selection rule & Status \\\midrule
+A1 & Multiplexed & One account; randomly interleave domain prompts under a fixed seed & Primary; inventory generator implemented \\
+A2 & Domain-sequential & One account; submit one seeded block per domain & Primary; inventory generator implemented \\
+A5 & Sybil per domain & Partition a total of $k$ accounts across domains; pool all responses & Primary; inventory generator implemented \\
+A3 & Cover traffic & Add declared benign-looking queries; all received outputs may train & Deferred \\
+A4 & Slow collection & Multiplex at a declared lower synthetic rate & Deferred \\
+A6 & Sybil random & Split multiplexed queries among several accounts & Deferred \\
+A7 & Independent sources & Use separately pinned public or synthetic prompt sources per domain & Deferred \\
+A8 & Active coverage & Select, train, update, and reselect across domains using observable feedback & Deferred; requires live runs \\\bottomrule
+\end{tabularx}
+\end{table*}
 
-For each task, test pure extraction; within-account mixtures with $\rho_a\in\{0.10,0.25\}$; slow queries at the median eligible benign request rate; paraphrased instructions; and campaigns split across $k\in\{5,20\}$ accounts. Keep the total campaign budget fixed across $k$, interleave accounts explicitly, and let the attacker combine every received response. Paraphrases preserve the task and are checked on a development sample. Record the generator, revision, decoding settings, and generation cost. A further adaptive test samples prompts resembling an independent benign pool and reacts to observed throttling or challenges. Do not provide private detector scores to that attacker.
+The proposed primary envelope is $B_A=6{,}000$ total HTTP submissions and $T_A=24$ hours, with a candidate inventory of 2,000 prompts per domain. The pinned GSM8K attacker pool has 3,389 prompts, so this allocation fits. A1 and A2 use one account; A5 uses six accounts, two per domain. The default aggregate intended spacing is one second. Proof redemptions and failures spend the same total allowance and can leave later inventory prompts unsent. This inventory is not a guarantee of 2,000 answers from each domain.
 
-The main resource limit is $(B_A,T_A)$ with $T_A=24$ hours. Count input tokens, output tokens, requests attempted, responses received, challenge work, and elapsed time. Filler outputs may also train the surrogate; excluding them would artificially weaken a mixed attacker. Failed submissions and proof redemptions consume attempts, and the client neither replaces failed prompts nor retries them invisibly. An event ledger records each attempt before transmission and its outcome afterward, so pending attempts stay visible after an interruption, and an interrupted campaign cannot restart with fresh policy state and a replenished budget. Report a time-unlimited, fixed-attempt test separately: throttling alone may delay collection without reducing its eventual value. Repeat across three policy horizons to test re-entry after reset. Embedding truncation, benign-reference contamination at 1\% and 5\%, and topic-matched extraction are additional stress tests.
+The proposed matrix is A1/A2/A5 crossed with no defense, full policy, instantaneous MMD, and quota, with paired seeds $\{42,1,20\}$. This gives 36 adapter conditions before controls and development trials. Share an adapter only when its prepared dataset, base revision, recipe, and training seed match exactly. Collection order alone does not justify training duplicates. Query-order and training seeds are distinct recorded dimensions even when their proposed values coincide. A7 adds a stronger source test only after its sources and runner are ready and its matrix is frozen.
 
-\subsection{Baselines, controls, and ablations}
+An executor must write each attempt before submission, retain failures and pending outcomes, and join admission and response events by campaign, account, and request identity. Record termination by allowance, deadline, exhausted inventory, or service failure. An interrupted campaign keeps its spent allowance. Multi-account execution is pending, so these requirements are not claims about completed gateway runs.
+
+A same-distribution extractor is a required failure control. The attacker and legitimate pools are disjoint portions of the same task sources, and a matching mixture can resemble ordinary use. Domain-sequential windows may resemble specialists or may differ from the global reference. Accumulation does not guarantee detection in either case. Preserve these results even if quota performs as well as the semantic score.
+
+\subsection{Comparisons and supervision controls}
 \label{sec:baselines}
-The primary session baseline uses the same MMD score, windows, and references but replaces accumulated risk with current-window evidence. Calibrate its maximum over complete benign horizons to the same L4 target. Apply the same actions, challenge difficulty, and latch. This isolates the value of memory. Also test a per-minute rate rule and a per-horizon query quota, with cutoffs fitted only to benign calibration clients at the same false-block target. A rule with only blocking has no L2/L3 outcome; mark those cells not applicable rather than fabricating levels.
+No defense establishes whether each strategy can transfer capability. The full policy tests accumulated MMD with the actions in Table~\ref{tab:actions}. Instantaneous MMD keeps the same encoder, windows, references, actions, and latch, but uses current-window evidence. The quota baseline blocks after a per-horizon count fitted to the same benign calibration roles. Report achieved false-block rates and utility for each policy. Nominally equal targets do not establish equal realised cost. A block-only quota has no L2/L3 outcomes; mark them N/A.
 
-Use adapted PRADA and SEAT in the reproduction track with the released definitions~\cite{juuti2019prada,zhang2021seat,mmd2026artifact}. Name any other inherited implementation explicitly and attribute it to the artifact. Methods requiring victim training history or internal features are not treated as query-only baselines. The main session claim compares the full policy with instantaneous MMD and simple quotas, not with an incomplete implementation of a stronger method.
+For each defended dataset, build matched-volume and matched-prefix controls from its paired undefended responses. Match within each domain, using measured released response tokens and the nearest whole-response totals. The volume control samples under a fixed seed; the prefix control preserves collection order. Report response counts, token totals, post-preparation counts, and residual mismatches by domain. This separates reduced supervision volume and changed domain balance from selective removal of useful examples. These are diagnostic training sets, not deployable policies, so they have no false-positive rate.
 
-Two diagnostic controls explain lost extraction performance. A \emph{matched-volume} control trains on a uniform subset of the undefended transfer set with the same number of released response tokens as the defended set, to within one response, and reports the residual mismatch. A \emph{prefix} control trains on the earliest undefended responses up to the same released-token count, again allowing at most one response of mismatch. The matched-volume subset is a seeded uniform permutation of undefended released responses, and the prefix keeps their original order; both use measured output-token counts and the same gold-blind preparation. A control whose token counts are unknown is not reported as matched, and zero usable supervision leaves the unmodified student as the outcome. These post-hoc controls explain data volume and ordering; they are not deployable policies and do not get FPR scores. Also train a gold-label student as a task-learning reference, clearly separated from the black-box attack. It trains on gold answers for the same attacker prompts and never on victim responses, so gold labels never enter an attacker condition. It is a reference, not a guaranteed upper bound.
+Retain separate-domain specialist students and uniform single-domain extraction as reference experiments if run. They can expose capacity-sharing effects without replacing the shared campaign student. A relaxed-deadline, fixed-attempt comparison is needed before attributing a lasting loss of accessible supervision to throttling. Reset, window-size, no-memory, no-decay, and direct-blocking experiments are secondary and enter reported tables only after their runners and calibration are complete. The primary matrix makes no aggregate-monitor, privacy, or upstream-reproduction claim.
 
-Ablations set $\lambda=0$ (no memory), $\lambda=1$ (no decay), replace graduated actions with direct L4 blocking, and vary $w_a\in\{50,100,200,500\}$. A rolling-window variant uses stride $w_a/4$. Recalibrate each variant on the same benign splits to match account-level error targets. The main comparison uses no aggregate-to-account attribution. Aggregate alert performance is reported separately, especially for Sybil campaigns.
+\subsection{Cached outputs and enforcement-aware replay}
+\label{sec:replay}
+Fixed query selection permits reuse of unchanged teacher outputs when prompt identity, model revision and quantization, template, decoding, output cap, and relevant random seed match. Preserve this full contract. Existing ledger rows are reusable evidence only where that identity check succeeds.
 
-\subsection{Metrics and statistical analysis}
+Current harness replay produces policy decisions and scheduled release times. It does not solve challenges, charge proof submissions, run inference, or observe completed outputs. Filtering on an action other than refusal would count some unreleased or late responses as training data. Use this replay for detector diagnostics until an enforcement simulator accounts for queues, solver work, expiry, pending requests, deadlines, and horizon resets.
+
+Validate any simulator against live HTTP decision and release traces before using its filtered ledgers as defended training sets. Label simulated timing separately from measured solver and serving cost. Live active collection must rerun its feedback loop against every defense because the replies change its future selections. A fixed inventory is never evidence of active adaptation.
+
+\subsection{Capability, intervention, and legitimate utility}
 \label{sec:metrics}
-\textit{Detection.} Report window FPR and TPR at each aggregate attacker fraction $\rho\in\{0.05,0.10,0.25,0.50,1.00\}$. Macro-average across the fixed pair list and then across fractions; balanced accuracy uses that mean TPR, $[\overline{\mathrm{TPR}}+1-\mathrm{FPR}]/2$. Report the underlying counts and per-pair results so unequal dataset sizes cannot hide failure.
+\textit{Learned capability.} Evaluate each campaign adapter on all three frozen domain suites. Use AG News accuracy, SQuAD normalised token F1 with secondary exact match, and GSM8K numeric exact match. Invalid outputs count as incorrect. Report victim agreement only over valid-output pairs, with numerator, valid-pair denominator, total pairs, and coverage. No cross-domain average replaces these outcomes.
 
-At account level, $\mathrm{FPR}_{\ell}$ and $\mathrm{TPR}_{\ell}$ are the proportions of benign and attack accounts reaching level at least $\ell$ within the fixed horizon. Detection delay is not interchangeable with answer leakage. If $J_\ell(a)$ is the first request index causing level $\ell$, define
+Let $S_{0,d}$ be the base-student score in domain $d$, $S_{U,d}$ its paired undefended score, and $S_{D,d}$ its score under a defense, all at the declared campaign envelope. Report raw scores and
 \begin{equation}
-J_\ell(a)=\inf\{t:L_{a,t}\geq\ell\},
+G_{D,d}=S_{D,d}-S_{0,d},\qquad
+\Delta_{D,d}=S_{U,d}-S_{D,d},
 \end{equation}
 \begin{equation}
-Q_\ell(a)=\sum_{i=1}^{J_\ell(a)}\I[A_i=1\;\land\;O_i=1],
-\end{equation}
-where $A_i$ is the ground-truth attack-query indicator and $O_i$ indicates that a victim response was actually released. Also count \emph{all} responses available for training, including filler. Report attempted requests to escalation, wall-clock delay, released tokens, and the probability of intervention by each budget. A blocked triggering request contributes zero released responses. Both are derived from the campaign event ledger after joining account decisions by request identifier. A campaign that ends first is right-censored at its observed attempts and released outputs, missing decision attribution remains unknown, and outputs that arrive after the deadline contribute no supervision.
-
-Undetected accounts are right-censored at the budget or horizon; do not drop them or assign zero delay. Report survival curves and censoring counts. Report the median only if the estimated intervention probability reaches one half; otherwise write ``not reached.'' For Sybil attacks, the unit is the entire campaign: report total released supervision and student quality, as well as the fraction of its accounts blocked. Blocking one account is not equivalent to stopping the campaign.
-
-\textit{Extracted capability.} Use AG News accuracy and label agreement with the victim. For SQuAD, use official normalised token F1 against gold answers as the primary score, with exact match (EM) as secondary, plus normalised EM agreement with victim answers. For GSM8K, use numeric exact match of the final answer. Invalid outputs count as incorrect, and each task is reported separately; no score is averaged across tasks. Agreement uses only pairs in which both outputs are valid and reports its numerator, valid-pair denominator, total pairs, and coverage; a shared wrong answer counts as agreement, but a shared unusable answer does not. Free-text embedding similarity is not a substitute for task correctness. Let $S_0$ be the unmodified-student score, $S_U(B_A)$ the undefended distilled score, and $S_D(B_A)$ the defended score under the same budget. Report raw scores and
-\begin{equation}
-G_D=S_D-S_0,\qquad \Delta_D=S_U-S_D,
-\end{equation}
-\begin{equation}
-R_D=\frac{S_U-S_D}{S_U-S_0}.
+R_{D,d}=\frac{S_{U,d}-S_{D,d}}{S_{U,d}-S_{0,d}}.
 \label{eq:gain}
 \end{equation}
-$R_D$ measures the fraction of the undefended gain removed. Report it only when the undefended gain is positive, at least two percentage points, and its paired 95\% interval excludes zero. Otherwise mark it not interpretable. Do not clip negative values or values above one. Report budget curves and the attempted-request cost of reaching $S_0+0.8(S_U(B_{\max})-S_0)$, treating unreached targets as censored. The target is descriptive and never tunes the detector.
+Here $R_{D,d}$ is the fraction of undefended gain removed. The retained fraction is $1-R_{D,d}$ and must have a separate name in exported results. Interpret the ratio only after the development gate passes and the final undefended gain is at least two percentage points with a paired 95\% interval excluding zero. Otherwise report raw effects and mark the ratio uninterpretable. Do not clip negative values or values above one.
 
-\textit{Legitimate use.} Measure false escalation, refusal, successful completion by the deadline, queue and challenge time, and p50/p95 end-to-end latency. For task workloads, report both served-only quality and unconditional utility: the sum of task scores divided by all legitimate submitted requests, assigning zero to refusals, timeouts, or abandoned requests. This prevents a policy from appearing harmless simply because its served answers are unchanged. General-chat quality requires a separately specified blinded rubric; do not report QA F1 as a general-chat metric. The implemented workload runs with concurrency 32, a 120-second deadline measured from scheduled arrival, and five warm-up requests on a separate account; the undefended and protected services receive the same arrival schedule.
+Freeze a meaningful numeric capability threshold $\tau_d$ for each informative domain using development-only evidence. Record the selection rule and threshold before final testing. Define observed per-domain extraction success as
+\begin{equation}
+E_{C,d}=\I[S_{C,d}\geq\tau_d].
+\end{equation}
+Also report whether any domain target and all domain targets are reached. These answer different questions about campaign success. A strategy supports a bounded prevention result only where its undefended reference learns and reaches the declared target while the paired defended student does not. Show the underlying scores and uncertainty. Missing or uninformative runs are not defense successes. Three seeds give observed counts out of three, not a precise success probability or a guarantee beyond the tested envelope. Optional prefix-trained budget curves report first observed target attainment; unreached targets remain censored.
 
-\textit{Uncertainty.} Pair query pools, task splits, model initialisations, and training seeds across conditions. Use seeds $\{42,1,20\}$ for the core study and report each run, the mean, and standard deviation. Three seeds do not establish broad training robustness. Use paired cluster bootstrap intervals at the independent client/campaign and source-document levels; do not treat overlapping windows or repeated samples as independent observations. Report uncertainty over test items separately from training-seed variation.
+\textit{Intervention and released supervision.} Let $L_i$ be the reached level for the account receiving campaign attempt $i$. Define the first campaign intervention at level $\ell$ by
+\begin{equation}
+J_\ell(C)=\inf\{i:L_i\geq\ell\}.
+\end{equation}
+Record its account, request domain, and decision time $t_\ell(C)$. If $r_j$ is the completed release time of received response $j$ and $d_j$ its domain, define
+\begin{equation}
+Q_{\ell,d}(C)=\sum_{j:\,\mathrm{received}}
+\I[d_j=d\;\land\;r_j<t_\ell(C)].
+\end{equation}
+This counts all received supervision, including cover outputs, strictly before the intervention decision. A response still pending at that time is not counted there; count it in the campaign's final totals if it arrives within the deadline. Report tokens as well as response counts by domain. The blocked trigger contributes no output. Preserve per-account reaches and the fraction of accounts blocked. First-account intervention is not campaign termination.
 
-Aim for at least 3,000 independent benign calibration clients and 3,000 benign test clients per service stratum for the 1\% block target. If the available data cannot support this, report the actual count and wider uncertainty, and narrow the claim. Clopper--Pearson intervals apply only to independent Bernoulli units; dependent proxy groups require cluster-based intervals. As a scale check, zero errors in 3,000 independent trials gives a one-sided 95\% upper bound of about 0.1\%, not proof of zero risk~\cite{clopper1934limits}. Rare-window targets of 0.1\% require at least 10,000 independent calibration windows for the planned sensitivity study, with uncertainty still reported. Reused reference windows remain a shared source of uncertainty.
+A campaign ending before intervention is right-censored at observed attempts and time. Missing decision attribution stays unknown. Report censoring counts and estimate intervention probability with censoring retained. Report a median only if that estimate reaches one half; otherwise mark it not reached. Account false-escalation rates use all benign accounts; report the unscored fraction separately. Window-level diagnostic rates do not substitute for these account or capability outcomes.
 
-The primary contrast is full policy versus instantaneous MMD at the 1\% account false-block target, on each core task at 2,000 attempted requests. Report effect sizes and paired intervals, with Holm correction if formal tests are made across the two tasks~\cite{holm1979simple}. All other contrasts are secondary. As proposed operational criteria, seek at least a two-percentage-point reduction in the primary student score relative to instantaneous MMD, with no more than a two-percentage-point loss in legitimate completion relative to no defense, alongside the stated false-block target. These are practical-effect targets to freeze before final testing, not predicted results. Report the full trade-off if they are not met. A useful result must show a learnable undefended attack, a reduction in retained capability, and measured benign cost together. Significance or a large detection percentage alone is insufficient.
+\textit{Legitimate use.} Pair intended arrival schedules across defenses. Report false escalation, refusal, completion by deadline, queue and challenge time, and p50/p95 end-to-end latency by domain profile and request style. For each domain, report served-only quality and unconditional utility: sum the task scores over all submitted legitimate requests and assign zero to refusal, timeout, or abandonment. The proposed request deadline is 120 seconds from intended arrival, with concurrency 32 and five warm-up requests on a separate account. These are workload settings, not gateway measurements. Report service overhead separately from policy-induced waiting.
 
-\subsection{Reproducibility and serving measurements}
+\subsection{Pairing, uncertainty, and interpretation}
+\label{sec:analysis}
+Pair source splits, prompt inventories, teacher settings, base checkpoints, and training seeds across defenses. Retain each seed, mean, and standard deviation. Bootstrap paired domain scores by source document, and benign costs by account or shared-source cluster. A shared student makes its domain outcomes dependent. Repeated prompts, reused reference windows, and synthetic accounts sharing documents are not independent replications. Report test-sampling uncertainty separately from variation across training runs.
+
+Report actual independent counts rather than an aspiration to thousands of clients. Exact binomial intervals require independent Bernoulli units~\cite{clopper1934limits}; use cluster-based intervals where sources are shared. The primary comparisons are full policy versus no defense and quota within each declared strategy and domain. Instantaneous MMD tests the added value of accumulation. If formal tests are used, freeze their contrast family and multiplicity correction before final scoring~\cite{holm1979simple}. Otherwise report paired effect estimates and intervals without an undeclared significance claim.
+
+Interpret capability reduction alongside achieved benign completion, false-block rates, and unconditional utility. Freeze practical effect and acceptable-cost thresholds on development workloads before the final matrix. A useful defense result needs a working attack baseline, a measured reduction in its learned capability, and an acceptable benign cost together. State separately when the evidence supports bounded prevention, increased acquisition cost, delay, or no useful protection.
+
+\section{Reporting plan and implementation status}
+\label{sec:results}
+Report campaign capability first, then supervision and intervention, benign costs, and calibration sensitivity. Every result in the following templates remains unmeasured. No relative ranking of A1--A8 or defense effectiveness is predicted.
+
+\subsection{Campaign capability}
+\begin{table*}[!t]
+\centering\footnotesize
+\caption{Primary outcome template for one domain at the fixed campaign envelope. Repeat for AG News, SQuAD, and GSM8K using the same adapter identities. Score is a percentage; reduction is in percentage points. Target reached is the observed count out of eligible paired runs. Base and victim references accompany each domain. All entries are unmeasured.}
+\label{tab:student}
+\begin{tabularx}{\textwidth}{@{}lYccccc@{}}\toprule
+Campaign & Defense & Score & Reduction & $R_{D,d}$ (\%) & Target reached & Released tokens \\\midrule
+A1 & No defense & \pending & N/A & N/A & \pending & \pending \\
+A1 & Instantaneous MMD & \pending & \pending & \pending & \pending & \pending \\
+A1 & Query quota & \pending & \pending & \pending & \pending & \pending \\
+A1 & Full policy & \pending & \pending & \pending & \pending & \pending \\
+A2 & No defense & \pending & N/A & N/A & \pending & \pending \\
+A2 & Instantaneous MMD & \pending & \pending & \pending & \pending & \pending \\
+A2 & Query quota & \pending & \pending & \pending & \pending & \pending \\
+A2 & Full policy & \pending & \pending & \pending & \pending & \pending \\
+A5 & No defense & \pending & N/A & N/A & \pending & \pending \\
+A5 & Instantaneous MMD & \pending & \pending & \pending & \pending & \pending \\
+A5 & Query quota & \pending & \pending & \pending & \pending & \pending \\
+A5 & Full policy & \pending & \pending & \pending & \pending & \pending \\\bottomrule
+\end{tabularx}
+\end{table*}
+
+Use the per-domain scores in Table~\ref{tab:student} to report any-target and all-target campaign outcomes. Add matched-volume and matched-prefix results for each compared defended dataset. Map every row to its exact adapter, frozen suite, supervision totals, and source hashes. Report excluded and failed-gate domains alongside eligible contrasts.
+
+\subsection{Released supervision and intervention}
+\begin{table*}[!t]
+\centering\footnotesize
+\caption{Intervention template, repeated for each primary strategy and defense. $J_4$ is the first account block in campaign attempt units. Released responses are split by domain. A blocked-account count alone does not establish that the campaign failed. Unreached events are censored.}
+\label{tab:campaign}
+\begin{tabularx}{\textwidth}{@{}Ycccccc@{}}\toprule
+Campaign / defense & $J_4$ & Blocked accounts & Released A/S/G & Hashes & Elapsed (s) & Termination \\\midrule
+A1 / full & \pending & \pending & \pending & \pending & \pending & \pending \\
+A2 / full & \pending & \pending & \pending & \pending & \pending & \pending \\
+A5 / full & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
+\end{tabularx}
+\end{table*}
+
+Report $J_\ell$, $Q_{\ell,d}$, output tokens, solving time, and queue time from the campaign event ledger. The A/S/G columns denote AG News, SQuAD, and GSM8K. Include the corresponding instantaneous and quota rows and per-account outcomes in the released artifact. Report any relaxed-deadline result separately from the bounded primary campaigns.
+
+\subsection{Benign cost and mixture sensitivity}
+\begin{table*}[!t]
+\centering\footnotesize
+\caption{Legitimate-use template for a declared calibration/test mixture. Complete by profile and domain, then break down request styles. Completion and false-block rates require their submitted-request and account denominators. Unconditional utility includes failed requests.}
+\label{tab:utility}
+\begin{tabularx}{\textwidth}{@{}lYccccc@{}}\toprule
+Profile & Defense & FPR$_4$ (\%) & Completion (\%) & Served score & Uncond. utility & p50/p95 latency (s) \\\midrule
+Specialist & No defense & N/A & \pending & \pending & \pending & \pending \\
+Specialist & Query quota & \pending & \pending & \pending & \pending & \pending \\
+Specialist & Instantaneous MMD & \pending & \pending & \pending & \pending & \pending \\
+Specialist & Full policy & \pending & \pending & \pending & \pending & \pending \\
+Generalist & No defense & N/A & \pending & \pending & \pending & \pending \\
+Generalist & Query quota & \pending & \pending & \pending & \pending & \pending \\
+Generalist & Instantaneous MMD & \pending & \pending & \pending & \pending & \pending \\
+Generalist & Full policy & \pending & \pending & \pending & \pending & \pending \\\bottomrule
+\end{tabularx}
+\end{table*}
+
+Report requested and achieved generalist shares, independent calibration/test counts, and domain request proportions for each sensitivity setting. Separate matched-mixture results at 0\%, 10\%, and 30\% from a declared shift such as 10\% calibration to 30\% testing. Detector diagnostics remain secondary to learned capability and utility. A false block on a legitimate specialist and an escape by a matching multiplexed attacker are both relevant failure cases.
+
+\subsection{Provenance and serving measurements}
 \label{sec:repro}
-Table~\ref{tab:manifest} records unresolved implementation details. Publish split hashes, query-generation code, prompts, configuration files, calibration score distributions, per-run outputs, and evaluation scripts where source licences permit. Pin source revisions before running. Retain protected conversation content only as permitted; do not republish client identifiers or sensitive prompts.
-
-Measure the victim alone and with the wrapper at identical request mixes, sequence lengths, concurrency, precision, and hardware. Use declared warm-up and measurement intervals and report offered load, completed requests per second, time to first token, end-to-end latency, and peak CPU/GPU memory. The current endpoint is non-streaming, so time to first token is unavailable until a streaming endpoint is measured. Distinguish model startup from steady state. Report embedding time per request and MMD time per \emph{completed window}; a window-scoring duration is not per-request latency. Measure scoring-trigger requests separately, because their tail latency can be hidden by amortisation. Exact kernel scoring has quadratic window cost; compact profile state does not imply constant total memory.
-
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Implementation manifest to complete before final testing.}
+\caption{Study manifest fields to resolve before final testing. Configured identities do not establish completed execution.}
 \label{tab:manifest}
-\begin{tabularx}{\columnwidth}{@{}YX@{}}\toprule
-Field & Recorded value \\\midrule
-Code commit; upstream artifact commit & \pending \\
-Dataset revisions; split hashes; filters & \pending \\
-Victim, student, encoder revisions; victim quantization & Victim Qwen3.5-9B \texttt{c2022362}; Colab build \texttt{unsloth/Qwen3.5-9B-GGUF} \texttt{3885219b}, \texttt{Q8\_0} 8-bit; student Qwen3.5-2B-Base \texttt{b1485b2f}; encoder \texttt{5c38ec7c} (revision prefixes) \\
-Detector serialization & \texttt{detector-v1} \\
-CPU; GPU; RAM; VRAM; precision & \pending \\
-Library versions; serving backend & \pending \\
-Benign clients/windows in each split & \pending \\
-$\sigma$, $M$, $\theta_1,\ldots,\theta_4$ by stratum & \pending \\
-Training recipe selected on development data & \pending \\
-Load; concurrency; warm-up; measurement time & \pending \\
-Challenge solver hardware and implementation & \pending \\
-GPU-hours and response-token totals & \pending \\\bottomrule
+\begin{tabularx}{\columnwidth}{@{}YY@{}}\toprule
+Field & Recorded value or status \\\midrule
+Code and source revisions; split hashes & \pending \\
+Teacher; student & Qwen3.5-9B; Qwen3.5-2B-Base \\
+Full model revisions; served quantization & \pending \\
+Gateway serialization and encoder revision & Mixed dispatch pending; BGE-small-en-v1.5 \\
+Benign roles, profiles, and achieved counts & Generator available; calibrated counts \pending \\
+Campaigns; arms; seeds & A1/A2/A5; none/full/instantaneous/quota; 42/1/20 \\
+Shared recipe; base and adapter hashes & \pending \\
+Solver hardware; hashes; CPU/GPU-hours & \pending \\
+Released and prepared supervision by domain & \pending \\
+Live or simulated release evidence & \pending \\\bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Window-level results: pending}
-\tbd{Report the reproduction discrepancy and per-pair failures before interpreting Table~\ref{tab:window}. Keep this track separate from the new policy evaluation.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Reproduction template. All rates are percentages, macro-averaged over the fixed fourteen-pair manifest. Each measured value will include seed variation. Avg. TPR averages the five shown fractions; BAcc uses that average. No measured values are available.}
-\label{tab:window}
-\begin{tabular}{@{}lcccccccc@{}}\toprule
-Method & FPR & $\mathrm{TPR}_{.05}$ & $\mathrm{TPR}_{.10}$ & $\mathrm{TPR}_{.25}$ & $\mathrm{TPR}_{.50}$ & $\mathrm{TPR}_{1.0}$ & Avg. TPR & BAcc \\\midrule
-PRADA adaptation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-SEAT adaptation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-CAP artifact variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-DATE artifact variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-Marginal Mahalanobis variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-Pseudo-class energy variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-MMD artifact implementation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabular}
-\end{table*}
+Publish the resolved protocol, input hashes, calibration references and thresholds, campaign events, preparation exclusions, controls, adapters, and per-domain evaluations where source licences permit. Include missing pairs and failed runs. Hashes must identify the actual trained and evaluated adapter, not just its input dataset. Keep credentials out of released artifacts.
 
-\subsection{Account-level results: pending}
-\tbd{Fill one Table~\ref{tab:session} per endpoint and attack schedule. Report false-escalation counts, observed FPR intervals, and censored accounts; do not pool distinct schedules into an unlabeled mean.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Account-level results template, at $B_A=2{,}000$ and $T_A=24$ hours. Endpoint and schedule: pending. FPR/TPR are percentages; $Q_4$ counts attack responses released by escalation. Median delay is ``not reached'' when appropriate. N/A denotes an absent policy level.}
-\label{tab:session}
-\begin{tabularx}{\textwidth}{@{}Ycccccc@{}}\toprule
-Method & FPR$_2$ & FPR$_4$ & TPR$_4$ & Median $J_4$ & Median $Q_4$ & Censored $n/N$ \\\midrule
-Rate-rule block & N/A & \pending & \pending & \pending & \pending & \pending \\
-Query-quota block & N/A & \pending & \pending & \pending & \pending & \pending \\
-Instantaneous MMD + policy & \pending & \pending & \pending & \pending & \pending & \pending \\
-Accumulated MMD, no decay & \pending & \pending & \pending & \pending & \pending & \pending \\
-Accumulated MMD, direct block & N/A & \pending & \pending & \pending & \pending & \pending \\
-Accumulated MMD + full policy & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
+Measure the teacher alone and behind the gateway at the same hardware, load, input lengths, and output caps. Separate embedding time per request, MMD time per completed window, scoring-trigger latency, throughput, and scoped memory. Report warm-up separately. The current response interface is non-streaming, so time to first token is unavailable until streaming is measured. Policy waiting and proof cost must remain distinct from detector compute overhead.
 
-\subsection{Student capability: pending}
-\tbd{Populate Table~\ref{tab:student} separately for each task and budget. Report AG News accuracy, SQuAD token F1, or GSM8K numeric exact match as the primary score, with the additional metrics specified in Section~\ref{sec:metrics}. Show paired budget curves and diagnostic controls.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Distillation results template. Task and attempted-request budget: pending. Victim \texttt{Qwen3.5-9B}; student \texttt{Qwen3.5-2B-Base}; seeds $\{42,1,20\}$. The run manifest maps each row to its supervision condition, defense, and exact adapter. Score and agreement are percentages; gain and reduction are percentage points (pp). Token counts include every usable received response. N/A is structural; ``not interpretable'' replaces $R_D$ when the validity criterion fails.}
-\label{tab:student}
-\begin{tabularx}{\textwidth}{@{}Ycccccc@{}}\toprule
-Training source / policy & Output tokens & Score $S$ & Agreement & Gain $G$ (pp) & $\Delta_D$ (pp) & $R_D$ (\%) \\\midrule
-Victim reference & N/A & \pending & N/A & N/A & N/A & N/A \\
-Unmodified student & N/A & \pending & \pending & N/A & N/A & N/A \\
-Gold-label training reference & N/A & \pending & \pending & \pending & N/A & N/A \\
-Undefended victim responses & \pending & \pending & \pending & \pending & N/A & N/A \\
-Query-quota block & \pending & \pending & \pending & \pending & \pending & \pending \\
-Instantaneous MMD + policy & \pending & \pending & \pending & \pending & \pending & \pending \\
-Accumulated MMD + full policy & \pending & \pending & \pending & \pending & \pending & \pending \\
-Matched-volume control & \pending & \pending & \pending & \pending & \pending & \pending \\
-Matched-prefix control & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
+The implemented input builders produce hashed benign workloads and paired A1/A2/A5 inventories. They preserve prompt identity, source corpus and group, account, intended time, and per-domain output cap. Their manifests record the generator version and mark execution as not run. Three-domain fixtures and native generation from the local AG News/SQuAD pools validate these inputs only. The existing full-study launcher still runs separate task studies. Mixed gateway calibration, multi-account collection, shared-student orchestration, enforcement-aware cached execution, and the reporting joins are pending. No student-capability result in this paper comes from those input checks.
 
-\subsection{Adaptive campaigns and benign shift: pending}
-\tbd{Compare full and instantaneous policies using campaign-wide supervision and student quality in Table~\ref{tab:adaptive}. Fill Table~\ref{tab:shift} separately; benign shift is a false-positive test, not an attack-TPR row.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Adaptive-campaign template for one task, student, and budget. Entries compare instantaneous MMD (I) and the full policy (F). Aggregate alert rate is the percentage of campaigns with an aggregate alert within the budget; it does not imply account attribution.}
-\label{tab:adaptive}
-\begin{tabularx}{\textwidth}{@{}Yccccc@{}}\toprule
-Schedule & Blocked accounts I/F (\%) & Output tokens I/F & Student score I/F & Elapsed time I/F & Aggregate alert (\%) \\\midrule
-Pure extraction & \pending & \pending & \pending & \pending & \pending \\
-Mixed, $\rho_a=0.25$ & \pending & \pending & \pending & \pending & \pending \\
-Mixed, $\rho_a=0.10$ & \pending & \pending & \pending & \pending & \pending \\
-Slow rate & \pending & \pending & \pending & \pending & \pending \\
-Paraphrased & \pending & \pending & \pending & \pending & \pending \\
-Sybil, $k=5$ & \pending & \pending & \pending & \pending & \pending \\
-Sybil, $k=20$ & \pending & \pending & \pending & \pending & \pending \\
-Benign-matched adaptive sampling & \pending & \pending & \pending & \pending & \pending \\
-Three-horizon reset attack & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Benign robustness template. Report I/F rates with denominators and intervals in accompanying text. Conversation-only data do not support account FPR.}
-\label{tab:shift}
-\begin{tabularx}{\textwidth}{@{}Ycc@{}}\toprule
-Benign condition & Window FPR (\%) & Account FPR$_4$ (\%) \\\midrule
-Held-out, matched endpoint & \pending & \pending \\
-Authorised batch clients & \pending & \pending \\
-Specialist topic shift & \pending & \pending \\
-Later-time clients & \pending & \pending \\
-WildChat to LMSYS & \pending & N/A \\\bottomrule
-\end{tabularx}
-\end{table*}
-
-\subsection{Legitimate-user costs and sensitivity: pending}
-\tbd{Complete Tables~\ref{tab:utility}--\ref{tab:ablation}. Describe availability and challenge burden even when served-only answer quality is unchanged. Report scoring-trigger latency separately from amortised cost.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Legitimate-use template for one endpoint and fixed workload. Completion is measured by the stated deadline. Unconditional utility includes refused, timed-out, and abandoned requests in its denominator. Latencies cover successful requests; failures and timeouts are reported separately.}
-\label{tab:utility}
-\begin{tabularx}{\textwidth}{@{}Ycccccc@{}}\toprule
-Policy & Completion (\%) & Refusal (\%) & Served score & Uncond. utility & p50/p95 delay (s) & Challenge time (s) \\\midrule
-No defense & \pending & \pending & \pending & \pending & \pending & N/A \\
-Query quota & \pending & \pending & \pending & \pending & \pending & N/A \\
-Instantaneous MMD + policy & \pending & \pending & \pending & \pending & \pending & \pending \\
-Accumulated MMD + full policy & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Serving-cost template. Resource values must name their scope: encoder, window buffers, per-account state, or whole server. Victim and wrapper tests use the same load.}
-\label{tab:overhead}
-\begin{tabularx}{\textwidth}{@{}Yccc@{}}\toprule
-Measurement unit & p50 (ms) & p95 (ms) & Peak memory \\\midrule
-Embedding / request & \pending & \pending & \pending \\
-MMD / completed window & \pending & \pending & \pending \\
-Risk update / completed window & \pending & \pending & \pending \\
-Victim-only / request & \pending & \pending & \pending \\
-Wrapper / scoring-trigger request & \pending & \pending & \pending \\
-Wrapper / all requests & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Sensitivity template, recalibrated to the same account false-block target. Report one row per listed setting and one endpoint/schedule per table. Defaults are $w_a=100$, $\lambda=0.9$, and no overlap.}
-\label{tab:ablation}
-\begin{tabularx}{\textwidth}{@{}Yccc@{}}\toprule
-Setting & FPR$_4$ (\%) & TPR$_4$ (\%) & Median $Q_4$ \\\midrule
-$w_a=50$ & \pending & \pending & \pending \\
-$w_a=100$ & \pending & \pending & \pending \\
-$w_a=200$ & \pending & \pending & \pending \\
-$w_a=500$ & \pending & \pending & \pending \\
-$\lambda=0$ & \pending & \pending & \pending \\
-$\lambda=1$ & \pending & \pending & \pending \\
-Stride $w_a/4$ & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
-
-\subsection{Optional privacy extension: pending}
-\label{sec:privacy}
-Prefix completion on arbitrary public text is only a probing workload; it does not demonstrate training-data recovery. If this extension is implemented, fine-tune a separate small victim on synthetic records with random secrets and known exposure counts. Test seen and unseen records, and report exact secret recovery, false recoveries, and responses released before recovery. Compare with a victim that never saw the records. Match ordinary lookup prompts to the attack format. This controlled memorisation test is motivated by training-data extraction~\cite{carlini2021extracting}; it is not a reproduction of that attack or of confidence-based inversion~\cite{fredrikson2015model}. Keep its results separate from model-behaviour extraction. Until ground-truth recovery is measured, make no privacy-protection claim.
-
-\clearpage
-\section{Limitations and interpretation}
+\section{Limitations and conclusion}
 \label{sec:scope}
-The proposed wrapper detects statistical differences in observable requests. It cannot infer authorisation or intent from identical traffic, prevent weight theft, or establish privacy merely by flagging unusual prompts. Benign specialisation, shared client proxies, encoder truncation, reference contamination, and repeated policy resets can weaken the result. Aggregate alerts do not solve account attribution. Stronger authentication and a separately justified incident-response process would be needed for a production deployment.
+The harness observes request statistics, not intent. Legitimate specialists can differ from mixed references, while extractors can match them. Source-separated public task pools do not establish resistance to independent prompt sources. The A5 account split tests a stated identity assumption; it does not model a real account market. Shared references, synthetic timing, encoder truncation, and policy resets add uncertainty. The study makes no aggregate attribution, privacy, or production deployment claim.
 
-Small students make repeated controlled experiments feasible, but limit the scope of any conclusion. A task-level reduction on a 2B model does not establish protection against larger or better-trained students. Nor does transfer on narrow task APIs establish resistance to general-chat extraction. Conversely, a failure to improve beyond the initial student is not evidence that the defense worked. The main claim must depend on a working undefended extraction baseline and hold alongside measured legitimate-user cost.
+One 2B student makes paired experiments feasible, but bounds the conclusion. Larger students, different optimisation, other data mixtures, and active selection may recover more capability. Per-domain transfer gates and specialist references help distinguish capacity sharing from a defense effect. Passing these checks still does not establish general-chat extraction resistance.
 
-The evaluation may show that accumulated evidence helps, that a simple quota works equally well, or that benign-matched extraction defeats both. The final paper should report whichever outcome the experiments support. \tbd{Add a conclusion tied to measured effect sizes, uncertainty, and failure cases after Section~\ref{sec:eval} is complete.}
+This paper specifies how to test whether an account-level harness prevents useful multi-domain distillation under declared conditions. The decisive evidence is the paired student's capability, the supervision released across the entire campaign, and the legitimate service preserved. The experiment may support the full policy, favour a quota, or expose campaigns neither can stop. Effectiveness remains an open empirical result until the gateway campaigns and shared-student evaluations are complete.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

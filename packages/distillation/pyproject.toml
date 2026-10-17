@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Collection and student training tools for sequence-level distillation"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+	"coding-task",
 	"anyio>=4.9,<4.12",
 	"httpx>=0.28.1",
 	# Model downloads with progress before vLLM or training starts.
@@ -37,6 +38,9 @@ distill = "distillation.cli:app"
 [build-system]
 requires = ["hatchling", "packaging<26.3"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+coding-task = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/distillation"]

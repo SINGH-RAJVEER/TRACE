@@ -59,6 +59,8 @@ def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 	return {
 		"primary_metric": "token_f1"
 		if samples and all(s.benchmark == "squad" for s in samples)
+		else "pass_at_1"
+		if samples and all(s.benchmark == "coding" for s in samples)
 		else "accuracy",
 		"primary_score": 100
 		* statistics.fmean(
@@ -107,7 +109,8 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 	pairs = [
 		(left[key].prediction, right[key].prediction)
 		for key in left
-		if left[key].status == right[key].status == "ok"
+		if left[key].benchmark != "coding"
+		and left[key].status == right[key].status == "ok"
 		and left[key].prediction is not None
 		and right[key].prediction is not None
 	]
@@ -131,6 +134,14 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 		"agreement_n": len(pairs),
 		"agreement_coverage": len(pairs) / len(left),
 	}
+	if any(s.benchmark == "coding" for s in before):
+		result["functional_agreement"] = None
+		result["functional_agreement_status"] = (
+			"not_measured; assertion outcomes do not provide output traces"
+		)
+		result["pass_fail_agreement"] = (
+			100 * sum(left[k].correct == right[k].correct for k in left) / len(left)
+		)
 	if all(s.benchmark == "squad" for s in before):
 		result.update(f1_delta_pp=primary, f1_ci95=ci)
 	return result

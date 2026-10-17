@@ -82,6 +82,28 @@ class PromptRecord(BaseModel):
 	prompt: list[Message] = Field(min_length=1)
 
 
+class GatewayRequest(BaseModel):
+	"""One planned gateway submission, retaining the original prompt and source identity.
+
+	A schedule is an input to a campaign, not evidence that this request was sent or served.
+	Proof redemptions and other runtime attempts still consume the shared campaign budget.
+	"""
+
+	model_config = ConfigDict(extra="forbid")
+
+	request_id: str = Field(min_length=1)
+	account: str = Field(min_length=1)
+	time: float = Field(ge=0, allow_inf_nan=False)
+	prompt: PromptRecord
+	max_output_tokens: int = Field(ge=1, le=32768)
+	client_type: str | None = None
+	domain_profile: Literal["specialist", "generalist"] | None = None
+
+	@property
+	def domain(self) -> str:
+		return self.prompt.task
+
+
 class TeacherMetadata(BaseModel):
 	"""Teacher provenance saved beside a generated sequence."""
 

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,7 +30,9 @@ class Settings(BaseSettings):
 		default=Path("artifacts/harness/deception.key"), alias="HARNESS_DECEPTION_KEY_FILE"
 	)
 	# The endpoint's output format for noise: ag_news, squad, gsm8k, or text for general chat.
-	task: Literal["ag_news", "squad", "gsm8k", "text"] = Field(default="text", alias="HARNESS_TASK")
+	task: Literal["ag_news", "squad", "gsm8k", "coding", "text"] = Field(
+		default="text", alias="HARNESS_TASK"
+	)
 	pow_difficulty: int = Field(default=20, ge=1, le=64, alias="HARNESS_POW_DIFFICULTY")
 	challenge_ttl_seconds: float = Field(default=300, gt=0, alias="HARNESS_CHALLENGE_TTL_SECONDS")
 	min_interval_seconds: float = Field(default=1.0, ge=0, alias="HARNESS_MIN_INTERVAL_SECONDS")
@@ -59,3 +61,9 @@ class Settings(BaseSettings):
 	host: str = Field(default="127.0.0.1", alias="HARNESS_HOST")
 	port: int = Field(default=8003, ge=1, le=65535, alias="HARNESS_PORT")
 	log_level: str = Field(default="info", alias="HARNESS_LOG_LEVEL")
+
+	@model_validator(mode="after")
+	def coding_l4(self) -> Settings:
+		if self.task == "coding" and self.l4_action != "refuse":
+			raise ValueError("coding supports L4 refusal; coding deception is not implemented")
+		return self

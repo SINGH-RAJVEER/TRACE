@@ -37,9 +37,8 @@ TASK_CONFIG = Path("configs/train.task.toml")
 TASK_ROOT = Path("data/tasks")
 TASK_ARTIFACTS = Path("artifacts/tasks")
 # The keys of distillation.tasks.TASKS, which imports the dataset stack.
-TASK_NAMES = ("ag_news", "squad", "gsm8k")
-# The core study. GSM8K runs only when named, until its inclusion is frozen.
-CORE_TASKS = "ag_news,squad"
+TASK_NAMES = ("ag_news", "squad", "gsm8k", "coding")
+DEFAULT_TASKS = ",".join(TASK_NAMES)
 LOG_DIR = Path("artifacts/logs")
 PIPELINE_SCRIPT = Path("scripts/pipeline.py")
 STOP_SECONDS = 30
@@ -328,7 +327,7 @@ class TaskPipeline:
 	terms_review_id: str
 	tasks: list[str]
 	seeds: list[int]
-	budgets: list[int]
+	budgets: list[int] | None
 	config: Path
 	concurrency: int
 	gold: bool
@@ -346,8 +345,10 @@ class TaskPipeline:
 		unknown = [task for task in self.tasks if task not in TASK_NAMES]
 		if unknown or not self.tasks:
 			raise LaunchError(f"--tasks must name tasks from {', '.join(TASK_NAMES)}")
-		if not self.seeds or not self.budgets:
+		if not self.seeds or self.budgets == []:
 			raise LaunchError("--seeds and --budgets must each name at least one value")
+		if self.budgets is not None and any(budget < 1 for budget in self.budgets):
+			raise LaunchError("query budgets must be positive")
 		if not self.config.is_file():
 			raise LaunchError(f"training config not found: {self.config}")
 
@@ -365,7 +366,7 @@ class TaskPipeline:
 		return self.task_dir(task) / "runs" / f"s{seed}-b{budget}"
 
 	def build_tasks(self) -> None:
-		"""Builds missing tasks and keeps only the budgets each attacker pool can supply."""
+		"""Builds missing tasks and resolves full-pool or explicit query budgets."""
 		for task in self.tasks:
 			directory = self.task_dir(task)
 			if (directory / "manifest.json").is_file():
@@ -376,8 +377,9 @@ class TaskPipeline:
 					"tasks", "build", "--task", task, "--output-dir", str(directory)
 				)
 			pool = int(self.manifest(task)["roles"]["attacker"])
-			budgets = sorted(budget for budget in set(self.budgets) if budget <= pool)
-			if skipped := sorted(set(self.budgets) - set(budgets)):
+			requested = {pool} if self.budgets is None else set(self.budgets)
+			budgets = sorted(budget for budget in requested if budget <= pool)
+			if skipped := sorted(requested - set(budgets)):
 				self.launcher.log(
 					f"{task}: skipping budgets {', '.join(map(str, skipped))}, "
 					f"larger than its attacker pool of {pool}",
@@ -386,6 +388,9 @@ class TaskPipeline:
 			if not budgets:
 				raise LaunchError(f"{task}: no budget fits its attacker pool of {pool}")
 			self.plan[task] = budgets
+			self.launcher.log(
+				f"{task}: query budgets {', '.join(map(str, budgets))} (pool: {pool})"
+			)
 			# The largest budget's prompts are what collection queries.
 			for seed in self.seeds:
 				self.budget(task, seed, budgets[-1])
@@ -590,6 +595,12 @@ def _numbers(text: str, option: str) -> list[int]:
 		raise LaunchError(f"{option} must be comma-separated integers") from None
 
 
+def _budgets(text: str) -> list[int] | None:
+	if text.strip().lower() == "full":
+		return None
+	return list(dict.fromkeys(_numbers(text, "--budgets")))
+
+
 def scenario(name: str, body: Callable[[Launcher], None]) -> None:
 	"""Runs a scenario, always stopping its services, and exits 130 after Ctrl+C."""
 	launcher = Launcher(name)
@@ -658,7 +669,7 @@ def teacher_host_command(
 		launcher.start_teacher_stack(host, port, upstream_url, None)
 		launcher.log(f"teacher API ready on {host}:{port}", "bold green")
 		launcher.log("on the student machine run:")
-		launcher.log(f"  just paper-tasks --teacher-url http://{_address()}:{port}")
+		launcher.log(f"  just distill --teacher-url http://{_address()}:{port}")
 		launcher.log("with the same TEACHER_API_TOKEN set on that machine")
 		launcher.log("press Ctrl+C to stop")
 		launcher.supervise()
@@ -666,21 +677,25 @@ def teacher_host_command(
 	scenario("teacher-host", body)
 
 
-@run_app.command("paper-tasks")
-def paper_tasks_command(
+@run_app.command("distill")
+def distill_command(
 	tasks: Annotated[
 		str,
 		typer.Option(
-			help="Comma-separated tasks: ag_news, squad, or gsm8k. GSM8K is an opt-in extension."
+			help="Comma-separated tasks: ag_news, squad, gsm8k, or coding. Defaults to all four. "
+			"GSM8K supplies the math distillation corpus; its output cap is provisional."
 		),
-	] = CORE_TASKS,
+	] = DEFAULT_TASKS,
 	seeds: Annotated[
 		str, typer.Option(help="Comma-separated seeds; each orders its own attacker queries.")
 	] = "42,1,20",
 	budgets: Annotated[
 		str,
-		typer.Option(help="Comma-separated query budgets; those above a task's pool are skipped."),
-	] = "500,2000,8000",
+		typer.Option(
+			help="'full' uses each task's whole attacker pool; or comma-separated query budgets. "
+			"Budgets above a task's pool are skipped."
+		),
+	] = "full",
 	gold: Annotated[
 		bool, typer.Option(help="Also train the gold-label reference student for every run.")
 	] = True,
@@ -700,7 +715,7 @@ def paper_tasks_command(
 	] = TASK_CONFIG,
 	concurrency: ConcurrencyOption = 4,
 ) -> None:
-	"""Run the paper's AG News and SQuAD extraction study, and GSM8K when named.
+	"""Run separate task extraction studies for AG News, SQuAD, GSM8K, and coding by default.
 
 	Each task has its own ledger in data/tasks/TASK and its
 	own adapters in artifacts/tasks/TASK/sSEED-bBUDGET. Builds missing tasks, collects every
@@ -714,7 +729,7 @@ def paper_tasks_command(
 			terms_review_id=terms_review_id,
 			tasks=[task.strip() for task in tasks.split(",") if task.strip()],
 			seeds=_numbers(seeds, "--seeds"),
-			budgets=_numbers(budgets, "--budgets"),
+			budgets=_budgets(budgets),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
@@ -744,16 +759,26 @@ def paper_tasks_command(
 		pipeline.train_all()
 		launcher.log(f"done; adapters are in {TASK_ARTIFACTS}/TASK/sSEED-bBUDGET")
 
-	scenario("paper-tasks", body)
+	scenario("distill", body)
 
 
 @run_app.command("start")
 def start_command(
 	tasks: Annotated[
-		str, typer.Option(help="Comma-separated tasks. GSM8K is an opt-in extension.")
-	] = CORE_TASKS,
+		str,
+		typer.Option(
+			help="Comma-separated tasks: ag_news, squad, gsm8k, or coding. Defaults to all four. "
+			"GSM8K supplies the math distillation corpus; its output cap is provisional."
+		),
+	] = DEFAULT_TASKS,
 	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42,1,20",
-	budgets: Annotated[str, typer.Option(help="Comma-separated query budgets.")] = "500,2000,8000",
+	budgets: Annotated[
+		str,
+		typer.Option(
+			help="'full' uses each task's whole attacker pool; or comma-separated query budgets. "
+			"Budgets above a task's pool are skipped."
+		),
+	] = "full",
 	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
 	run_dir: Annotated[Path, typer.Option(help="Protected runs and all benchmark results.")] = Path(
 		"artifacts/start"
@@ -790,7 +815,7 @@ def start_command(
 			terms_review_id=terms_review_id,
 			tasks=list(dict.fromkeys(t.strip() for t in tasks.split(",") if t.strip())),
 			seeds=list(dict.fromkeys(_numbers(seeds, "--seeds"))),
-			budgets=list(dict.fromkeys(_numbers(budgets, "--budgets"))),
+			budgets=_budgets(budgets),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,

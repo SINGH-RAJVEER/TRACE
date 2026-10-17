@@ -16,7 +16,7 @@ export function Accuracy({ report, benchmarks, available }: { report: Report; be
 	const rows = scoreRows(report, benchmarks);
 	return <div className="plots-grid">
 		<Plot wide tall name="Task capability" legend={runLegend(available)}
-			note="AG News label accuracy, SQuAD token F1, and GSM8K numeric exact match. Whiskers show descriptive 95% item intervals.">
+			note="AG News label accuracy, SQuAD token F1, GSM8K numeric exact match, and coding pass@1. Whiskers show descriptive 95% item intervals.">
 			<BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barGap={2} barCategoryGap="22%">
 				<CartesianGrid vertical={false} />
 				<XAxis dataKey="name" tick={tick} tickLine={false} />
@@ -87,7 +87,7 @@ function Agreement({ report, benchmarks }: { report: Report; benchmarks: string[
 	const shown = (["student_before", "student_after"] as const).filter(slot => rows.some(row => row[slot] != null));
 	if (!rows.length || !shown.length) return <Plot name="How often the student agrees with the teacher" note="Needs a victim and student run from the same phase." />;
 	return <Plot name="How often the student agrees with the teacher" legend={runLegend(shown)}
-		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. The denominator contains pairs with parseable predictions; inspect coverage in the report.">
+		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. The denominator contains pairs with parseable predictions; inspect coverage in the report. Coding functional agreement is not measured.">
 		<BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barGap={2} barCategoryGap="28%">
 			<CartesianGrid vertical={false} />
 			<XAxis dataKey="name" tick={tick} tickLine={false} />

@@ -29,9 +29,11 @@ distillation-core = { workspace = true }
 extraction-harness = { workspace = true }
 harness-api = { workspace = true }
 teacher-api = { workspace = true }
+coding-task = { workspace = true }
 
 [tool.uv.workspace]
 members = [
+	"packages/coding",
 	"apps/harness-api",
 	"apps/teacher-api",
 	"packages/distillation",

@@ -33,15 +33,23 @@ class BenchmarkItem(StrictModel):
 	category: str
 	question: str
 	messages: list[Message] = Field(min_length=1)
-	metric: Literal["numeric_exact_match", "label_accuracy", "squad"]
+	metric: Literal["numeric_exact_match", "label_accuracy", "squad", "pass_at_1"]
 	answer: str
 	choices: list[str] = Field(default_factory=list)
 	# Empty legacy fields preserve the hashes of already frozen v1 paper-task suites.
-	test_code: Literal[""] = ""
-	code_prompt: Literal[""] = ""
-	entry_point: Literal[""] = ""
+	test_code: str = ""
+	code_prompt: str = ""
+	entry_point: str = ""
 	# Every accepted gold answer for SQuAD; empty for other metrics.
 	answers: list[str] = Field(default_factory=list)
+
+	@model_validator(mode="after")
+	def validate_code(self) -> BenchmarkItem:
+		if self.metric == "pass_at_1" and (
+			not self.test_code or not self.entry_point.isidentifier()
+		):
+			raise ValueError("coding items require executable tests and a function entry point")
+		return self
 
 
 class DatasetSource(StrictModel):
@@ -149,7 +157,7 @@ class SampleResult(StrictModel):
 	correct: bool
 	# Token F1 against the best gold answer, for SQuAD; None for other metrics.
 	f1: float | None = Field(default=None, ge=0, le=1)
-	status: Literal["ok", "invalid", "truncated", "error"]
+	status: Literal["ok", "invalid", "truncated", "error", "timeout"]
 	latency_seconds: float = Field(ge=0)
 	usage: TokenUsage = Field(default_factory=TokenUsage)
 	finish_reason: str | None = None

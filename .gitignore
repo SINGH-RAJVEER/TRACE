@@ -21,6 +21,7 @@ outputs/
 data/tasks/
 data/traffic/
 *.tsbuildinfo
+/paper/main.pdf
 
 # Environment files
 .env

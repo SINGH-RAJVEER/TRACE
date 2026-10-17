@@ -9,6 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "coding-task",
     "distillation-core",
     "distillation-lab",
     "extraction-harness",
@@ -251,6 +252,17 @@ wheels = [
 ]
 
 [[package]]
+name = "coding-task"
+version = "0.1.0"
+source = { editable = "packages/coding" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2" }]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -370,6 +382,7 @@ version = "0.1.0"
 source = { editable = "packages/distillation" }
 dependencies = [
     { name = "anyio" },
+    { name = "coding-task" },
     { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "pydantic" },
@@ -398,6 +411,7 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'train'", specifier = ">=1.15.0,<2" },
     { name = "anyio", specifier = ">=4.9,<4.12" },
     { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'train'", specifier = ">=0.47.0" },
+    { name = "coding-task", editable = "packages/coding" },
     { name = "datasets", marker = "extra == 'eval'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'train'", specifier = ">=4.0.0" },
     { name = "flash-linear-attention", marker = "sys_platform == 'linux' and extra == 'train'", specifier = ">=0.5.2,<0.6" },
