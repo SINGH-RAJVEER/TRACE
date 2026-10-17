@@ -34,7 +34,7 @@ For collection and training without automatic benchmarks or the protected cycle:
 just paper-tasks
 ```
 
-The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. The defaults are three seeds and budgets 500, 2,000, and 8,000. GSM8K supports only the first two, giving 48 training runs in total. Collection and training resume from existing artifacts. Evaluation runs separately.
+The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. The defaults are AG News and SQuAD, three seeds, and budgets 500, 2,000, and 8,000, giving 36 training runs. GSM8K runs only with `--tasks ag_news,squad,gsm8k`; it supports only the first two budgets and adds 12 runs. Collection and training resume from existing artifacts. Evaluation runs separately.
 
 For a smaller declared matrix or a remote teacher:
 

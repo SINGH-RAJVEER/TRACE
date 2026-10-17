@@ -39,7 +39,7 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--tasks` | `ag_news,squad,gsm8k` | Tasks to run |
+| `--tasks` | `ag_news,squad` | Tasks to run; add `gsm8k` for the generative extension |
 | `--seeds` | `42,1,20` | Paired seeds; each orders its own attacker queries and sets the training seed |
 | `--budgets` | `500,2000,8000` | Attacker query budgets B_A |
 | `--gold/--no-gold` | `--gold` | Also train the gold-label reference student |
@@ -47,7 +47,7 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 | `--teacher-url` | none | Collect from a running teacher API instead of starting vLLM here |
 | `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#task-study-operation) | Local teacher and collection settings |
 
-Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. The full default matrix is three tasks, three seeds, and up to three budgets, with two students each, which is 48 training runs. Pass smaller `--tasks`, `--seeds`, or `--budgets` to run part of it, and declare any reduced matrix before final testing.
+Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. The default matrix is AG News and SQuAD, three seeds, and three budgets, with two students each, which is 36 training runs. GSM8K runs only when named in `--tasks`, at 500 and 2,000 queries, and adds 12. Pass smaller `--tasks`, `--seeds`, or `--budgets` to run part of it, and declare any reduced matrix before final testing.
 
 Evaluation is not part of this command; see [Evaluate](#evaluate). The sections below describe the individual steps it runs.
 

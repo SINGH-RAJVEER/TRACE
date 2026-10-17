@@ -33,15 +33,15 @@ just start --upstream-url http://127.0.0.1:18011/v1
 just start --help
 ```
 
-Defaults match `paper-tasks`: AG News, SQuAD, and GSM8K; seeds 42, 1, and 20; budgets 500, 2,000, and 8,000, skipping budgets larger than a task's pool. This trains 24 undefended attacker adapters and 24 gold references, then up to 24 protected adapters. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+Defaults match `paper-tasks`: AG News and SQuAD; seeds 42, 1, and 20; budgets 500, 2,000, and 8,000, skipping budgets larger than a task's pool. Add `gsm8k` to `--tasks` for the generative extension. This trains 18 undefended attacker adapters and 18 gold references, then up to 18 protected adapters for each defense. `--arms` selects the defenses, by default all three: `full` (accumulated MMD with the graduated policy), `instantaneous` (current-window MMD with the same actions and latch), and `quota` (block after the per-horizon request quota fitted to the L4 target). Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
 
 The stages run in this order:
 
 1. Download missing task datasets and build disjoint prompt pools and frozen tests. Reuse existing manifests and append missing baseline responses to `data/tasks/TASK/ledger.jsonl`.
 2. Download and serve the teacher through vLLM and the teacher API, or connect to the supplied server. Collect each seed's largest budget, evaluate the teacher, and replay the frozen genuine/extraction traffic benchmark against the unprotected endpoint.
 3. Stop managed teacher services, evaluate the unmodified student, review and prepare baseline ledgers, train attacker and optional gold-reference adapters, and benchmark the trained students.
-4. Calibrate the harness on benign pools, restart the teacher, and reevaluate it to measure drift. Start the authenticated protected API on loopback port 8003 alongside the teacher.
-5. Collect the same largest budget through a fresh protected service instance for every task and seed. Solve proof-of-work challenges, log confirmed refusals, and save received text in a separate ledger. Replay the same traffic benchmark with independent authenticated actor accounts.
+4. Calibrate the harness on benign pools with the paper's declared accumulators only, write `TASK/calibration-report.json`, and replay `legitimate/benign_test.jsonl` through every defense for held-out account false-escalation rates. Restart the teacher and reevaluate it to measure drift. Start the authenticated protected API on loopback port 8003 alongside the teacher.
+5. Collect the same largest budget through a fresh protected service instance for every task, seed, and defense. Solve proof-of-work challenges, log confirmed refusals, and save received text in a separate ledger. Replay the same traffic benchmark with independent authenticated actor accounts.
 6. Stop managed services. Prepare each budget's received responses, review usability without gold answers, run training preflight, and train a fresh protected student. If no usable responses remain, skip training and record the reason.
 7. Benchmark trained protected students on the same frozen tests and write capability reports, paired traffic reports, and completion status.
 
@@ -49,7 +49,7 @@ The stages run in this order:
 
 L4 refuses by default. Use `--l4-action deceive` with a fresh `--run-dir` for the separate deception condition. Its ledger includes deceptive text received by the client. A 403 counts as refusal only with `X-Harness-Decision: block`; authentication errors, failed proofs, server failures, and timeouts stop collection.
 
-Default calibration groups legitimate fitting, score-calibration, and policy-calibration pools into 500-request accounts after a seeded shuffle of each pool, so no account or window inherits the article order of the SQuAD source split. It uses a 100-request window and up to 20 reference windows as the fitting pool permits, recording the count. A run directory whose calibration was built from other benign accounts, including any calibrated before this shuffle, is refused rather than reused; select a fresh `--run-dir`. These artificial accounts exercise the pipeline and do not establish real-user false-positive rates. Supply independently prepared calibrations with `--calibration-root PATH`, containing `PATH/TASK/calibration.json` and its reference arrays for every selected task. Calibration and the BGE encoder use CPU.
+Default calibration groups legitimate fitting, score-calibration, and policy-calibration pools into 500-request accounts after a seeded shuffle of each pool, so no account or window inherits the article order of the SQuAD source split. It uses a 100-request window and up to 20 reference windows as the fitting pool permits, recording the count, the truncation counts, and the skipped aggregate monitor in `TASK/calibration-report.json`. With 500-request accounts, the fitted quota is the account length, so the quota arm measures that construction rather than a fitted client limit until realistic accounts replace it. A run directory whose calibration was built from other benign accounts, including any calibrated before this shuffle, is refused rather than reused; select a fresh `--run-dir`. These artificial accounts exercise the pipeline and do not establish real-user false-positive rates. Supply independently prepared calibrations with `--calibration-root PATH`, containing `PATH/TASK/calibration.json` and its reference arrays for every selected task. Calibration and the BGE encoder use CPU.
 
 `--run-dir` defaults to `artifacts/start`. Paths below are relative to it:
 
@@ -57,16 +57,18 @@ Default calibration groups legitimate fitting, score-calibration, and policy-cal
 | --- | --- |
 | `protocol.json`, `tasks.json`, `traffic.json` | Frozen options, manifests, traffic suite |
 | `baseline-adapters/TASK/sSEED-bBUDGET/attacker` and `gold` | Baseline adapters |
-| `TASK/sSEED-bBUDGET/protected/ledger.jsonl` | Received responses from the largest campaign |
-| `TASK/sSEED-bBUDGET/protected/campaign.json` and `.events.jsonl` | Query counts, refusals, proof costs, outcomes |
-| `TASK/sSEED-bBUDGET/protected/train.jsonl`, `adapter/`, `training-status.json` | Protected data, adapter, or skip reason |
-| `TASK/sSEED-bBUDGET/benchmarks/`, `report.*.json` | Capability runs and reports |
-| `TASK/sSEED/traffic-results/`, `traffic-report.json` | Paired traffic results |
+| `TASK/calibration-report.json` | Reference windows, truncation, thresholds, quota, aggregate-monitor status |
+| `TASK/benign-test/ARM.json`, `ARM.decisions.jsonl` | Held-out benign account escalation per defense |
+| `TASK/sSEED-bBUDGET/protected/ARM/ledger.jsonl` | Received responses from the largest campaign against defense ARM |
+| `TASK/sSEED-bBUDGET/protected/ARM/campaign.json` and `.events.jsonl` | Query counts, refusals, proof costs, outcomes |
+| `TASK/sSEED-bBUDGET/protected/ARM/train.jsonl`, `adapter/`, `training-status.json` | Protected data, adapter, or skip reason |
+| `TASK/sSEED-bBUDGET/benchmarks/`, `report.*.json` | Capability runs and reports; protected runs are `protected-ARM` |
+| `TASK/sSEED/ARM/traffic-results/`, `traffic-report.json`, `decisions.jsonl` | Paired traffic results and the harness decision log |
 | `TASK/sSEED/credentials.json`, `accounts.json` | Restricted client credentials and account mappings |
 
 Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. All planned baseline ledgers and their resume contracts are validated before loading the teacher. For damaged files, use the [ledger recovery command](distillation-pipeline.md#recover-a-damaged-collection-ledger) to back up the original, preserve valid responses, and recollect missing IDs. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
 
-The protected service keeps account evidence in memory. After interrupted collection, partial ledgers, events, and attempts move into `protected/interrupted/ATTEMPT/`, then the full campaign starts again against fresh service state. Only the new completed campaign supplies training data. Archived responses never mix into it; archived logs retain additional query and proof costs.
+The protected service keeps account evidence in memory. After interrupted collection, partial ledgers, events, and attempts move into `protected/ARM/interrupted/ATTEMPT/`, then the full campaign starts again against fresh service state. Only the new completed campaign supplies training data. Archived responses never mix into it; archived logs retain additional query and proof costs.
 
 The harness runs locally for this experiment and stops on completion or interruption. Only services started here are stopped. External teachers and upstream servers keep running, so use another GPU or stop an external local server before student work when memory is shared. Logs live in `artifacts/logs/`. `status.json` becomes `complete` only after reports are written. Outstanding paper experiments and analyses remain in [paper-tasks.md](paper-tasks.md#implementation-todo).
 
