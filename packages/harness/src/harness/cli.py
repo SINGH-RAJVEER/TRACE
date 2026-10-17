@@ -104,16 +104,19 @@ def replay_command(
 	policy: Annotated[str, typer.Option(help="allow, quota, rate, or mmd")] = "mmd",
 	accumulator: str = "paper",
 	thresholds: Annotated[str, typer.Option(help="calibrated or ville")] = "calibrated",
-	l4_action: Annotated[str, typer.Option(help="deceive or refuse")] = "deceive",
+	l4_action: Annotated[str, typer.Option(help="refuse or deceive")] = "refuse",
 	deception_rate: Annotated[float, typer.Option(min=0.0, max=1.0)] = 1.0,
+	actions: Annotated[
+		str, typer.Option(help="graduated, or direct for the L4-only blocking ablation")
+	] = "graduated",
 	device: str | None = None,
 ) -> None:
 	"""Replay a request file through one policy and summarize how far each account escalated.
 
 	Requests without times are spaced one second apart in file order. Challenges are counted
 	but not solved; the summary describes detection, not what a solving client would receive.
-	L4 answers with keyed noise by default, keyed by HARNESS_DECEPTION_KEY or the server's key
-	file, or by a key for this run only when neither exists.
+	L4 refuses by default. With --l4-action deceive it answers with keyed noise, keyed by
+	HARNESS_DECEPTION_KEY or the server's key file, or by a key for this run only.
 	"""
 	from harness.encoder import BGEEncoder
 
@@ -123,6 +126,9 @@ def replay_command(
 	if l4_action not in {"refuse", "deceive"}:
 		raise typer.BadParameter("l4-action must be refuse or deceive")
 	action: Literal["refuse", "deceive"] = "deceive" if l4_action == "deceive" else "refuse"
+	if actions not in {"graduated", "direct"}:
+		raise typer.BadParameter("actions must be graduated or direct")
+	ladder: Literal["graduated", "direct"] = "direct" if actions == "direct" else "graduated"
 	calibration, scorer = load_calibration(calibration_dir)
 	summary = replay(
 		calibration=calibration,
@@ -136,6 +142,7 @@ def replay_command(
 		l4_action=action,
 		deception_rate=deception_rate,
 		deception_key=deception_key(required=False) if action == "deceive" else None,
+		actions=ladder,
 	)
 	typer.echo(json.dumps(summary, indent="\t"))
 

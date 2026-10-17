@@ -49,7 +49,7 @@ Thresholds are calibrated by default: for each benign policy-calibration horizon
 | L1 | Serve; the decision record carries the level as an alert |
 | L2 | Serve no sooner than 1 second after the account's previous admitted request; excess requests queue |
 | L3 | L2 spacing plus a proof-of-work challenge per response: 20 leading zero bits, bound to the account, a SHA-256 digest of the whole request, and a 5-minute expiry. Each challenge is accepted once |
-| L4 | By default, L3's spacing and challenge with keyed noise in place of the answer, built without a teacher call (see below). With `HARNESS_L4_ACTION=refuse`, refuse for the rest of the horizon, including the request that triggers L4 |
+| L4 | Refuse for the rest of the horizon, including the request that triggers L4. With `HARNESS_L4_ACTION=deceive`, L3's spacing and challenge with keyed noise in place of the answer, built without a teacher call (see below) |
 
 Each `Decision` carries the action, the earliest release time, any challenge, and telemetry: the level, whether a window completed, its p-value, the statistic, the deception flag, and witness attribution. `client_view()` returns only what a client should see: the action, release time, and challenge. Risk values stay hidden from the attacker, as the threat model requires.
 
@@ -59,7 +59,7 @@ Each `Decision` carries the action, the earliest release time, any challenge, an
 
 ## Noise at L4
 
-By default the protected API does not refuse an account at L4. It keeps answering, with noise in the task's output format, and never calls the teacher for those answers. Each noise response costs about 7 to 25 microseconds of CPU, measured on 5,000 task prompts per format. A flagged extractor keeps spending its budget on data with no value for training, and the service spends nothing to serve it. Set `HARNESS_L4_ACTION=refuse` for the paper's refusal policy.
+With `HARNESS_L4_ACTION=deceive`, the protected API does not refuse an account at L4. It keeps answering, with noise in the task's output format, and never calls the teacher for those answers. Each noise response costs about 7 to 25 microseconds of CPU, measured on 5,000 task prompts per format. A flagged extractor keeps spending its budget on data with no value for training, and the service spends nothing to serve it. The default, `refuse`, is the paper's policy; noise is an unreported option.
 
 The approach adapts adaptive misinformation (Kariyappa and Qureshi, CVPR 2020) and keyed response changes with watermarking (DAWN, Szyller et al., ACM MM 2021) to a text API. Probability-perturbation defenses such as prediction poisoning do not apply, because the service returns text rather than class probabilities. The paper's main policy refuses and leaves served answers unchanged, so report noise as a separate arm.
 
@@ -86,7 +86,7 @@ The same key tests whether a suspect model learned the noise:
 uv run harness watermark --task ag_news --probes probes.jsonl
 ```
 
-Each probe line holds `request` and `suspect_response`. Agreement is the share of probes where the suspect gives the keyed noise answer. The p-value ranks that agreement among the agreements under 999 unrelated control keys, so it does not assume how often a clean model happens to give a particular answer. The key comes from `HARNESS_DECEPTION_KEY` or the server's key file and never appears in output files. `harness replay` also deceives at L4 by default, keyed the same way or by a key for that run only, and counts deceived decisions.
+Each probe line holds `request` and `suspect_response`. Agreement is the share of probes where the suspect gives the keyed noise answer. The p-value ranks that agreement among the agreements under 999 unrelated control keys, so it does not assume how often a clean model happens to give a particular answer. The key comes from `HARNESS_DECEPTION_KEY` or the server's key file and never appears in output files. `harness replay --l4-action deceive` keys noise the same way, or by a key for that run only, and counts deceived decisions.
 
 The evaluation still needs a verifying attacker that re-asks a share of prompts from clean accounts, where answers are truthful, and a filtering attacker that drops answers its own student disagrees with. Defense-penetrating attacks such as D-DAE (Chen et al., IEEE S&P 2023) motivate both tests.
 
@@ -194,8 +194,8 @@ It listens on port 8003 by default. Account state, open challenges, and the aggr
 | --- | --- | --- |
 | L0, L1 | 200 | `allow` |
 | L2 | 200, after the server-side wait | `throttle` |
-| L3, and L4 by default (noise) | 428 with a challenge; 200 once answered | `throttle` |
-| L4 with `HARNESS_L4_ACTION=refuse` | 403 `blocked` | `block` |
+| L3, and L4 with `HARNESS_L4_ACTION=deceive` (noise) | 428 with a challenge; 200 once answered | `throttle` |
+| L4 by default | 403 `blocked` | `block` |
 | Wrong, reused, expired, or rebound proof | 403 `challenge_failed` | `throttle` |
 
 A 428 body carries the challenge's `nonce`, `prefix`, `difficulty`, and `expires_at`. The client finds a counter such that SHA-256 of `prefix` followed by the decimal counter has `difficulty` leading zero bits, then resends the identical request with `X-Harness-Proof: NONCE:COUNTER`. The proof is bound to the whole request: changing any field, such as `max_output_tokens`, voids it. Answering a challenge does not count as a new attempt. A failed proof consumes the challenge, so the client must send the request again.
@@ -211,4 +211,4 @@ Other settings, all in `apps/harness-api/src/harness_api/settings.py`: `HARNESS_
 ## Not yet implemented
 
 - Realistic legitimate-account construction, which calibration needs before its thresholds mean anything
-- The campaign layer that drives attacks through these policies, including the adaptive tests against deception
+- Adaptive campaign schedules beyond the fixed-order extractor in `distillation/campaign.py`, including the adaptive tests against deception

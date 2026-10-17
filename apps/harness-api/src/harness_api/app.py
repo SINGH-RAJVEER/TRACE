@@ -4,10 +4,10 @@ It serves the teacher API's contract, POST /v1/teacher/generate, so collectors, 
 and the traffic benchmark can point at it unchanged. Every response carries
 X-Harness-Decision: allow (L0 and L1), throttle (L2 and L3, including answered challenges),
 or block (L4 refusals). An L3 response is HTTP 428 with a proof-of-work challenge; the client
-resends the same request with X-Harness-Proof: NONCE:COUNTER. By default an account at L4 is
-not refused: it keeps receiving L3-shaped responses whose content is keyed noise, built
-without calling the teacher. Account state lives in this process, so the service must run as
-a single worker.
+resends the same request with X-Harness-Proof: NONCE:COUNTER. An account at L4 is refused by
+default. With HARNESS_L4_ACTION=deceive it instead keeps receiving L3-shaped responses whose
+content is keyed noise, built without calling the teacher. Account state lives in this
+process, so the service must run as a single worker.
 """
 
 import asyncio
@@ -173,6 +173,7 @@ def create_app(
 			l4_action=config.l4_action,
 			deception_rate=config.deception_rate,
 			deception_key=key,
+			actions=config.actions,
 		)
 	else:
 		policy = make_policy(config.policy, calibration, scorer)

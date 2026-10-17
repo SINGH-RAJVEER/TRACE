@@ -50,7 +50,7 @@ Requests follow their frozen offsets independently of earlier responses. A concu
 
 ### Noise ground truth
 
-By default the harness answers L4 accounts with keyed noise that looks like an ordinary throttled response, so a client cannot tell it apart and a noise response counts as a success. To measure what each class actually received, the runner sends `X-Benchmark-Request: RUN_ID:REQUEST_ID` with every request, and the harness writes that ID into its experimenter-only decision log. Set `harness_log` on the target to that log's path:
+With `HARNESS_L4_ACTION=deceive`, the harness answers L4 accounts with keyed noise that looks like an ordinary throttled response, so a client cannot tell it apart and a noise response counts as a success. To measure what each class actually received, the runner sends `X-Benchmark-Request: RUN_ID:REQUEST_ID` with every request, and the harness writes that ID into its experimenter-only decision log. Set `harness_log` on the target to that log's path:
 
 ```toml
 [targets.after]

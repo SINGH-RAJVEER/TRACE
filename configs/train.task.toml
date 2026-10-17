@@ -1,7 +1,6 @@
 # Paper task training recipe (Section IV-B). Copy per task, seed, and budget, changing the
 # dataset path and output_dir. See docs/paper-tasks.md.
-# The paper's victim and students are Qwen2.5 instruct models; this still uses the repository's
-# Qwen3.5 pairing until that switch is made.
+# The paper's victim is Qwen3.5-9B in non-thinking mode and its student Qwen3.5-2B-Base.
 base_model = "Qwen/Qwen3.5-2B-Base"
 base_revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 # Victim responses for one budget, prepared from TASK_DIR/runs/sSEED-bBUDGET/ledger.jsonl.
@@ -38,6 +37,5 @@ selective_gradient_checkpointing = false
 lora_rank = 16
 lora_alpha = 32
 lora_dropout = 0.05
-# The paper adapts attention projections. Qwen3.5's linear-attention layers name theirs
-# differently, so set the explicit module list after the switch to Qwen2.5.
+# The paper adapts every linear layer of the student's text model.
 target_modules = "all-linear"

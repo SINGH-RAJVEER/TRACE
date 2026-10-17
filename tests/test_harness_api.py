@@ -134,7 +134,13 @@ async def test_protected_collector_solves_real_api_challenges_and_collects_noise
 ) -> None:
 	from distillation.campaign import ProtectedTeacher
 
-	app, teacher, log = _app(artifacts, tmp_path, [-10, -10, -10, -10], HARNESS_TASK="ag_news")
+	app, teacher, log = _app(
+		artifacts,
+		tmp_path,
+		[-10, -10, -10, -10],
+		HARNESS_TASK="ag_news",
+		HARNESS_L4_ACTION="deceive",
+	)
 	gateway = ProtectedTeacher("http://harness", "", transport=httpx.ASGITransport(app=app))
 	gateway.client.headers["X-Benchmark-Actor"] = "extractor"
 	try:
@@ -219,11 +225,13 @@ async def test_challenges_bind_to_the_request_and_cannot_be_reused(
 
 
 @pytest.mark.asyncio
-async def test_l4_noise_is_the_default_needs_no_teacher_and_looks_like_l3(
+async def test_l4_noise_needs_no_teacher_and_looks_like_l3(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
 	l3, _, _ = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_TASK="ag_news")
-	l4, teacher, log = _app(artifacts, tmp_path, [-1] * 4, HARNESS_TASK="ag_news")
+	l4, teacher, log = _app(
+		artifacts, tmp_path, [-1] * 4, HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
+	)
 	responses = []
 	for app in (l3, l4):
 		transport = httpx.ASGITransport(app=app)
@@ -258,7 +266,12 @@ async def test_gsm8k_noise_keeps_the_answer_format_within_the_limit(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
 	app, teacher, _ = _app(
-		artifacts, tmp_path, [-1] * 4, HARNESS_TASK="gsm8k", HARNESS_DECEPTION_KEY=KEY
+		artifacts,
+		tmp_path,
+		[-1] * 4,
+		HARNESS_TASK="gsm8k",
+		HARNESS_DECEPTION_KEY=KEY,
+		HARNESS_L4_ACTION="deceive",
 	)
 	transport = httpx.ASGITransport(app=app)
 	async with httpx.AsyncClient(transport=transport, base_url="http://harness") as client:
@@ -276,7 +289,9 @@ async def test_traffic_benchmark_separates_noise_from_useful_responses(
 ) -> None:
 	suite_path = tmp_path / "traffic.json"
 	suite = freeze_traffic(suite_path, genuine_count=12, attack_count=12, duration_seconds=0.05)
-	app, _, log = _app(artifacts, tmp_path, [-1.0] * 4, HARNESS_TASK="ag_news")
+	app, _, log = _app(
+		artifacts, tmp_path, [-1.0] * 4, HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
+	)
 	attached = TrafficTarget(base_url="http://harness/", service_revision="noise", harness_log=log)
 	plain = TrafficTarget(base_url="http://harness/", service_revision="noise")
 	results = []

@@ -21,6 +21,7 @@ def make_policy(
 	l4_action: Literal["refuse", "deceive"] = "refuse",
 	deception_rate: float = 1.0,
 	deception_key: bytes | None = None,
+	actions: Literal["graduated", "direct"] = "graduated",
 ) -> Policy:
 	config = calibration.config
 	horizon = (config.horizon_seconds, config.horizon_attempts)
@@ -41,6 +42,7 @@ def make_policy(
 			l4_action=l4_action,
 			deception_rate=deception_rate,
 			deception_key=deception_key,
+			actions=actions,
 		)
 	raise ValueError("policy must be allow, quota, rate, or mmd")
 
@@ -58,6 +60,7 @@ def replay(
 	l4_action: Literal["refuse", "deceive"] = "refuse",
 	deception_rate: float = 1.0,
 	deception_key: bytes | None = None,
+	actions: Literal["graduated", "direct"] = "graduated",
 ) -> dict[str, Any]:
 	"""Process requests in file order. Requests without a time are spaced one second apart.
 
@@ -73,6 +76,7 @@ def replay(
 		l4_action=l4_action,
 		deception_rate=deception_rate,
 		deception_key=deception_key,
+		actions=actions,
 	)
 	embeddings = None
 	if policy == "mmd":
@@ -121,6 +125,7 @@ def replay(
 	return {
 		"policy": policy,
 		"accumulator": accumulator if policy == "mmd" else None,
+		"actions": actions if policy == "mmd" else None,
 		"thresholds": thresholds if policy == "mmd" else None,
 		"requests": len(requests),
 		"horizons": units,
