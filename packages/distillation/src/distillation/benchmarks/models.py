@@ -132,6 +132,7 @@ class EvaluationConfig(StrictModel):
 	generation: GenerationConfig = Field(default_factory=GenerationConfig)
 	models: dict[Slot, ModelConfig]
 	training_paths: list[Path] = Field(default_factory=list)
+	dimensions: dict[str, str | int] = Field(default_factory=dict)
 
 
 def load_config(path: Path) -> EvaluationConfig:
@@ -174,6 +175,7 @@ class EvaluationRun(StrictModel):
 	code_revision: str = ""
 	demo: bool = False
 	samples: list[SampleResult]
+	dimensions: dict[str, str | int] = Field(default_factory=dict)
 
 	def comparison_key(self) -> str:
 		payload = [
@@ -182,6 +184,7 @@ class EvaluationRun(StrictModel):
 			self.scorer_version,
 			self.generation.model_dump(),
 			self.demo,
+			self.dimensions,
 		]
 		return hashlib.sha256(canonical_json(payload).encode()).hexdigest()[:16]
 

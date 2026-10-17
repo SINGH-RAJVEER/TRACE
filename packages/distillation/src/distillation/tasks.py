@@ -370,6 +370,16 @@ def build_task(
 		_benchmark_item(task, spec.pool_split, example)
 		for example in by_role.get("development", [])
 	]
+	save_json(
+		output_dir / "legitimate-references.json",
+		{
+			f"{task}-{spec.pool_split}-{example.key}": _benchmark_item(
+				task, spec.pool_split, example
+			).model_dump(mode="json")
+			for role in LEGITIMATE_ROLES
+			for example in by_role.get(role, [])
+		},
+	)
 	development_suite = _suite(
 		task,
 		spec.pool_split,

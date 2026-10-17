@@ -298,9 +298,10 @@ def create_app(
 			generation.finish_reason = "stop"
 		# Every response carries the same usage fields: output tokens recounted or omitted, and
 		# no input count, which a fabricated response could not know.
-		generation.usage = TokenUsage(
-			output_tokens=token_counter(generation.message.content) if token_counter else None
-		)
+		if config.l4_action == "deceive":
+			generation.usage = TokenUsage(
+				output_tokens=token_counter(generation.message.content) if token_counter else None
+			)
 		return JSONResponse(generation.model_dump(mode="json"), headers=headers)
 
 	@app.get("/healthz")

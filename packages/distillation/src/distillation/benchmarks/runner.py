@@ -181,6 +181,7 @@ async def run_evaluation(
 		completed_at=datetime.now(UTC),
 		suite_sha256=suite.sha256,
 		generation=config.generation,
+		dimensions=config.dimensions,
 		model=model_config,
 		training_sha256=training_hashes,
 		artifact_sha256=artifact_hashes,

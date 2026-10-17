@@ -113,6 +113,10 @@ def collect_protected_command(
 	terms_review_id: str,
 	max_output_tokens: Annotated[int, typer.Option(min=1, max=32768)],
 	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+	max_requests: int | None = None,
+	deadline_seconds: float = 86400,
+	decision_log: Path | None = None,
+	block_only: bool = False,
 ) -> None:
 	"""Collect an ordered protected campaign, solving challenges and recording refusals."""
 	from distillation.campaign import ProtectedTeacher, collect_campaign
@@ -123,6 +127,10 @@ def collect_protected_command(
 			ledger_path=output,
 			summary_path=summary,
 			teacher=ProtectedTeacher(teacher_url, token),
+			max_requests=max_requests,
+			deadline_seconds=deadline_seconds,
+			decision_log=decision_log,
+			levels=(4,) if block_only else (1, 2, 3, 4),
 			options=CollectionOptions(
 				terms_review_id=terms_review_id,
 				max_output_tokens=max_output_tokens,
@@ -260,6 +268,34 @@ def download_model_command(
 		# The last download bar leaves the cursor at the end of its line.
 		console.line()
 	typer.echo(f"model={model} revision={revision} path={path}")
+
+
+@tasks_app.command("diagnose")
+def diagnose_tasks_command(
+	tasks: str = "ag_news,squad",
+	run_dir: Path = Path("artifacts/task-diagnostic"),
+	budget: int = 2000,
+) -> None:
+	"""Calibrate task clients, replay held-out accounts, and test one extraction account."""
+	from distillation.launcher import Launcher, TaskPipeline
+	from distillation.study import Study
+
+	pipeline = TaskPipeline(
+		Launcher("diagnose"),
+		"query-only",
+		tasks.split(","),
+		[42],
+		[budget],
+		Path("configs/train.task.toml"),
+		1,
+		False,
+	)
+	study = Study(pipeline, run_dir, "", "", 8000, "", 8003, None, "refuse")
+	for task in pipeline.tasks:
+		path = study.calibrate(task)
+		study.calibration_report(task, path)
+		study.benign_holdout(task, path)
+		study.detectability(task, path, budget)
 
 
 @app.command("train")

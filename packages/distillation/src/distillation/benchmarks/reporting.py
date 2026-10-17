@@ -1,7 +1,6 @@
 """Comparable cohorts, Wilson score intervals, and paired bootstrap gains."""
 
 import math
-import random
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -58,6 +57,15 @@ def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 	seconds = sum(sample.latency_seconds for sample in known)
 	tokens = sum(sample.usage.output_tokens or 0 for sample in known)
 	return {
+		"primary_metric": "token_f1"
+		if samples and all(s.benchmark == "squad" for s in samples)
+		else "accuracy",
+		"primary_score": 100
+		* statistics.fmean(
+			(s.f1 or 0) if s.benchmark == "squad" else float(s.correct) for s in samples
+		)
+		if samples
+		else None,
 		"n": len(samples),
 		"correct": correct,
 		"score": 100 * correct / len(samples) if samples else None,
@@ -72,52 +80,60 @@ def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 
 
 def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, Any]:
+	"""Paired source-document bootstrap; invalid responses remain incorrect."""
+	import numpy as np
+
 	left = {sample.item_id: sample for sample in before}
 	right = {sample.item_id: sample for sample in after}
 	if left.keys() != right.keys() or not left:
 		raise ValueError("paired scores require the same nonempty item set")
-	deltas = [int(right[key].correct) - int(left[key].correct) for key in sorted(left)]
-	rng = random.Random(42)
-	# Resampling binary outcome differences is a multinomial draw. Binomial draws
-	# avoid creating thousands of full-size arrays for a complete task test split.
-	n = len(deltas)
-	p_positive = deltas.count(1) / n
-	p_negative_conditional = deltas.count(-1) / (n - deltas.count(1)) if p_positive < 1 else 0
+	groups: dict[str, list[float]] = defaultdict(list)
+	binary = []
+	for key, sample in left.items():
+		other = right[key]
+		if (sample.benchmark, sample.category) != (other.benchmark, other.category):
+			raise ValueError("paired source metadata changed")
+		binary.append(int(other.correct) - int(sample.correct))
+		delta = ((other.f1 or 0) - (sample.f1 or 0)) if sample.benchmark == "squad" else binary[-1]
+		group = sample.category if sample.benchmark == "squad" else sample.item_id
+		groups[group].append(float(delta))
+	sums = np.array([sum(values) for values in groups.values()])
+	sizes = np.array([len(values) for values in groups.values()])
+	rng = np.random.default_rng(42)
 	bootstrap = []
 	for _ in range(2000):
-		positive = rng.binomialvariate(n, p_positive)
-		negative = rng.binomialvariate(n - positive, p_negative_conditional)
-		bootstrap.append(100 * (positive - negative) / n)
-	bootstrap.sort()
-	agreement_pairs = [
+		indices = rng.integers(0, len(groups), size=len(groups))
+		bootstrap.append(float(100 * sums[indices].sum() / sizes[indices].sum()))
+	pairs = [
 		(left[key].prediction, right[key].prediction)
 		for key in left
-		if left[key].prediction is not None and right[key].prediction is not None
+		if left[key].status == right[key].status == "ok"
+		and left[key].prediction is not None
+		and right[key].prediction is not None
 	]
-	f1_deltas = [
-		(right[key].f1 or 0) - (left[key].f1 or 0)
-		for key in sorted(left)
-		if left[key].f1 is not None and right[key].f1 is not None
-	]
-	f1_comparison = (
-		{"f1_delta_pp": 100 * statistics.fmean(f1_deltas), "f1_ci95": mean_ci(f1_deltas)}
-		if f1_deltas and len(f1_deltas) == n
-		else {}
-	)
-	return {
-		**f1_comparison,
-		"n": len(deltas),
-		"delta_pp": 100 * statistics.mean(deltas),
-		"ci95": [bootstrap[49], bootstrap[1949]],
-		"improved": deltas.count(1),
-		"regressed": deltas.count(-1),
+	agreed = sum(a == b for a, b in pairs)
+	primary = 100 * float(sums.sum()) / len(left)
+	ci = [float(x) for x in np.percentile(bootstrap, [2.5, 97.5])]
+	result = {
+		"n": len(left),
+		"delta_pp": 100 * statistics.fmean(binary),
+		"primary_delta_pp": primary,
+		"primary_ci95": ci,
+		"ci95": ci,
+		"resampling_unit": "source_document",
+		"clusters": len(groups),
+		"improved": binary.count(1),
+		"regressed": binary.count(-1),
 		"both_correct": sum(left[k].correct and right[k].correct for k in left),
 		"both_wrong": sum(not left[k].correct and not right[k].correct for k in left),
-		"answer_agreement": 100 * sum(a == b for a, b in agreement_pairs) / len(agreement_pairs)
-		if agreement_pairs
-		else None,
-		"agreement_n": len(agreement_pairs),
+		"answer_agreement": 100 * agreed / len(pairs) if pairs else None,
+		"agreement_numerator": agreed,
+		"agreement_n": len(pairs),
+		"agreement_coverage": len(pairs) / len(left),
 	}
+	if all(s.benchmark == "squad" for s in before):
+		result.update(f1_delta_pp=primary, f1_ci95=ci)
+	return result
 
 
 def discover_runs(directory: Path) -> tuple[list[EvaluationRun], list[str]]:

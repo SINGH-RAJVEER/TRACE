@@ -49,6 +49,7 @@ class HarnessConfig(BaseModel):
 	# Share of benign aggregate windows allowed to alert, as the reproduction's 95th percentile.
 	aggregate_alert_rate: float = Field(default=0.05, gt=0, lt=1)
 	seed: int = 42
+	aggregate_enabled: bool = True
 
 
 class BenignRequest(BaseModel):
@@ -59,6 +60,9 @@ class BenignRequest(BaseModel):
 	account: str = Field(min_length=1)
 	text: str
 	time: float | None = None
+	example_id: str | None = None
+	source_group: str | None = None
+	client_type: str | None = None
 
 
 class LevelThresholds(BaseModel):
@@ -218,6 +222,22 @@ def requests_sha256(requests: list[BenignRequest]) -> str:
 	return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def validate_separation(
+	groups: dict[str, list[BenignRequest]], *, require_identity: bool = True
+) -> None:
+	"""Reject shared accounts, source documents, and exact task content across roles."""
+	for field in ("account", "source_group", "text"):
+		seen: set[str] = set()
+		for role, rows in groups.items():
+			values = {getattr(row, field) for row in rows}
+			if require_identity and (None in values or "" in values):
+				raise ValueError(f"{role} has missing {field}")
+			values.discard(None)
+			if seen.intersection(values):
+				raise ValueError(f"{role} overlaps another role on {field}")
+			seen.update(values)
+
+
 def calibrate(
 	*,
 	config: HarnessConfig,
@@ -234,6 +254,14 @@ def calibrate(
 			log(message)
 
 	size = config.window_size
+	validate_separation(
+		{
+			"fitting": fitting,
+			"score_calibration": score_calibration,
+			"policy_calibration": policy_calibration,
+		},
+		require_identity=config.task != "text",
+	)
 	rng = random.Random(config.seed)
 	truncated: dict[str, int] = {}
 
@@ -371,6 +399,9 @@ def _calibrate_aggregate(
 ) -> None:
 	"""Fit the aggregate monitor, or record why the benign data cannot support it."""
 	config = calibration.config
+	if not config.aggregate_enabled:
+		calibration.aggregate_skipped = "not run in the declared task study"
+		return
 	size = config.aggregate_window_size
 	needed = size * config.aggregate_reference_windows
 	if len(fitted) < needed:
