@@ -214,8 +214,8 @@ This checklist applies to the task-only extraction and account-policy study. It 
 ### 3. Apply L2 spacing on entry
 
 - [ ] Paper: track the previous admitted request's release time across all policy levels, including L0 and L1.
-- [ ] When L2 spacing applies, release the next admitted request no earlier than one second after the previous admitted request, including the first request entering L2. Keep other release constraints in effect.
-- [ ] Validate the L0-to-L2 transition and consecutive L2 requests, including multiple arrivals at the same timestamp. Rejected requests must not count as admitted requests.
+- [x] When L2 spacing applies, release the next admitted request no earlier than one second after the previous admitted request, including the first request entering L2. Keep other release constraints in effect.
+- [x] Validate the L0-to-L2 transition and consecutive L2 requests, including multiple arrivals at the same timestamp. Rejected requests must not count as admitted requests.
 
 ### 4. Report only levels a baseline implements
 
@@ -391,29 +391,29 @@ Blocking, before any defended campaign:
 - [ ] Run the detectability check. The attacker and legitimate pools are hash-split halves of one training split (`tasks.py`, `_role`), so even after shuffling, a pure extractor should match the benign references in expectation. Replay one budget's `prompts.jsonl` as a single account with `harness replay` against a calibration built after the shuffle, and compare its peak level with the benign maxima. The result decides the [RQ2 framing](paper-revision-todo.md#manuscript-changes-decided-against-the-repository-2026-10-16) in the paper.
 - [ ] Replace the pooled calibration accounts in `study.py` (shuffled 500-request slices from `pooled_accounts`, no timestamps) with the item 15 client generator. The current construction gives about 22 AG News, 17 SQuAD, and 2 GSM8K policy-calibration accounts, so the 1% L4 threshold is the benign maximum. The pools support at most about 108, 80, and 6 scored accounts of 100 requests, so the paper narrows its client-count claims (item 16). `rate_per_minute` is never fitted because no request has a time; the paper drops the rate-rule row rather than fitting it to synthetic timing.
 - [ ] Make legitimate traffic task-matched. `just start` freezes one generic chat suite (`benchmarks/traffic.py`, `GENUINE_PROMPTS`) shared by all tasks; its 48 requests across 4 genuine actors never complete a 100-request window, and responses get no task score. Item 25 needs task-matched benign accounts drawn from `legitimate/benign_test.jsonl` and scored with each task's metric.
-- [ ] Consume `legitimate/benign_test.jsonl`. It is written by `distill tasks build`, but nothing reads it, so no held-out account FPR exists. Replay it through each frozen policy.
+- [x] Consume `legitimate/benign_test.jsonl`. It is written by `distill tasks build`, but nothing reads it, so no held-out account FPR exists. Replay it through each frozen policy. Done: `just start` replays it through every defense into `TASK/benign-test/ARM.json`, on the same account construction as calibration.
 - [x] Embed only the detector serialization (item 1). `harness.serialization.detector_text` (`detector-v1`) now feeds calibration, replay, the policy, bench, and the API; artifacts record the version and per-role truncation counts, and the API refuses a calibration for another task. Before this, `harness_api.app.current_turn` embedded the whole user turn, including the fixed task instruction from `AG_NEWS_PROMPT`, `SQUAD_PROMPT`, and `GSM8K_EVAL_SUFFIX`. For SQuAD, put the question before the passage in the detector serialization: `SQUAD_PROMPT` places it last, so BGE's 512-token truncation drops the question first on long contexts. Record the encoder's `truncated` count per role in the calibration artifact.
-- [ ] Default `HARNESS_L4_ACTION` and `harness replay --l4-action` to `refuse`. The paper's L4 refuses, and served answers stay unchanged; only `just start` defaults to `refuse` today. Keep `deceive` as an unreported option. No manuscript change is needed unless a noise arm is added later.
-- [ ] Apply L2 spacing on entry (item 3). `MMDPolicy._respond` updates `last_release` only at L2 and above, so the first L2 request ignores the previous L0 or L1 admission.
+- [x] Default `HARNESS_L4_ACTION` and `harness replay --l4-action` to `refuse`. The paper's L4 refuses, and served answers stay unchanged; only `just start` defaults to `refuse` today. Keep `deceive` as an unreported option. No manuscript change is needed unless a noise arm is added later. Done: both default to `refuse`.
+- [x] Apply L2 spacing on entry (item 3). `MMDPolicy._respond` updates `last_release` only at L2 and above, so the first L2 request ignores the previous L0 or L1 admission. Done: L0 and L1 admissions set the last release.
 
 Required for Table VI and the primary contrast:
 
-- [ ] Add the missing defended arms to `just start`. `study.py` hardcodes `HARNESS_ACCUMULATOR=paper` and `HARNESS_POLICY=mmd`. Table VI and the primary contrast also need `instantaneous` and `quota` campaigns, each with its own ledger, adapter, and evaluation.
+- [x] Add the missing defended arms to `just start`. `study.py` hardcodes `HARNESS_ACCUMULATOR=paper` and `HARNESS_POLICY=mmd`. Table VI and the primary contrast also need `instantaneous` and `quota` campaigns, each with its own ledger, adapter, and evaluation. Done: `--arms full,instantaneous,quota`, each under `protected/ARM/`.
 - [ ] Add the development sweep over learning rate {1e-4, 2e-4} and epochs {1, 2, 3}. Six runs per core task on the undefended attacker set at B_A = 2,000 and seed 42, scored on `development-suite.json`, are cheap next to the main matrix. Freeze the winner in each task's generated config. The paper then names that sweep set, rather than this checklist fixing 2e-4 and 3 epochs without selection.
 - [ ] Wire the development transfer gate (item 24) into `just start`, so defended campaigns stop or are flagged when the undefended development gain is not positive.
-- [ ] Charge failures to the campaign instead of aborting. `ProtectedTeacher.generate` raises on any non-block error, and `_collect_one` retries up to three times without charging retries to B_A (item 11).
+- [x] Charge failures to the campaign instead of aborting. `ProtectedTeacher.generate` raises on any non-block error, and `_collect_one` retries up to three times without charging retries to B_A (item 11). Done for defended campaigns: failed attempts are charged and never retried; undefended collector retries remain a disclosed re-query.
 - [ ] Add the study-level report: `G_D`, `Delta_D`, `R_D` with its validity rule, per-seed results with mean and SD, budget curves, and cost to target. `reporting.paired` bootstraps independent items; replace it with source-document clusters for SQuAD (item 26).
-- [ ] Add a direct-block mode to `MMDPolicy`, which is one of item 22's priority ablations and needs only an L4-only threshold set. The paper drops the stride row instead of the repository adding rolling windows.
+- [x] Add a direct-block mode to `MMDPolicy`, which is one of item 22's priority ablations and needs only an L4-only threshold set. The paper drops the stride row instead of the repository adding rolling windows. Done: `MMDPolicy(actions="direct")`, `HARNESS_ACTIONS`, and `harness replay --actions direct`.
 
 Bookkeeping:
 
 - [ ] Add a GSM8K cap-pilot command that collects about 200 prompts from `development-suite.json`, which is JSON rather than `prompts.jsonl`. It should report finish-reason counts and fail when more than 2% stop at the limit, as Section IV-B specifies. Run it only if GSM8K is retained.
-- [ ] Record the reference-window count per task in the run manifest and calibration report. `study.py` uses `min(20, fitting // 100)`, which gives 20 for AG News and SQuAD and 13 for GSM8K. Keep references disjoint rather than resampling; the paper discloses the per-task count.
-- [ ] Record the aggregate monitor as skipped in every calibration artifact and report. It needs 30,000 fitting requests, but AG News has 21,558, SQuAD 13,170, and GSM8K 1,328, which is less than one window. The paper declares the monitor not run.
-- [ ] Keep `e_process` and `e_cusum` out of `just start` outputs and every reported table. The paper does not declare them, and no change is planned there.
+- [x] Record the reference-window count per task in the run manifest and calibration report. `study.py` uses `min(20, fitting // 100)`, which gives 20 for AG News and SQuAD and 13 for GSM8K. Keep references disjoint rather than resampling; the paper discloses the per-task count. Done: `TASK/calibration-report.json` records it with truncation counts and thresholds.
+- [x] Record the aggregate monitor as skipped in every calibration artifact and report. It needs 30,000 fitting requests, but AG News has 21,558, SQuAD 13,170, and GSM8K 1,328, which is less than one window. The paper declares the monitor not run. Done: the calibration report records `aggregate_skipped`.
+- [x] Keep `e_process` and `e_cusum` out of `just start` outputs and every reported table. The paper does not declare them, and no change is planned there. Done: study calibrations fit only `paper`, `instantaneous`, `paper_no_memory`, and `paper_no_decay`.
 - [ ] Join noise flags into the protected ledger, in case `deceive` is ever used. Under `HARNESS_L4_ACTION=deceive`, noise responses count as received supervision in `campaign.json`; mark them from the decision log as the traffic runner does.
-- [ ] Default `just start` and `just paper-tasks` to `ag_news,squad` until the GSM8K decision is frozen.
-- [ ] Fix stale text: the `configs/train.task.toml` comments still say the paper uses Qwen2.5 and attention-only LoRA targets, and `docs/harness.md` lists the campaign layer as not implemented, although `campaign.py` and `just start` exist.
+- [x] Default `just start` and `just paper-tasks` to `ag_news,squad` until the GSM8K decision is frozen. Done.
+- [x] Fix stale text: the `configs/train.task.toml` comments still say the paper uses Qwen2.5 and attention-only LoRA targets, and `docs/harness.md` lists the campaign layer as not implemented, although `campaign.py` and `just start` exist. Done.
 
 ## Limitations
 
