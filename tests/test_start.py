@@ -18,7 +18,7 @@ from distillation.campaign import ProtectedTeacher, collect_campaign
 from distillation.cli import app
 from distillation.collection import CollectionOptions, collect
 from distillation.io import read_jsonl
-from distillation.launcher import Launcher, run_app
+from distillation.launcher import Launcher, TaskPipeline, run_app
 from distillation.schemas import (
 	Message,
 	PromptRecord,
@@ -47,22 +47,87 @@ class Teacher:
 		pass
 
 
+@pytest.mark.parametrize("scenario", ["start", "distill"])
+@pytest.mark.parametrize("tasks", [None, "ag_news,squad"])
+@pytest.mark.parametrize("budgets", [None, "full", "500,2000,8000"])
+def test_launchers_default_tasks_and_supported_budgets(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	scenario: str,
+	tasks: str | None,
+	budgets: str | None,
+) -> None:
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
+	Path("configs").mkdir()
+	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
+	for task, pool in (("ag_news", 53893), ("squad", 40356), ("gsm8k", 3389), ("coding", 12345)):
+		directory = Path("data/tasks") / task
+		directory.mkdir(parents=True)
+		(directory / "manifest.json").write_text(json.dumps({"roles": {"attacker": pool}}))
+	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
+	monkeypatch.setattr(TaskPipeline, "budget", lambda self, task, seed, budget: None)
+	monkeypatch.setattr(TaskPipeline, "validate_ledgers", lambda self: None)
+	monkeypatch.setattr(TaskPipeline, "uncollected", lambda self: 0)
+	plans: list[dict[str, list[int]]] = []
+
+	def record(pipeline: TaskPipeline) -> None:
+		plans.append(pipeline.plan.copy())
+
+	def plan(study: Study) -> None:
+		study.pipeline.validate()
+		study.pipeline.build_tasks()
+		record(study.pipeline)
+
+	# Exercise CLI task selection and real budget planning without collecting or training.
+	monkeypatch.setattr(TaskPipeline, "train_all", record)
+	monkeypatch.setattr(Study, "run", plan)
+	command = [scenario]
+	if tasks is not None:
+		command += ["--tasks", tasks]
+	if budgets is not None:
+		command += ["--budgets", budgets]
+	result = CliRunner().invoke(run_app, command)
+	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+	explicit = budgets == "500,2000,8000"
+	expected = {
+		"ag_news": [500, 2000, 8000] if explicit else [53893],
+		"squad": [500, 2000, 8000] if explicit else [40356],
+	}
+	if tasks is None:
+		expected["gsm8k"] = [500, 2000] if explicit else [3389]
+		expected["coding"] = [500, 2000, 8000] if explicit else [12345]
+	assert plans == [expected]
+
+
+@pytest.mark.parametrize("task", ["ag_news", "gsm8k"])
+@pytest.mark.parametrize("budgets", [None, "1"])
 def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	task: Literal["ag_news", "gsm8k"],
+	budgets: str | None,
 ) -> None:
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
 	build_task(
-		task="ag_news",
-		output_dir=Path("data/tasks/ag_news"),
+		task=task,
+		output_dir=Path("data/tasks") / task,
 		rows={
 			"train": [{"text": f"News story {i}", "label": i % 4} for i in range(500)],
 			"test": [{"text": "Held-out news article", "label": 0}],
+		}
+		if task == "ag_news"
+		else {
+			"train": [
+				{"question": f"What is {i} plus 1?", "answer": f"#### {i + 1}"} for i in range(500)
+			],
+			"test": [{"question": "What is 600 plus 1?", "answer": "#### 601"}],
 		},
 	)
 	Path("configs").mkdir()
 	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
-	ledger = Path("data/tasks/ag_news/ledger.jsonl")
+	ledger = Path("data/tasks") / task / "ledger.jsonl"
 	ledger.write_bytes(b"\x00" * 64 + b"\n")
 	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
 	monkeypatch.setattr(
@@ -74,11 +139,23 @@ def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
 		assert result.exit_code == 0, result.output
 
 	monkeypatch.setattr(Launcher, "distill", distill)
-	result = CliRunner().invoke(
-		run_app, ["start", "--tasks", "ag_news", "--seeds", "42", "--budgets", "1", "--no-gold"]
-	)
+	command = ["start", "--tasks", task, "--seeds", "42", "--no-gold"]
+	if budgets is not None:
+		command += ["--budgets", budgets]
+	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 1
 	assert "ledger.jsonl:1: invalid record" in result.output
+	protocol = json.loads(Path("artifacts/start/protocol.json").read_text())
+	assert protocol["budgets"] == ("full" if budgets is None else [1])
+	assert json.loads(Path("artifacts/start/budgets.json").read_text()) == {
+		task: [
+			json.loads((Path("data/tasks") / task / "manifest.json").read_text())["roles"][
+				"attacker"
+			]
+			if budgets is None
+			else 1
+		]
+	}
 	assert "ledger repair" in result.output
 	assert ledger.read_bytes() == b"\x00" * 64 + b"\n"
 
@@ -391,3 +468,166 @@ def test_empty_protected_campaign_skips_training(
 	monkeypatch.setattr(Launcher, "distill", review)
 	assert not study.train_protected("ag_news", 42, 1, 1)
 	assert not (study.protected_dir("ag_news", 42, 1, "full") / "adapter").exists()
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_study_report_uses_resolved_task_budgets(tmp_path: Path, legacy: bool) -> None:
+	from distillation.study_reporting import study_report
+
+	protocol = {"tasks": ["ag_news", "gsm8k"], "seeds": [42], "budgets": "full", "arms": ["full"]}
+	(tmp_path / "protocol.json").write_text(json.dumps(protocol))
+	if legacy:
+		(tmp_path / "tasks.json").write_text(
+			json.dumps(
+				{
+					"ag_news": {"roles": {"attacker": 53893}},
+					"gsm8k": {"roles": {"attacker": 3389}},
+				}
+			)
+		)
+	else:
+		(tmp_path / "budgets.json").write_text(json.dumps({"ag_news": [53893], "gsm8k": [3389]}))
+	report = study_report(tmp_path)
+	assert [(row["task"], row["budget"]) for row in report["missing_pairs"]] == [
+		("ag_news", 53893),
+		("gsm8k", 3389),
+	]
+
+
+def test_study_report_uses_only_budgets_that_fit_each_task(tmp_path: Path) -> None:
+	from distillation.study_reporting import study_report
+
+	(tmp_path / "protocol.json").write_text(
+		json.dumps(
+			{
+				"tasks": ["ag_news", "gsm8k"],
+				"seeds": [42],
+				"budgets": [2000, 8000],
+				"arms": ["full"],
+			}
+		)
+	)
+	(tmp_path / "budgets.json").write_text(json.dumps({"ag_news": [2000, 8000], "gsm8k": [2000]}))
+	assert [(row["task"], row["budget"]) for row in study_report(tmp_path)["missing_pairs"]] == [
+		("ag_news", 2000),
+		("ag_news", 8000),
+		("gsm8k", 2000),
+	]
+
+
+@pytest.mark.asyncio
+async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: Path) -> None:
+	from distillation.io import write_jsonl
+	from distillation.schemas import PromptSource
+	from harness.policy import QuotaPolicy
+
+	policy = QuotaPolicy(quota=1, horizon_seconds=86400, horizon_attempts=3)
+	prompts = tmp_path / "prompts.jsonl"
+	write_jsonl(
+		prompts,
+		[
+			PromptRecord(
+				example_id=str(i),
+				split="train",
+				task="fixture",
+				source=PromptSource(corpus="fixture", source_id=str(i), license="mit"),
+				prompt=[Message(role="user", content=str(i))],
+			)
+			for i in range(10)
+		],
+	)
+
+	async def response(request: httpx.Request) -> httpx.Response:
+		payload = TeacherGenerationRequest.model_validate_json(request.content)
+		decision = policy.admit("extractor", payload.messages[-1].content, 0)
+		if decision.action == "refuse":
+			return httpx.Response(403, headers={"X-Harness-Decision": "block"})
+		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
+
+	result = await collect_campaign(
+		prompts_path=prompts,
+		ledger_path=tmp_path / "ledger.jsonl",
+		summary_path=tmp_path / "campaign.json",
+		teacher=ProtectedTeacher(
+			"http://fixture", "fixture", transport=httpx.MockTransport(response)
+		),
+		options=CollectionOptions(
+			terms_review_id="fixture", max_output_tokens=16, enable_thinking=False
+		),
+		max_requests=7,
+	)
+	assert result["queries"] == result["attempt_budget"] == 7
+	assert result["received"] == 3
+	assert result["blocked"] == 4
+	assert result["termination"] == "attempt_budget"
+	events = [
+		json.loads(line) for line in (tmp_path / "campaign.events.jsonl").read_text().splitlines()
+	]
+	assert [e["index"] for e in events if e["event"] == "attempt"] == list(range(1, 8))
+
+
+def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(tmp_path: Path) -> None:
+	from distillation.benchmarks.models import SampleResult, save_json
+	from distillation.study_reporting import write_study_results
+
+	budget = 53893
+	save_json(
+		tmp_path / "protocol.json",
+		{
+			"tasks": ["ag_news"],
+			"seeds": [42],
+			"budgets": "full",
+			"arms": ["full"],
+		},
+	)
+	save_json(tmp_path / "budgets.json", {"ag_news": [budget]})
+	horizons: dict[str, object] = {
+		"ag_news": {
+			"attempts": 10000,
+			"seconds": 86400,
+			"campaign_budget_replenished_on_reset": False,
+		}
+	}
+	save_json(tmp_path / "policy-horizons.json", horizons)
+	save_json(tmp_path / "ag_news" / "recipe.json", {"transfer_gate_passed": True})
+	sample = SampleResult(
+		item_id="held-out",
+		benchmark="ag_news",
+		category="World",
+		response="World",
+		prediction="World",
+		correct=True,
+		status="ok",
+		latency_seconds=0,
+	)
+	for arm, score in (("attacker", 90), ("protected-full", 60)):
+		save_json(
+			tmp_path / "ag_news" / f"s42-b{budget}" / f"report.{arm}.json",
+			{
+				"suite": {"sha256": "frozen"},
+				"scores": {
+					"student_before": {"ag_news": {"primary_score": 25}},
+					"student_after": {"ag_news": {"primary_score": score}},
+				},
+				"runs": {
+					"student_after": {
+						"dimensions": {
+							"task": "ag_news",
+							"query_seed": 42,
+							"training_seed": 42,
+							"budget": budget,
+						},
+						"model": {"model": "fixture", "adapter_path": arm},
+					}
+				},
+				"samples": [{"results": {"student_after": sample.model_dump(mode="json")}}],
+			},
+		)
+	write_study_results(tmp_path)
+	report = json.loads((tmp_path / "study-report.json").read_text())
+	assert report["missing_pairs"] == []
+	assert report["per_seed"][0]["budget"] == budget
+	assert report["per_seed"][0]["Delta_D"] == 30
+	assert report["study_kind"] == "separate_task"
+	assert report["policy_horizons"] == horizons
+	assert json.loads((tmp_path / "study-manifest.json").read_text())["complete"]

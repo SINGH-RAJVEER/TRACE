@@ -1,7 +1,7 @@
 { pkgs, lib, ... }:
 
 {
-    dotenv.disableHint = true;
+	dotenv.disableHint = true;
 	packages = with pkgs; [
 		bash
 		just
@@ -13,7 +13,7 @@
 		# Native compilation for Python extensions and Triton training kernels.
 		stdenv.cc
 		zlib
-	];
+	] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.bubblewrap pkgs.util-linux ];
 
 	env = {
 		PYTHONUNBUFFERED = "1";

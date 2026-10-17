@@ -142,7 +142,7 @@ Collection resumes by `example_id`, rejects duplicate input IDs, and verifies pr
 
 ### Recover a damaged collection ledger
 
-`just start` and `just paper-tasks` validate every planned task ledger before starting the teacher. A `JSONLValidationError` containing NUL bytes, such as `data/tasks/gsm8k/ledger.jsonl:1933: invalid record`, means an existing ledger row cannot be parsed. The teacher can still be healthy. The bytes alone do not identify how the file was damaged.
+`just start` and `just distill` validate every planned task ledger before starting the teacher. A `JSONLValidationError` containing NUL bytes, such as `data/tasks/gsm8k/ledger.jsonl:1933: invalid record`, means an existing ledger row cannot be parsed. The teacher can still be healthy. The bytes alone do not identify how the file was damaged.
 
 Stop collection before repairing a ledger. Without `--apply`, this command previews recovery counts and changes no files:
 

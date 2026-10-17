@@ -160,17 +160,24 @@ def test_suites_without_gold_answer_lists_keep_their_hash(tmp_path: Path) -> Non
 	assert json.loads((tmp_path / "manifest.json").read_text())["max_output_tokens"] == 16
 
 
-def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("budgets", [None, "40,80,99999"])
+def test_distill_scenario_keeps_its_own_ledger_and_resumes(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budgets: str | None
 ) -> None:
 	import distillation.launcher as launcher
+	import distillation.training as training
 	from distillation.cli import app
 	from typer.testing import CliRunner
 
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
 	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
-	build_task(task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows())
+	monkeypatch.setattr(
+		training, "training_identity", lambda config: {"fixture": config.model_dump(mode="json")}
+	)
+	manifest = build_task(
+		task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows()
+	)
 	(tmp_path / "configs").mkdir()
 	(tmp_path / "configs/train.task.toml").write_text(
 		'base_model = "student"\ndataset_path = "unused.jsonl"\noutput_dir = "unused"\n'
@@ -209,8 +216,18 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 			output.mkdir(parents=True)
 			digest = hashlib.sha256(Path(values["dataset_path"]).read_bytes()).hexdigest()
 			(output / "training-manifest.json").write_text(
-				json.dumps({"dataset_sha256": digest, "config": values})
+				json.dumps(
+					{
+						"dataset_sha256": digest,
+						"config": values,
+						"fingerprint": training.training_identity(
+							training.load_training_config(config)
+						),
+					}
+				)
 			)
+			(output / "adapter_config.json").write_text("{}")
+			(output / "adapter_model.safetensors").write_bytes(b"fixture")
 		else:
 			if args[0] == "review":
 				# The length check loads the tokenizer, which needs the training stack.
@@ -226,29 +243,43 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 		lambda self, host, port, upstream_url, api_log: steps.append("serve"),
 	)
 	monkeypatch.setattr(launcher.Launcher, "stop_background", lambda self: steps.append("stop"))
-	command = ["paper-tasks", "--tasks", "ag_news", "--seeds", "42,1", "--budgets", "40,80,99999"]
+	command = ["distill", "--tasks", "ag_news", "--seeds", "42,1"]
+	if budgets is not None:
+		command += ["--budgets", budgets]
+	planned = [manifest["roles"]["attacker"]] if budgets is None else [40, 80]
 
 	result = CliRunner().invoke(launcher.run_app, command)
 	assert result.exit_code == 0, result.output
 	trained = [
 		f"train s{s}-b{b} train.{k}.toml"
 		for s in (42, 1)
-		for b in (40, 80)
+		for b in planned
 		for k in ("attacker", "gold")
 	]
 	assert steps == ["serve", "collect", "collect", "stop", *trained, "stop"]
 	task_dir = tmp_path / "data/tasks/ag_news"
-	assert len(read_jsonl(task_dir / "ledger.jsonl", LedgerRecord)) <= 160
+	assert len(read_jsonl(task_dir / "ledger.jsonl", LedgerRecord)) <= 2 * planned[-1]
+	if budgets is None:
+		pool_ids = {p.example_id for p in read_jsonl(task_dir / "attacker.jsonl", PromptRecord)}
+		assert {
+			r.example_id for r in read_jsonl(task_dir / "ledger.jsonl", LedgerRecord)
+		} == pool_ids
+		for seed in (42, 1):
+			prompts = read_jsonl(
+				task_dir / f"runs/s{seed}-b{planned[0]}/prompts.jsonl", PromptRecord
+			)
+			assert len(prompts) == len(pool_ids)
+			assert {p.example_id for p in prompts} == pool_ids
 	assert not (tmp_path / "data/teacher").exists()
-	run = task_dir / "runs/s42-b40"
+	run = task_dir / f"runs/s42-b{planned[0]}"
 	attacker = tomllib.loads((run / "train.attacker.toml").read_text())
-	assert attacker["dataset_path"] == "data/tasks/ag_news/runs/s42-b40/train.jsonl"
-	assert attacker["output_dir"] == "artifacts/tasks/ag_news/s42-b40/attacker"
+	assert attacker["dataset_path"] == f"data/tasks/ag_news/runs/s42-b{planned[0]}/train.jsonl"
+	assert attacker["output_dir"] == f"artifacts/tasks/ag_news/s42-b{planned[0]}/attacker"
 	assert attacker["seed"] == 42
 	assert attacker["chat_template_kwargs"] == {"enable_thinking": False}
-	assert len(read_jsonl(run / "train.jsonl", SFTRecord)) == 40
+	assert len(read_jsonl(run / "train.jsonl", SFTRecord)) == planned[0]
 	gold = tomllib.loads((run / "train.gold.toml").read_text())
-	assert gold["dataset_path"] == "data/tasks/ag_news/runs/s42-b40/gold-train.jsonl"
+	assert gold["dataset_path"] == f"data/tasks/ag_news/runs/s42-b{planned[0]}/gold-train.jsonl"
 
 	# Everything is collected and trained, so a rerun neither serves the teacher nor trains.
 	steps.clear()

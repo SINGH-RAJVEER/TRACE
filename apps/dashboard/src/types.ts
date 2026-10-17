@@ -12,11 +12,11 @@ export const modelOf = (slot: Slot) => slot.startsWith("teacher") ? "teacher" : 
 export const isBefore = (slot: Slot) => slot === "student_before" || slot === "teacher";
 export const colors: Record<Slot, string> = Object.fromEntries(slots.map(slot => [slot, modelColors[modelOf(slot)]])) as Record<Slot, string>;
 export const benchmarkLabels: Record<string, string> = {
-	gsm8k: "GSM8K",
+	gsm8k: "GSM8K", coding: "Coding (pass@1)",
 	ag_news: "AG News", squad: "SQuAD 1.1",
 };
 export const statusLabels: Record<string, string> = {
-	ok: "Answered", invalid: "Unparseable", truncated: "Truncated", error: "API error",
+	ok: "Answered", invalid: "Unparseable", truncated: "Truncated", error: "API error", timeout: "Execution timed out",
 };
 export type Summary = {
 	n: number; correct: number; score: number | null; ci95: [number, number];

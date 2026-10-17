@@ -33,6 +33,26 @@ def defense_effect(
 
 def study_report(root: Path) -> dict[str, Any]:
 	protocol = json.loads((root / "protocol.json").read_text())
+	plan_path = root / "budgets.json"
+	if plan_path.exists():
+		budgets = json.loads(plan_path.read_text())
+	else:
+		# Legacy studies froze the requested mode and task manifests separately.
+		tasks_path = root / "tasks.json"
+		manifests = json.loads(tasks_path.read_text()) if tasks_path.exists() else {}
+		requested = protocol["budgets"]
+		if requested == "full" and not manifests:
+			raise ValueError("full budgets require frozen budgets.json or tasks.json")
+		budgets = {}
+		for task in protocol["tasks"]:
+			pool = manifests.get(task, {}).get("roles", {}).get("attacker")
+			budgets[task] = (
+				[pool]
+				if requested == "full"
+				else [budget for budget in requested if pool is None or budget <= pool]
+			)
+	horizons_path = root / "policy-horizons.json"
+	horizons = json.loads(horizons_path.read_text()) if horizons_path.exists() else {}
 	rows, missing = [], []
 	for task in protocol["tasks"]:
 		selection_path = root / task / "recipe.json"
@@ -41,7 +61,7 @@ def study_report(root: Path) -> dict[str, Any]:
 			and json.loads(selection_path.read_text())["transfer_gate_passed"]
 		)
 		for seed in protocol["seeds"]:
-			for budget in protocol["budgets"]:
+			for budget in budgets[task]:
 				directory = root / task / f"s{seed}-b{budget}"
 				baseline = directory / "report.attacker.json"
 				for arm in protocol["arms"]:
@@ -152,6 +172,9 @@ def study_report(root: Path) -> dict[str, Any]:
 					}
 				)
 	return {
+		"study_kind": "separate_task",
+		"task_budgets": budgets,
+		"policy_horizons": horizons,
 		"per_seed": rows,
 		"mean_and_sd": aggregates,
 		"budget_curves": rows,

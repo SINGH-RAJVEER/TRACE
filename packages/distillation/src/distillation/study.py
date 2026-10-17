@@ -171,7 +171,9 @@ class Study:
 				"teacher": teacher,
 				"teacher_after": teacher,
 				"student_before": student,
-				"student_after": student.model_copy(update={"adapter_path": None if untrained else adapter}),
+				"student_after": student.model_copy(
+					update={"adapter_path": None if untrained else adapter}
+				),
 			},
 		)
 		path = directory / f"eval.{condition}.toml"
@@ -271,14 +273,21 @@ class Study:
 			for role in ("fitting", "score_calibration", "policy_calibration")
 		}
 		validate_separation({**groups, "benign_test": self.pooled(task, "benign_test")})
-		path = self.calibration_root / task if self.calibration_root else self.root / task / "calibration"
+		path = (
+			self.calibration_root / task
+			if self.calibration_root
+			else self.root / task / "calibration"
+		)
 		if (path / "calibration.json").exists():
 			existing, _ = load_calibration(path)
 			# Older calibrations sliced article-ordered SQuAD pools or embedded whole turns.
 			if (
 				existing.config.task != task
 				or set(existing.config.accumulators) != set(DECLARED_ACCUMULATORS)
-				or any(existing.sha256.get(role) != requests_sha256(rows) for role, rows in groups.items())
+				or any(
+					existing.sha256.get(role) != requests_sha256(rows)
+					for role, rows in groups.items()
+				)
 				or existing.config.aggregate_enabled
 			):
 				raise LaunchError(
@@ -633,16 +642,14 @@ class Study:
 
 		launcher = self.pipeline.launcher
 		self.pipeline.validate()
+		if "coding" in self.pipeline.tasks and self.l4_action != "refuse":
+			raise LaunchError(
+				"coding supports L4 refusal; select --l4-action refuse or omit coding"
+			)
 		if self.harness_port in {self.port, int(os.environ.get("VLLM_PORT") or 8001)}:
 			raise LaunchError("--harness-port must differ from the teacher and vLLM ports")
 		if self.teacher_url and self.upstream_url:
 			raise LaunchError("choose either --teacher-url or --upstream-url")
-		if any(budget < 1 for budget in self.pipeline.budgets):
-			raise LaunchError("query budgets must be positive")
-		if set(self.pipeline.tasks) - {"ag_news", "squad"}:
-			raise LaunchError(
-				"the frozen paper study includes ag_news and squad only; GSM8K is outside its scope"
-			)
 		self.pipeline.artifact_root = self.root / "adapters"
 		if not self.arms or set(self.arms) - set(DEFENSES):
 			raise LaunchError(f"--arms must name defenses from {', '.join(DEFENSES)}")
@@ -651,7 +658,7 @@ class Study:
 			{
 				"tasks": self.pipeline.tasks,
 				"seeds": self.pipeline.seeds,
-				"budgets": self.pipeline.budgets,
+				"budgets": "full" if self.pipeline.budgets is None else self.pipeline.budgets,
 				"training": self.pipeline.config.read_text(),
 				"gold": self.pipeline.gold,
 				"teacher_url": self.url,
@@ -662,7 +669,9 @@ class Study:
 				"terms_review_id": self.pipeline.terms_review_id,
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
-				"protocol_version": "task-study-v2",
+				"protocol_version": "task-study-v3",
+				"study_kind": "separate_task",
+				"budget_plan": "budgets.json",
 				"capability_targets": {task: 80.0 for task in self.pipeline.tasks},
 				"attempt_budget_unit": "HTTP submissions, including proof redemption",
 				"deadline_seconds": 86400,
@@ -677,12 +686,27 @@ class Study:
 		save_json(self.root / "status.json", {"status": "running"})
 		launcher.install("train")
 		self.pipeline.build_tasks()
+		freeze(self.root / "budgets.json", self.pipeline.plan)
 		self.pipeline.validate_ledgers()
 		freeze(
 			self.root / "tasks.json",
 			{task: self.pipeline.manifest(task) for task in self.pipeline.tasks},
 		)
 		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
+		from harness.calibration import load_calibration
+
+		freeze(
+			self.root / "policy-horizons.json",
+			{
+				task: {
+					"attempts": calibration.config.horizon_attempts,
+					"seconds": calibration.config.horizon_seconds,
+					"campaign_budget_replenished_on_reset": False,
+				}
+				for task, path in calibrations.items()
+				for calibration, _ in [load_calibration(path)]
+			},
+		)
 		for task, path in calibrations.items():
 			self.calibration_report(task, path)
 			self.benign_holdout(task, path)
@@ -736,7 +760,9 @@ class Study:
 				for budget in budgets:
 					for arm in self.arms:
 						trained = self.train_protected(task, seed, budget, budgets[-1], arm)
-						config = self.evaluation(task, seed, budget, "attacker", arm=arm, untrained=not trained)
+						config = self.evaluation(
+							task, seed, budget, "attacker", arm=arm, untrained=not trained
+						)
 						self.benchmark(config, "student_before")
 						self.benchmark(config, "student_after")
 						train_controls(self, task, seed, budget, arm)

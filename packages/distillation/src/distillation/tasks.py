@@ -62,7 +62,7 @@ def _select(items: list[BenchmarkItem], limit: int, seed: int) -> list[Benchmark
 GSM8K_EVAL_SUFFIX = "\nSolve step by step. End with #### followed by the final numeric answer."
 
 
-TaskName = Literal["ag_news", "squad", "gsm8k"]
+TaskName = Literal["ag_news", "squad", "gsm8k", "coding"]
 Role = Literal[
 	"development",
 	"attacker",
@@ -98,7 +98,7 @@ class TaskSpec:
 	pool_split: str
 	test_split: str
 	max_output_tokens: int
-	metric: Literal["label_accuracy", "squad", "numeric_exact_match"]
+	metric: Literal["label_accuracy", "squad", "numeric_exact_match", "pass_at_1"]
 
 
 TASKS: dict[str, TaskSpec] = {
@@ -127,6 +127,18 @@ TASKS: dict[str, TaskSpec] = {
 		"test",
 		256,
 		"numeric_exact_match",
+	),
+	"coding": TaskSpec(
+		DatasetSpec(
+			"nvidia/OpenCodeInstruct",
+			"8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+			"cc-by-4.0",
+			"train",
+		),
+		"train",
+		"test",
+		512,
+		"pass_at_1",
 	),
 }
 
@@ -264,9 +276,15 @@ def _benchmark_item(task: str, split: str, example: TaskExample) -> BenchmarkIte
 
 
 def _suite(
-	task: str, split: str, items: list[BenchmarkItem], available: int, seed: int
+	task: str,
+	split: str,
+	items: list[BenchmarkItem],
+	available: int,
+	seed: int,
+	*,
+	dataset: DatasetSpec | None = None,
 ) -> FrozenSuite:
-	spec = TASKS[task].dataset
+	spec = dataset or TASKS[task].dataset
 	source = DatasetSource(
 		benchmark=task,
 		repository=spec.repository,
@@ -294,6 +312,16 @@ def build_task(
 	log: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
 	"""Write the task's prompt pools, gold answers, frozen suites, and manifest."""
+	if task == "coding":
+		from distillation.coding_task import build_coding_task
+
+		return build_coding_task(
+			output_dir=output_dir,
+			seed=seed,
+			development_limit=development_limit,
+			rows=rows,
+			log=log,
+		)
 	if task not in TASKS:
 		raise ValueError(f"task must be one of {sorted(TASKS)}")
 	if (output_dir / "manifest.json").exists():

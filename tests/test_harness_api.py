@@ -129,6 +129,57 @@ async def _solved(client: httpx.AsyncClient, actor: str, text: str) -> httpx.Res
 
 
 @pytest.mark.asyncio
+async def test_authenticated_coding_endpoint_preserves_code_and_enforces_quota(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from coding.dataset import PROMPT
+	from distillation.campaign import PolicyRefusal, ProtectedTeacher
+	from harness.serialization import detector_text
+
+	calibration, scorer, _ = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.config.task = "coding"
+	calibration.config.aggregate_enabled = False
+	calibration.baselines["quota"].thresholds = [1.0]
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(json.dumps({hashlib.sha256(KEY.encode()).hexdigest(): "coder"}))
+
+	class CodingTeacher(Teacher):
+		async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+			assert request.max_output_tokens == 512
+			result = await super().generate(request)
+			return result.model_copy(
+				update={"message": Message(role="assistant", content="def f(): return 1")}
+			)
+
+	app = create_app(
+		settings=Settings(
+			_env_file=None,  # type: ignore[call-arg]
+			HARNESS_TASK="coding",
+			HARNESS_POLICY="quota",
+			HARNESS_ACCOUNTS_FILE=accounts,
+			HARNESS_DECISION_LOG=tmp_path / "decisions.jsonl",
+		),
+		teacher=CodingTeacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+	)
+	text = PROMPT.format(specification="Return one.", signature="def f():")
+	assert detector_text("coding", text) == "Return one.\n\nSignature: def f():"
+	request = TeacherGenerationRequest(
+		messages=[Message(role="user", content=text)], max_output_tokens=512
+	)
+	client = ProtectedTeacher("http://coding", KEY, transport=httpx.ASGITransport(app=app))
+	try:
+		assert (await client.generate(request)).message.content == "def f(): return 1"
+		with pytest.raises(PolicyRefusal):
+			await client.generate(request)
+	finally:
+		await client.close()
+
+
+@pytest.mark.asyncio
 async def test_protected_collector_solves_real_api_challenges_and_collects_noise(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:

@@ -1,11 +1,52 @@
 """Deterministic scoring for AG News, SQuAD, and GSM8K."""
 
+import asyncio
 import re
 import string
 from collections import Counter
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import Literal
 
 from distillation.benchmarks.models import BenchmarkItem
+
+
+@dataclass(frozen=True)
+class AnswerScore:
+	prediction: str | None
+	correct: bool
+	status: Literal["ok", "invalid", "truncated", "error", "timeout"]
+	f1: float | None = None
+
+
+async def evaluate_answer(item: BenchmarkItem, text: str, finish_reason: str | None) -> AnswerScore:
+	"""Score the same response contract in capability and benign utility evaluations.
+
+	Sandbox infrastructure errors propagate so a missing execution boundary cannot be
+	reported as a model failure. Candidate failures and timeouts remain in the denominator.
+	"""
+	if finish_reason in {"length", "max_tokens"}:
+		return AnswerScore(None, False, "truncated", 0.0 if item.metric == "squad" else None)
+	if (
+		finish_reason not in {"stop", "eos", "end_turn", "completed"}
+		or "<think>" in text
+		or "</think>" in text
+	):
+		return AnswerScore(None, False, "invalid", 0.0 if item.metric == "squad" else None)
+	if item.metric == "pass_at_1":
+		from coding.extract import extract_code
+		from coding.scoring import CodingItem, pass_at_1
+
+		result = await asyncio.to_thread(pass_at_1, CodingItem(item.test_code), text)
+		return AnswerScore(extract_code(text), result.correct, result.status)
+	prediction, correct = score_answer(item, text)
+	status: Literal["ok", "invalid"] = "ok" if prediction is not None else "invalid"
+	return AnswerScore(
+		prediction,
+		correct,
+		status,
+		(squad_f1(item, text) if status == "ok" else 0.0) if item.metric == "squad" else None,
+	)
 
 
 def squad_normalize(text: str) -> str:
@@ -42,6 +83,7 @@ def extract_answer(item: BenchmarkItem, response: str) -> str | None:
 			return str(Decimal(answer.replace(",", "")).normalize())
 		except InvalidOperation:
 			return None
+	raise ValueError("coding responses require the sandboxed evaluate_answer path")
 
 
 def score_answer(item: BenchmarkItem, response: str) -> tuple[str | None, bool]:

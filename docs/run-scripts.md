@@ -2,17 +2,19 @@
 
 `scripts/pipeline.py` runs the task study on Linux, macOS, and Windows.
 
+For the new gateway study, `uv run distill gateway benign` builds mixed benign clients and `uv run distill gateway schedule` builds fixed A1/A2/A5 inventories from existing task pools. These commands generate hashed inputs only. See the [multi-domain protocol and examples](multi-domain-study.md#run-the-implemented-input-builders) for profiles, budgets, and pending execution phases.
+
 | Scenario | Purpose |
 | --- | --- |
 | `teacher-host` | Start vLLM on loopback and the authenticated teacher API on the network; serve until interrupted |
-| `paper-tasks` | Build tasks, collect budgeted responses, stop a locally hosted teacher, review usability, and train attacker and gold-reference adapters |
+| `distill` | Build tasks, collect budgeted responses, stop a locally hosted teacher, review usability, and train attacker and gold-reference adapters |
 | `start` | Run the full study and benchmarks, then protected extraction, fresh student training, and another benchmark |
 
 ```bash
-just paper-tasks
-just paper-tasks --tasks ag_news,squad --seeds 42,1,20 --budgets 500,2000,8000
-just paper-tasks --teacher-url http://TEACHER_IP:8000
-python3 scripts/pipeline.py paper-tasks --help
+just distill
+just distill --tasks ag_news,squad,gsm8k --seeds 42,1,20 --budgets full
+just distill --teacher-url http://TEACHER_IP:8000
+python3 scripts/pipeline.py distill --help
 ```
 
 On Windows, use `py -3 scripts\pipeline.py`. The bootstrap accepts Python 3.9 or newer and installs the Python 3.14 workspace. Relative option paths resolve against the repository root. just forwards options unquoted, so values cannot contain spaces.
@@ -33,7 +35,11 @@ just start --upstream-url http://127.0.0.1:18011/v1
 just start --help
 ```
 
-Defaults match `paper-tasks`: AG News and SQuAD; seeds 42, 1, and 20; budgets 500, 2,000, and 8,000, skipping budgets larger than a task's pool. Add `gsm8k` to `--tasks` for the generative extension. This trains 18 undefended attacker adapters and 18 gold references, then up to 18 protected adapters for each defense. `--arms` selects the defenses, by default all three: `full` (accumulated MMD with the graduated policy), `instantaneous` (current-window MMD with the same actions and latch), and `quota` (block after the per-horizon request quota fitted to the L4 target). Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+Defaults match `distill`: AG News, SQuAD, and GSM8K; seeds 42, 1, and 20; `--budgets full`, resolved from each task's manifest. The pinned builds provide 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries. GSM8K supplies the math capability distillation corpus. Its 256-token cap is provisional and the cap-pilot command remains unimplemented. The pilot remains required before freezing that cap for final study evidence. Missing task builds are generated automatically. Explicit numeric budgets remain available, with values above a task's pool skipped. The defaults plan 9 undefended attacker adapters and 9 gold references, then up to 9 protected adapters for each defense, excluding development recipe trials and matched supervision controls. `--arms` selects the defenses, by default all three: `full`, `instantaneous`, and `quota`. Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+
+These are separate task studies, not multi-domain gateway results. `budgets.json` freezes the resolved numeric budgets per task and the final report uses that plan, including skipped oversized budgets. Reports for older `full` protocols can recover budgets from their frozen `tasks.json`. `policy-horizons.json` records the calibrated attempt and time horizons. Full-pool campaigns can cross several 10,000-attempt policy horizons. Policy state resets at those boundaries, while the collector retains one campaign-wide attempt limit and deadline. Interpret the resulting defense scores as campaigns spanning those resets.
+
+The task list is frozen in `protocol.json`. To add GSM8K to a study directory previously frozen with only AG News and SQuAD, select a new `--run-dir`; the launcher rejects changes to an existing protocol.
 
 The stages run in this order:
 
@@ -55,7 +61,7 @@ Default calibration groups legitimate fitting, score-calibration, and policy-cal
 
 | Path | Contents |
 | --- | --- |
-| `protocol.json`, `tasks.json`, `traffic.json` | Frozen options, manifests, traffic suite |
+| `protocol.json`, `budgets.json`, `tasks.json`, `policy-horizons.json` | Frozen options, resolved per-task budgets, task manifests, policy reset settings |
 | `baseline-adapters/TASK/sSEED-bBUDGET/attacker` and `gold` | Baseline adapters |
 | `TASK/calibration-report.json` | Reference windows, truncation, thresholds, quota, aggregate-monitor status |
 | `TASK/benign-test/ARM.json`, `ARM.decisions.jsonl` | Held-out benign account escalation per defense |
@@ -68,7 +74,7 @@ Default calibration groups legitimate fitting, score-calibration, and policy-cal
 
 Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. All planned baseline ledgers and their resume contracts are validated before loading the teacher. For damaged files, use the [ledger recovery command](distillation-pipeline.md#recover-a-damaged-collection-ledger) to back up the original, preserve valid responses, and recollect missing IDs. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
 
-The protected service keeps account evidence in memory. After interrupted collection, partial ledgers, events, and attempts move into `protected/ARM/interrupted/ATTEMPT/`, then the full campaign starts again against fresh service state. Only the new completed campaign supplies training data. Archived responses never mix into it; archived logs retain additional query and proof costs.
+The protected service keeps account evidence in memory. Interrupted campaigns retain their ledgers, events, and spent costs in place. The collector refuses to restart them with a fresh allowance. Preserve those artifacts and explicitly declare a new campaign directory with fresh policy state if another campaign is needed.
 
 The harness runs locally for this experiment and stops on completion or interruption. Only services started here are stopped. External teachers and upstream servers keep running, so use another GPU or stop an external local server before student work when memory is shared. Logs live in `artifacts/logs/`. `status.json` becomes `complete` only after reports are written. Outstanding paper experiments and analyses remain in [paper-tasks.md](paper-tasks.md#implementation-todo).
 
@@ -82,7 +88,7 @@ Review checks response usability and training length without consulting gold lab
 
 Locally started services run in separate process groups and log under `artifacts/logs/`. The launcher stops them before training. Ctrl+C stops those services; during training the trainer saves a checkpoint before exiting. A later run resumes collection by example ID and training from checkpoints. Completed adapters must match the dataset hash and explicitly configured training settings before they are reused. Checkpoint resume also checks the trainer's fingerprint, including the chat template.
 
-Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. `paper-tasks` does not run evaluation automatically; `start` includes it.
+Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. `distill` does not run evaluation automatically; `start` includes it.
 
 ## Runtime selection
 

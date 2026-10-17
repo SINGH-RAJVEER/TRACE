@@ -7,7 +7,7 @@ markers below mirror the task prompts in `distillation.tasks`; a test keeps them
 
 from typing import Literal
 
-Task = Literal["ag_news", "squad", "gsm8k", "text"]
+Task = Literal["ag_news", "squad", "gsm8k", "coding", "text"]
 
 # Recorded in every calibration artifact. Change it whenever the extraction rules change.
 SERIALIZATION = "detector-v1"
@@ -15,6 +15,10 @@ SERIALIZATION = "detector-v1"
 ARTICLE = "\n\nArticle: "
 PASSAGE = "\n\nPassage: "
 QUESTION = "\n\nQuestion: "
+CODING_PREFIX = (
+	"Implement the Python function described below. Return only a Python code block."
+	"\n\nSpecification: "
+)
 GSM8K_SUFFIX = "\nSolve step by step. End with #### followed by the final numeric answer."
 
 
@@ -38,6 +42,8 @@ def detector_text(task: Task, turn: str) -> str:
 		if marker and separator and prefix:
 			return f"{question}\n\n{passage}"
 		return turn
+	if task == "coding":
+		return turn.removeprefix(CODING_PREFIX)
 	if task == "gsm8k":
 		return turn.removesuffix(GSM8K_SUFFIX)
 	return turn

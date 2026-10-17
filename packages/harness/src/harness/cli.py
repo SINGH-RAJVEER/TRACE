@@ -57,7 +57,7 @@ def calibrate_command(
 	output_dir: Annotated[Path, typer.Option("--output-dir", file_okay=False)],
 	task: Annotated[
 		Task,
-		typer.Option(help="ag_news, squad, gsm8k, or text: selects the detector serialization."),
+		typer.Option(help="ag_news, squad, gsm8k, coding, or text: selects the detector serialization."),
 	] = "text",
 	window_size: Annotated[int, typer.Option(min=2)] = 100,
 	seed: int = 42,

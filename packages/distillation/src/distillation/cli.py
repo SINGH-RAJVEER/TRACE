@@ -10,6 +10,7 @@ import typer
 from rich.markup import escape
 
 from distillation.collection import CollectionOptions, CollectionProgress, collect
+from distillation.gateway_cli import app as gateway_app
 from distillation.launcher import run_app
 from distillation.preparation import prepare_sft_dataset
 from distillation.progress import LiveProgress, console
@@ -27,10 +28,11 @@ app.add_typer(benchmark_app, name="benchmark", help="Score and compare frozen pa
 traffic_app = typer.Typer(no_args_is_help=True)
 benchmark_app.add_typer(traffic_app, name="traffic", help="Measure harness utility and blocking.")
 tasks_app = typer.Typer(no_args_is_help=True)
-app.add_typer(tasks_app, name="tasks", help="Build the paper's AG News, SQuAD, and GSM8K tasks.")
+app.add_typer(tasks_app, name="tasks", help="Build AG News, SQuAD, GSM8K, and coding tasks.")
 ledger_app = typer.Typer(no_args_is_help=True)
 app.add_typer(ledger_app, name="ledger", help="Inspect and recover damaged collection ledgers.")
 app.add_typer(run_app, name="run", help="Run a whole pipeline scenario on this machine.")
+app.add_typer(gateway_app, name="gateway", help="Generate mixed benign and campaign inputs.")
 
 
 @ledger_app.command("repair")
@@ -193,7 +195,7 @@ def review_command(
 
 @tasks_app.command("build")
 def tasks_build_command(
-	task: Annotated[str, typer.Option(help="ag_news, squad, or gsm8k")],
+	task: Annotated[str, typer.Option(help="ag_news, squad, gsm8k, or coding")],
 	output_dir: Annotated[Path | None, typer.Option("--output-dir", file_okay=False)] = None,
 	seed: int = 42,
 	development_limit: Annotated[int, typer.Option(min=0)] = 1000,

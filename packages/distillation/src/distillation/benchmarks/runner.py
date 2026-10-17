@@ -13,7 +13,6 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
 
 from distillation.benchmarks.inference import make_model, validate_adapter
 from distillation.benchmarks.models import (
@@ -24,10 +23,7 @@ from distillation.benchmarks.models import (
 	load_suite,
 	save_json,
 )
-from distillation.benchmarks.scoring import (
-	score_answer,
-	squad_f1,
-)
+from distillation.benchmarks.scoring import evaluate_answer
 from distillation.io import append_jsonl
 from distillation.schemas import TeacherGenerationRequest
 from distillation.teacher import Teacher
@@ -70,6 +66,10 @@ async def run_evaluation(
 	progress: Callable[[int, int], None] | None = None,
 ) -> EvaluationRun:
 	suite = load_suite(config.suite_path)
+	if any(item.metric == "pass_at_1" for item in suite.items):
+		from coding.scoring import ensure_runtime
+
+		await asyncio.to_thread(ensure_runtime)
 	model_config = config.models[slot]
 	training_paths = config.training_paths + validate_adapter(model_config)
 	training_hashes = audit_training(config.suite_path, training_paths)
@@ -122,31 +122,16 @@ async def run_evaluation(
 			else:
 				latency = time.perf_counter() - start  # Excludes scoring.
 				text = generation.message.content
-				prediction, correct = score_answer(item, text)
-				status: str = "ok" if prediction is not None else "invalid"
-				if generation.finish_reason not in {"stop", "eos", "end_turn"}:
-					correct, status = (
-						False,
-						"truncated" if generation.finish_reason == "length" else "invalid",
-					)
-				elif "<think>" in text or "</think>" in text:
-					correct, status = False, "invalid"
-				# Invalid and truncated answers stay in the SQuAD denominator with F1 zero.
-				f1 = None
-				if item.metric == "squad":
-					f1 = squad_f1(item, text) if status == "ok" else 0.0
+				score = await evaluate_answer(item, text, generation.finish_reason)
 				result = SampleResult(
 					item_id=item.id,
 					benchmark=item.benchmark,
 					category=item.category,
 					response=text,
-					prediction=prediction,
-					correct=correct,
-					f1=f1,
-					status=cast(
-						Literal["ok", "invalid", "truncated", "error"],
-						status,
-					),
+					prediction=score.prediction,
+					correct=score.correct,
+					f1=score.f1,
+					status=score.status,
 					latency_seconds=latency,
 					usage=generation.usage,
 					finish_reason=generation.finish_reason,
@@ -160,7 +145,16 @@ async def run_evaluation(
 	finally:
 		await model.close()
 	packages = {}
-	for name in ("distillation-core", "httpx", "torch", "transformers", "peft", "datasets"):
+	for name in (
+		"distillation-core",
+		"coding-task",
+		"numpy",
+		"httpx",
+		"torch",
+		"transformers",
+		"peft",
+		"datasets",
+	):
 		with contextlib.suppress(importlib.metadata.PackageNotFoundError):
 			packages[name] = importlib.metadata.version(name)
 	try:

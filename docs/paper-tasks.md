@@ -1,6 +1,8 @@
 # Paper tasks
 
-The paper's distillation study (Section IV-B) measures extraction on narrow task APIs rather than general chat. `distill tasks` builds those tasks: AG News four-class classification and SQuAD 1.1 extractive QA form the core study, and GSM8K adds a generative, multi-step task with an objective answer. Each task is a separate service with its own prompt format, output limit, ledger, frozen suites, and evaluation config, so results are reported per task as Table VI requires.
+The [multi-domain study protocol](multi-domain-study.md) records the requested transition to one shared gateway and one student per campaign. `distill gateway benign` and `distill gateway schedule` now generate its first-phase inputs. The task builders and separate-task execution described below remain the current collection/training path; gateway execution is not implemented yet.
+
+The paper's distillation study (Section IV-B) measures extraction on narrow task APIs. `distill tasks` supports three tasks: AG News four-class classification, SQuAD 1.1 extractive QA, and GSM8K generative math with a numeric final answer. Each task is a separate service with its own prompt format, output limit, ledger, frozen suites, and evaluation config, so results are reported per task as Table VI requires.
 
 This is the repository's only distillation workflow. The study measures task-specific extraction and legitimate utility; it makes no general-chat capability claim.
 
@@ -23,9 +25,9 @@ Every request for a task uses one fixed serialization, in the attacker pool, the
 ## Run the whole study
 
 ```bash
-just paper-tasks
-just paper-tasks --tasks ag_news --seeds 42 --budgets 500,2000
-just paper-tasks --teacher-url http://TEACHER_IP:8000
+just distill
+just distill --tasks ag_news --seeds 42 --budgets 500,2000
+just distill --teacher-url http://TEACHER_IP:8000
 ```
 
 Each task keeps its ledger in `data/tasks/TASK/ledger.jsonl` and its adapters in `artifacts/tasks/TASK/`. Budgets, seeds, and attacker versus gold-reference training remain separate within each task.
@@ -33,21 +35,23 @@ Each task keeps its ledger in `data/tasks/TASK/ledger.jsonl` and its adapters in
 Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 
 1. Builds each task that has no `data/tasks/TASK/manifest.json`, and reuses existing builds.
-2. Drops budgets larger than a task's attacker pool and logs them. GSM8K skips 8,000 this way.
+2. Resolves the default `--budgets full` to each task's attacker count in `manifest.json`. Explicit numeric budgets larger than a task's attacker pool are dropped and logged.
 3. Writes the prompts of every seed's largest budget. Starts vLLM and the teacher API on loopback, or uses `--teacher-url`, and collects those prompts into the task ledger at the task's own output limit. Then it stops a locally started teacher. If the ledgers already hold every planned prompt, the teacher is not started.
 4. For every task, seed, and budget, writes the budget's ledger subset, reviews it without gold labels, prepares `train.jsonl`, and trains the attacker student. It also trains the gold-label reference on `gold-train.jsonl`, unless you pass `--no-gold`.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--tasks` | `ag_news,squad` | Tasks to run; add `gsm8k` for the generative extension |
+| `--tasks` | `ag_news,squad,gsm8k` | Tasks to run; GSM8K supplies the math capability distillation corpus |
 | `--seeds` | `42,1,20` | Paired seeds; each orders its own attacker queries and sets the training seed |
-| `--budgets` | `500,2000,8000` | Attacker query budgets B_A |
+| `--budgets` | `full` | Use the whole attacker pool per task; pass comma-separated integers for smaller query budgets B_A |
 | `--gold/--no-gold` | `--gold` | Also train the gold-label reference student |
 | `--config` | `configs/train.task.toml` | Recipe copied into each run with that run's dataset, output directory, and seed |
 | `--teacher-url` | none | Collect from a running teacher API instead of starting vLLM here |
 | `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#task-study-operation) | Local teacher and collection settings |
 
-Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. The default matrix is AG News and SQuAD, three seeds, and three budgets, with two students each, which is 36 training runs. GSM8K runs only when named in `--tasks`, at 500 and 2,000 queries, and adds 12. Pass smaller `--tasks`, `--seeds`, or `--budgets` to run part of it, and declare any reduced matrix before final testing.
+Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. Both `just distill` and `just start` default to AG News, SQuAD, and GSM8K with three seeds. The default uses each task's whole attacker pool: 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries with the pinned builds. All three seeds use the same complete pool in different orders. This plans 9 undefended attacker adapters and 9 gold references, excluding defended students, recipe trials, and matched controls. GSM8K supplies the math capability distillation corpus; its 256-token output cap remains provisional until the cap pilot is implemented and passes.
+
+`--budgets 500,2000,8000` selects subsets, skipping 8,000 for GSM8K when it is selected. `start` freezes the resolved numeric plan in `budgets.json`; reporting uses those task-specific values. Existing protocol options remain immutable. Protected campaigns retain one attempt limit and deadline across all policy resets, so full-pool runs can span multiple 10,000-attempt horizons without replenishing their campaign allowance. The resulting reports describe separate task studies, not shared-gateway execution.
 
 Evaluation is not part of this command; see [Evaluate](#evaluate). The sections below describe the individual steps it runs.
 
@@ -186,16 +190,15 @@ This checklist applies to the task-only extraction and account-policy study. It 
 
 | Scope | Work covered |
 | --- | --- |
-| Core study | AG News classification and SQuAD extractive QA, budgeted task-specific attacker adapters, an unmodified student, a same-prompt gold-label reference, and paired undefended/defended conditions |
+| Core study | AG News classification, SQuAD extractive QA, and GSM8K generative math, budgeted task-specific attacker adapters, an unmodified student, a same-prompt gold-label reference, and paired undefended/defended conditions |
 | Required evidence | Positive undefended transfer on development data, task-matched legitimate utility, campaign attempt/time accounting, released-token controls, per-task capability scores, and paired uncertainty |
-| Generative extension | GSM8K with its own numeric exact-match score and supported budgets; freeze its inclusion before final testing |
 | Bounded secondary work | Task-matched schedules, detector ablations, aggregate alerts, and overhead measurements declared in the frozen matrix; retain active extraction or upstream reproduction only with their complete protocol and evidence |
 | Excluded | General-corpus collection/training, a general instruction/chat student, broad knowledge/coding benchmarks, correctness-filtered attacker supervision, cross-task model rankings, teacher-gap closure, and general-chat dataset or utility studies |
 
-- [x] Remove the general-corpus launchers, builders, prompt families, configs, correctness filters, dedicated tests/docs, and local prompt/ledger artifacts. `just paper-tasks` is the only distillation workflow.
+- [x] Remove the general-corpus launchers, builders, prompt families, configs, correctness filters, dedicated tests/docs, and local prompt/ledger artifacts. `just distill` is the only distillation workflow.
 - [x] Preserve task pools, frozen-suite hashes, task ledgers, and shared collection/training/evaluation code. Remove the task collector's dependency on the retired general ledger and resume it without losing its existing rows.
 - [x] Update the README, operating guides, and dashboard for task-only evaluation, including SQuAD F1 and removal of broad-model aggregate scores and coding filters.
-- [ ] Freeze the actual task/model matrix before final testing. AG News and SQuAD give 36 undefended attacker/gold training runs with the default three seeds and three budgets; retaining GSM8K adds 12, for 48. These counts exclude defended students and matched supervision controls and do not establish completed results.
+- [ ] Freeze the actual task/model matrix before final testing. The default AG News, SQuAD, and GSM8K matrix plans 18 undefended attacker/gold training runs across three seeds, using each task's full attacker pool. These counts exclude defended students, development recipe trials, and matched supervision controls and do not establish completed results.
 - [ ] Finish model provenance. The paper and default configs now agree on Qwen3.5-9B (non-thinking) and Qwen3.5-2B-Base, and `configs/train.task.toml` pins the student revision. Still record the victim revision and served precision (the Colab teacher serves `Qwen3.5-9B-Q8_0`), the chat template, and the adapter modules that `all-linear` resolves to, in every run manifest and in Table V.
 - [ ] Freeze task-specific output limits, development-selected rank-16 training settings, and the gold-unavailable attacker review protocol. Do not restore a general-corpus run or a gold correctness filter as a prerequisite for the task study.
 
@@ -373,7 +376,7 @@ Implement shared serialization, client/source identities, and the campaign event
 
 ### Repository audit findings (2026-10-16)
 
-A comparison of `paper/main.tex` with the merged harness, `just paper-tasks`, and `just start` found the gaps below. Each discrepancy has one owner. Where the paper's protocol is sound and the repository diverges, the fix is listed here. Where the repository cannot support a promise, the fix is a manuscript change, listed under [manuscript changes decided against the repository](paper-revision-todo.md#manuscript-changes-decided-against-the-repository-2026-10-16) and only cross-referenced here.
+A comparison of `paper/main.tex` with the merged harness, `just distill`, and `just start` found the gaps below. Each discrepancy has one owner. Where the paper's protocol is sound and the repository diverges, the fix is listed here. Where the repository cannot support a promise, the fix is a manuscript change, listed under [manuscript changes decided against the repository](paper-revision-todo.md#manuscript-changes-decided-against-the-repository-2026-10-16) and only cross-referenced here.
 
 Progress against the numbered items above, none of them complete:
 
@@ -383,7 +386,7 @@ Progress against the numbered items above, none of them complete:
 - Item 23: `campaign.events.jsonl` and the harness decision log exist, but `J_ell` and `Q_ell` are not derived from them.
 - Item 27: `harness bench` times the harness's own units; the matched-load victim comparison is still missing.
 - Item 9: `_trained` now rejects reuse when the dataset hash or recorded config differs, but tokenizer, template, and model-revision identity are not part of the fingerprint.
-- Task ledgers: `just start` and `just paper-tasks` now validate every planned ledger before starting the teacher, and `distill ledger repair` recovers damaged rows. See the re-query note under Limitations.
+- Task ledgers: `just start` and `just distill` now validate every planned ledger before starting the teacher, and `distill ledger repair` recovers damaged rows. See the re-query note under Limitations.
 
 Blocking, before any defended campaign:
 
@@ -407,12 +410,12 @@ Required for Table VI and the primary contrast:
 
 Bookkeeping:
 
-- [ ] Add a GSM8K cap-pilot command that collects about 200 prompts from `development-suite.json`, which is JSON rather than `prompts.jsonl`. It should report finish-reason counts and fail when more than 2% stop at the limit, as Section IV-B specifies. Run it only if GSM8K is retained.
+- [ ] Add a GSM8K cap-pilot command that collects about 200 prompts from `development-suite.json`, which is JSON rather than `prompts.jsonl`. It should report finish-reason counts and fail when more than 2% stop at the limit, as Section IV-B specifies. GSM8K remains in the launcher defaults as the math capability distillation corpus; its cap remains provisional pending this pilot.
 - [x] Record the reference-window count per task in the run manifest and calibration report. `study.py` uses `min(20, fitting // 100)`, which gives 20 for AG News and SQuAD and 13 for GSM8K. Keep references disjoint rather than resampling; the paper discloses the per-task count. Done: `TASK/calibration-report.json` records it with truncation counts and thresholds.
 - [x] Record the aggregate monitor as skipped in every calibration artifact and report. It needs 30,000 fitting requests, but AG News has 21,558, SQuAD 13,170, and GSM8K 1,328, which is less than one window. The paper declares the monitor not run. Done: the calibration report records `aggregate_skipped`.
 - [x] Keep `e_process` and `e_cusum` out of `just start` outputs and every reported table. The paper does not declare them, and no change is planned there. Done: study calibrations fit only `paper`, `instantaneous`, `paper_no_memory`, and `paper_no_decay`.
 - [ ] Join noise flags into the protected ledger, in case `deceive` is ever used. Under `HARNESS_L4_ACTION=deceive`, noise responses count as received supervision in `campaign.json`; mark them from the decision log as the traffic runner does.
-- [x] Default `just start` and `just paper-tasks` to `ag_news,squad` until the GSM8K decision is frozen. Done.
+- [x] Include GSM8K by default as the math capability distillation corpus. Both launchers default to `ag_news,squad,gsm8k`. The output-cap pilot remains a separate pending requirement. All selected tasks default to their full attacker pools. Explicit budgets above a task's pool are skipped, and the resolved plan is frozen for reporting.
 - [x] Fix stale text: the `configs/train.task.toml` comments still say the paper uses Qwen2.5 and attention-only LoRA targets, and `docs/harness.md` lists the campaign layer as not implemented, although `campaign.py` and `just start` exist. Done.
 
 ## Limitations
