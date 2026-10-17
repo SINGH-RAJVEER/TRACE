@@ -334,6 +334,8 @@ class TaskPipeline:
 	gold: bool
 	artifact_root: Path = TASK_ARTIFACTS
 	plan: dict[str, list[int]] = field(default_factory=dict)
+	recipes: dict[str, dict[str, Any]] = field(default_factory=dict)
+	run_ledgers: dict[tuple[str, int], Path] = field(default_factory=dict)
 
 	def validate(self) -> None:
 		if not self.terms_review_id:
@@ -402,7 +404,7 @@ class TaskPipeline:
 			str(self.run_dir(task, seed, budget)),
 		]
 		if with_ledger:
-			args += ["--ledger", str(self.ledger(task))]
+			args += ["--ledger", str(self.run_ledgers.get((task, seed), self.ledger(task)))]
 		self.launcher.distill(*args)
 
 	def uncollected(self) -> int:
@@ -482,7 +484,7 @@ class TaskPipeline:
 		for task, budgets in self.plan.items():
 			for seed in self.seeds:
 				for budget in budgets:
-					self.train_run(base, task, seed, budget)
+					self.train_run(base | self.recipes.get(task, {}), task, seed, budget)
 
 	def train_run(self, base: dict[str, Any], task: str, seed: int, budget: int) -> None:
 		"""Trains the attacker student, and with --gold the gold-label reference, for one run."""
@@ -541,6 +543,20 @@ def _trained(output: Path, dataset: Path, config: Path | None = None) -> bool:
 	if not manifest.is_file():
 		return False
 	recorded = json.loads(manifest.read_text(encoding="utf-8"))
+	if not config or "fingerprint" not in recorded:
+		raise LaunchError(
+			f"{output} has no verified training fingerprint; use a new output directory"
+		)
+	from distillation.training import load_training_config, training_identity
+
+	if recorded["fingerprint"] != training_identity(load_training_config(config)):
+		raise LaunchError(
+			f"{output} has a different model, tokenizer, template, data, or training configuration"
+		)
+	if not (output / "adapter_config.json").is_file() or not list(
+		output.glob("adapter_model*.safetensors")
+	):
+		raise LaunchError(f"{output} is missing its trained adapter")
 	if recorded.get("dataset_sha256") != hashlib.sha256(dataset.read_bytes()).hexdigest():
 		raise LaunchError(f"{output} was trained on different data; choose a new output directory")
 	if config:

@@ -345,6 +345,7 @@ def train(config: TrainingConfig) -> Path:
 				"dataset_hashes": dataset_hashes,
 				"preflight": preflight,
 				"resolved_base_revision": getattr(model.config, "_commit_hash", None),
+				"resolved_adapter_modules": [name for name, module in trainer.model.named_modules() if hasattr(module, "lora_A")],
 				"chat_template_sha256": chat_template_sha256,
 				"eos_token": tokenizer.eos_token,
 				"eos_token_id": tokenizer.eos_token_id,
@@ -367,7 +368,7 @@ def train(config: TrainingConfig) -> Path:
 		return config.output_dir
 
 	resume_from, offloaded_before = _resume_point(
-		config, _run_fingerprint(config, dataset_hashes, chat_template_sha256)
+		config, training_identity(config)["inputs"]
 	)
 	offload = config.activation_offloading is True or (
 		config.activation_offloading == "auto" and offloaded_before
@@ -430,6 +431,38 @@ def _run_fingerprint(
 		"config": config.model_dump(mode="json", exclude=_RESUMABLE_FIELDS),
 		"dataset_sha256": dataset_hashes,
 		"chat_template_sha256": chat_template_sha256,
+		"serialization": "task-response-only-v1",
+	}
+
+
+def training_identity(config: TrainingConfig) -> dict[str, Any]:
+	"""Resolve tokenizer/template identity before deciding whether an adapter can be reused."""
+	if not re.fullmatch(r"[0-9a-f]{40}", config.base_revision):
+		raise ValueError("training provenance requires an immutable 40-character model revision")
+	tokenizer = _load_tokenizer(config)
+	template = tokenizer.chat_template
+	encoded = tokenizer.backend_tokenizer.to_str()
+	inputs = _run_fingerprint(
+		config, dataset_hashes(config), hashlib.sha256(str(template).encode()).hexdigest()
+	)
+	inputs["tokenizer"] = {
+		"model": config.base_model,
+		"revision": config.base_revision,
+		"backend_sha256": hashlib.sha256(encoded.encode()).hexdigest(),
+		"eos_token": tokenizer.eos_token,
+		"eos_token_id": tokenizer.eos_token_id,
+	}
+	return {"sha256": hashlib.sha256(canonical_json(inputs).encode()).hexdigest(), "inputs": inputs}
+
+
+def dataset_hashes(config: TrainingConfig) -> dict[str, str]:
+	return {
+		name: _sha256(path)
+		for name, path in (
+			("training", config.dataset_path),
+			("validation", config.validation_dataset_path),
+		)
+		if path is not None
 	}
 
 
@@ -520,6 +553,7 @@ def _write_json(path: Path, value: object) -> None:
 def _write_manifest(config: TrainingConfig, *, details: dict[str, Any]) -> None:
 	config.output_dir.mkdir(parents=True, exist_ok=True)
 	manifest: dict[str, Any] = {
+		"fingerprint": training_identity(config),
 		"config": config.model_dump(mode="json"),
 		"dataset_sha256": details["dataset_hashes"]["training"],
 		"validation_dataset_sha256": details["dataset_hashes"].get("validation"),

@@ -122,6 +122,11 @@ def replay(
 			}
 			sink.write(json.dumps(record) + "\n")
 	units = len(peaks)
+	levels = (
+		{1, 2, 3, 4}
+		if policy == "mmd" and actions == "graduated"
+		else ({4} if policy != "allow" else set())
+	)
 	return {
 		"policy": policy,
 		"accumulator": accumulator if policy == "mmd" else None,
@@ -133,9 +138,15 @@ def replay(
 		"windows": windows,
 		"l4_action": l4_action if policy == "mmd" else None,
 		"deceived": deceived,
-		"reached": {f"L{level}": sum(peak >= level for peak in peaks) for level in range(1, 5)},
+		"implemented_levels": sorted(levels),
+		"reached": {
+			f"L{level}": sum(peak >= level for peak in peaks) if level in levels else None
+			for level in range(1, 5)
+		},
 		"reached_rate": {
-			f"L{level}": sum(peak >= level for peak in peaks) / units if units else None
+			f"L{level}": sum(peak >= level for peak in peaks) / units
+			if units and level in levels
+			else None
 			for level in range(1, 5)
 		},
 		"output": str(output),

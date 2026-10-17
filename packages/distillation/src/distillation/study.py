@@ -110,7 +110,16 @@ class Study:
 		return self.run_dir(task, seed, budget) / "protected" / arm
 
 	def evaluation(
-		self, task: str, seed: int, budget: int, kind: str, *, arm: str | None = None
+		self,
+		task: str,
+		seed: int,
+		budget: int,
+		kind: str,
+		*,
+		arm: str | None = None,
+		development: bool = False,
+		adapter_override: Path | None = None,
+		untrained: bool = False,
 	) -> Path:
 		with self.pipeline.config.open("rb") as source:
 			training = tomllib.load(source)
@@ -137,9 +146,23 @@ class Study:
 			api_key_env="TEACHER_API_TOKEN" if self.token else "",
 		)
 		condition = f"protected-{arm}" if arm else kind
+		if development:
+			condition = f"development-{kind}"
+		if adapter_override:
+			adapter = adapter_override
 		config = EvaluationConfig(
+			dimensions={
+				"task": task,
+				"query_seed": seed,
+				"training_seed": seed,
+				"budget": budget,
+				"condition": condition,
+				"schedule": "uniform_without_replacement",
+				"split": "development" if development else "test",
+			},
 			experiment=f"start-{task}-s{seed}-b{budget}-{condition}",
-			suite_path=self.pipeline.task_dir(task) / "test-suite.json",
+			suite_path=self.pipeline.task_dir(task)
+			/ ("development-suite.json" if development else "test-suite.json"),
 			output_dir=directory / "benchmarks" / condition,
 			generation=GenerationConfig(
 				max_output_tokens=self.pipeline.manifest(task)["max_output_tokens"]
@@ -148,7 +171,7 @@ class Study:
 				"teacher": teacher,
 				"teacher_after": teacher,
 				"student_before": student,
-				"student_after": student.model_copy(update={"adapter_path": adapter}),
+				"student_after": student.model_copy(update={"adapter_path": None if untrained else adapter}),
 			},
 		)
 		path = directory / f"eval.{condition}.toml"
@@ -161,6 +184,18 @@ class Study:
 
 		settings = load_config(config)
 		suite = load_suite(settings.suite_path)
+		runs, errors = discover_runs(settings.output_dir)
+		if errors:
+			raise LaunchError(f"invalid evaluation artifacts in {settings.output_dir}")
+		if any(
+			run.slot == slot
+			and run.suite_sha256 == suite.sha256
+			and run.model == settings.models[slot]
+			and run.generation == settings.generation
+			and run.dimensions == settings.dimensions
+			for run in runs
+		):
+			return
 		key = json.dumps(
 			[
 				slot,
@@ -173,7 +208,9 @@ class Study:
 		if slot != "student_after" and key in self.references:
 			# Identical reference inference is shared across budgets and conditions. Keep
 			# the original ID, timestamps, and provenance, while joining the new comparison.
-			run = self.references[key].model_copy(update={"experiment": settings.experiment})
+			run = self.references[key].model_copy(
+				update={"experiment": settings.experiment, "dimensions": settings.dimensions}
+			)
 			save_json(settings.output_dir / f"suite-{suite.sha256}.json", suite)
 			save_json(settings.output_dir / f"{run.id}.json", run)
 			return
@@ -202,24 +239,21 @@ class Study:
 								)
 
 	def pooled(self, task: str, role: str) -> list[Any]:
-		"""One legitimate pool as shuffled 500-request accounts, as harness BenignRequests."""
-		from harness.calibration import HarnessConfig, pooled_accounts
+		"""One role's reproducible task clients, shared by calibration and utility scoring."""
+		from distillation.workloads import clients, task_references, workload_summary
 
 		prompts = read_jsonl(
 			self.pipeline.task_dir(task) / "legitimate" / f"{role}.jsonl", PromptRecord
 		)
-		return pooled_accounts(
-			(
-				(
-					prompt.example_id,
-					next(m.content for m in reversed(prompt.prompt) if m.role == "user"),
-				)
-				for prompt in prompts
-			),
-			role,
-			500,
-			HarnessConfig().seed,
+		rows = clients(prompts, role, references=task_references(self.pipeline.task_dir(task)))
+		if role == "fitting":
+			# Fit references on unique prompts; repeated clients belong only to calibration/test.
+			rows = list({row.example_id: row for row in rows}.values())
+		save_json(
+			self.root / task / "workloads" / f"{role}.json",
+			{"summary": workload_summary(rows), "requests": [r.model_dump() for r in rows]},
 		)
+		return rows
 
 	def calibrate(self, task: str) -> Path:
 		from harness.calibration import (
@@ -228,25 +262,24 @@ class Study:
 			load_calibration,
 			requests_sha256,
 			save_calibration,
+			validate_separation,
 		)
 		from harness.encoder import BGEEncoder
 
-		if self.calibration_root:
-			path = self.calibration_root / task
-			load_calibration(path)
-			return path
 		groups = {
 			role: self.pooled(task, role)
 			for role in ("fitting", "score_calibration", "policy_calibration")
 		}
-		path = self.root / task / "calibration"
+		validate_separation({**groups, "benign_test": self.pooled(task, "benign_test")})
+		path = self.calibration_root / task if self.calibration_root else self.root / task / "calibration"
 		if (path / "calibration.json").exists():
 			existing, _ = load_calibration(path)
 			# Older calibrations sliced article-ordered SQuAD pools or embedded whole turns.
 			if (
 				existing.config.task != task
 				or set(existing.config.accumulators) != set(DECLARED_ACCUMULATORS)
-				or existing.sha256 != {role: requests_sha256(rows) for role, rows in groups.items()}
+				or any(existing.sha256.get(role) != requests_sha256(rows) for role, rows in groups.items())
+				or existing.config.aggregate_enabled
 			):
 				raise LaunchError(
 					f"{path} was calibrated on different benign accounts or detector input; "
@@ -254,7 +287,7 @@ class Study:
 				)
 			return path
 		self.pipeline.launcher.log(
-			f"{task}: calibrating on pooled benign accounts; this does not validate real-user FPR"
+			f"{task}: calibrating on synthetic task clients; rates apply to this workload"
 		)
 		# Small task pools cannot supply twenty 100-request references. Keep the window
 		# fixed and record the supported reference count in the calibration artifact.
@@ -268,6 +301,7 @@ class Study:
 				{
 					"task": task,
 					"reference_windows": count,
+					"aggregate_enabled": False,
 					"accumulators": {name: defaults[name] for name in DECLARED_ACCUMULATORS},
 				}
 			),
@@ -279,6 +313,52 @@ class Study:
 		)
 		save_calibration(path, calibration, references)
 		return path
+
+	def detectability(self, task: str, path: Path, budget: int = 2000) -> None:
+		"""Development diagnostic only; never tune thresholds using attacker replay."""
+		from harness.calibration import BenignRequest, load_calibration
+		from harness.encoder import BGEEncoder
+		from harness.replay import replay
+
+		budget = min(budget, int(self.pipeline.manifest(task)["roles"]["attacker"]))
+		self.pipeline.budget(task, 42, budget)
+		prompts = read_jsonl(
+			self.pipeline.run_dir(task, 42, budget) / "prompts.jsonl", PromptRecord
+		)
+		requests = [
+			BenignRequest(
+				account="extractor",
+				text=next(m.content for m in reversed(p.prompt) if m.role == "user"),
+				time=float(i),
+			)
+			for i, p in enumerate(prompts)
+		]
+		calibration, scorer = load_calibration(path)
+		encoder = _MemoEncoder(BGEEncoder(device="cpu"))
+		results = {}
+		for arm, (policy, accumulator) in DEFENSES.items():
+			results[arm] = replay(
+				calibration=calibration,
+				scorer=scorer,
+				requests=requests,
+				output=self.root / task / "detectability" / f"{arm}.jsonl",
+				policy=policy,
+				accumulator=accumulator,
+				encoder=encoder if policy == "mmd" else None,
+			)
+		save_json(
+			self.root / task / "detectability.json",
+			{
+				"budget": budget,
+				"seed": 42,
+				"single_account": True,
+				"purpose": "development diagnostic, not a power estimate",
+				"calibration_sha256": hashlib.sha256(
+					(path / "calibration.json").read_bytes()
+				).hexdigest(),
+				"results": results,
+			},
+		)
 
 	def calibration_report(self, task: str, path: Path) -> None:
 		"""Record the per-task calibration settings the paper discloses in Section III-B."""
@@ -337,11 +417,10 @@ class Study:
 	def start_harness(
 		self, task: str, seed: int, calibration: Path, arm: str = "full"
 	) -> dict[str, str]:
-		from distillation.benchmarks.traffic import load_traffic_suite
-
 		actors = [
 			"extractor",
-			*(a.id for a in load_traffic_suite(self.root / "traffic.json").actors),
+			"warmup",
+			*sorted({row.account for row in self.pooled(task, "benign_test")}),
 		]
 		credentials = self.root / task / f"s{seed}" / "credentials.json"
 		if not credentials.exists():
@@ -395,45 +474,46 @@ class Study:
 		keys: dict[str, str] | None = None,
 		arm: str = "full",
 	) -> None:
-		from distillation.benchmarks.traffic import TrafficConfig, TrafficTarget, load_traffic_suite
+		import asyncio
 
-		key_envs = {
-			a.id: f"START_TRAFFIC_{a.id}"
-			for a in load_traffic_suite(self.root / "traffic.json").actors
-		}
+		from distillation.utility import measure_utility
+		from distillation.workloads import task_references
+
 		directory = self.root / task / f"s{seed}" / arm
-		values = TrafficConfig(
-			experiment=f"start-{task}-s{seed}-{arm}-traffic",
-			suite_path=self.root / "traffic.json",
-			output_dir=directory / "traffic-results",
-			model=os.environ.get("TEACHER_UPSTREAM_MODEL") or DEFAULT_TEACHER_MODEL,
-			model_revision=os.environ.get("TEACHER_MODEL_REVISION") or DEFAULT_TEACHER_REVISION,
-			targets={
-				"before": TrafficTarget(
-					base_url=self.url,
-					service_revision="unprotected",
-					api_key_env="TEACHER_API_TOKEN" if self.token else "",
-				),
-				"after": TrafficTarget(
-					base_url=self.protected_url,
-					service_revision=f"{arm}-{self.l4_action}",
-					actor_key_envs=key_envs,
-				),
-			},
+		asyncio.run(
+			measure_utility(
+				requests=self.pooled(task, "benign_test"),
+				references=task_references(self.pipeline.task_dir(task)),
+				url=self.url if phase == "before" else self.protected_url,
+				keys={"default": self.token} if phase == "before" else keys or {},
+				max_output_tokens=int(self.pipeline.manifest(task)["max_output_tokens"]),
+				output=directory / f"utility-{phase}.json",
+			)
 		)
-		config = directory / "traffic.toml"
-		config.parent.mkdir(parents=True, exist_ok=True)
-		config.write_text(_toml(values.model_dump(mode="json")), encoding="utf-8")
-		self.pipeline.launcher.distill(
-			"benchmark",
-			"traffic",
-			"run",
-			"--config",
-			str(config),
-			"--phase",
-			phase,
-			env={name: keys[actor] for actor, name in key_envs.items()} if keys else None,
-		)
+
+	def collect_undefended(self) -> None:
+		for task, budgets in self.pipeline.plan.items():
+			for seed in self.pipeline.seeds:
+				directory = self.root / task / f"s{seed}" / "undefended"
+				self.pipeline.launcher.distill(
+					"collect-protected",
+					"--input",
+					str(self.pipeline.run_dir(task, seed, budgets[-1]) / "prompts.jsonl"),
+					"--output",
+					str(directory / "ledger.jsonl"),
+					"--summary",
+					str(directory / "campaign.json"),
+					"--teacher-url",
+					self.url,
+					"--terms-review-id",
+					self.pipeline.terms_review_id,
+					"--max-output-tokens",
+					str(self.pipeline.manifest(task)["max_output_tokens"]),
+					"--max-requests",
+					str(budgets[-1]),
+					env={"TEACHER_API_TOKEN": self.token},
+				)
+				self.pipeline.run_ledgers[(task, seed)] = directory / "ledger.jsonl"
 
 	def collect_protected(self, task: str, seed: int, budget: int, token: str, arm: str) -> None:
 		directory = self.protected_dir(task, seed, budget, arm)
@@ -452,6 +532,11 @@ class Study:
 			self.pipeline.terms_review_id,
 			"--max-output-tokens",
 			str(self.pipeline.manifest(task)["max_output_tokens"]),
+			"--max-requests",
+			str(budget),
+			"--decision-log",
+			str(self.root / task / f"s{seed}" / arm / "decisions.jsonl"),
+			*(["--block-only"] if arm == "quota" else []),
 			env={"TEACHER_API_TOKEN": token},
 		)
 
@@ -463,20 +548,35 @@ class Study:
 		directory = self.protected_dir(task, seed, budget, arm)
 		directory.mkdir(parents=True, exist_ok=True)
 		prompts = self.pipeline.run_dir(task, seed, budget) / "prompts.jsonl"
-		wanted = {p.example_id for p in read_jsonl(prompts, PromptRecord)}
 		campaign = self.protected_dir(task, seed, largest, arm)
+		events = [
+			json.loads(line)
+			for line in (campaign / "campaign.events.jsonl").read_text().splitlines()
+		]
+		wanted = {
+			event["id"]
+			for event in events
+			if event["event"] == "attempt" and event["index"] <= budget
+		}
+		from distillation.campaign import event_summary
+
+		save_json(
+			directory / "budget-campaign.json",
+			event_summary(events, (4,) if arm == "quota" else (1, 2, 3, 4), budget=budget),
+		)
 		ledger = directory / "budget-ledger.jsonl"
 		write_jsonl(
 			ledger,
 			[
 				r
 				for r in read_jsonl(campaign / "ledger.jsonl", LedgerRecord)
-				if r.example_id in wanted
+				if r.attempt_id in wanted
 			],
 		)
 		dataset = directory / "train.jsonl"
 		with self.pipeline.config.open("rb") as source:
 			training = tomllib.load(source)
+		training.update(self.pipeline.recipes.get(task, {}))
 		training.pop("validation_dataset_path", None)
 		training |= {
 			"dataset_path": str(dataset),
@@ -529,7 +629,7 @@ class Study:
 				)
 
 	def run(self) -> None:
-		from distillation.benchmarks.traffic import freeze_traffic
+		from distillation.study_training import select_recipe, train_controls
 
 		launcher = self.pipeline.launcher
 		self.pipeline.validate()
@@ -539,6 +639,11 @@ class Study:
 			raise LaunchError("choose either --teacher-url or --upstream-url")
 		if any(budget < 1 for budget in self.pipeline.budgets):
 			raise LaunchError("query budgets must be positive")
+		if set(self.pipeline.tasks) - {"ag_news", "squad"}:
+			raise LaunchError(
+				"the frozen paper study includes ag_news and squad only; GSM8K is outside its scope"
+			)
+		self.pipeline.artifact_root = self.root / "adapters"
 		if not self.arms or set(self.arms) - set(DEFENSES):
 			raise LaunchError(f"--arms must name defenses from {', '.join(DEFENSES)}")
 		freeze(
@@ -557,6 +662,13 @@ class Study:
 				"terms_review_id": self.pipeline.terms_review_id,
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
+				"protocol_version": "task-study-v2",
+				"capability_targets": {task: 80.0 for task in self.pipeline.tasks},
+				"attempt_budget_unit": "HTTP submissions, including proof redemption",
+				"deadline_seconds": 86400,
+				"schedule": "uniform_without_replacement",
+				"controls": ["matched-volume", "matched-prefix"],
+				"aggregate_monitor": "not_run",
 				"calibration_root": str(self.calibration_root),
 			},
 		)
@@ -570,10 +682,31 @@ class Study:
 			self.root / "tasks.json",
 			{task: self.pipeline.manifest(task) for task in self.pipeline.tasks},
 		)
-		if not (self.root / "traffic.json").exists():
-			freeze_traffic(self.root / "traffic.json")
+		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
+		for task, path in calibrations.items():
+			self.calibration_report(task, path)
+			self.benign_holdout(task, path)
+			self.detectability(task, path)
 		self.ensure_teacher()
-		self.pipeline.collect(self.url, self.token)
+		self.collect_undefended()
+		launcher.stop_background()
+		for task in self.pipeline.tasks:
+			selection = select_recipe(self, task)
+			self.pipeline.recipes[task] = selection["selected"]
+			if not selection["transfer_gate_passed"]:
+				save_json(
+					self.root / "status.json",
+					{
+						"status": "transfer_gate_failed",
+						"task": task,
+						"development_gain": selection["development_gain"],
+					},
+				)
+				raise LaunchError(
+					f"{task}: undefended development transfer is not positive; "
+					"final defense testing stopped"
+				)
+		self.ensure_teacher()
 		self.baseline_evaluations(("teacher",))
 		for task in self.pipeline.tasks:
 			for seed in self.pipeline.seeds:
@@ -583,10 +716,6 @@ class Study:
 		self.baseline_evaluations(("student_before",))
 		self.pipeline.train_all()
 		self.baseline_evaluations(("student_after",))
-		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
-		for task, path in calibrations.items():
-			self.calibration_report(task, path)
-			self.benign_holdout(task, path)
 		self.ensure_teacher()
 		self.baseline_evaluations(("teacher_after",))
 		# Restart only the protected service between campaigns. The teacher remains available,
@@ -606,11 +735,15 @@ class Study:
 			for seed in self.pipeline.seeds:
 				for budget in budgets:
 					for arm in self.arms:
-						if self.train_protected(task, seed, budget, budgets[-1], arm):
-							config = self.evaluation(task, seed, budget, "attacker", arm=arm)
-							self.benchmark(config, "student_before")
-							self.benchmark(config, "student_after")
+						trained = self.train_protected(task, seed, budget, budgets[-1], arm)
+						config = self.evaluation(task, seed, budget, "attacker", arm=arm, untrained=not trained)
+						self.benchmark(config, "student_before")
+						self.benchmark(config, "student_after")
+						train_controls(self, task, seed, budget, arm)
 		self.reports()
+		from distillation.study_reporting import write_study_results
+
+		write_study_results(self.root)
 		save_json(self.root / "status.json", {"status": "complete", "tasks": self.pipeline.plan})
 		launcher.log(
 			f"done; protected ledgers, adapters, benchmarks, and reports are in {self.root}"

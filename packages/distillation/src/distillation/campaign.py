@@ -1,9 +1,11 @@
-"""Collect one ordered extraction campaign through the protected HTTP endpoint."""
+"""Bounded single-account campaigns; every HTTP attempt has a durable event record."""
 
 import asyncio
 import hashlib
 import json
+import platform
 import time
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -11,21 +13,28 @@ from uuid import uuid4
 import httpx
 from anyio import Path as AsyncPath
 
-from distillation.collection import CollectionOptions, _collect_one, _existing_example_ids
+from distillation.collection import CollectionOptions, _collect_one
 from distillation.io import append_jsonl, read_jsonl
-from distillation.schemas import PromptRecord, TeacherGeneration, TeacherGenerationRequest
+from distillation.schemas import (
+	LedgerRecord,
+	PromptRecord,
+	TeacherGeneration,
+	TeacherGenerationRequest,
+)
 
 
 class PolicyRefusal(Exception):
-	"""An explicitly attributed refusal, which consumes a query but returns no training text."""
+	"""A refusal explicitly attributed to the policy."""
 
 
 class AttemptFailed(Exception):
-	"""One request that failed without a policy refusal, such as a server error, timeout, or
-	rejected proof. It consumes a query and returns no training text (paper Section IV-C)."""
+	"""An unsuccessful attempt whose cost remains in the ledger."""
 
 
-# A run of failures this long means the service, not one request, is broken; stop collection.
+class BudgetExhausted(Exception):
+	"""The attempt or elapsed-time allowance is spent."""
+
+
 MAX_CONSECUTIVE_FAILURES = 10
 
 
@@ -41,53 +50,192 @@ class ProtectedTeacher:
 		)
 		self.challenges = 0
 		self.challenge_seconds = 0.0
+		self.hashes = 0
+		self.events: list[dict[str, Any]] = []
+		self.event_path: Path | None = None
+		self.example_id = ""
+		self.contract = ""
+		self.max_requests = 2**63
+		self.started = time.monotonic()
+		self.deadline = float("inf")
+		self.last_event_id = ""
+		self.prompt_request_id = ""
 
-	async def _generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+	def remaining(self) -> float:
+		return self.deadline - time.monotonic()
+
+	def _write(self, event: dict[str, Any]) -> None:
+		if self.event_path:
+			with self.event_path.open("a", encoding="utf-8") as output:
+				output.write(json.dumps(event) + "\n")
+		self.events.append(event)
+
+	async def _post(self, payload: dict[str, Any], proof: str | None = None) -> httpx.Response:
+		count = sum(event["event"] == "attempt" for event in self.events)
+		if count >= self.max_requests or self.remaining() <= 0:
+			raise BudgetExhausted
+		request_id = uuid4().hex
+		self.last_event_id = request_id
+		if proof is None:
+			self.prompt_request_id = request_id
+		started = time.monotonic()
+		self._write(
+			{
+				"event": "attempt",
+				"id": request_id,
+				"policy_request_id": self.prompt_request_id,
+				"example_id": self.example_id,
+				"index": count + 1,
+				"kind": "proof" if proof else "query",
+				"at_seconds": started - self.started,
+				"contract": self.contract,
+			}
+		)
+		headers = {"X-Benchmark-Request": self.prompt_request_id}
+		if proof:
+			headers["X-Harness-Proof"] = proof
+		outcome: dict[str, Any] = {"event": "outcome", "id": request_id, "status": "failed"}
+		try:
+			async with asyncio.timeout(min(300.0, self.remaining())):
+				response = await self.client.post(
+					"v1/teacher/generate", json=payload, headers=headers
+				)
+			outcome.update(
+				http_status=response.status_code,
+				decision=response.headers.get("X-Harness-Decision"),
+			)
+			outcome["status"] = (
+				"challenge"
+				if response.status_code == 428
+				else (
+					"blocked"
+					if response.status_code == 403
+					and response.headers.get("X-Harness-Decision") == "block"
+					else "received"
+					if response.is_success
+					else "failed"
+				)
+			)
+			if response.is_success:
+				generation = TeacherGeneration.model_validate(response.json())
+				outcome["output_tokens"] = generation.usage.output_tokens
+			return response
+		except (httpx.TransportError, TimeoutError, ValueError) as error:
+			outcome["error"] = type(error).__name__
+			outcome["status"] = "deadline" if self.remaining() <= 0 else "failed"
+			raise AttemptFailed(type(error).__name__) from error
+		finally:
+			outcome["at_seconds"] = time.monotonic() - self.started
+			outcome["latency_seconds"] = time.monotonic() - started
+			self._write(outcome)
+
+	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
 		payload = request.model_dump(mode="json")
-		response = await self.client.post("v1/teacher/generate", json=payload)
+		response = await self._post(payload)
 		if response.status_code == 428:
-			# The same payload redeems a challenge; it must not consume another policy attempt.
-			from distillation.benchmarks.traffic_runner import solve_challenge
-
 			challenge = response.json()["challenge"]
-			started = time.perf_counter()
-			counter = await asyncio.to_thread(
-				solve_challenge, challenge["prefix"], challenge["difficulty"]
-			)
-			self.challenge_seconds += time.perf_counter() - started
+			started = time.monotonic()
 			self.challenges += 1
-			response = await self.client.post(
-				"v1/teacher/generate",
-				json=payload,
-				headers={"X-Harness-Proof": f"{challenge['nonce']}:{counter}"},
-			)
+			counter = 0
+			try:
+				while True:
+					if self.remaining() <= 0:
+						raise BudgetExhausted
+					digest = hashlib.sha256(f"{challenge['prefix']}{counter}".encode()).digest()
+					self.hashes += 1
+					if 256 - int.from_bytes(digest).bit_length() >= challenge["difficulty"]:
+						break
+					counter += 1
+					if counter % 4096 == 0:
+						await asyncio.sleep(0)
+			finally:
+				elapsed = time.monotonic() - started
+				self.challenge_seconds += elapsed
+				self._write(
+					{
+						"event": "solve",
+						"policy_request_id": self.prompt_request_id,
+						"hashes": counter + 1,
+						"seconds": elapsed,
+						"hardware": platform.machine(),
+						"processor": platform.processor(),
+					}
+				)
+			response = await self._post(payload, f"{challenge['nonce']}:{counter}")
 		if response.status_code == 403 and response.headers.get("X-Harness-Decision") == "block":
 			raise PolicyRefusal
-		# Missing or rejected credentials, and generic 403s without a harness decision, mean the
-		# run is misconfigured, so they stop it. Other failures are charged to the budget as
-		# failed attempts and never counted as evidence that the policy blocked a request.
-		if response.status_code == 401 or (
-			response.status_code == 403 and "X-Harness-Decision" not in response.headers
-		):
+		if response.status_code in {401, 403}:
 			response.raise_for_status()
 		if response.is_error:
 			raise AttemptFailed(f"HTTP {response.status_code}")
 		return TeacherGeneration.model_validate(response.json())
 
-	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
-		"""One attempted request. Transport errors and timeouts are failed attempts."""
-		try:
-			return await self._generate(request)
-		except httpx.TransportError as error:
-			raise AttemptFailed(type(error).__name__) from error
-
 	async def close(self) -> None:
 		await self.client.aclose()
 
 
-def campaign_contract(prompts: Path, options: CollectionOptions) -> str:
-	from dataclasses import asdict
+def event_summary(
+	events: list[dict[str, Any]],
+	levels: tuple[int, ...] = (1, 2, 3, 4),
+	*,
+	budget: int | None = None,
+) -> dict[str, Any]:
+	"""J counts attempts through first reach; Q counts released outputs before that attempt.
 
+	No reach is right-censored. Missing policy attribution is reported separately.
+	"""
+	attempts = [
+		e for e in events if e["event"] == "attempt" and (budget is None or e["index"] <= budget)
+	]
+	ids = {e["id"] for e in attempts}
+	outcomes = {e["id"]: e for e in events if e["event"] == "outcome" and e["id"] in ids}
+	decisions = {e["policy_request_id"]: e for e in events if e["event"] == "policy"}
+	counts = {
+		status: sum(e["status"] == status for e in outcomes.values())
+		for status in ("received", "blocked", "failed", "deadline", "challenge")
+	}
+	level_results = {}
+	for level in range(1, 5):
+		if level not in levels:
+			level_results[f"L{level}"] = None
+			continue
+		reach = next(
+			(
+				a
+				for a in attempts
+				if decisions.get(a["policy_request_id"], {}).get("level", -1) >= level
+			),
+			None,
+		)
+		known = all(
+			a["policy_request_id"] in decisions
+			for a in attempts
+			if a["kind"] == "query" and outcomes.get(a["id"], {}).get("decision") is not None
+		)
+		level_results[f"L{level}"] = {
+			"J": reach["index"] if reach else len(attempts),
+			"Q": sum(
+				o["status"] == "received" and o["at_seconds"] < reach["at_seconds"]
+				for o in outcomes.values()
+			)
+			if reach
+			else counts["received"],
+			"reached": reach is not None,
+			"censored": reach is None,
+			"attribution_complete": known and bool(decisions),
+		}
+	tokens = [e.get("output_tokens") for e in outcomes.values() if e["status"] == "received"]
+	return {
+		"queries": len(attempts),
+		**counts,
+		"pending": len(ids - outcomes.keys()),
+		"released_output_tokens": sum(tokens) if all(t is not None for t in tokens) else None,
+		"levels": level_results,
+		"proof_requests": sum(a["kind"] == "proof" for a in attempts),
+	}
+
+
+def campaign_contract(prompts: Path, options: CollectionOptions) -> str:
 	return hashlib.sha256(
 		prompts.read_bytes() + json.dumps(asdict(options), sort_keys=True).encode()
 	).hexdigest()
@@ -100,102 +248,103 @@ async def collect_campaign(
 	summary_path: Path,
 	teacher: ProtectedTeacher,
 	options: CollectionOptions,
+	max_requests: int | None = None,
+	deadline_seconds: float = 86400,
+	decision_log: Path | None = None,
+	levels: tuple[int, ...] = (1, 2, 3, 4),
 ) -> dict[str, Any]:
-	"""One account, one ordered query stream, with successful outputs in an immutable ledger.
-
-	A completed campaign is reused. An interrupted campaign is archived and restarted in
-	full against a fresh service. Its partial responses never mix with the new campaign.
-	"""
+	"""Run a fresh campaign or reuse a completed one; never replenish an interrupted budget."""
 	from distillation.benchmarks.models import save_json
 
 	try:
-		contract = campaign_contract(prompts_path, options)
 		prompts = read_jsonl(prompts_path, PromptRecord)
-		if len({p.example_id for p in prompts}) != len(prompts):
-			raise ValueError("duplicate campaign example_id")
-		_existing_example_ids(ledger_path, prompts, options)
-		if any(prompt.split == "test" for prompt in prompts):
-			raise ValueError("campaign cannot collect held-out test prompts")
+		if len({p.example_id for p in prompts}) != len(prompts) or any(
+			p.split == "test" for p in prompts
+		):
+			raise ValueError("campaign requires unique non-test prompts")
+		limit = max_requests if max_requests is not None else len(prompts)
+		if limit < 1 or deadline_seconds <= 0:
+			raise ValueError("campaign budgets must be positive")
+		contract = hashlib.sha256(
+			(
+				f"campaign-v2:{campaign_contract(prompts_path, options)}"
+				f":{limit}:{deadline_seconds}:{levels}"
+			).encode()
+		).hexdigest()
 		events = summary_path.with_suffix(".events.jsonl")
 		if await AsyncPath(summary_path).exists():
-			summary: dict[str, Any] = json.loads(await AsyncPath(summary_path).read_text())
+			summary = json.loads(await AsyncPath(summary_path).read_text())
 			if summary["contract"] != contract:
-				raise ValueError("campaign options changed; choose a new run directory")
-			if (
-				summary["ledger_sha256"]
-				!= hashlib.sha256(await AsyncPath(ledger_path).read_bytes()).hexdigest()
-			):
-				raise ValueError("completed campaign ledger changed")
-			return summary
-		if await AsyncPath(events).exists():
-			for line in (await AsyncPath(events).read_text()).splitlines():
-				if json.loads(line)["contract"] != contract:
-					raise ValueError("campaign options changed; choose a new run directory")
-		attempts = ledger_path.with_name(f"{ledger_path.stem}.attempts.jsonl")
+				raise ValueError("campaign options changed; use a new run directory")
+			for key, path in (("ledger_sha256", ledger_path), ("events_sha256", events)):
+				if hashlib.sha256(await AsyncPath(path).read_bytes()).hexdigest() != summary[key]:
+					raise ValueError("completed campaign artifacts changed")
+			return dict(summary)
 		if await AsyncPath(ledger_path).exists() or await AsyncPath(events).exists():
-			archive = ledger_path.parent / "interrupted" / uuid4().hex
-			await AsyncPath(archive).mkdir(parents=True)
-			for path in (ledger_path, events, attempts):
-				if await AsyncPath(path).exists():
-					await AsyncPath(path).rename(archive / path.name)
-		await AsyncPath(ledger_path.parent).mkdir(parents=True, exist_ok=True)
-		await AsyncPath(ledger_path).touch(exist_ok=True)
-		blocked = failed = consecutive = 0
-		for index, prompt in enumerate(prompts, 1):
-			status, error_detail = "error", None
-			challenges = teacher.challenges
-			challenge_seconds = teacher.challenge_seconds
+			raise ValueError(
+				"interrupted campaign retained its spent budget; keep its artifacts and "
+				"declare a new campaign directory with fresh policy state"
+			)
+		ledger_path.parent.mkdir(parents=True, exist_ok=True)
+		await AsyncPath(ledger_path).touch()
+		events.parent.mkdir(parents=True, exist_ok=True)
+		await AsyncPath(events).touch()
+		teacher.event_path, teacher.contract = events, contract
+		teacher.max_requests = limit
+		teacher.started = time.monotonic()
+		teacher.deadline = teacher.started + deadline_seconds
+		attempt_log = ledger_path.with_name(f"{ledger_path.stem}.attempts.jsonl")
+		reason = "prompts_exhausted"
+		consecutive = 0
+		for prompt in prompts:
+			teacher.example_id = prompt.example_id
 			try:
-				record = await _collect_one(prompt, teacher, options, attempts, lambda: None)
-			except PolicyRefusal:
-				blocked += 1
-				status = "blocked"
-				consecutive = 0
-			except AttemptFailed as error:
-				failed += 1
-				consecutive += 1
-				status, error_detail = "failed", str(error)
-			else:
-				status = "received"
-				consecutive = 0
-				append_jsonl(ledger_path, [record])
-			finally:
-				with events.open("a", encoding="utf-8") as output:
-					output.write(
-						json.dumps(
-							{
-								"example_id": prompt.example_id,
-								"status": status,
-								"error": error_detail,
-								"contract": contract,
-								"challenges": teacher.challenges - challenges,
-								"challenge_seconds": teacher.challenge_seconds - challenge_seconds,
-							}
-						)
-						+ "\n"
-					)
-			from distillation.progress import console
-
-			console.print(f"Protected collection {index}/{len(prompts)}: {error_detail or status}")
-			if consecutive >= MAX_CONSECUTIVE_FAILURES:
-				raise RuntimeError(
-					f"{consecutive} consecutive failed requests; the protected service is down"
+				record = await _collect_one(
+					prompt, teacher, replace(options, max_attempts=1), attempt_log, lambda: None
 				)
+			except BudgetExhausted:
+				reason = "deadline" if teacher.remaining() <= 0 else "attempt_budget"
+				break
+			except PolicyRefusal:
+				consecutive = 0
+			except AttemptFailed:
+				consecutive += 1
+				if consecutive >= MAX_CONSECUTIVE_FAILURES:
+					reason = "service_failures"
+					break
+			else:
+				record.attempt_id = teacher.last_event_id
+				append_jsonl(ledger_path, [record])
+				consecutive = 0
+		if decision_log and await AsyncPath(decision_log).exists():
+			wanted = {e["policy_request_id"] for e in teacher.events if e["event"] == "attempt"}
+			for line in (await AsyncPath(decision_log).read_text()).splitlines():
+				decision = json.loads(line)
+				if (
+					decision.get("event") == "decision"
+					and decision.get("benchmark_request") in wanted
+				):
+					teacher._write(
+						{
+							"event": "policy",
+							"policy_request_id": decision["benchmark_request"],
+							"level": decision["level"],
+							"action": decision["action"],
+						}
+					)
 		summary = {
 			"contract": contract,
-			"queries": len(prompts),
-			"blocked": blocked,
-			# Failed attempts are charged to the budget and never replaced.
-			"failed": failed,
-			"received": len(prompts) - blocked - failed,
-			"ledger_records": sum(
-				bool(line.strip())
-				for line in (await AsyncPath(ledger_path).read_text()).splitlines()
-			),
-			"interrupted_attempts": len(list(ledger_path.parent.glob("interrupted/*"))),
+			"attempt_budget": limit,
+			"deadline_seconds": deadline_seconds,
+			"termination": reason,
+			"elapsed_seconds": time.monotonic() - teacher.started,
+			**event_summary(teacher.events, levels),
+			"ledger_records": len(read_jsonl(ledger_path, LedgerRecord)),
 			"challenges": teacher.challenges,
 			"challenge_seconds": teacher.challenge_seconds,
+			"hashes": teacher.hashes,
 			"ledger_sha256": hashlib.sha256(await AsyncPath(ledger_path).read_bytes()).hexdigest(),
+			"events_sha256": hashlib.sha256(await AsyncPath(events).read_bytes()).hexdigest(),
 		}
 		save_json(summary_path, summary)
 		return summary
