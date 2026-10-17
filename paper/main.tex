@@ -17,7 +17,7 @@
 \newcommand{\pending}{\textemdash}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcommand{\I}{\mathbb{I}}
-\title{Detecting Model Extraction Probing with Semantic Embeddings, MMD, and Session-Level Behavioural Profiling}
+\title{An Account-Level MMD Access Policy Against Budgeted Extraction from Task APIs}
 \author{Rajveer~Singh, Dhruv~Deepak, Vansh~Kulshrestha, and Aryash~Kushwaha}
 \begin{document}
 \maketitle
@@ -51,12 +51,12 @@ An extraction attacker queries a victim $F$ to construct $D_A=\{(q_i,F(q_i))\}_{
 
 Natural-language extraction predates current instruction-following models. Krishna et al. extract BERT-based APIs with synthetic queries, and MeaeQ selects task-relevant, diverse queries from public text~\cite{krishna2020thieves,dai2023meaeq}. Model Leeching and LoRD extend the collection-and-training approach to language-model capabilities~\cite{birch2023leeching,liang2025lord}. Our text-response distillation baseline is inspired by this setting; it is not presented as a reproduction of LoRD's optimisation procedure.
 
-Extraction of model behaviour is distinct from extraction of training data. Fredrikson et al. study model inversion through confidence-bearing outputs; Carlini et al. recover memorised text from a language model~\cite{fredrikson2015model,carlini2021extracting}. Membership inference instead asks whether a record was used in training~\cite{shokri2017membership}. Repetitive prompts alone do not demonstrate any of these privacy attacks. Accordingly, the privacy-related tests below are optional, separately labelled experiments with explicit ground truth.
+Extraction of model behaviour is distinct from extraction of training data. Fredrikson et al. study model inversion through confidence-bearing outputs; Carlini et al. recover memorised text from a language model~\cite{fredrikson2015model,carlini2021extracting}. Membership inference instead asks whether a record was used in training~\cite{shokri2017membership}. Repetitive prompts alone do not demonstrate any of these privacy attacks, and this study tests none of them.
 
 \subsection{Stateful detection}
 PRADA, VarDetect, SEAT, and HODA use different properties of query streams: input distances, latent distributions, learned similarity, and sample hardness, respectively~\cite{juuti2019prada,pal2021stateful,zhang2021seat,sadeghzadeh2022hoda}. Their original assumptions and access requirements differ. Applying a score to text embeddings is an adaptation, not evidence that the original method has been reproduced.
 
-Liu et al. release an embedding-based evaluation with fourteen attacker--normal pairs and adapted baselines~\cite{liu2026detector}. We use that artifact for a separate reproduction check. The extension studied here is sequential enforcement: how evidence persists, which account receives an intervention, and how many useful responses remain available. Because the underlying window score is inherited, we do not add a duplicate ``ours'' row to claim a new window-level detector.
+Liu et al. release an embedding-based evaluation with fourteen attacker--normal pairs and adapted baselines~\cite{liu2026detector,mmd2026artifact}. We adopt its window statistic but do not reproduce that evaluation or its baselines. The extension studied here is sequential enforcement: how evidence persists, which account receives an intervention, and how many useful responses remain available. Because the underlying window score is inherited, we do not add a duplicate ``ours'' row to claim a new window-level detector.
 
 \subsection{Response-side defenses}
 Watermarking can support an ownership claim after extraction. DAWN embeds client-specific response watermarks, while Entangled Watermarking Embeddings link watermark features with task features~\cite{szyller2021dawn,jia2021entangled}. Such evidence serves a different purpose from stopping response collection.
@@ -69,13 +69,13 @@ Proof of work increases the cost of obtaining predictions~\cite{dziedzic2022pow}
 \label{sec:threat-system}
 A wrapper observes the user-supplied request $q_t$, its arrival time, and an authenticated account identifier $a_t$ before invoking a hosted model $F$. It needs neither victim weights nor gradients. The wrapper can delay a request, require a challenge, or withhold a response. Model weights may be available to the experimenter for local deployment, but remain inaccessible to the simulated attacker and detector.
 
-The attacker can choose public or synthetic prompts, train a student offline, paraphrase requests, vary timing, mix benign-looking requests with extraction, and coordinate several accounts. They know the detector design and can observe service actions, but cannot inspect its calibration data or internal risk values. We also test evasion using a separately estimated benign distribution. Reference poisoning is outside the main threat model; contamination is a sensitivity test.
+The attacker can choose public or synthetic prompts, train a student offline, paraphrase requests, vary timing, mix benign-looking requests with extraction, and coordinate several accounts. They know the detector design and can observe service actions, but cannot inspect its calibration data or internal risk values. Reference poisoning is outside the main threat model; contamination is a sensitivity test.
 
-The attacker aims to recover task capability within an attempted-request budget $B_A$ and an elapsed-time budget $T_A$. All requests, including filler and unsuccessful attempts, consume $B_A$; delays and challenge solving consume $T_A$. Responses collected across accounts belong to one campaign. Account-specific controls cannot prevent a campaign that remains indistinguishable from legitimate traffic at every observable level. Aggregate alerts may reveal a shift, but cannot identify the responsible accounts without additional evidence.
+The attacker aims to recover task capability within an attempted-request budget $B_A$ and an elapsed-time budget $T_A$. All requests, including filler and unsuccessful attempts, consume $B_A$; delays and challenge solving consume $T_A$. Responses collected across accounts belong to one campaign. Account-specific controls cannot prevent a campaign that remains indistinguishable from legitimate traffic in every account.
 
 \subsection{Query representation and window score}
 \label{sec:score}
-The main encoder is \texttt{BAAI/bge-small-en-v1.5}~\cite{bge2023model}. We normalise embeddings to unit length. Each embedding represents the current user turn, excluding fixed service instructions and generated assistant text. For structured QA requests, a fixed serialisation contains both context and question. The main input limit is 512 encoder tokens; the truncation rate and a long-input stress test are reported. Language and endpoint strata are fixed before calibration.
+The main encoder is \texttt{BAAI/bge-small-en-v1.5}~\cite{bge2023model}. We normalise embeddings to unit length. Each embedding represents the task content of the current user turn, excluding fixed service instructions and generated assistant text: the article for AG News, the problem for GSM8K, and, for SQuAD, a fixed serialisation that places the question before the passage. The input limit is 512 encoder tokens, so truncation removes passage text rather than the question; the truncation rate is reported per task and benign role. Language and endpoint strata are fixed before calibration.
 
 For embeddings $X=\{x_i\}_{i=1}^{m}$ and a reference sample $Z=\{z_j\}_{j=1}^{n}$, use the unbiased squared MMD estimator~\cite{gretton2012kernel}:
 \begin{align}
@@ -85,9 +85,9 @@ For embeddings $X=\{x_i\}_{i=1}^{m}$ and a reference sample $Z=\{z_j\}_{j=1}^{n}
  &-\frac{2}{mn}\sum_{i,j}k(x_i,z_j).
 \label{eq:mmd}
 \end{align}
-Here $k(x,z)$ is the mean of four RBF kernels with bandwidths $c\sigma$, $c\in\{0.5,1,2,4\}$, and exponent $-\|x-z\|^2/[2(c\sigma)^2]$. The bandwidth $\sigma$ is the median nonzero pairwise distance in a fixed benign fitting sample. We retain negative finite-sample estimates instead of taking their square root. The score $s_j$ averages (\ref{eq:mmd}) over 20 reference windows drawn once from the fitting split and reused for that configuration. Reference and test window sizes match.
+Here $k(x,z)$ is the mean of four RBF kernels with bandwidths $c\sigma$, $c\in\{0.5,1,2,4\}$, and exponent $-\|x-z\|^2/[2(c\sigma)^2]$. The bandwidth $\sigma$ is the median nonzero pairwise distance in a fixed benign fitting sample. We retain negative finite-sample estimates instead of taking their square root. The score $s_j$ averages (\ref{eq:mmd}) over $R$ disjoint reference windows drawn once from the fitting split and reused for that configuration: $R=20$ for AG News and SQuAD, and $R=13$ for GSM8K, whose fitting pool holds 1,328 requests. References are never resampled to reach 20. Reference and test window sizes match.
 
-Account windows contain $w_a=100$ consecutive requests and do not overlap in the primary protocol. Risk updates occur only when a window is complete. Until then, the previous policy level applies; a new account starts at L0. Short accounts remain in all denominators, and their unscored fraction is reported. Overlapping windows are a separate ablation requiring fresh policy calibration. Aggregate windows contain 1,500 requests and generate monitoring alerts only.
+Account windows contain $w_a=100$ consecutive requests and do not overlap in the primary protocol. Risk updates occur only when a window is complete. Until then, the previous policy level applies; a new account starts at L0. Short accounts remain in all denominators, and their unscored fraction is reported. Overlapping windows are not studied. The core study runs no aggregate monitor across accounts: one needs 20 reference windows of 1,500 requests, more than any task's fitting pool holds.
 
 For a mixture $P_\rho=(1-\rho)P_b+\rho P_a$, population squared MMD satisfies
 \begin{equation}
@@ -109,11 +109,11 @@ r_{a,j}=\max\{0,\lambda r_{a,j-1}-\log p_{a,j}-\kappa\},
 \quad r_{a,0}=0,
 \label{eq:risk}
 \end{equation}
-with preselected defaults $\lambda=0.9$ and $\kappa=1$. Ordinary windows reduce accumulated evidence; repeated unusual windows increase it. Decay is per completed window, not per second, so waiting alone does not erase the profile. This is a proposed engineering rule, not an optimal sequential test. Query-rate features are reserved for a separate baseline and ablation.
+with preselected defaults $\lambda=0.9$ and $\kappa=1$. Ordinary windows reduce accumulated evidence; repeated unusual windows increase it. Decay is per completed window, not per second, so waiting alone does not erase the profile. This is a proposed engineering rule, not an optimal sequential test. Query-rate features are not used.
 
 A policy horizon ends after 24 hours or 10,000 attempted account requests, whichever comes first. Profiles persist across sessions within that horizon. For each benign policy-calibration account, record the maximum risk over its full horizon. Set nested thresholds $\theta_1\leq\cdots\leq\theta_4$ so that no more than $\beta_\ell$ of these maxima exceed $\theta_\ell$, using strict exceedance and conservative handling of ties. The nominal targets are $(0.10,0.05,0.02,0.01)$ for L1--L4. These are calibration targets, not measured test rates. If sample size or tied scores cannot support a target, report the achieved calibration rate and the resulting conservative threshold.
 
-Thresholds are fixed before attack evaluation. The policy level is the highest level reached so far in that horizon. This latch prevents rapid switching and simplifies false-escalation measurement; a block lasts to the horizon's end. Experiments across multiple horizons explicitly test the resulting reset opportunity. A per-window false-positive rate is never substituted for the probability that an account is escalated at least once.
+Thresholds are fixed before attack evaluation. The policy level is the highest level reached so far in that horizon. This latch prevents rapid switching and simplifies false-escalation measurement; a block lasts to the horizon's end. The reset at a new horizon is an opportunity for re-entry that the core study does not evaluate. A per-window false-positive rate is never substituted for the probability that an account is escalated at least once.
 
 \subsection{Actions and causal ordering}
 \label{sec:policy}
@@ -140,11 +140,9 @@ The proof-of-work puzzle is an explicit experimental intervention, not a reprodu
 
 The evaluation asks: (RQ1) does accumulated evidence improve intervention at a matched account false-positive target; (RQ2) does intervention reduce extraction gains for small students; (RQ3) what can adaptive campaigns still collect; and (RQ4) what do legitimate users lose in availability, delay, and task utility?
 
-\subsection{Reproduction and data provenance}
+\subsection{Data provenance}
 \label{sec:eval-data}
-First reproduce the released MMD artifact~\cite{liu2026detector,mmd2026artifact} using its original splits, adapted baselines, 1,500-query windows, 95th-percentile threshold, and seeds $\{1,20,42\}$. Its 50 evaluation batches per condition are suitable for a reproduction check, not precise rare-event estimation. Preserve its statistic and sampling implementation in this track. The sequential protocol defined in Section~\ref{sec:system} is a separate experiment; its thresholds and scores need not numerically match the artifact.
-
-Table~\ref{tab:data} separates query-only detection resources from experiments requiring victim responses. Retain the artifact's fourteen pair identifiers in the run manifest; do not invent scenario counts or infer trained-student quality from query traces. Report reproduction deviations rather than importing published results into our tables.
+Table~\ref{tab:data} lists the task datasets and their roles. Every attacker query, legitimate request, and test item comes from the same task's source split, through the same request interface. Published results of the released MMD artifact~\cite{mmd2026artifact} are not imported into these tables, and its fourteen-pair evaluation is not reproduced here.
 
 \begin{table*}[!t]
 \centering\footnotesize
@@ -152,21 +150,15 @@ Table~\ref{tab:data} separates query-only detection resources from experiments r
 \label{tab:data}
 \begin{tabularx}{\textwidth}{@{}p{0.20\textwidth}YYY@{}}\toprule
 Source & Role & Legitimate comparison & Constraint \\\midrule
-Released MMD artifact~\cite{mmd2026artifact} & Query-only reproduction across its fourteen pairs & Released normal queries for each pair & Preserve its manifest and protocol; no student-quality claims \\
 AG News~\cite{zhang2015char} & Four-class capability extraction & Held-out news requests through the same task interface & Gold labels excluded from attacker training \\
 SQuAD 1.1~\cite{rajpurkar2016squad} & Context-grounded QA extraction & Held-out QA requests with the same context format & Split by source article; exclude test contexts from collection; gold answers excluded from attacker training \\
-GSM8K~\cite{cobbe2021gsm8k} & Optional generative extension & Held-out problems through the same task interface & Gold answers excluded from attacker training; inclusion frozen before final testing \\
-WildChat~\cite{zhao2024wildchat} & General-chat traffic and client proxies & Filtered English user turns & Hashed IP is not an authenticated account or person \\
-LMSYS-Chat-1M~\cite{zheng2024lmsys} & External benign-shift stress test & Filtered English conversations & Conversation IDs do not establish cross-session identity \\
-Synthetic private-record task & Optional privacy extension & Matched ordinary lookups & Known exposure and recovery ground truth required \\\bottomrule
+GSM8K~\cite{cobbe2021gsm8k} & Optional generative extension & Held-out problems through the same task interface & Gold answers excluded from attacker training; inclusion frozen before final testing \\\bottomrule
 \end{tabularx}
 \end{table*}
 
 For each service type, legitimate traffic must match the task interface. News extraction is compared with news use, and QA extraction with QA use; general chat is not the sole benign baseline for a narrow task API. Include authorised batch annotation, repeated templates, sustained specialist topics, and bursty requests as hard benign controls. Otherwise the detector may merely distinguish task or prompt format.
 
-WildChat contains hashed IP metadata~\cite{wildchat2024card}. Grouping by this field creates client proxies subject to shared networks and address changes. Remove duplicate conversation snapshots and repeated turns, retain observed timing where available, and label imputed timing. Filter known abuse and audit a stratified sample; absence of extraction labels is not proof of benign intent. The selected release and filters are recorded. LMSYS is used for query- or conversation-level shift analysis unless reliable account metadata is available~\cite{lmsys2023card}.
-
-Split by the strongest available identity and by source document: 40\% fitting, 20\% score calibration, 20\% policy calibration, and 20\% final benign testing. Deduplicate before splitting; keep near-duplicate prompts, document derivatives, and paraphrase families together. Reserve attack-generation development documents separately from final attack evaluation. Preserve chronological order within each client and include a later-time benign holdout as a shift test. Neither final attacks nor final student test scores may influence detector selection. Reference updates are frozen during a run; an optional recalibration experiment uses separately reviewed benign data.
+Split by the strongest available identity and by source document: 40\% fitting, 20\% score calibration, 20\% policy calibration, and 20\% final benign testing. Deduplicate before splitting; keep near-duplicate prompts, document derivatives, and paraphrase families together. Reserve attack-generation development documents separately from final attack evaluation. The task pools carry no request times or client identities, so client accounts and their arrival times are constructed, as described next. Neither final attacks nor final student test scores may influence detector selection. Reference updates are frozen during a run; an optional recalibration experiment uses separately reviewed benign data.
 
 Natural short conversations are retained. For controlled long-horizon tests, construct task-matched benign workloads with disclosed sampling rules, and report these separately from natural clients. Repeated samples from a small pool do not count as new independent accounts.
 
@@ -176,35 +168,35 @@ Use \texttt{Qwen3.5-9B} in non-thinking mode as the local victim and \texttt{Qwe
 
 AG News classification and SQuAD 1.1 extractive QA are the core endpoints. GSM8K~\cite{cobbe2021gsm8k}, a generative task with a numeric final answer, is an optional extension; whether it is run is frozen before final testing. Each task is a separate service with one fixed request serialization, used identically for attacker queries, legitimate traffic, development, and final testing. For AG News, the service returns one of four textual labels; for QA, a short answer given the passage and question; for GSM8K, a solution ending in a marked final number. Use deterministic victim decoding with fixed output caps of 16 new tokens for AG News, 64 for SQuAD, and provisionally 256 for GSM8K. A development pilot of about 200 GSM8K prompts, drawn from the development split so that it spends no attacker budget, checks the GSM8K cap: if more than 2\% of pilot responses stop at the cap, the cap is raised and the pilot repeated. Report the pilot's size and finish-reason counts, and freeze every task's cap before main collection begins. Apply the same documented truncation rule before querying, training, and evaluation, and report how often it is invoked. Do not discard cases using test labels or answer locations. The attacker never sees gold answers, so no response is filtered by correctness: wrong and malformed complete answers remain in training, as they would for a real extractor. Filtering by correctness would also remove the victim errors that fidelity measures are meant to capture~\cite{jagielski2020high}. Only collector failures, responses truncated at the output cap, empty responses, and records exceeding the 2,048-token training limit are excluded, and each exclusion is counted.
 
-Train students with response-token cross-entropy on released victim text only; mask prompt tokens. Neither logits nor private victim examples are available. Use LoRA~\cite{hu2022lora} on every linear layer of the student's text model, with rank 16, alpha 32, and dropout 0.05. Train the base weights unquantised in BF16 with AdamW, 3\% linear warm-up, effective batch size 16, and a 2,048-token limit. A disjoint development suite selects the learning rate from $\{10^{-4},2\times10^{-4}\}$ and the epoch count from $\{1,2,3\}$ per task; freeze that recipe across defense conditions. Training holds out no validation split of victim responses, because one would spend attacker queries outside $B_A$. Log training tokens, steps, precision, peak memory, and GPU-hours; do not assume adapter training is cost-free.
+Train students with response-token cross-entropy on released victim text only; mask prompt tokens. Neither logits nor private victim examples are available. Use LoRA~\cite{hu2022lora} on every linear layer of the student's text model, with rank 16, alpha 32, and dropout 0.05. Train the base weights unquantised in BF16 with AdamW, 3\% linear warm-up, effective batch size 16, and a 2,048-token limit. A development sweep selects the learning rate from $\{10^{-4},2\times10^{-4}\}$ and the epoch count from $\{1,2,3\}$ per task: each of the six recipes trains on the undefended attacker set at $B_A=2{,}000$ with seed 42 and is scored on the disjoint development suite. The selected recipe is frozen across budgets, seeds, and defense conditions and recorded in Table~\ref{tab:manifest}. Training holds out no validation split of victim responses, because one would spend attacker queries outside $B_A$. Log training tokens, steps, precision, peak memory, and GPU-hours; do not assume adapter training is cost-free.
 
 Reserve 10\% of training-source documents for development before query generation. Divide the remaining source documents equally into disjoint legitimate-workload and attacker-query pools; apply the four-way benign split only within the legitimate pool. Use the official AG News and GSM8K test splits for final scoring. Split SQuAD's official development articles into an untouched final test set only; use training articles for development and collection. Group overlapping news content, QA articles, and repeated GSM8K problems to prevent collection--test leakage. Pretraining contamination cannot be ruled out, so evaluate every unmodified student and retain its score as a baseline.
 
 \textit{Validity check.} Before testing a defense claim, measure victim quality, unmodified-student quality, and undefended distillation gain on development data. The transfer task must allow learning. If the undefended student fails to improve, report that setting as uninformative for anti-extraction effectiveness. Diagnose optimisation or teacher quality on development data only and document any protocol amendment before final testing. Keep all final results, including failures and ceiling effects.
 
-\textit{Execution tiers.} The core study uses the 2B student on both core tasks at $B_A\in\{500,2000,8000\}$ with no defense, instantaneous MMD, and the full policy, using three paired seeds $\{42,1,20\}$. Each seed fixes both the order of attacker queries and the training seed, and budgets nest: the 500-query set is a prefix of the 2,000-query set, which is a prefix of the 8,000-query set. GSM8K, if retained, runs at 500 and 2,000 queries only, because its attacker pool holds 3,389 problems. With attacker and gold-reference students, the undefended AG News and SQuAD matrix is 36 training runs, and retaining GSM8K adds 12, for 48. These counts exclude defended students and matched supervision controls, and they are planned runs, not completed experiments. Add quota and volume controls at 2,000 and 8,000 requests. Run the wider traffic sweeps with cached query embeddings before choosing any optional training extensions. A reduced compute budget must reduce the declared matrix in advance, rather than omit unfavourable completed runs.
+\textit{Execution tiers.} The core study uses the 2B student on both core tasks at $B_A\in\{500,2000,8000\}$ with no defense, the per-horizon query quota, instantaneous MMD, and the full policy, using three paired seeds $\{42,1,20\}$. Each seed fixes both the order of attacker queries and the training seed, and budgets nest: the 500-query set is a prefix of the 2,000-query set, which is a prefix of the 8,000-query set. GSM8K, if retained, runs at 500 and 2,000 queries only, because its attacker pool holds 3,389 problems. With attacker and gold-reference students, the undefended AG News and SQuAD matrix is 36 training runs, and retaining GSM8K adds 12, for 48. These counts exclude defended students and matched supervision controls, and they are planned runs, not completed experiments. Add matched-volume and prefix controls at 2,000 and 8,000 requests. Run the wider traffic sweeps with cached query embeddings before choosing any optional training extensions. A reduced compute budget must reduce the declared matrix in advance, rather than omit unfavourable completed runs.
 
 \subsection{Attack schedules and resource accounting}
 \label{sec:attacks}
-The primary extractor samples task-relevant public prompts without replacement and learns from victim responses. A stronger variant selects diverse prompts, then prioritises student uncertainty in batches of 100 using only the student's own predictions; it is an explicitly specified adaptation inspired by active query selection~\cite{dai2023meaeq}. Recompute its choices after each training update. Replay is valid only for a fixed query schedule; response-dependent attacks must be rerun against each defended service.
+The primary extractor samples task-relevant public prompts without replacement and learns from victim responses. Its query schedule is fixed, so it can be replayed against each defended service; a response-dependent attack, such as active query selection~\cite{dai2023meaeq}, would have to be rerun against each service and is outside the core study.
 
-For each task, test pure extraction; within-account mixtures with $\rho_a\in\{0.10,0.25\}$; slow queries at the median eligible benign request rate; paraphrased instructions; and campaigns split across $k\in\{5,20\}$ accounts. Keep the total campaign budget fixed across $k$, interleave accounts explicitly, and let the attacker combine every received response. Paraphrases preserve the task and are checked on a development sample. Record the generator, revision, decoding settings, and generation cost. A further adaptive test samples prompts resembling an independent benign pool and reacts to observed throttling or challenges. Do not provide private detector scores to that attacker.
+For each task, test pure extraction; within-account mixtures with $\rho_a\in\{0.10,0.25\}$; slow queries at one request every 30 seconds, which completes 2,000 attempts in under 17 hours of $T_A$; and campaigns split across $k\in\{5,20\}$ accounts. Keep the total campaign budget fixed across $k$, interleave accounts explicitly, and let the attacker combine every received response. No schedule receives private detector scores.
 
-The main resource limit is $(B_A,T_A)$ with $T_A=24$ hours. Count input tokens, output tokens, requests attempted, responses received, challenge work, and elapsed time. Filler outputs may also train the surrogate; excluding them would artificially weaken a mixed attacker. Unanswered attempts are not silently replaced. Report a time-unlimited, fixed-attempt test separately: throttling alone may delay collection without reducing its eventual value. Repeat across three policy horizons to test re-entry after reset. Embedding truncation, benign-reference contamination at 1\% and 5\%, and topic-matched extraction are additional stress tests.
+The main resource limit is $(B_A,T_A)$ with $T_A=24$ hours. Count input tokens, output tokens, requests attempted, responses received, challenge work, and elapsed time. Filler outputs may also train the surrogate; excluding them would artificially weaken a mixed attacker. Unanswered attempts are not silently replaced: a failed request to a defended service is charged to $B_A$ and never retried. Collector retries or ledger repairs that re-send prompts to the undefended service are reported next to $B_A$. Report a time-unlimited, fixed-attempt test separately: throttling alone may delay collection without reducing its eventual value. Embedding truncation, benign-reference contamination at 1\% and 5\%, and topic-matched extraction are additional stress tests.
 
 \subsection{Baselines, controls, and ablations}
 \label{sec:baselines}
-The primary session baseline uses the same MMD score, windows, and references but replaces accumulated risk with current-window evidence. Calibrate its maximum over complete benign horizons to the same L4 target. Apply the same actions, challenge difficulty, and latch. This isolates the value of memory. Also test a per-minute rate rule and a per-horizon query quota, with cutoffs fitted only to benign calibration clients at the same false-block target. A rule with only blocking has no L2/L3 outcome; mark those cells not applicable rather than fabricating levels.
+The primary session baseline uses the same MMD score, windows, and references but replaces accumulated risk with current-window evidence. Calibrate its maximum over complete benign horizons to the same L4 target. Apply the same actions, challenge difficulty, and latch. This isolates the value of memory. Also test a per-horizon query quota, with its cutoff fitted only to benign calibration accounts at the same false-block target. The quota's cutoff is a length, so it is informative only when benign workloads vary in length. No rate rule is tested: the task pools carry no request times, and a cutoff fitted to constructed arrival times would measure the generator. A rule with only blocking has no L2/L3 outcome; mark those cells not applicable rather than fabricating levels.
 
-Use adapted PRADA and SEAT in the reproduction track with the released definitions~\cite{juuti2019prada,zhang2021seat,mmd2026artifact}. Name any other inherited implementation explicitly and attribute it to the artifact. Methods requiring victim training history or internal features are not treated as query-only baselines. The main session claim compares the full policy with instantaneous MMD and simple quotas, not with an incomplete implementation of a stronger method.
+Window-level detectors such as PRADA and SEAT~\cite{juuti2019prada,zhang2021seat} are not reimplemented; their text-embedding adaptations belong to the released artifact. Methods requiring victim training history or internal features are not treated as query-only baselines. The main session claim compares the full policy with instantaneous MMD and simple quotas, not with an incomplete implementation of a stronger method.
 
 Two diagnostic controls explain lost extraction performance. A \emph{matched-volume} control trains on a uniform subset of the undefended transfer set with the same number of released response tokens as the defended set, to within one response, and reports the residual mismatch. A \emph{prefix} control trains on the earliest undefended responses up to the same released-token count, again allowing at most one response of mismatch. These post-hoc controls explain data volume and ordering; they are not deployable policies and do not get FPR scores. Also train a gold-label student as a task-learning reference, clearly separated from the black-box attack. It trains on gold answers for the same attacker prompts and never on victim responses, so gold labels never enter an attacker condition. It is a reference, not a guaranteed upper bound.
 
-Ablations set $\lambda=0$ (no memory), $\lambda=1$ (no decay), replace graduated actions with direct L4 blocking, and vary $w_a\in\{50,100,200,500\}$. A rolling-window variant uses stride $w_a/4$. Recalibrate each variant on the same benign splits to match account-level error targets. The main comparison uses no aggregate-to-account attribution. Aggregate alert performance is reported separately, especially for Sybil campaigns.
+Ablations set $\lambda=0$ (no memory), $\lambda=1$ (no decay), replace graduated actions with direct L4 blocking, and vary $w_a\in\{50,100,200,500\}$. Recalibrate each memory and window-size variant on the same benign splits to match account-level error targets. Direct blocking reuses the full policy's L4 threshold, which is already fitted to the same target.
 
 \subsection{Metrics and statistical analysis}
 \label{sec:metrics}
-\textit{Detection.} Report window FPR and TPR at each aggregate attacker fraction $\rho\in\{0.05,0.10,0.25,0.50,1.00\}$. Macro-average across the fixed pair list and then across fractions; balanced accuracy uses that mean TPR, $[\overline{\mathrm{TPR}}+1-\mathrm{FPR}]/2$. Report the underlying counts and per-pair results so unequal dataset sizes cannot hide failure.
+\textit{Detection.} Report window FPR on held-out benign windows and window TPR for each attack schedule, per task, with the underlying window counts.
 
 At account level, $\mathrm{FPR}_{\ell}$ and $\mathrm{TPR}_{\ell}$ are the proportions of benign and attack accounts reaching level at least $\ell$ within the fixed horizon. Detection delay is not interchangeable with answer leakage. If $J_\ell(a)$ is the first request index causing level $\ell$, define
 \begin{equation}
@@ -231,7 +223,7 @@ $R_D$ measures the fraction of the undefended gain removed. Report it only when 
 
 \textit{Uncertainty.} Pair query pools, task splits, model initialisations, and training seeds across conditions. Use seeds $\{42,1,20\}$ for the core study and report each run, the mean, and standard deviation. Three seeds do not establish broad training robustness. Use paired cluster bootstrap intervals at the independent client/campaign and source-document levels; do not treat overlapping windows or repeated samples as independent observations. Report uncertainty over test items separately from training-seed variation.
 
-Aim for at least 3,000 independent benign calibration clients and 3,000 benign test clients per service stratum for the 1\% block target. If the available data cannot support this, report the actual count and wider uncertainty, and narrow the claim. Clopper--Pearson intervals apply only to independent Bernoulli units; dependent proxy groups require cluster-based intervals. As a scale check, zero errors in 3,000 independent trials gives a one-sided 95\% upper bound of about 0.1\%, not proof of zero risk~\cite{clopper1934limits}. Rare-window targets of 0.1\% require at least 10,000 independent calibration windows for the planned sensitivity study, with uncertainty still reported. Reused reference windows remain a shared source of uncertainty.
+The task pools bound the attainable sample sizes. The policy-calibration pools hold 10,836 AG News, 8,079 SQuAD, and 669 GSM8K requests, so at 100 requests per scored window they support at most about 108, 80, and 6 independent scored accounts, and the held-out test pools are of similar size. A 1\% L4 target is at or beyond the resolution of about 100 accounts: it permits at most one exceedance, so the threshold is close to the benign maximum. Report the achieved account counts and calibration rates with source-cluster intervals, and label every 1\% result as resolution-limited. Clopper--Pearson intervals apply only to independent Bernoulli units; dependent proxy groups require cluster-based intervals. As a scale check, zero errors in 100 independent accounts gives a one-sided 95\% upper bound of about 3\%, not proof of zero risk~\cite{clopper1934limits}. Window p-values are likewise resolved only to $1/(M+1)$, with $M$ about 107 AG News and 82 SQuAD score-calibration windows. Reused reference windows remain a shared source of uncertainty.
 
 The primary contrast is full policy versus instantaneous MMD at the 1\% account false-block target, on each core task at 2,000 attempted requests. Report effect sizes and paired intervals, with Holm correction if formal tests are made across the two tasks~\cite{holm1979simple}. All other contrasts are secondary. As proposed operational criteria, seek at least a two-percentage-point reduction in the primary student score relative to instantaneous MMD, with no more than a two-percentage-point loss in legitimate completion relative to no defense, alongside the stated false-block target. These are practical-effect targets to freeze before final testing, not predicted results. Report the full trade-off if they are not met. A useful result must show a learnable undefended attack, a reduction in retained capability, and measured benign cost together. Significance or a large detection percentage alone is insufficient.
 
@@ -247,37 +239,20 @@ Measure the victim alone and with the wrapper at identical request mixes, sequen
 \label{tab:manifest}
 \begin{tabularx}{\columnwidth}{@{}YX@{}}\toprule
 Field & Recorded value \\\midrule
-Code commit; upstream artifact commit & \pending \\
+Code commit & \pending \\
 Dataset revisions; split hashes; filters & \pending \\
 Victim, student, encoder revisions; victim quantization & \pending \\
 CPU; GPU; RAM; VRAM; precision & \pending \\
 Library versions; serving backend & \pending \\
 Benign clients/windows in each split & \pending \\
-$\sigma$, $M$, $\theta_1,\ldots,\theta_4$ by stratum & \pending \\
+$\sigma$, $M$, $R$, $\theta_1,\ldots,\theta_4$ by task & \pending \\
+Encoder truncation rate by task and role & \pending \\
 Training recipe selected on development data & \pending \\
 Load; concurrency; warm-up; measurement time & \pending \\
 Challenge solver hardware and implementation & \pending \\
 GPU-hours and response-token totals & \pending \\\bottomrule
 \end{tabularx}
 \end{table}
-
-\subsection{Window-level results: pending}
-\tbd{Report the reproduction discrepancy and per-pair failures before interpreting Table~\ref{tab:window}. Keep this track separate from the new policy evaluation.}
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Reproduction template. All rates are percentages, macro-averaged over the fixed fourteen-pair manifest. Each measured value will include seed variation. Avg. TPR averages the five shown fractions; BAcc uses that average. No measured values are available.}
-\label{tab:window}
-\begin{tabular}{@{}lcccccccc@{}}\toprule
-Method & FPR & $\mathrm{TPR}_{.05}$ & $\mathrm{TPR}_{.10}$ & $\mathrm{TPR}_{.25}$ & $\mathrm{TPR}_{.50}$ & $\mathrm{TPR}_{1.0}$ & Avg. TPR & BAcc \\\midrule
-PRADA adaptation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-SEAT adaptation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-CAP artifact variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-DATE artifact variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-Marginal Mahalanobis variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-Pseudo-class energy variant & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\
-MMD artifact implementation & \pending & \pending & \pending & \pending & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabular}
-\end{table*}
 
 \subsection{Account-level results: pending}
 \tbd{Fill one Table~\ref{tab:session} per endpoint and attack schedule. Report false-escalation counts, observed FPR intervals, and censored accounts; do not pool distinct schedules into an unlabeled mean.}
@@ -287,7 +262,6 @@ MMD artifact implementation & \pending & \pending & \pending & \pending & \pendi
 \label{tab:session}
 \begin{tabularx}{\textwidth}{@{}Ycccccc@{}}\toprule
 Method & FPR$_2$ & FPR$_4$ & TPR$_4$ & Median $J_4$ & Median $Q_4$ & Censored $n/N$ \\\midrule
-Rate-rule block & N/A & \pending & \pending & \pending & \pending & \pending \\
 Query-quota block & N/A & \pending & \pending & \pending & \pending & \pending \\
 Instantaneous MMD + policy & \pending & \pending & \pending & \pending & \pending & \pending \\
 Accumulated MMD, no decay & \pending & \pending & \pending & \pending & \pending & \pending \\
@@ -320,32 +294,27 @@ Matched-prefix control & \pending & \pending & \pending & \pending & \pending & 
 \tbd{Compare full and instantaneous policies using campaign-wide supervision and student quality in Table~\ref{tab:adaptive}. Fill Table~\ref{tab:shift} separately; benign shift is a false-positive test, not an attack-TPR row.}
 \begin{table*}[!t]
 \centering\footnotesize
-\caption{Adaptive-campaign template for one task, student, and budget. Entries compare instantaneous MMD (I) and the full policy (F). Aggregate alert rate is the percentage of campaigns with an aggregate alert within the budget; it does not imply account attribution.}
+\caption{Adaptive-campaign template for one task, student, and budget. Entries compare instantaneous MMD (I) and the full policy (F).}
 \label{tab:adaptive}
-\begin{tabularx}{\textwidth}{@{}Yccccc@{}}\toprule
-Schedule & Blocked accounts I/F (\%) & Output tokens I/F & Student score I/F & Elapsed time I/F & Aggregate alert (\%) \\\midrule
-Pure extraction & \pending & \pending & \pending & \pending & \pending \\
-Mixed, $\rho_a=0.25$ & \pending & \pending & \pending & \pending & \pending \\
-Mixed, $\rho_a=0.10$ & \pending & \pending & \pending & \pending & \pending \\
-Slow rate & \pending & \pending & \pending & \pending & \pending \\
-Paraphrased & \pending & \pending & \pending & \pending & \pending \\
-Sybil, $k=5$ & \pending & \pending & \pending & \pending & \pending \\
-Sybil, $k=20$ & \pending & \pending & \pending & \pending & \pending \\
-Benign-matched adaptive sampling & \pending & \pending & \pending & \pending & \pending \\
-Three-horizon reset attack & \pending & \pending & \pending & \pending & \pending \\\bottomrule
+\begin{tabularx}{\textwidth}{@{}Ycccc@{}}\toprule
+Schedule & Blocked accounts I/F (\%) & Output tokens I/F & Student score I/F & Elapsed time I/F \\\midrule
+Pure extraction & \pending & \pending & \pending & \pending \\
+Mixed, $\rho_a=0.25$ & \pending & \pending & \pending & \pending \\
+Mixed, $\rho_a=0.10$ & \pending & \pending & \pending & \pending \\
+Slow rate & \pending & \pending & \pending & \pending \\
+Sybil, $k=5$ & \pending & \pending & \pending & \pending \\
+Sybil, $k=20$ & \pending & \pending & \pending & \pending \\\bottomrule
 \end{tabularx}
 \end{table*}
 \begin{table*}[!t]
 \centering\footnotesize
-\caption{Benign robustness template. Report I/F rates with denominators and intervals in accompanying text. Conversation-only data do not support account FPR.}
+\caption{Benign robustness template. Report I/F rates with denominators and intervals in accompanying text.}
 \label{tab:shift}
 \begin{tabularx}{\textwidth}{@{}Ycc@{}}\toprule
 Benign condition & Window FPR (\%) & Account FPR$_4$ (\%) \\\midrule
 Held-out, matched endpoint & \pending & \pending \\
 Authorised batch clients & \pending & \pending \\
-Specialist topic shift & \pending & \pending \\
-Later-time clients & \pending & \pending \\
-WildChat to LMSYS & \pending & N/A \\\bottomrule
+Specialist topic shift & \pending & \pending \\\bottomrule
 \end{tabularx}
 \end{table*}
 
@@ -388,19 +357,14 @@ $w_a=100$ & \pending & \pending & \pending \\
 $w_a=200$ & \pending & \pending & \pending \\
 $w_a=500$ & \pending & \pending & \pending \\
 $\lambda=0$ & \pending & \pending & \pending \\
-$\lambda=1$ & \pending & \pending & \pending \\
-Stride $w_a/4$ & \pending & \pending & \pending \\\bottomrule
+$\lambda=1$ & \pending & \pending & \pending \\\bottomrule
 \end{tabularx}
 \end{table*}
-
-\subsection{Optional privacy extension: pending}
-\label{sec:privacy}
-Prefix completion on arbitrary public text is only a probing workload; it does not demonstrate training-data recovery. If this extension is implemented, fine-tune a separate small victim on synthetic records with random secrets and known exposure counts. Test seen and unseen records, and report exact secret recovery, false recoveries, and responses released before recovery. Compare with a victim that never saw the records. Match ordinary lookup prompts to the attack format. This controlled memorisation test is motivated by training-data extraction~\cite{carlini2021extracting}; it is not a reproduction of that attack or of confidence-based inversion~\cite{fredrikson2015model}. Keep its results separate from model-behaviour extraction. Until ground-truth recovery is measured, make no privacy-protection claim.
 
 \clearpage
 \section{Limitations and interpretation}
 \label{sec:scope}
-The proposed wrapper detects statistical differences in observable requests. It cannot infer authorisation or intent from identical traffic, prevent weight theft, or establish privacy merely by flagging unusual prompts. Benign specialisation, shared client proxies, encoder truncation, reference contamination, and repeated policy resets can weaken the result. Aggregate alerts do not solve account attribution. Stronger authentication and a separately justified incident-response process would be needed for a production deployment.
+The proposed wrapper detects statistical differences in observable requests. It cannot infer authorisation or intent from identical traffic, prevent weight theft, or establish privacy merely by flagging unusual prompts. Benign specialisation, shared client proxies, encoder truncation, reference contamination, and repeated policy resets can weaken the result. A campaign spread across enough accounts can stay below every account's threshold, and the core study has no aggregate monitor to notice it. Stronger authentication and a separately justified incident-response process would be needed for a production deployment.
 
 Small students make repeated controlled experiments feasible, but limit the scope of any conclusion. A task-level reduction on a 2B model does not establish protection against larger or better-trained students. Nor does transfer on narrow task APIs establish resistance to general-chat extraction. Conversely, a failure to improve beyond the initial student is not evidence that the defense worked. The main claim must depend on a working undefended extraction baseline and hold alongside measured legitimate-user cost.
 
