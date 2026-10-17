@@ -172,7 +172,7 @@ Natural short conversations are retained. For controlled long-horizon tests, con
 
 \subsection{Small-model distillation study}
 \label{sec:eval-models}
-Use \texttt{Qwen3.5-9B} in non-thinking mode as the local victim and \texttt{Qwen3.5-2B-Base} as the student~\cite{qwen2026qwen35}. The models share a family and tokenizer, which removes unrelated tokenization effects. The student is a base checkpoint, so it learns each task's answer format from the transfer data as well as the task itself; the unmodified student, scored on the same serialization, is the baseline for both. This supports a controlled task-level study, not a claim of cloning a frontier service. Pin exact revisions, chat templates, and the victim's served precision or quantization. A student from another family is an optional extension, separately reported.
+Use \texttt{Qwen3.5-9B} in non-thinking mode as the local victim and \texttt{Qwen3.5-2B-Base} as the student~\cite{qwen2026qwen35}. The models share a family and tokenizer, which removes unrelated tokenization effects. The student is a base checkpoint, so it learns each task's answer format from the transfer data as well as the task itself; the unmodified student, scored on the same serialization, is the baseline for both. This supports a controlled task-level study, not a claim of cloning a frontier service. Pin exact revisions, chat templates, and the victim's served precision or quantization, and record them in Table~\ref{tab:manifest}. The Colab collection served the 8-bit \texttt{Q8\_0} GGUF build of the victim, so it is reported as quantized inference rather than BF16; any final service declares its own serving identity, and a change of revision, precision, or template starts a new run identity. A student from another family is an optional extension, separately reported.
 
 AG News classification and SQuAD 1.1 extractive QA are the core endpoints. GSM8K~\cite{cobbe2021gsm8k}, a generative task with a numeric final answer, is an optional extension; whether it is run is frozen before final testing. Each task is a separate service with one fixed request serialization, used identically for attacker queries, legitimate traffic, development, and final testing. For AG News, the service returns one of four textual labels; for QA, a short answer given the passage and question; for GSM8K, a solution ending in a marked final number. Use deterministic victim decoding with fixed output caps of 16 new tokens for AG News, 64 for SQuAD, and provisionally 256 for GSM8K. A development pilot of about 200 GSM8K prompts, drawn from the development split so that it spends no attacker budget, checks the GSM8K cap: if more than 2\% of pilot responses stop at the cap, the cap is raised and the pilot repeated. Report the pilot's size and finish-reason counts, and freeze every task's cap before main collection begins. Apply the same documented truncation rule before querying, training, and evaluation, and report how often it is invoked. Do not discard cases using test labels or answer locations. The attacker never sees gold answers, so no response is filtered by correctness: wrong and malformed complete answers remain in training, as they would for a real extractor. Filtering by correctness would also remove the victim errors that fidelity measures are meant to capture~\cite{jagielski2020high}. Only collector failures, responses truncated at the output cap, empty responses, and records exceeding the 2,048-token training limit are excluded, and each exclusion is counted.
 
@@ -245,14 +245,19 @@ Measure the victim alone and with the wrapper at identical request mixes, sequen
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Implementation manifest to complete before final testing.}
+\caption{Implementation manifest to complete before final testing. Revisions are commit prefixes; full hashes are pinned in the repository configurations.}
 \label{tab:manifest}
 \begin{tabularx}{\columnwidth}{@{}YX@{}}\toprule
 Field & Recorded value \\\midrule
 Code commit; upstream artifact commit & \pending \\
 Dataset revisions; split hashes; filters & \pending \\
-Victim, student, encoder revisions; victim quantization & Victim Qwen3.5-9B \texttt{c2022362}; Colab build \texttt{unsloth/Qwen3.5-9B-GGUF} \texttt{3885219b}, \texttt{Q8\_0} 8-bit; student Qwen3.5-2B-Base \texttt{b1485b2f}; encoder \texttt{5c38ec7c} (revision prefixes) \\
+Victim & Qwen3.5-9B, revision \texttt{c2022362}, non-thinking mode \\
+Victim serving (Colab collection) & \texttt{unsloth/Qwen3.5-9B-GGUF} revision \texttt{3885219b}, \texttt{Q8\_0} 8-bit; final services declare their own precision \\
+Student & Qwen3.5-2B-Base, revision \texttt{b1485b2f}; BF16 base weights \\
+Encoder & \texttt{BAAI/bge-small-en-v1.5}, revision \texttt{5c38ec7c} \\
 Detector serialization & \texttt{detector-v1} \\
+Chat template & Qwen3.5 template from the pinned tokenizers, \texttt{enable\_thinking=false}, EOS \texttt{<|im\_end|>}; SHA-256 recorded per run \\
+Adapter target modules & \texttt{all-linear}: every linear layer of the 24 text layers (6 full-attention, 18 Gated DeltaNet, e.g.\ \texttt{q\_proj}, \texttt{in\_proj\_qkv}), excluding the output head; resolved names recorded per run \\
 CPU; GPU; RAM; VRAM; precision & \pending \\
 Library versions; serving backend & \pending \\
 Benign clients/windows in each split & \pending \\
