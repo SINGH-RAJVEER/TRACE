@@ -164,7 +164,8 @@ def test_graduated_actions_space_challenge_and_refuse(
 	decisions = [policy.admit("a", f"q {i}", now=100.0) for i in range(12)]
 	assert decisions[8].action == "serve" and decisions[9].window_completed
 	assert decisions[9].action == "challenge" and decisions[9].level == 3
-	assert [d.release_at for d in decisions[9:12]] == [100.0, 101.0, 102.0]
+	# Spacing counts from the last L0 admission, so the first throttled request also waits.
+	assert [d.release_at for d in decisions[9:12]] == [101.0, 102.0, 103.0]
 	challenge = decisions[10]
 	counter, _ = solve(challenge.challenge)  # type: ignore[arg-type]
 	assert challenge.client_view()["challenge"]["prefix"].endswith(":")
@@ -179,6 +180,14 @@ def test_graduated_actions_space_challenge_and_refuse(
 	assert outcome[9].action == "refuse" and outcome[11].action == "refuse"
 	fresh = blocked.admit("b", "q 12", now=calibration.config.horizon_seconds)
 	assert (fresh.attempt, fresh.level, fresh.action) == (1, 0, "serve")
+	forced.thresholds["paper"].thresholds = [-1, -1, -1, 1e9]
+	direct = MMDPolicy(forced, scorer, encoder=FakeEncoder(), actions="direct")
+	below = [direct.admit("c", f"q {i}", now=0.0) for i in range(12)]
+	assert {(d.level, d.action, d.release_at) for d in below} == {(0, "serve", 0.0)}
+	forced.thresholds["paper"].thresholds = [-1, -1, -1, -1]
+	direct = MMDPolicy(forced, scorer, encoder=FakeEncoder(), actions="direct")
+	above = [direct.admit("d", f"q {i}", now=0.0) for i in range(10)]
+	assert above[9].level == 4 and above[9].action == "refuse"
 
 
 def test_quota_and_rate_baselines_block_for_the_horizon() -> None:

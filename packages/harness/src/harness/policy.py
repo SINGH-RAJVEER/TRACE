@@ -183,6 +183,10 @@ class MMDPolicy(_HorizonPolicy):
 	share deception_rate of requests for a deceptive answer (see harness.deception). The
 	share is keyed by request, not account, so every account asking a request gets the same
 	treatment. This is a separately reported arm; the main policy refuses.
+
+	With actions="direct", the ablation that replaces graduated actions with direct blocking,
+	the account serves normally until its statistic exceeds the L4 threshold and is then
+	refused. The L4 threshold is fitted to the same target, so no recalibration is needed.
 	"""
 
 	def __init__(
@@ -200,6 +204,7 @@ class MMDPolicy(_HorizonPolicy):
 		deception_rate: float = 1.0,
 		deception_key: bytes | None = None,
 		witness_size: int = 5,
+		actions: Literal["graduated", "direct"] = "graduated",
 	) -> None:
 		config: HarnessConfig = calibration.config
 		if l4_action == "deceive" and not deception_key:
@@ -223,6 +228,7 @@ class MMDPolicy(_HorizonPolicy):
 		self.deception_rate = deception_rate
 		self.deception_key = deception_key or b""
 		self.witness_size = witness_size
+		self.actions: Literal["graduated", "direct"] = actions
 
 	def _respond(
 		self, account: str, state: AccountState, text: str, now: float, binding: str
@@ -231,6 +237,9 @@ class MMDPolicy(_HorizonPolicy):
 		if state.level >= 4 and self.l4_action == "refuse":
 			return "refuse", now, None, False
 		if state.level < 2:
+			# An L0 or L1 admission still counts as the previous release, so L2 spacing
+			# applies from the first L2 request.
+			state.last_release = now
 			return "serve", now, None, False
 		release_at = max(now, state.last_release + self.min_interval)
 		state.last_release = release_at
@@ -275,6 +284,8 @@ class MMDPolicy(_HorizonPolicy):
 			p_value = self.calibration.p_value(score)
 			state.statistic = self.spec.update(state.statistic, p_value)
 			reached = self.calibration.level(self.accumulator, state.statistic, self.threshold_mode)
+			if self.actions == "direct":
+				reached = 4 if reached >= 4 else 0
 			if reached > state.level:
 				values = self.scorer.witness(window)
 				top = np.argsort(-values)[: self.witness_size]

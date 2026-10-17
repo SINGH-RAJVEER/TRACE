@@ -19,8 +19,10 @@ class Settings(BaseSettings):
 	thresholds: Literal["calibrated", "ville"] = Field(
 		default="calibrated", alias="HARNESS_THRESHOLDS"
 	)
-	# L4 answers with keyed noise by default; "refuse" blocks instead.
-	l4_action: Literal["refuse", "deceive"] = Field(default="deceive", alias="HARNESS_L4_ACTION")
+	# "direct" replaces the graduated actions with blocking at the L4 threshold (an ablation).
+	actions: Literal["graduated", "direct"] = Field(default="graduated", alias="HARNESS_ACTIONS")
+	# L4 refuses by default, as in the paper; "deceive" answers with keyed noise instead.
+	l4_action: Literal["refuse", "deceive"] = Field(default="refuse", alias="HARNESS_L4_ACTION")
 	deception_rate: float = Field(default=1.0, ge=0, le=1, alias="HARNESS_DECEPTION_RATE")
 	# Hex secret, at least 16 bytes. Without it, the key file is read, or created on first start.
 	deception_key: str = Field(default="", alias="HARNESS_DECEPTION_KEY")
