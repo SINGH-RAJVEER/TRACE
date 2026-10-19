@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 from anyio import Path as AsyncPath
-from harness.calibration import BenignRequest
+from harness.calibration import HORIZON_POLICY, BenignRequest
 
 from distillation.benchmarks.models import BenchmarkItem, save_json
 from distillation.benchmarks.scoring import evaluate_answer
@@ -76,6 +76,7 @@ async def _measure_utility(
 		json.dumps(
 			{
 				"measurement_version": "utility-response-latency-v2",
+				"horizon_policy": HORIZON_POLICY,
 				"solver": {
 					"version": SOLVER_VERSION,
 					"workers": solver.workers,
@@ -267,6 +268,7 @@ async def _measure_utility(
 			for field in ("domain", "domain_profile", "client_type")
 		},
 		"measurement_version": "utility-response-latency-v2",
+		"horizon_policy": HORIZON_POLICY,
 		"solver": {
 			"version": SOLVER_VERSION,
 			"workers": solver.workers,

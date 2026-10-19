@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.calibration import (
+	HORIZON_POLICY,
 	BenignRequest,
 	HarnessConfig,
 	calibrate,
@@ -614,6 +615,10 @@ class GatewayStudy:
 					"attempts": calibration.config.horizon_attempts,
 					"seconds": calibration.config.horizon_seconds,
 					"campaign_budget_replenished_on_reset": False,
+					"horizon_policy": HORIZON_POLICY,
+					"reset": "elapsed_time",
+					"attempt_limit_action": "refuse_until_time_reset",
+					"allow_policy_capped": False,
 				},
 			)
 			encoder = _MemoEncoder(BGEEncoder(device="cpu"))

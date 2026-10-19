@@ -568,3 +568,49 @@ async def test_gateway_challenge_binding_and_proofs_share_the_campaign_budget(
 			},
 		)
 		assert second.status_code == 403
+
+
+@pytest.mark.parametrize("policy", ["quota", "mmd"])
+async def test_http_refusal_spam_cannot_renew_an_account(
+	policy: str, artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.config.horizon_attempts = 3
+	calibration.config.horizon_seconds = 100
+	calibration.baselines["quota"].thresholds = [1]
+	app, teacher, log = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY=policy,
+		HARNESS_TEST_CLOCK=True,
+	)
+	headers = {"X-Benchmark-Actor": "same-account", "X-Harness-Time": "10"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://fixture"
+	) as client:
+		responses = [
+			await client.post("/v1/teacher/generate", json=_request("valid query"), headers=headers)
+			for _ in range(10)
+		]
+		allowed = 1 if policy == "quota" else 3
+		assert [r.status_code for r in responses] == [200] * allowed + [403] * (10 - allowed)
+		assert teacher.calls == allowed
+		headers["X-Harness-Time"] = "109.999"
+		assert (
+			await client.post(
+				"/v1/teacher/generate", json=_request("still blocked"), headers=headers
+			)
+		).status_code == 403
+		headers["X-Harness-Time"] = "110"
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("time reset"), headers=headers)
+		).status_code == 200
+		assert teacher.calls == allowed + 1
+	decisions = [
+		json.loads(line)
+		for line in log.read_text().splitlines()
+		if json.loads(line)["event"] == "decision"
+	]
+	assert [e["attempt"] for e in decisions] == list(range(1, 12)) + [1]

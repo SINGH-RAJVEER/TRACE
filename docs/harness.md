@@ -21,10 +21,20 @@ The `harness` command comes with the package. Replays with precomputed embedding
 | Score a window of `w_a` queries: unbiased squared MMD, kernel = mean of four RBF kernels at 0.5, 1, 2, and 4 times the median-distance bandwidth, averaged over 20 fixed reference windows, negative estimates kept | `mmd.py` | Eq. 1 |
 | Turn a score into its upper-tail rank among benign calibration scores | `calibration.py` | Eq. 3 |
 | Accumulate evidence per account and map it to a level | `accumulators.py`, `calibration.py` | Eq. 4, III-C |
-| Apply the level's action, hold the level for the horizon, and reset after 24 hours or 10,000 attempts | `policy.py` | Table I, III-C, III-D |
+| Apply the level's action, hold the level for the horizon, and reset after 24 hours; refuse requests beyond the 10,000-attempt cap until that time | `policy.py` | Table I, III-C, III-D |
 | Issue and verify SHA-256 proof-of-work challenges | `pow.py` | Table I, L3 |
 
 A completed window includes the current request and is scored before the victim runs, so it can change that request's action. Windows do not overlap. Until a window completes, the previous level applies, and a new account starts at L0.
+
+## Account horizons and attempt limits
+
+An account's horizon starts at its first policy admission and resets only after 86,400 seconds. Each authenticated ordinary generation request that reaches the policy increments its attempt counter, including a refused request. The protected policies process at most 10,000 such requests per horizon. Request 10,001 and every later ordinary request receive a refusal until the time horizon expires. Repeated refusals preserve the account's level, risk state, and quota usage. The cap also refuses in the optional deception mode. The undefended `AllowPolicy` has no admission cap.
+
+Proof redemption continues an earlier admission and does not increment this policy counter. Authentication and validation failures rejected before policy admission do not increment it either. Campaign accounting is separate: every HTTP submission, including a refusal, proof redemption, or failed call, spends the campaign allowance. Neither a policy time reset nor account rotation replenishes that allowance. Campaign clients may continue after refusal so tests can expose a policy that accidentally restores service.
+
+Calibration and replay use the same time-only horizons. Missing timestamps use input-row indices as synthetic seconds. Calibration forms detector windows only from the first `horizon_attempts` requests of each horizon. Quota and rate fitting measure requested demand over the full time horizon. All fitted thresholds account for mandatory cap refusals before allocating any remaining false-escalation allowance; achieved rates include those refusals. `policy_calibration_capped_horizons` reports how many benign horizons exceed the hard cap. Such horizons face a mandatory refusal regardless of the fitted statistical threshold, so their rate can exceed the nominal false-block target. Report that count with the achieved replay rates.
+
+New calibration artifacts, campaign contracts, utility contracts, and frozen study horizon settings record `time-reset-attempt-cap-v1`. Loading or directly using an older calibration fails with a request to recalibrate in a new directory. Old campaigns and utility measurements cannot be reused under the new contract. The former count-reset rule could grant repeated quota allowances inside one day; those results must not be interpreted as measurements of the time-only policy.
 
 ## Accumulators
 
@@ -41,7 +51,7 @@ All rules read the same window p-values, so they can be compared with everything
 
 `paper` is the default because it is the rule the draft specifies. The choice of primary rule is still open.
 
-Thresholds are calibrated by default: for each benign policy-calibration horizon, take the highest statistic reached, then choose each level's threshold so that at most its target share of horizons strictly exceed it. Targets are 10%, 5%, 2%, and 1% for L1 to L4. Thresholds are nested, and the artifact records the achieved rate next to each target. When the sample is too small for a target, the threshold becomes the largest observed value and the achieved rate is lower than the target; it is never extrapolated. `--thresholds ville` uses `log(1/alpha)` instead, for `e_process` only.
+Thresholds are calibrated by default: for each benign policy-calibration horizon, take the highest statistic reached, then choose each level's threshold from the escalation allowance remaining after mandatory attempt-cap refusals. Targets are 10%, 5%, 2%, and 1% for L1 to L4. Thresholds are nested, and the artifact records the achieved rate next to each target. When the sample is too small for a target, ties keep the fitted cutoff conservative. Mandatory cap refusals impose a floor that can exceed the target; the artifact records the achieved rate rather than extrapolating a smaller one. `--thresholds ville` uses `log(1/alpha)` instead, for `e_process` only.
 
 ## Actions
 

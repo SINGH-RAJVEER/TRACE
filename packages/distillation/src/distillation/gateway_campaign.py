@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from anyio import Path as AsyncPath
+from harness.calibration import HORIZON_POLICY
 
 from distillation.benchmarks.models import save_json
 from distillation.campaign import (
@@ -66,6 +67,7 @@ async def collect_gateway(
 		raise ValueError("missing account credentials")
 	contract = {
 		"version": "gateway-execution-v2",
+		"horizon_policy": HORIZON_POLICY,
 		"solver": {
 			"version": SOLVER_VERSION,
 			"workers": solver_workers,
@@ -196,6 +198,7 @@ async def collect_gateway(
 	records = read_jsonl(ledger, LedgerRecord)
 	summary = {
 		"contract": contract_hash,
+		"horizon_policy": HORIZON_POLICY,
 		"solver": contract["solver"],
 		"attempt_budget": attempt_budget,
 		"deadline_seconds": deadline_seconds,

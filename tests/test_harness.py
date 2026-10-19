@@ -15,12 +15,13 @@ from harness.calibration import (
 	calibrate,
 	fit_threshold,
 	load_calibration,
+	nested_thresholds,
 	peak_per_minute,
 	pooled_accounts,
 	save_calibration,
 )
 from harness.mmd import Array, WindowScorer, kernel, mmd2_unbiased
-from harness.policy import MMDPolicy, QuotaPolicy, RatePolicy
+from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
 from harness.pow import solve
 from harness.replay import replay
 
@@ -85,6 +86,12 @@ def test_thresholds_use_strict_exceedance_and_report_achieved_rates() -> None:
 	assert fit_threshold([7, 7, 7, 1], 0.25) == (7, 0.0)
 	assert fit_threshold([3, 2, 1], 0.01) == (3, 0.0)
 	assert peak_per_minute([0, 10, 59.9, 60, 61, 200]) == 4
+	forced = nested_thresholds(
+		[100, 4, 3, 2, 1], [0.4, 0.2, 0.01], [True, False, False, False, False]
+	)
+	assert forced.thresholds == [3, 4, 4]
+	assert forced.achieved == [0.4, 0.2, 0.2]
+	assert nested_thresholds([1, 2], [0.01], [True, True]).achieved == [1.0]
 
 
 def test_pooled_accounts_break_up_source_ordered_groups() -> None:
@@ -207,6 +214,61 @@ def test_quota_and_rate_baselines_block_for_the_horizon() -> None:
 	assert actions == ["serve", "serve", "refuse", "refuse"]
 
 
+@pytest.mark.parametrize("name", ["quota", "rate", "mmd"])
+def test_refused_attempts_cannot_clear_a_block(
+	name: str, calibrated: tuple[Calibration, WindowScorer]
+) -> None:
+	calibration, scorer = calibrated
+	forced = calibration.model_copy(deep=True)
+	forced.config.horizon_seconds = 100
+	forced.config.horizon_attempts = 12
+	forced.thresholds["paper"].thresholds = [-1] * 4
+	policy: Policy
+	if name == "quota":
+		policy = QuotaPolicy(1, 100, 12)
+	elif name == "rate":
+		policy = RatePolicy(1, 100, 12)
+	else:
+		policy = MMDPolicy(forced, scorer, encoder=FakeEncoder())
+	decisions = [policy.admit("a", f"q{i}", 7.0) for i in range(40)]
+	assert all(d.action == "refuse" and d.level == 4 for d in decisions[9:])
+	assert [d.attempt for d in decisions] == list(range(1, 41))
+	assert policy.admit("a", "still blocked", 106.999).action == "refuse"
+	fresh = policy.admit("a", "fresh", 107.0)
+	assert (fresh.attempt, fresh.level, fresh.action) == (1, 0, "serve")
+
+
+@pytest.mark.parametrize("deceive", [False, True])
+def test_mmd_attempt_cap_refuses_without_reset_even_for_deception(
+	deceive: bool, calibrated: tuple[Calibration, WindowScorer]
+) -> None:
+	calibration, scorer = calibrated
+	forced = calibration.model_copy(deep=True)
+	forced.config.horizon_attempts = 10
+	forced.thresholds["paper"].thresholds = [1e9] * 4
+	policy = MMDPolicy(
+		forced,
+		scorer,
+		encoder=FakeEncoder(),
+		l4_action="deceive" if deceive else "refuse",
+		deception_key=b"fixture",
+	)
+	decisions = [policy.admit("a", f"q{i}", 0) for i in range(31)]
+	assert all(d.action == "serve" for d in decisions[:10])
+	assert all(d.action == "refuse" and d.level == 4 for d in decisions[10:])
+	assert policy.accounts["a"].windows == 1
+	assert policy.accounts["a"].attempts == 31
+	# The undefended arm must remain undefended at the same count.
+	allow = AllowPolicy(86400, 10)
+	assert all(allow.admit("a", "q", 0).action == "serve" for _ in range(31))
+
+
+def test_full_pool_quota_does_not_renew_after_refusal_spam() -> None:
+	policy = QuotaPolicy(500, 86400, 10000)
+	served = sum(policy.admit("a", "q", 0).action == "serve" for _ in range(53893))
+	assert served == 500
+
+
 def test_serving_cost_benchmark_times_each_unit_separately(
 	calibrated: tuple[Calibration, WindowScorer],
 ) -> None:
@@ -226,3 +288,65 @@ def test_serving_cost_benchmark_times_each_unit_separately(
 	assert plain["units"]["embedding_per_request"] is None
 	with pytest.raises(ValueError, match="at least one window"):
 		serving_costs(calibration=calibration, scorer=scorer, texts=texts[:5])
+
+
+def test_calibration_and_replay_share_time_horizons_and_attempt_caps(tmp_path: Path) -> None:
+	from harness.calibration import HORIZON_POLICY
+
+	calibration, references = calibrate(
+		config=HarnessConfig(
+			window_size=2,
+			reference_windows=2,
+			bandwidth_sample=8,
+			horizon_seconds=10,
+			horizon_attempts=4,
+			aggregate_enabled=False,
+		),
+		encoder=FakeEncoder(),
+		fitting=_benign("fit", 4, 6),
+		score_calibration=_benign("score", 2, 12),
+		policy_calibration=_benign("policy", 2, 12),
+	)
+	assert calibration.horizon_policy == HORIZON_POLICY
+	assert calibration.counts["score_calibration_windows"] == 6
+	assert calibration.counts["policy_calibration_horizons"] == 4
+	assert calibration.counts["policy_calibration_capped_horizons"] == 2
+	# Demand above the cap stays in the original horizon rather than receiving a new quota.
+	assert calibration.baselines["quota"].thresholds == [2]
+	assert calibration.baselines["quota"].achieved == [0.5]
+	summary = replay(
+		calibration=calibration,
+		scorer=WindowScorer(references, calibration.sigma),
+		requests=_benign("policy", 2, 12),
+		output=tmp_path / "replay.jsonl",
+		policy="quota",
+	)
+	assert summary["horizons"] == 4
+	assert summary["reached"]["L4"] == 2
+	assert summary["horizon_policy"] == HORIZON_POLICY
+	# The cap imposes a refusal floor independent of the fitted statistical threshold.
+	assert summary["reached_rate"]["L4"] == 0.5
+
+
+@pytest.mark.parametrize("version", [None, "count-reset-v0"])
+def test_legacy_horizon_calibration_requires_regeneration(
+	version: str | None, calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	import json
+
+	from harness.replay import make_policy
+
+	calibration, scorer = calibrated
+	legacy = calibration.model_copy(update={"horizon_policy": version})
+	with pytest.raises(ValueError, match="recalibrate in a new directory"):
+		MMDPolicy(legacy, scorer)
+	with pytest.raises(ValueError, match="recalibrate in a new directory"):
+		make_policy("quota", legacy, scorer)
+	save_calibration(tmp_path, legacy, scorer.references)
+	path = tmp_path / "calibration.json"
+	if version is None:
+		payload = json.loads(path.read_text())
+		del payload["horizon_policy"]
+		path.write_text(json.dumps(payload))
+	with pytest.raises(ValueError, match="recalibrate in a new directory"):
+		load_calibration(tmp_path)
