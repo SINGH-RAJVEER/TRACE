@@ -59,6 +59,8 @@ Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `tr
 
 `--budgets 500,2000,8000` selects subsets, skipping 8,000 for GSM8K when it is selected. `start` freezes the resolved numeric plan in `budgets.json`; reporting uses those task-specific values. Existing protocol options remain immutable. Protected campaigns retain one attempt limit and deadline across all policy resets, so full-pool runs can span multiple 10,000-attempt horizons without replenishing their campaign allowance. The resulting reports describe separate task studies, not shared-gateway execution.
 
+`just start --mode tasks` collects each seed's undefended baseline through the same single-account campaign envelope as the defended arms: concurrency 1, one attempt per prompt, the attempt budget, and the 24-hour deadline. Training requires a response for every planned prompt. A baseline that loses prompts to teacher failures or an interruption resumes on its original clock, retrying only prompts without a response, for up to three passes; rerunning with the same `--run-dir` resumes it again. Every retry is recorded in the events and counted as `retried_queries`. A baseline stopped by the deadline, or refused by a policy, stops the study with status `undefended_baseline_incomplete`. A deadline means the envelope cannot carry that budget, and defended campaigns at the same budget would be cut off too, so pass smaller `--budgets`. Protected campaigns still refuse to resume.
+
 Evaluation is not part of this command; see [Evaluate](#evaluate). The sections below describe the individual steps it runs.
 
 ## Build
