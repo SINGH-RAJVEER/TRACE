@@ -207,6 +207,8 @@ class MMDPolicy(_HorizonPolicy):
 		actions: Literal["graduated", "direct"] = "graduated",
 	) -> None:
 		config: HarnessConfig = calibration.config
+		if config.task == "coding" and l4_action == "deceive":
+			raise ValueError("coding deception is not implemented; use L4 refusal")
 		if l4_action == "deceive" and not deception_key:
 			raise ValueError("deception needs a secret key")
 		if not 0 <= deception_rate <= 1:

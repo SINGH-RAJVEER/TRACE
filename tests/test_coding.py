@@ -8,7 +8,13 @@ import pytest
 
 pytest.importorskip("coding", reason="install the optional coding extra")
 
-from coding.dataset import Decontaminator, Ineligible, convert, prepare_corpus  # noqa: E402
+from coding.dataset import (  # noqa: E402
+	Decontaminator,
+	Ineligible,
+	ast_hash,
+	convert,
+	prepare_corpus,
+)
 from coding.extract import extract_code  # noqa: E402
 from coding.sandbox import Limits, SandboxUnavailable, run_python  # noqa: E402
 from coding.scoring import CodingItem, Score, pass_at_1  # noqa: E402
@@ -57,6 +63,19 @@ def test_loop_timeout(sandbox: None) -> None:
 		limits=Limits(wall_seconds=0.25, cpu_seconds=2),
 	)
 	assert score.status == "timeout" and not score.correct
+	cpu = pass_at_1(
+		item=CodingItem("assert f() == 1"),
+		response="def f():\n\twhile True: pass",
+		limits=Limits(wall_seconds=4, cpu_seconds=1),
+	)
+	assert cpu.status == "timeout" and not cpu.correct
+	# CPU exhaustion can terminate the payload before the wall clock expires.
+	cpu = pass_at_1(
+		CodingItem("assert f() == 1"),
+		"def f():\n\twhile True: pass",
+		limits=Limits(wall_seconds=4, cpu_seconds=1),
+	)
+	assert cpu.status == "timeout" and not cpu.correct
 
 
 @pytest.mark.parametrize(
@@ -111,6 +130,10 @@ def row(identifier: int = 1) -> dict[str, Any]:
 
 
 def test_conversion_and_decontamination() -> None:
+	assert ast_hash("def f(a, b): return a + b") == ast_hash("def g(x, y): return x + y")
+	assert ast_hash("def f(a, b): return a + b") != ast_hash("def f(a, b): return a + a")
+	assert ast_hash("def f(a, b): return a + b") == ast_hash("def g(x, y): return x + y")
+	assert ast_hash("def f(a, b): return a + b") != ast_hash("def f(a, b): return a + a")
 	example = convert(row())
 	assert "assert" not in example.user and "return 1" not in example.user
 	assert example.to_task_example().gold_completion.startswith("```python")
@@ -200,6 +223,7 @@ def test_default_coding_build_has_disjoint_gold_blind_pools(task_build: Path) ->
 	from distillation.schemas import PromptRecord
 	from distillation.tasks import LEGITIMATE_ROLES, ROLES, budget_run
 	from distillation.workloads import task_references
+	from harness.serialization import detector_text
 
 	manifest = json.loads((task_build / "manifest.json").read_text())
 	assert manifest["complete"] and manifest["corpus_limit"] is None
@@ -210,6 +234,8 @@ def test_default_coding_build_has_disjoint_gold_blind_pools(task_build: Path) ->
 		load_suite(task_build / "test-suite.json").sources[0].repository == "evalplus/humanevalplus"
 	)
 	assert len(load_suite(task_build / "development-suite.json").items) == 5
+	for item in load_suite(task_build / "test-suite.json").items:
+		assert detector_text("coding", item.messages[0].content) == item.question
 	groups: set[str] = set()
 	for role in ("attacker", *LEGITIMATE_ROLES):
 		path = task_build / ("attacker.jsonl" if role == "attacker" else f"legitimate/{role}.jsonl")
@@ -292,6 +318,9 @@ async def test_coding_runs_through_existing_benchmark_and_report(
 	run = await run_evaluation(config, "teacher", factory=lambda config: Teacher())
 	assert run.suite_sha256 == load_suite(config.suite_path).sha256
 	assert run.samples[0].correct and run.samples[0].status == "ok"
+	assert float(run.coding_runtime["cpu_seconds"]) > 0
+	changed = run.model_copy(update={"coding_runtime": run.coding_runtime | {"wall_seconds": 999}})
+	assert changed.comparison_key() != run.comparison_key()
 	report = build_report(tmp_path, run.comparison_key())
 	assert report["scores"]["teacher"]["coding"]["primary_metric"] == "pass_at_1"
 	assert report["scores"]["teacher"]["coding"]["primary_score"] == 100
@@ -382,3 +411,116 @@ async def test_coding_collection_prepares_response_token_training_data(
 	)
 	assert written == 3 and skipped == 0
 	assert all("def value" in row.completion[0].content for row in read_jsonl(dataset, SFTRecord))
+
+
+@pytest.mark.asyncio
+async def test_coding_agreement_compares_outputs_including_shared_wrong_answers() -> None:
+	from distillation.benchmarks.models import BenchmarkItem, SampleResult
+	from distillation.benchmarks.reporting import paired
+	from distillation.benchmarks.scoring import evaluate_answer
+	from distillation.schemas import Message
+
+	item = BenchmarkItem(
+		id="coding:agreement",
+		benchmark="coding",
+		category="fixture",
+		question="Increment",
+		messages=[Message(role="user", content="Increment")],
+		metric="pass_at_1",
+		answer="def f(x): return x + 1",
+		entry_point="f",
+		test_code="assert f(1) == 2\nassert f(3) == 4",
+	)
+
+	async def sample(code: str) -> SampleResult:
+		score = await evaluate_answer(item, code, "stop")
+		return SampleResult(
+			item_id=item.id,
+			benchmark="coding",
+			category="fixture",
+			response=code,
+			prediction=score.prediction,
+			correct=score.correct,
+			status=score.status,
+			latency_seconds=0,
+			functional_trace=score.functional_trace,
+		)
+
+	left = await sample("def f(x): return x + 3")
+	right = await sample("def f(x): return 3 + x")
+	assert not left.correct and not right.correct
+	comparison = paired([left], [right])
+	assert comparison["functional_agreement"] == 100
+	assert comparison["functional_agreement_n"] == 1
+	assert comparison["functional_agreement_coverage"] == 1
+	different = await sample("def f(x): return x + 5")
+	assert paired([left], [different])["functional_agreement"] == 0
+	invalid = await sample("def f(x): raise ValueError('no output')")
+	assert paired([left], [invalid])["functional_agreement_n"] == 0
+	# A wrong return type can break an oracle expression while still producing valid,
+	# comparable function outputs on every reference-covered input.
+	item = item.model_copy(
+		update={"answer": "def f(x): return []", "test_code": "assert len(f(1)) == 0"}
+	)
+	wrong_type = await sample("def f(x): return 7")
+	also_wrong_type = await sample("def f(x): return 3 + 4")
+	assert not wrong_type.correct and not also_wrong_type.correct
+	assert paired([wrong_type], [also_wrong_type])["functional_agreement"] == 100
+
+
+@pytest.mark.parametrize(
+	"finish,decision", [("stop", "cap_passed"), ("length", "raise_cap"), (None, "inconclusive")]
+)
+def test_development_cap_pilot_reports_and_exits_on_bad_caps(
+	task_build: Path,
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	finish: str | None,
+	decision: str,
+) -> None:
+	from datetime import UTC, datetime
+
+	from distillation.cli import app
+	from distillation.schemas import Message, TeacherGeneration
+	from typer.testing import CliRunner
+
+	class Teacher:
+		closed = False
+
+		async def generate(self, request: Any) -> TeacherGeneration:
+			assert request.max_output_tokens == 512 and not request.enable_thinking
+			return TeacherGeneration(
+				id="pilot-fixture",
+				provider="fixture",
+				model="fixture",
+				generated_at=datetime.now(UTC),
+				message=Message(role="assistant", content="def value(): return 1"),
+				finish_reason=finish,
+				endpoint="fixture",
+			)
+
+		async def close(self) -> None:
+			self.closed = True
+
+	teacher = Teacher()
+	monkeypatch.setattr("distillation.cli.TeacherAPIGateway", lambda **kwargs: teacher)
+	result = CliRunner().invoke(
+		app,
+		[
+			"tasks",
+			"pilot",
+			"--task-dir",
+			str(task_build),
+			"--output-dir",
+			str(tmp_path / "pilot"),
+			"--teacher-url",
+			"http://fixture",
+			"--limit",
+			"3",
+		],
+	)
+	assert result.exit_code == (0 if decision == "cap_passed" else 1), result.output
+	summary = json.loads((tmp_path / "pilot" / "pilot.json").read_text())
+	assert summary["complete"] and summary["n"] == 3
+	assert summary["decision"] == decision
+	assert teacher.closed

@@ -1,5 +1,7 @@
 # Run scripts
 
+Coding is included in both launcher defaults. On Linux, `devenv shell` provides the sandbox tools. `uv run --extra eval --extra coding distill tasks build --task coding` streams and qualifies the complete pinned source and freezes its role pools and external test suite. `uv run --extra coding python -m coding.scoring` remains available for scoring saved responses. See [coding-task.md](coding-task.md).
+
 `scripts/pipeline.py` runs the task study on Linux, macOS, and Windows.
 
 For the new gateway study, `uv run distill gateway benign` builds mixed benign clients and `uv run distill gateway schedule` builds fixed A1/A2/A5 inventories from existing task pools. These commands generate hashed inputs only. See the [multi-domain protocol and examples](multi-domain-study.md#run-the-implemented-input-builders) for profiles, budgets, and pending execution phases.
@@ -12,7 +14,7 @@ For the new gateway study, `uv run distill gateway benign` builds mixed benign c
 
 ```bash
 just distill
-just distill --tasks ag_news,squad,gsm8k --seeds 42,1,20 --budgets full
+just distill --tasks ag_news,squad,gsm8k,coding --seeds 42,1,20 --budgets full
 just distill --teacher-url http://TEACHER_IP:8000
 python3 scripts/pipeline.py distill --help
 ```
@@ -35,11 +37,11 @@ just start --upstream-url http://127.0.0.1:18011/v1
 just start --help
 ```
 
-Defaults match `distill`: AG News, SQuAD, and GSM8K; seeds 42, 1, and 20; `--budgets full`, resolved from each task's manifest. The pinned builds provide 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries. GSM8K supplies the math capability distillation corpus. Its 256-token cap is provisional and the cap-pilot command remains unimplemented. The pilot remains required before freezing that cap for final study evidence. Missing task builds are generated automatically. Explicit numeric budgets remain available, with values above a task's pool skipped. The defaults plan 9 undefended attacker adapters and 9 gold references, then up to 9 protected adapters for each defense, excluding development recipe trials and matched supervision controls. `--arms` selects the defenses, by default all three: `full`, `instantaneous`, and `quota`. Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+Defaults match `distill`: AG News, SQuAD, GSM8K, and coding; seeds 42, 1, and 20; `--budgets full`, resolved from each task's manifest. The pinned builds provide 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries. GSM8K supplies the math capability distillation corpus. Its 256-token cap is provisional; `distill tasks pilot` provides the development-only cap check for GSM8K and coding. The pilot remains required before freezing that cap for final study evidence. Missing task builds are generated automatically. Explicit numeric budgets remain available, with values above a task's pool skipped. Coding uses the complete qualified attacker pool, whose size is recorded by the build. Its 512-token cap is provisional pending a development pilot. The defaults plan 12 undefended attacker adapters and 12 gold references, then up to 12 protected adapters for each defense, excluding development recipe trials and matched supervision controls. `--arms` selects the defenses, by default all three: `full`, `instantaneous`, and `quota`. Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
 
 These are separate task studies, not multi-domain gateway results. `budgets.json` freezes the resolved numeric budgets per task and the final report uses that plan, including skipped oversized budgets. Reports for older `full` protocols can recover budgets from their frozen `tasks.json`. `policy-horizons.json` records the calibrated attempt and time horizons. Full-pool campaigns can cross several 10,000-attempt policy horizons. Policy state resets at those boundaries, while the collector retains one campaign-wide attempt limit and deadline. Interpret the resulting defense scores as campaigns spanning those resets.
 
-The task list is frozen in `protocol.json`. To add GSM8K to a study directory previously frozen with only AG News and SQuAD, select a new `--run-dir`; the launcher rejects changes to an existing protocol.
+Coding supports L4 refusal; `--l4-action deceive` requires an explicit task list without coding. The task list is frozen in `protocol.json`. To add GSM8K to a study directory previously frozen with only AG News and SQuAD, select a new `--run-dir`; the launcher rejects changes to an existing protocol.
 
 The stages run in this order:
 

@@ -31,11 +31,12 @@
 	# pydantic-settings, and uvicorn, plus development tools mypy, packaging,
 	# pytest, pytest-asyncio, and Ruff.
 	# Optional evaluation: uv sync --all-packages --extra eval
+	# Coding sandbox dependencies are installed by the default workspace sync.
 	# Optional training: uv sync --all-packages --extra train
 	# Training includes torch, transformers, datasets, accelerate, peft, TRL,
 	# and bitsandbytes on Linux. Evaluation includes datasets and huggingface-hub.
 	enterShell = ''
-		uv sync --all-packages
+		uv sync
 	'';
 
 	processes.teacher-api.exec = "uv run teacher-api";

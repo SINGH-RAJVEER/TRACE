@@ -9,7 +9,7 @@ export const taskScore = (summary: Summary | undefined, benchmark: string) => be
 export const taskInterval = (summary: Summary | undefined, benchmark: string) => benchmark === "squad" ? summary?.f1_ci95 : summary?.ci95;
 export const taskDelta = (comparison: Paired | undefined, benchmark: string) => benchmark === "squad" ? comparison?.f1_delta_pp : comparison?.delta_pp;
 export const taskDeltaInterval = (comparison: Paired | undefined, benchmark: string) => benchmark === "squad" ? comparison?.f1_ci95 : comparison?.ci95;
-export const metricLabel = (benchmark: string) => benchmark === "squad" ? "token F1" : benchmark === "gsm8k" ? "numeric exact match" : "label accuracy";
+export const metricLabel = (benchmark: string) => benchmark === "squad" ? "token F1" : benchmark === "gsm8k" ? "numeric exact match" : benchmark === "coding" ? "pass@1" : "label accuracy";
 
 export function scoreRows(report: Report, benchmarks: string[]) {
 	return benchmarks.map(benchmark => Object.assign({ benchmark, name: title(benchmark) }, ...slots.map(slot => {

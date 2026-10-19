@@ -382,7 +382,6 @@ version = "0.1.0"
 source = { editable = "packages/distillation" }
 dependencies = [
     { name = "anyio" },
-    { name = "coding-task" },
     { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "pydantic" },
@@ -391,6 +390,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+coding = [
+    { name = "coding-task" },
+]
 eval = [
     { name = "datasets" },
     { name = "huggingface-hub" },
@@ -411,7 +413,7 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'train'", specifier = ">=1.15.0,<2" },
     { name = "anyio", specifier = ">=4.9,<4.12" },
     { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'train'", specifier = ">=0.47.0" },
-    { name = "coding-task", editable = "packages/coding" },
+    { name = "coding-task", marker = "extra == 'coding'", editable = "packages/coding" },
     { name = "datasets", marker = "extra == 'eval'", specifier = ">=4.0.0" },
     { name = "datasets", marker = "extra == 'train'", specifier = ">=4.0.0" },
     { name = "flash-linear-attention", marker = "sys_platform == 'linux' and extra == 'train'", specifier = ">=0.5.2,<0.6" },
@@ -426,7 +428,7 @@ requires-dist = [
     { name = "trl", marker = "extra == 'train'", specifier = ">=1.15.0,<2" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
-provides-extras = ["eval", "train"]
+provides-extras = ["coding", "eval", "train"]
 
 [[package]]
 name = "distillation-lab"
@@ -440,6 +442,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+coding = [
+    { name = "distillation-core", extra = ["coding"] },
+]
 embed = [
     { name = "extraction-harness", extra = ["embed"] },
 ]
@@ -462,6 +467,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "distillation-core", editable = "packages/distillation" },
+    { name = "distillation-core", extras = ["coding"], marker = "extra == 'coding'", editable = "packages/distillation" },
     { name = "distillation-core", extras = ["eval"], marker = "extra == 'eval'", editable = "packages/distillation" },
     { name = "distillation-core", extras = ["train"], marker = "extra == 'train'", editable = "packages/distillation" },
     { name = "extraction-harness", editable = "packages/harness" },
@@ -469,7 +475,7 @@ requires-dist = [
     { name = "harness-api", editable = "apps/harness-api" },
     { name = "teacher-api", editable = "apps/teacher-api" },
 ]
-provides-extras = ["train", "eval", "embed"]
+provides-extras = ["coding", "train", "eval", "embed"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -163,6 +163,8 @@ class SampleResult(StrictModel):
 	finish_reason: str | None = None
 	request_id: str | None = None
 	served_model: str | None = None
+	# Coding-only ordered call/output hashes, measured in an independent sandbox replay.
+	functional_trace: dict[str, str | int | bool] | None = None
 
 
 class EvaluationRun(StrictModel):
@@ -184,6 +186,7 @@ class EvaluationRun(StrictModel):
 	demo: bool = False
 	samples: list[SampleResult]
 	dimensions: dict[str, str | int] = Field(default_factory=dict)
+	coding_runtime: dict[str, str | int | float] = Field(default_factory=dict)
 
 	def comparison_key(self) -> str:
 		payload = [
@@ -194,6 +197,8 @@ class EvaluationRun(StrictModel):
 			self.demo,
 			self.dimensions,
 		]
+		if self.coding_runtime:
+			payload.append(self.coding_runtime)
 		return hashlib.sha256(canonical_json(payload).encode()).hexdigest()[:16]
 
 

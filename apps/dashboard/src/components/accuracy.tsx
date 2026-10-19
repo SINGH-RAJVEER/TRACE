@@ -87,7 +87,7 @@ function Agreement({ report, benchmarks }: { report: Report; benchmarks: string[
 	const shown = (["student_before", "student_after"] as const).filter(slot => rows.some(row => row[slot] != null));
 	if (!rows.length || !shown.length) return <Plot name="How often the student agrees with the teacher" note="Needs a victim and student run from the same phase." />;
 	return <Plot name="How often the student agrees with the teacher" legend={runLegend(shown)}
-		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. The denominator contains pairs with parseable predictions; inspect coverage in the report. Coding functional agreement is not measured.">
+		note="Share of questions where the student gave the same final answer as the teacher. Rising agreement means the student is imitating the teacher, which includes copying its mistakes. The denominator contains pairs with parseable predictions; inspect coverage in the report. Coding agreement compares output traces on matching inputs; inspect valid-pair coverage in the report.">
 		<BarChart data={rows} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barGap={2} barCategoryGap="28%">
 			<CartesianGrid vertical={false} />
 			<XAxis dataKey="name" tick={tick} tickLine={false} />

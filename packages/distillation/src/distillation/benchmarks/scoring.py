@@ -4,7 +4,7 @@ import asyncio
 import re
 import string
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
@@ -17,6 +17,7 @@ class AnswerScore:
 	correct: bool
 	status: Literal["ok", "invalid", "truncated", "error", "timeout"]
 	f1: float | None = None
+	functional_trace: dict[str, str | int | bool] | None = None
 
 
 async def evaluate_answer(item: BenchmarkItem, text: str, finish_reason: str | None) -> AnswerScore:
@@ -36,9 +37,29 @@ async def evaluate_answer(item: BenchmarkItem, text: str, finish_reason: str | N
 	if item.metric == "pass_at_1":
 		from coding.extract import extract_code
 		from coding.scoring import CodingItem, pass_at_1
+		from coding.tracing import execution_trace
 
 		result = await asyncio.to_thread(pass_at_1, CodingItem(item.test_code), text)
-		return AnswerScore(extract_code(text), result.correct, result.status)
+		trace = None
+		if result.status == "ok":
+			observed = await asyncio.to_thread(
+				execution_trace, text, item.test_code, item.entry_point
+			)
+			reference = await asyncio.to_thread(
+				execution_trace, item.answer, item.test_code, item.entry_point
+			)
+			trace = asdict(observed)
+			trace["valid"] = (
+				observed.valid
+				and reference.valid
+				and (
+					observed.inputs_sha256 == reference.inputs_sha256
+					and observed.calls == reference.calls
+				)
+			)
+		return AnswerScore(
+			extract_code(text), result.correct, result.status, functional_trace=trace
+		)
 	prediction, correct = score_answer(item, text)
 	status: Literal["ok", "invalid"] = "ok" if prediction is not None else "invalid"
 	return AnswerScore(

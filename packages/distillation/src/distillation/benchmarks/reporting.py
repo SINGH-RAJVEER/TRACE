@@ -135,10 +135,39 @@ def paired(before: list[SampleResult], after: list[SampleResult]) -> dict[str, A
 		"agreement_coverage": len(pairs) / len(left),
 	}
 	if any(s.benchmark == "coding" for s in before):
-		result["functional_agreement"] = None
-		result["functional_agreement_status"] = (
-			"not_measured; assertion outcomes do not provide output traces"
+		traces = [
+			(a, b)
+			for key, sample in left.items()
+			if sample.benchmark == "coding" and sample.status == right[key].status == "ok"
+			for a in [sample.functional_trace]
+			for b in [right[key].functional_trace]
+			if a is not None and b is not None
+		]
+		valid = [
+			(a, b)
+			for a, b in traces
+			if a.get("valid") is True
+			and b.get("valid") is True
+			and a.get("inputs_sha256") == b.get("inputs_sha256")
+			and a.get("calls") == b.get("calls")
+		]
+		numerator = sum(a.get("outputs_sha256") == b.get("outputs_sha256") for a, b in valid)
+		agreement = 100 * numerator / len(valid) if valid else None
+		result.update(
+			functional_agreement=agreement,
+			functional_agreement_numerator=numerator,
+			functional_agreement_n=len(valid),
+			functional_agreement_coverage=len(valid) / sum(s.benchmark == "coding" for s in before),
+			functional_agreement_status="measured" if valid else "no_valid_trace_pairs",
 		)
+		if all(s.benchmark == "coding" for s in before):
+			result.update(
+				answer_agreement=agreement,
+				agreement_numerator=numerator,
+				agreement_n=len(valid),
+				agreement_coverage=len(valid) / len(left),
+				agreement_kind="functional",
+			)
 		result["pass_fail_agreement"] = (
 			100 * sum(left[k].correct == right[k].correct for k in left) / len(left)
 		)

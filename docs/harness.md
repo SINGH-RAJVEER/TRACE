@@ -1,5 +1,7 @@
 # Extraction harness
 
+The [coding task](coding-task.md) has its own detector serialization, calibration pools, and sandboxed legitimate-utility scoring. Its fixed service instruction is removed before embedding; the specification remains, while the signature wrapper is excluded. Coding uses L4 refusal. Coding deception is rejected explicitly, and another task's calibration must not be reused. Existing non-coding serialization is unchanged.
+
 `packages/harness` implements the paper's detector and access policy as a library: query embeddings, the window MMD score, benign-only calibration, accumulated account evidence, and the graduated actions of Table I. Policies take the account, request text, and time as arguments and never read the clock. `apps/harness-api` serves the same decision code over HTTP in front of the teacher API, and a campaign simulator can call it directly.
 
 ## Install
@@ -115,7 +117,7 @@ uv run --extra embed harness calibrate \
 | Score calibration | Each account's complete, non-overlapping windows form the null score distribution |
 | Policy calibration | Each account horizon's highest statistic sets the level thresholds and the baseline cutoffs |
 
-`--task` selects the detector serialization, `detector-v1`, recorded in the artifact with per-role truncation counts. Each request's `text` is the full user turn; calibration, replay, and the API strip the same fixed task instructions before embedding. A turn that does not follow its task's template is embedded whole. The default `text` embeds whole turns for services without a template. The API refuses to start when `HARNESS_TASK` differs from the calibration's task, and task artifacts without the current serialization must be recalibrated.
+`--task` selects the detector serialization, `detector-v2`, recorded in the artifact with per-role truncation counts. Each request's `text` is the full user turn; calibration, replay, and the API strip the same fixed task instructions before embedding. A turn that does not follow its task's template is embedded whole. The default `text` embeds whole turns for services without a template. The API refuses to start when `HARNESS_TASK` differs from the calibration's task, and task artifacts without the current serialization must be recalibrated.
 
 The output directory holds `calibration.json` and `references.npy`. The JSON records the configuration, encoder identity and truncation count, bandwidth, sorted calibration scores, thresholds and achieved rates per accumulator, baseline cutoffs, counts, and SHA-256 hashes of each input and of the reference array. Loading verifies the reference hash. An existing calibration is never overwritten.
 

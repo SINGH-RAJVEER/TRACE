@@ -1,6 +1,6 @@
-# Optional coding task
+# Coding task
 
-Coding is an optional extension to the study: implement a Python function from a specification and score one response against hidden tests with pass@1. Its inclusion must be frozen before final testing. No teacher–student transfer gate, detectability replay, calibration, training result or coding score is established by the dataset research below.
+Coding is included by default in `just start`, `just distill`, and the gateway input generators: implement a Python function from a specification and score one response against hidden tests with pass@1. Its inclusion must be frozen before final testing. No teacher–student transfer gate, detectability replay, calibration, training result or coding score is established by the dataset research below.
 
 ## Corpus policy
 
@@ -50,13 +50,19 @@ Before role assignment, compare every eligible pool item against every frozen ev
 
 One completion is scored once. `ok` carries a passed/failed result; `invalid`, `truncated` and `timeout` count as wrong in the pass@1 denominator. Infrastructure `error` is reported separately with its count and explicit retry policy. Never retry an item merely because its code timed out or failed tests. Record the total requested items, evaluated denominator, successes and each status count.
 
-Functional agreement requires both responses to execute validly and produce matching observable outputs on the same frozen test inputs. Report matching pairs, valid-pair denominator and coverage against all requested pairs. Passing the same tests is weaker pass/fail agreement and must have its own label. Arbitrary assertion suites alone do not provide output traces; functional agreement remains pending until trace collection preserves the relevant test and comparison semantics.
-
-## Remaining study gates
+Functional agreement requires both responses to execute validly and produce matching observable outputs on the same frozen test inputs. Report matching pairs, valid-pair denominator and coverage against all requested pairs. Passing the same tests is weaker pass/fail agreement and must have its own label. The evaluator also replays assertions in an independent sandbox, records ordered typed input/output hashes, and reports agreement only for valid pairs with matching input hashes and call counts. It reports numerator, denominator, and coverage. Shared wrong outputs can agree. Trace equality is exact, including floats, and is distinct from the correctness oracle's tolerances. Unsupported values or execution failures yield no valid trace.
 
 ## Implemented package and commands
 
-Phase 0 research and Phase 1 software live in the `coding` JJ workspace at `../capstone-coding`, based on committed `main`. Its `.venv` and `data/tasks/coding` artifacts are separate from the main checkout. No main-checkout ledger or in-progress change was copied. Install with `uv sync --extra coding`; ordinary `uv sync` leaves the optional package out. `uv sync --all-packages` explicitly installs every workspace member, including coding.
+The coding package is optional for a plain install: use `uv sync --extra coding`. Default `uv sync` and default tests do not require it. The scenario bootstrap explicitly installs all workspace members for the selected study workflow. Both launchers default to `ag_news,squad,gsm8k,coding` and use each task's complete attacker allocation for `--budgets full`. Missing coding builds are created through `distill tasks build --task coding`. The builder streams every pinned OpenCodeInstruct row, validates the external references, qualifies candidate references, decontaminates, and exports the existing study files. It keeps preparation memory bounded with SQLite and streams prompt and legitimate-reference exports. The development suite alone has a selectable size limit, default 1,000; deterministic hash selection does not cap the role pool or attacker budget.
+
+```bash
+uv run --extra eval --extra coding distill tasks build --task coding
+just distill
+just start
+# Explicitly select only the coding task:
+just start --tasks coding --run-dir artifacts/start-coding
+```
 
 Enter `devenv shell` for Linux bubblewrap and util-linux `prlimit`. Score a saved response with a separate assertion file:
 
@@ -65,7 +71,7 @@ uv run --extra coding python -m coding.scoring --tests tests.py --response respo
 uv run --extra coding pytest tests/test_coding.py
 ```
 
-The default boundary uses user, PID, mount and network namespaces, clears inherited environment variables and capabilities, disables nested user namespaces and denies process creation and sockets using seccomp. Runtime directories are read-only and home directories are absent. `/tmp` is writable and capped at 16 MiB. Defaults are 2 CPU seconds, a 3-second wall clock, 256 MiB address space, 32 file descriptors, 1 MiB per output/file and disabled core dumps. CPU time and address space are bounded; this is not CPU affinity or a cgroup RSS guarantee. The runtime supports x86-64 and AArch64 syscall tables; runtime checks so far cover this x86-64 host. Missing sandbox facilities raise `SandboxUnavailable` without retry or fallback. Only the scorer's explicit `--unsafe-local-exec` flag bypasses namespaces and seccomp; do not use it on generated code. Resource limits still apply in that mode.
+The default boundary uses user, PID, mount and network namespaces, clears inherited environment variables and capabilities, disables nested user namespaces and denies process creation and sockets using seccomp. Runtime directories are read-only and home directories are absent. `/tmp` is writable and capped at 16 MiB. Defaults are a 15-second CPU soft limit with a 16-second hard limit, a 20-second wall clock, 256 MiB address space, 32 file descriptors, 1 MiB per output/file and disabled core dumps. CPU time and address space are bounded; this is not CPU affinity or a cgroup RSS guarantee. The runtime supports x86-64 and AArch64 syscall tables; runtime checks so far cover this x86-64 host. Missing sandbox facilities raise `SandboxUnavailable` without retry or fallback. Only the scorer's explicit `--unsafe-local-exec` flag bypasses namespaces and seccomp; do not use it on generated code. Resource limits still apply in that mode.
 
 The runner accepts tests with at least one top-level assertion, so an uncalled test function is rejected. It extracts the first Python fence or parses the entire unfenced response. A normal exit before the completion marker fails. Tests run in the same interpreter as the candidate, so a deliberately adversarial candidate can inspect or tamper with judge code. Tests are hidden from the model request, not inaccessible to the running program. Kernel isolation protects the host; it does not make this a tamper-proof correctness judge. A separate, trusted input/output oracle is still required before adversarial code submissions become study inputs.
 
@@ -79,10 +85,44 @@ There is no row-limit option or implicit sample. Preparation streams all input r
 
 `eligible.jsonl` contains solutions and tests and must stay private to preparation. `exclusions.jsonl` records source IDs, reasons and matched evaluation IDs. `manifest.json` records source revision, input and evaluation hashes, algorithm parameters, observed counts, an eligible-output hash and whether the scan completed. Revision identity is an operator declaration for the supplied export, not remotely attested. The output directory must be new. Interrupted outputs retain `complete=false` and are not resumable; do not mistake them for a completed corpus. Keep the raw pinned export so exclusions remain auditable. No multi-gigabyte corpus has been downloaded or qualified by this implementation task.
 
-Integration with task role allocation, collection, training, the benchmark runner, functional-agreement traces, the harness, dashboard and manuscript remains Phase 2 onward. Existing AG News and SQuAD suite models and serialization were left unchanged. The staging converter exposes a lazy `TaskExample` conversion but does not export gold-blind attacker files yet.
+The default builder allocates all qualified examples by source-group hash into development, attacker, fitting, score-calibration, policy-calibration, and benign-test roles. It writes `attacker.jsonl`, `gold-answers.jsonl`, `legitimate/*.jsonl`, private `legitimate-references.json`, and frozen development/test suites. Attacker prompts contain the specification and signature, never the reference code or tests. The full-corpus qualification directory remains private preparation input. Build status remains incomplete after interruption; choose a fresh directory instead of silently accepting partial pools.
+
+The standard collection, gold-blind usability review, response-token SFT preparation, training configuration, development recipe selection, protected collection, controls, and reporting paths now accept coding. The benchmark runner and benign utility call the same sandboxed scorer. Candidate timeouts and failed assertions score zero; missing isolation or NumPy infrastructure stops evaluation before inference. The dashboard labels coding as pass@1. Code agreement uses independently replayed input/output traces and reports valid-pair coverage; source equality and pass/fail equality are not substitutes.
+
+The external test suite preserves the pinned `evalplus/humanevalplus` assertion source, including its numerical comparisons, and explicitly invokes `check(entry_point)`. Reference solutions must pass before a suite is frozen. This is the pinned dataset's assertion protocol, not a claim to reproduce every EvalPlus library runner behavior. Development and legitimate scoring use the qualified source's own assertions. Existing non-coding frozen suite hashes remain unchanged.
+
+The harness strips the fixed coding service instruction before embedding and embeds the specification without the service instruction or signature wrapper. Calibration, source-account generation, held-out replay, and utility use coding's own pools. Default L4 behavior is refusal. Coding deception is not implemented and is rejected explicitly by both the study launcher and HTTP settings.
 
 ## Remaining study gates
 
+Run the development-only pilot against the actual teacher before freezing the cap:
+
+```bash
+uv run distill tasks pilot --task-dir data/tasks/coding --output-dir artifacts/coding-cap-pilot --teacher-url http://TEACHER_IP:8000 --limit 200
+```
+
+The command reports finish-reason counts, the number of returned responses, the fraction ending for length, and the served model. It exits nonzero when more than 2% end for length or when provider errors, unknown finishes, or model changes make the result inconclusive. It writes only separate pilot artifacts, never collection or training inputs. No teacher pilot has been measured during integration.
+
 The 512-token output cap is provisional. A development-only pilot must report the number of completed responses and the fraction ending for length; raise the cap and rerun if that fraction exceeds 2%. Freeze the cap before final testing. The sequence-length report must separately show prompt and supervised-response tokens.
 
-Sandbox validation, a teacher-versus-base development benchmark, the B=2,000 seed-42 recipe sweep where supported, the transfer gate and detectability replay are required before adding coding to the declared experiment matrix. Report unavailable GPU/provider results as pending. This document does not authorize or claim a final study freeze.
+Sandbox validation, a teacher-versus-base development benchmark, the B=2,000 seed-42 recipe sweep where supported, the transfer gate and detectability replay remain required experimental evidence before making final coding effectiveness claims. Default inclusion does not establish those measurements. Report unavailable GPU/provider results as pending. This document does not authorize or claim a final study freeze.
+
+## Validation boundary
+
+Tests exercise fixture qualification and disjoint exports, full attacker budgets, collection through response-token training preparation, benchmark/report assembly, and authenticated HTTP enforcement. All 164 pinned external rows were inspected in the real sandbox. With the declared reference-qualified protocol, 163 references pass and one malformed upstream wrapper is excluded explicitly. No full OpenCodeInstruct qualification, teacher collection, GPU training, or final effectiveness experiment ran during integration. The manuscript declares coding as an optional extension and leaves its outcomes pending.
+
+Coding detector serialization is recorded as `detector-v2`. Use fresh calibrations when moving from an older serialization version; existing non-coding extraction rules themselves are unchanged.
+
+Final integration checks: the complete Python suite passed with 156 tests and four skipped training-stack tests. Repository Ruff and mypy checks passed, along with four dashboard data tests and TypeScript checking. The default launchers and gateway generators include all four domains. These checks do not establish a measured qualified-pool size, cap-pilot outcome, or trained coding capability.
+
+## Frozen external subset and execution identity
+
+The pinned Hugging Face export has a malformed `HumanEval/32` wrapper, `_poly(*candidate(*inp), inp)`, which tries to expand a scalar return value. The builder declares that one exclusion before model inference and writes its source-row hash and reason to `evaluation-exclusions.json` and the manifest. Every other reference must pass; unexpected reference failures still abort the build. The resulting test set is the 163-item reference-qualified assertion subset of the 164-row export, not the full official EvalPlus benchmark. Report this name and denominator with results. The intended polynomial oracle is documented in [EvalPlus](https://github.com/evalplus/evalplus/blob/26d6d00bb1fd0fa37f39c99d5290da67891d1c5e/evalplus/eval/__init__.py); this implementation excludes the malformed export row rather than silently rewriting its oracle or gold reference.
+
+Reference-only validation found that tasks 15 and 139 exceed the earlier 2-second CPU limit. The declared 15-second CPU soft limit and 20-second wall clock pass all 163 retained references on this host. The benchmark artifact records execution limits, runtime version, Python and architecture, and includes that identity in comparison keys and cached-run reuse. This qualification used no model outputs and does not tune the set to student performance. The native report is `artifacts/coding-external-reference-check.json`; the full pool has not been qualified.
+
+A separate native probe of the first ten OpenCodeInstruct rows converted eight function contracts. Four references passed and four failed their assertions; two rows were unsupported or malformed. This ordered ten-row prefix is not a representative quality estimate and was not used to choose a task subset or corpus cap. The full scan applies the same declared rules to every row and must report its own counts. Probe metadata is in `artifacts/coding-real-source-probe.json`.
+
+Final local validation on 2026-10-19 passed 157 tests with the coding extra, with four opt-in native-training tests skipped. A plain install excluded the coding package and passed 134 tests with seven optional tests or modules skipped. Ruff, both mypy targets, the four Bun data tests and the dashboard build passed. The shared browser rendered a clearly labeled coding fixture with pass@1; existing AG News and SQuAD frozen suites verified at their stored hashes. No corpus-wide qualification or GPU effectiveness result is implied by these checks.
+
+Functional trace version `reference-covered-calls-v2` keeps comparable shared wrong outputs when a test comparison rejects their type. Exceptions raised by the candidate function, unsupported output values, timeouts or missing reference-covered calls still invalidate the trace. This changes agreement coverage only; assertion correctness remains a separate score, and execution identity prevents mixing trace versions in one comparison.

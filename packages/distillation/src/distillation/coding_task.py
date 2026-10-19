@@ -1,5 +1,7 @@
 """Qualify the complete coding source and export disjoint, gold-blind study pools."""
 
+import ast
+import copy
 import hashlib
 import heapq
 import json
@@ -9,7 +11,8 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-from coding.dataset import CodingExample, file_hash, prepare_corpus, specification_hash
+from coding.dataset import PROMPT, CodingExample, file_hash, prepare_corpus, specification_hash
+from coding.sandbox import runtime_protocol
 from coding.scoring import CodingItem, ensure_runtime, pass_at_1
 
 from distillation.benchmarks.models import BenchmarkItem, save_json
@@ -30,6 +33,13 @@ EVALUATION = DatasetSpec(
 	"default",
 )
 
+# This immutable export has a malformed polynomial oracle: it expands a scalar
+# candidate return value as positional arguments. Declare the exclusion before any
+# model evaluation; never silently convert it into a quality failure or repair gold.
+EVALUATION_EXCLUSIONS = {
+	"HumanEval/32": "pinned export calls _poly(*candidate(*inp), inp), expanding a float",
+}
+
 
 def _stream(spec: DatasetSpec, split: str) -> Iterable[dict[str, Any]]:
 	from datasets import load_dataset
@@ -46,6 +56,17 @@ def _evaluation(row: dict[str, Any]) -> BenchmarkItem:
 		raise ValueError("invalid coding evaluation entry point")
 	prompt = row["prompt"]
 	solution = prompt + row["canonical_solution"]
+	functions = [
+		node
+		for node in ast.parse(solution).body
+		if isinstance(node, ast.FunctionDef) and node.name == entry
+	]
+	if len(functions) != 1:
+		raise ValueError("external coding reference must declare one matching entry point")
+	declaration = copy.deepcopy(functions[0])
+	declaration.body = [ast.Pass()]
+	declaration.decorator_list = []
+	signature = ast.unparse(declaration).splitlines()[0]
 	tests = row["test"] + f"\nassert check({entry}) is None\n"
 	item = BenchmarkItem(
 		id=f"coding:test:{row['task_id']}",
@@ -55,10 +76,7 @@ def _evaluation(row: dict[str, Any]) -> BenchmarkItem:
 		messages=[
 			Message(
 				role="user",
-				content=(
-					"Complete the Python function below. Return the complete implementation, "
-					"including needed imports, in a Python code block.\n\n" + prompt
-				),
+				content=PROMPT.format(specification=prompt, signature=signature),
 			)
 		],
 		metric="pass_at_1",
@@ -107,13 +125,25 @@ def build_coding_task(
 	save_json(output_dir / "build-status.json", {"complete": False})
 	if log:
 		log("coding: validating pinned external evaluation references in the sandbox")
-	tests = [
-		_evaluation(row)
-		for row in (rows["test"] if rows is not None else _stream(EVALUATION, "test"))
-	]
+	tests = []
+	external_count = 0
+	exclusions = []
+	for row in rows["test"] if rows is not None else _stream(EVALUATION, "test"):
+		external_count += 1
+		if row["task_id"] in EVALUATION_EXCLUSIONS:
+			exclusions.append(
+				{
+					"id": row["task_id"],
+					"reason": EVALUATION_EXCLUSIONS[row["task_id"]],
+					"source_sha256": hashlib.sha256(canonical_json(row).encode()).hexdigest(),
+				}
+			)
+			continue
+		tests.append(_evaluation(row))
 	if not tests or len({item.id for item in tests}) != len(tests):
 		raise ValueError("coding evaluation must have distinct nonempty items")
-	test_suite = _suite("coding", "test", tests, len(tests), seed, dataset=EVALUATION)
+	test_suite = _suite("coding", "test", tests, external_count, seed, dataset=EVALUATION)
+	save_json(output_dir / "evaluation-exclusions.json", {"exclusions": exclusions})
 	save_json(output_dir / "test-suite.json", test_suite)
 	if log:
 		log("coding: qualifying the complete OpenCodeInstruct stream; no row cap")
@@ -228,7 +258,9 @@ def build_coding_task(
 		"max_output_tokens": spec.max_output_tokens,
 		"output_cap_status": "provisional",
 		"metric": "pass_at_1",
-		"scorer": "sandboxed-pinned-assertions-v1",
+		"scorer": "sandboxed-pinned-assertions-qualified-v2",
+		"evaluation_exclusions": exclusions,
+		"coding_runtime": runtime_protocol(),
 		"dataset": {
 			"repository": spec.dataset.repository,
 			"revision": spec.dataset.revision,
@@ -238,7 +270,7 @@ def build_coding_task(
 			"test_split": "test",
 		},
 		"evaluation_dataset": test_suite.sources[0].model_dump(),
-		"available": {"train": qualification["counts"]["raw"], "test": len(tests)},
+		"available": {"train": qualification["counts"]["raw"], "test": external_count},
 		"roles": {role: counts[role] for role in ROLES},
 		"groups": {role: counts[role] for role in ROLES},
 		"filtered": {

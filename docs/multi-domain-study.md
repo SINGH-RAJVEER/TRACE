@@ -2,7 +2,7 @@
 
 The study asks which distillation campaigns an account-level harness restricts, whether those restrictions prevent useful capability transfer within a declared resource envelope, and what legitimate users lose. One gateway serves AG News, SQuAD, and GSM8K. Each campaign trains one student on all the responses it actually receives. The same strategy runs without a defense, with instantaneous MMD, with the full policy, and with a simple query quota. The attempted-request and time limits define a fair comparison; budget curves are secondary.
 
-Status: the mixed benign generator and fixed A1/A2/A5 schedule builders are implemented. They produce hashed input artifacts. Gateway calibration, multi-account execution, enforcement-aware replay, combined student training orchestration, and campaign reporting remain future phases. The current `just start` still runs separate task studies, defaulting to AG News, SQuAD, and GSM8K with full attacker pools. GSM8K supplies the math capability distillation corpus; its output-cap pilot remains pending. No gateway defense effectiveness has been measured.
+Status: the mixed benign generator and fixed A1/A2/A5 schedule builders are implemented. They produce hashed input artifacts. Gateway calibration, multi-account execution, enforcement-aware replay, combined student training orchestration, and campaign reporting remain future phases. The current `just start` still runs separate task studies, defaulting to AG News, SQuAD, GSM8K, and coding with full attacker pools. GSM8K supplies the math capability distillation corpus; its output-cap pilot remains pending. No gateway defense effectiveness has been measured.
 
 ## What the paper can claim
 
@@ -25,7 +25,7 @@ Multiplexing, domain blocks, and account splitting are collection strategies und
 
 ## Endpoint, data, and identity
 
-Use one unchanged teacher and one gateway endpoint. Preserve each request's domain-specific prompt, output cap, non-thinking setting, and pinned teacher identity. Use the existing task pools and frozen test suites. Coding is a later domain and requires its own executable evaluation protocol before inclusion.
+Use one unchanged teacher and one gateway endpoint. Preserve each request's domain-specific prompt, output cap, non-thinking setting, and pinned teacher identity. Use the existing task pools and frozen test suites. Coding is included in repository defaults through the [coding task builder](coding-task.md), with executable pinned assertions and a provisional 512-token cap. The manuscript remains unchanged.
 
 Use one LoRA adapter on `Qwen3.5-2B-Base` per campaign, defense, and training seed. Start each adapter from the same base checkpoint. Combine received supervision across domains and shuffle training examples with a declared seed so collection order is not silently reused as a training curriculum. Preserve prompt/source identity and record domain counts and supervised tokens before and after preparation. A common 2,048-token limit needs measured per-domain exclusions; concatenating datasets does not establish that every example fits.
 
@@ -60,7 +60,7 @@ Report achieved benign error rates and uncertainty at the available independent 
 
 A1, A2, and A5 select identical prompt inventories when the seed, pools, and allocation match. Only order and account assignment change. A1 and A2 use exactly one account. A5 defaults to six accounts total across the campaign, requires at least one account per domain, and never multiplies the budget.
 
-For three current domains, a balanced 6,000-query inventory contains 2,000 queries per domain. Seeds 42, 1, and 20 select overlapping inventories from the 3,389-prompt GSM8K pool; source IDs must be retained for clustered uncertainty across seeds. An 8,000-query inventory contains 2,667 AG News, 2,667 GSM8K, and 2,666 SQuAD queries under the builder's alphabetical remainder rule. The proposed 8,000 = 4 × 2,000 allocation applies only after a fourth domain exists. Pool capacity is validated before artifacts are written.
+The gateway generators default to four domains: AG News, coding, GSM8K, and SQuAD. A balanced 6,000-query inventory allocates 1,500 per domain; 8,000 allocates 2,000 each. Explicit three-domain lists retain their earlier allocations. Seeds 42, 1, and 20 select overlapping inventories from GSM8K's 3,389-prompt pool; retain source IDs for clustered uncertainty across seeds. Coding capacity is measured after full qualification. Pool capacity is validated before artifacts are written.
 
 `B_A` counts all HTTP submissions, including proof redemption and failures. A schedule with `B_A` ordinary-query candidates is an inventory, not a promise to submit all of them. Proof submissions can displace later candidates. `T_A` includes waiting and solving. The generated timestamps specify intended arrivals; actual submission, admission, and response-completion times belong in the future campaign event ledger. A campaign crossing a policy horizon must retain its spent campaign budget while applying the documented account reset.
 
@@ -111,7 +111,7 @@ The proposed 48 primary adapters assume A1/A2/A5/A7 × four arms × three seeds.
 
 ## Run the implemented input builders
 
-Enter `devenv shell` first. Existing task builds are inputs and are not modified. Build any missing domain with `uv run distill tasks build --task DOMAIN`. The local checkout currently has AG News and SQuAD builds; GSM8K must be built before using the gateway generators' three-domain defaults. The separate-task launchers include GSM8K by default and build missing tasks automatically; its output-cap pilot remains pending.
+Enter `devenv shell` first. Existing task builds are inputs and are not modified. Build any missing domain with `uv run distill tasks build --task DOMAIN`. The local checkout currently has AG News and SQuAD builds; GSM8K must be built before using the gateway generators' three-domain defaults. The separate-task launchers include GSM8K and coding by default and build missing tasks automatically; its output-cap pilot remains pending.
 
 ```sh
 uv run distill gateway benign --domains ag_news,squad --role fitting --accounts 20 --generalist-share 0.3 --requests-per-account 100 --output artifacts/gateway/fitting-g30
@@ -132,6 +132,6 @@ The broader `tests/test_start.py` check had three failures in existing startup/c
 
 ## Follow-up correctness checks
 
-Task reports use frozen resolved numeric budgets for `full` mode and explicit subsets. The benign CLI loads category references and discloses GSM8K's single-category limitation. A5 defaults to six total accounts in both the Python API and CLI. The separate-task launchers default to AG News, SQuAD, and GSM8K, retaining GSM8K as the math capability distillation corpus with a provisional cap. A bounded HTTP collector test crosses two policy resets and verifies that the original campaign attempt allowance remains unchanged. Full-pool task runs can span several policy horizons; those results are not gateway outcomes. Shared-student recipe selection and the GSM8K cap pilot remain pending.
+Task reports use frozen resolved numeric budgets for `full` mode and explicit subsets. The benign CLI loads category references and discloses GSM8K's single-category limitation. A5 defaults to six total accounts in both the Python API and CLI. The separate-task launchers default to AG News, SQuAD, GSM8K, and coding. Math and coding output caps remain provisional. A bounded HTTP collector test crosses two policy resets and verifies that the original campaign attempt allowance remains unchanged. Full-pool task runs can span several policy horizons; those results are not gateway outcomes. Shared-student recipe selection and the GSM8K cap pilot remain pending.
 
 Validation after these fixes: `uv run pytest tests/test_gateway.py tests/test_tasks.py tests/test_start.py tests/test_pipeline.py -q` completed with 63 passed and the same three pre-existing startup/campaign failures listed above. Scoped Ruff checks passed. Scoped mypy passed for the six changed implementation modules and two changed test files with `MYPYPATH=packages/harness/src`. These checks used `devenv shell`. They validate input generation, report assembly, launcher budget planning, and bounded collector accounting; no teacher collection, model training, cap pilot, or final effectiveness study ran.

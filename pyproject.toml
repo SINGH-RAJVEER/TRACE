@@ -11,6 +11,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+coding = [
+	"distillation-core[coding]"
+]
 train = [
 	"distillation-core[train]"
 ]

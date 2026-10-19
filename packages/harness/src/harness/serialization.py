@@ -10,7 +10,7 @@ from typing import Literal
 Task = Literal["ag_news", "squad", "gsm8k", "coding", "text"]
 
 # Recorded in every calibration artifact. Change it whenever the extraction rules change.
-SERIALIZATION = "detector-v1"
+SERIALIZATION = "detector-v2"
 
 ARTICLE = "\n\nArticle: "
 PASSAGE = "\n\nPassage: "
@@ -43,7 +43,10 @@ def detector_text(task: Task, turn: str) -> str:
 			return f"{question}\n\n{passage}"
 		return turn
 	if task == "coding":
-		return turn.removeprefix(CODING_PREFIX)
+		if turn.startswith(CODING_PREFIX):
+			content, marker, signature = turn[len(CODING_PREFIX) :].rpartition("\n\nSignature: ")
+			return content if marker and signature else turn
+		return turn
 	if task == "gsm8k":
 		return turn.removesuffix(GSM8K_SUFFIX)
 	return turn

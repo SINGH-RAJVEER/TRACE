@@ -1,6 +1,6 @@
 # Task extraction study
 
-This repository studies how an access policy affects extraction from narrow language-model APIs. The default study covers AG News classification, SQuAD 1.1 extractive question answering, and GSM8K generative math. Each task has separate query pools, ledgers, adapters, and frozen evaluation suites.
+This repository studies how an access policy affects extraction from narrow language-model APIs. The default study covers AG News classification, SQuAD 1.1 extractive question answering, GSM8K generative math, and Python coding. Each task has separate query pools, ledgers, adapters, and frozen evaluation suites.
 
 Students learn from teacher-generated text through sequence-level supervised fine-tuning with completion-only loss. The study measures task capability, extraction under query budgets, and legitimate utility. It makes no general-chat or token-distribution distillation claim.
 
@@ -11,6 +11,7 @@ apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
 apps/harness-api/         Protected teacher API: the harness in front of the teacher gateway
 apps/dashboard/           Read-only task and traffic results with shadcn controls
 packages/distillation/    Task splits, collection, usability review, training, evaluation
+packages/coding/          Python sandbox, full-corpus qualification, and executable scoring
 packages/harness/         Extraction detector, calibration, and graduated access policy
 configs/                  Task training recipe, per-task evaluation, traffic settings
 docs/                     Protocol, operations, metrics, and manuscript revisions
@@ -19,7 +20,9 @@ scripts/                  Cross-platform task-study and teacher-host launcher
 
 ## Run the study
 
-Requirements are Python 3.14, uv, and optionally just. NixOS users can enter `devenv shell` for Python, uv, Bun, native libraries, and build tools. Copy the environment file and set `TEACHER_TERMS_REVIEW_ID` before collection. Set `TEACHER_API_TOKEN` when serving beyond loopback.
+[Coding](docs/coding-task.md) is included by default. The task builder streams the complete pinned OpenCodeInstruct source, qualifies references in a Linux sandbox, removes detected duplicates and evaluation overlap, and exports disjoint study pools. There is no 8,000-example cap. The qualified pool size is measured during the build, not assumed from the upstream row count.
+
+Requirements are Python 3.14, uv, and optionally just. Default coding qualification and evaluation require Linux, bubblewrap, and util-linux `prlimit`, provided by `devenv shell`. NixOS users can enter `devenv shell` for Python, uv, Bun, native libraries, and build tools. Copy the environment file and set `TEACHER_TERMS_REVIEW_ID` before collection. Set `TEACHER_API_TOKEN` when serving beyond loopback.
 
 ```bash
 cp .env.example .env
@@ -34,7 +37,7 @@ For collection and training without automatic benchmarks or the protected cycle:
 just distill
 ```
 
-The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. Both `just start` and `just distill` default to AG News, SQuAD, and GSM8K, three seeds, and `--budgets full`. Each task uses its whole attacker pool: 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries with the pinned builds. This plans 18 undefended attacker/gold training runs. Explicit numeric budgets select smaller subsets. GSM8K supplies the math capability distillation corpus. Its 256-token cap remains provisional until the cap pilot is implemented and passes. Use `--tasks ag_news,squad` to select only classification and QA. Collection and training resume from existing artifacts. With `distill`, evaluation runs separately. `start` produces separate-task results, not shared-gateway results, and freezes resolved budgets and policy horizons for reporting.
+The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. Both `just start` and `just distill` default to AG News, SQuAD, GSM8K, and coding, three seeds, and `--budgets full`. Each task uses its whole attacker pool: 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries with the pinned builds. Coding uses the complete qualified attacker allocation from its manifest. The four-task matrix plans 24 undefended attacker/gold training runs. Explicit numeric budgets select smaller subsets. GSM8K supplies the math capability distillation corpus. Its 256-token cap and coding's 512-token cap remain provisional until their implemented cap pilots pass against the actual teacher. Use `--tasks ag_news,squad` to select only classification and QA. Collection and training resume from existing artifacts. With `distill`, evaluation runs separately. `start` produces separate-task results, not shared-gateway results, and freezes resolved budgets and policy horizons for reporting.
 
 For a smaller declared matrix or a remote teacher:
 
@@ -45,7 +48,7 @@ just teacher-host
 just distill --teacher-url http://TEACHER_IP:8000
 ```
 
-Without just, use `python3 scripts/pipeline.py distill`. Windows uses `py -3 scripts\pipeline.py distill --teacher-url http://TEACHER_IP:8000` or an existing local server through `--upstream-url`.
+Without just, use `python3 scripts/pipeline.py distill`. On Windows, select non-coding tasks with `--tasks ag_news,squad,gsm8k`. The bootstrap uses `py -3 scripts\pipeline.py distill --teacher-url http://TEACHER_IP:8000` or an existing local server through `--upstream-url`.
 
 See [docs/paper-tasks.md](docs/paper-tasks.md) for splits, budgets, output limits, development selection, and the implementation checklist; [docs/run-scripts.md](docs/run-scripts.md) for launchers and environment settings; and [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for collection and training internals.
 
