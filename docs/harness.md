@@ -18,13 +18,15 @@ The `harness` command comes with the package. Replays with precomputed embedding
 | Step | Module | Paper |
 | --- | --- | --- |
 | Embed the detector serialization of the current user turn (`serialization.py`: the AG News article, the SQuAD question then passage, or the GSM8K problem, without fixed service instructions) with `BAAI/bge-small-en-v1.5` at revision `5c38ec7`, CLS pooling, unit length, 512-token limit with truncations counted | `encoder.py` | III-B |
-| Score a window of `w_a` queries: unbiased squared MMD, kernel = mean of four RBF kernels at 0.5, 1, 2, and 4 times the median-distance bandwidth, averaged over 20 fixed reference windows, negative estimates kept | `mmd.py` | Eq. 1 |
+| Score a window of `w_a` queries: unbiased squared MMD, kernel = mean of four RBF kernels at 0.5, 1, 2, and 4 times the median-distance bandwidth, averaged over 20 fixed reference windows, negative estimates kept; exact repeated prompts in a window are scored once | `mmd.py` | Eq. 1 |
 | Turn a score into its upper-tail rank among benign calibration scores | `calibration.py` | Eq. 3 |
 | Accumulate evidence per account and map it to a level | `accumulators.py`, `calibration.py` | Eq. 4, III-C |
 | Apply the level's action, hold the level for the horizon, and reset after 24 hours or 10,000 attempts | `policy.py` | Table I, III-C, III-D |
 | Issue and verify SHA-256 proof-of-work challenges | `pow.py` | Table I, L3 |
 
 A completed window includes the current request and is scored before the victim runs, so it can change that request's action. Windows do not overlap. Until a window completes, the previous level applies, and a new account starts at L0.
+
+A window still completes after `w_a` requests, but each distinct prompt counts once in its score. Identical prompts embed to identical points, and their pairwise kernel value of one would otherwise inflate the within-window term. Without this, a benign client that resends each prompt three times scored about 20 times above any broad window, so a small share of such clients filled the upper tail of the null and a uniform extractor received p-values near 1. Calibration, policy, and replay apply the same rule, set by `distinct_prompts` in the configuration (default on). A window of one distinct prompt keeps a within-window value of one. The witness ranks distinct prompts only. Calibrations saved before the setting existed load with it off, matching how their null was built. The aggregate monitor scores every request. Concentrated topics, such as specialist clients, are not collapsed and still raise scores. `calibration.json` counts null windows by client type (`score_calibration_windows_<type>`) so the benign mix behind the null can be disclosed.
 
 ## Accumulators
 
@@ -41,9 +43,9 @@ All rules read the same window p-values, so they can be compared with everything
 
 `paper` is the default because it is the rule the draft specifies. The choice of primary rule is still open.
 
-Thresholds are calibrated by default: for each benign policy-calibration horizon with at least one complete window, take the highest statistic reached, then choose each level's threshold so that at most its target share of those horizons strictly exceed it. Horizons without a complete window, such as 20-request short accounts, have no statistic and cannot escalate. Counting them would loosen the rate among scorable accounts: with 109 of 155 AG News horizons unscored, a 10% target over all horizons would allow about one in three scorable accounts to reach L1. They are therefore excluded from the fit, so the rate over all horizons is at most each target times the scored fraction. The artifact counts scored and unscored horizons, and `units` and `upper95` refer to scored horizons. The quota and rate baselines act on every account and are still fitted on all horizons. Targets are 10%, 5%, 2%, and 1% for L1 to L4. Thresholds are nested, and the artifact records the achieved rate next to each target. When the sample is too small for a target, the threshold becomes the largest observed value and the achieved rate is lower than the target; it is never extrapolated. `--thresholds ville` uses `log(1/alpha)` instead, for `e_process` only.
+Thresholds are calibrated by default: for each benign policy-calibration horizon with at least one complete window, take the highest statistic reached, then choose each level's threshold so that at most its target share of those horizons strictly exceed it. Horizons without a complete window, such as 20-request short accounts, have no statistic and cannot escalate. Counting them would loosen the rate among scorable accounts: with 109 of 155 AG News horizons unscored, a 10% target over all horizons would allow about one in three scorable accounts to reach L1. They are therefore excluded from the fit, so the rate over all horizons is at most each target times the scored fraction. The artifact counts scored and unscored horizons, and `units` and `upper95` refer to scored horizons. The quota and rate baselines are fitted on the same scored horizons, so every defense is held to its target among the same accounts; short accounts never reach a fitted quota in any case. Targets are 10%, 5%, 2%, and 1% for L1 to L4. Thresholds are nested, and the artifact records the achieved rate next to each target. When the sample is too small for a target, the threshold becomes the largest observed value and the achieved rate is lower than the target; it is never extrapolated. `--thresholds ville` uses `log(1/alpha)` instead, for `e_process` only.
 
-Defended task and shared-gateway studies enforce `calibration-resolution-v1` before benign replay, teacher collection, or defended training, including when loading cached calibrations. With the default targets, selected MMD arms require at least 99 non-overlapping score windows, 100 scored policy-calibration horizons, and four strictly increasing finite level thresholds for each selected accumulator. Quota-only studies require at least 100 quota-calibration horizons and do not require MMD adequacy. Overlapping null windows do not count toward the 99-window minimum. These checks establish minimum resolution, not independent observations or population false-positive control; repeated prompts, shared sources, and overlapping windows still require appropriate uncertainty analysis. The library can still produce small diagnostic calibrations, but study execution rejects them. `TASK/calibration-adequacy.json` records the decision, counts, empirical p-value floor, and failure reasons. The shared gateway uses `gateway/calibration-adequacy.json`. `--allow-undetected` does not bypass this gate. Frozen study protocols record the rule, so existing run directories require a new run directory.
+Defended task and shared-gateway studies enforce `calibration-resolution-v1` before benign replay, teacher collection, or defended training, including when loading cached calibrations. With the default targets, selected MMD arms require at least 99 non-overlapping score windows, 100 scored policy-calibration horizons, and four strictly increasing finite level thresholds for each selected accumulator. Quota-only studies require at least 100 scored horizons, fitted on the same scored denominator, and do not require MMD adequacy. Overlapping null windows do not count toward the 99-window minimum. These checks establish minimum resolution, not independent observations or population false-positive control; repeated prompts, shared sources, and overlapping windows still require appropriate uncertainty analysis. The library can still produce small diagnostic calibrations, but study execution rejects them. `TASK/calibration-adequacy.json` records the decision, counts, empirical p-value floor, and failure reasons. The shared gateway uses `gateway/calibration-adequacy.json`. `--allow-undetected` does not bypass this gate. Frozen study protocols record the rule, so existing run directories require a new run directory.
 
 ## Actions
 
@@ -59,7 +61,7 @@ Each `Decision` carries the action, the earliest release time, any challenge, an
 
 **Witness attribution.** When a completed window raises an account's level, the decision lists the five requests in that window with the largest MMD witness, `f(x) = mean k(x, window) - mean k(x, references)`, as request digests with their values. These are the queries that most separate the window from benign traffic. They explain an escalation to the experimenter and never feed back into decisions.
 
-`AllowPolicy`, `QuotaPolicy`, and `RatePolicy` share the same interface. They are the undefended service and the two block-only baselines. Calibration fits the quota, in requests per horizon, and the per-minute rate cutoff to the L4 target on the same benign horizons. The rate cutoff needs request times.
+`AllowPolicy`, `QuotaPolicy`, and `RatePolicy` share the same interface. They are the undefended service and the two block-only baselines. Calibration fits the quota, in requests per horizon, and the per-minute rate cutoff to the L4 target on the same scored benign horizons as the accumulators. The rate cutoff needs request times.
 
 ## Noise at L4
 
@@ -116,7 +118,7 @@ uv run --extra embed harness calibrate \
 | Input | Role |
 | --- | --- |
 | Fitting | Draws the 20 reference windows and sets the kernel bandwidth from up to 2,000 other fitting queries |
-| Score calibration | Each account's complete, non-overlapping windows form the null score distribution |
+| Score calibration | Windows starting every `null_stride` requests within each account horizon form the null score distribution. The default stride is a quarter window, so the null resolves p-values about four times smaller from the same accounts; `null_stride` equal to the window size restores non-overlapping windows. The artifact records `score_calibration_windows`, `score_calibration_independent_windows`, and `score_calibration_stride`. Overlapping windows are dependent and do not count toward adequacy |
 | Policy calibration | Each account horizon's highest statistic sets the level thresholds and the baseline cutoffs |
 
 `--task` selects the detector serialization, `detector-v2`, recorded in the artifact with per-role truncation counts. Each request's `text` is the full user turn; calibration, replay, and the API strip the same fixed task instructions before embedding. A turn that does not follow its task's template is embedded whole. The default `text` embeds whole turns for services without a template. The API refuses to start when `HARNESS_TASK` differs from the calibration's task, and task artifacts without the current serialization must be recalibrated.
@@ -133,13 +135,17 @@ uv run --extra embed harness replay \
 	--policy mmd --accumulator paper
 ```
 
-Replay sends requests through one policy in file order, writing one decision per line. Requests without a time are spaced one second apart. On benign traffic, the summary's `reached_rate` per level is the account-level false-escalation rate FPR_ℓ. Replay counts challenges but does not solve them, so it measures detection, not what a solving client receives. `--policy` also accepts `allow`, `quota`, and `rate`.
+Replay sends requests through one policy in file order, writing one decision per line. Requests without a time are spaced one second apart. On benign traffic, the summary's `reached_rate` per level is the account-level false-escalation rate FPR_ℓ over all horizons, and `reached_rate_scored` is the same rate over horizons with at least one window's worth of attempts, the denominator every defense was fitted on. The study report's `benign_false_escalation` and the `tasks diagnose` sweep carry both rates, and the detectability check compares every defense on scored horizons. Gateway profile summaries report both. Replay counts challenges but does not solve them, so it measures detection, not what a solving client receives. `--policy` also accepts `allow`, `quota`, and `rate`.
 
 ## Accounts
 
-`harness pool-accounts` turns a prompt pool, such as `data/tasks/ag_news/legitimate/fitting.jsonl`, into 500-request accounts after a seeded shuffle of its rows (`--seed`, default 42). Task pools keep source order, which groups SQuAD questions by article, so slicing them unshuffled would make every account and window single-topic. It exists for plumbing checks only. Those accounts are neither realistic clients nor independent samples. Real calibration needs legitimate accounts built with per-client topic concentration and timing, and enough of them: the paper asks for about 3,000 independent benign calibration accounts and 3,000 test accounts per endpoint for the 1% target.
+The separate-task study uses `distillation.workloads.clients()` to generate specialist, repetitive, batch, bursty, and short accounts from each legitimate role pool. It varies account lengths, concentration, repetition, and arrival times, preserves source identities, and retains accounts too short to complete a scoring window. `Study.pooled()` writes the requests and workload summaries under `TASK/workloads/`. The shared gateway uses `mixed_clients()` for specialist and generalist accounts across domains.
 
-## Smoke run
+These clients and their arrival times are synthetic. Calibration fits `rate_per_minute` when every request has a timestamp, as these generators provide. The cutoff applies to the generated workload; it does not establish a real-user rate distribution. Account and scored-window counts depend on the pool and generator settings. Report them with source-document counts and dependence assumptions. Repeated prompts and documents shared between accounts do not provide independent evidence for rare-event claims.
+
+`harness pool-accounts` remains a plumbing command. It shuffles rows with a seed, then slices them into accounts of 500 requests by default. It does not supply the study's client profiles or synthetic timestamps.
+
+## Historical smoke run
 
 On 2026-10-16, the AG News pools from `distill tasks build` were cut into 500-request accounts and calibrated on CPU in about 10 minutes: 6,000 fitting requests, 107 score-calibration windows, and 22 policy-calibration accounts. Replaying 22 held-out benign accounts and one 2,000-request extraction account ran every policy end to end.
 
@@ -151,7 +157,7 @@ The numbers describe the construction, not the detector:
 
 ## Serving cost
 
-`harness bench` times the harness's own work unit by unit, for the paper's Table X. It replays up to `--limit` requests from a request file as one account and reports p50 and p95 milliseconds per unit, along with the peak Python heap allocated while admitting them. A window-scoring cost is never reported as a per-request latency, so admission is split into requests that complete a window and requests that do not.
+`harness bench` times the harness's own work unit by unit, for the paper's Table X. It replays up to `--limit` requests from a request file as one account and reports p50, p90, p95, and p99 milliseconds per unit, along with the peak Python heap allocated while admitting them. A window-scoring cost is never reported as a per-request latency, so admission is split into requests that complete a window and requests that do not.
 
 ```bash
 uv run --extra embed harness bench \
@@ -162,7 +168,7 @@ uv run --extra embed harness bench \
 
 `--no-encode` skips the encoder and uses random unit embeddings, which leave the other units' costs unchanged. Victim inference is excluded; measure it with the traffic benchmark at the same load and hardware.
 
-Measured on 2026-10-16 on an AMD Ryzen AI 9 HX 370 with no GPU, using the AG News smoke calibration (100-request windows, 20 reference windows, 107 calibration windows) and 1,000 benign requests:
+Measured on 2026-10-16, before p90 and p99 were added, on an AMD Ryzen AI 9 HX 370 with no GPU, using the AG News smoke calibration (100-request windows, 20 reference windows, 107 calibration windows) and 1,000 benign requests:
 
 | Unit | p50 (ms) | p95 (ms) |
 | --- | --- | --- |
@@ -214,5 +220,5 @@ Other settings, all in `apps/harness-api/src/harness_api/settings.py`: `HARNESS_
 
 ## Not yet implemented
 
-- Realistic legitimate-account construction, which calibration needs before its thresholds mean anything
+- Validation of the synthetic legitimate-client profiles and arrival times against observed user traffic
 - Adaptive campaign schedules beyond the fixed-order extractor in `distillation/campaign.py`, including the adaptive tests against deception

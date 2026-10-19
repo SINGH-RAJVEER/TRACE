@@ -126,7 +126,8 @@ def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
 	assert calibration.adequacy(accumulators=("instantaneous",))["passed"] is False
 	calibration.counts.pop("policy_calibration_scored_horizons")
 	assert calibration.adequacy(accumulators=("paper",))["passed"] is False
-	# Quota has its own denominator and does not need an MMD null.
+	# Quota shares the scored denominator but does not need an MMD null.
+	calibration.counts["policy_calibration_scored_horizons"] = 200
 	calibration.counts["score_calibration_independent_windows"] = 0
 	assert calibration.adequacy(accumulators=(), baselines=("quota",))["passed"] is True
 	calibration.baselines["quota"].units = 12
@@ -143,8 +144,6 @@ def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
 
 	calibration = calibrated[0].model_copy(deep=True)
 	calibration.counts["score_calibration_independent_windows"] = 5
-	calibration.counts["policy_calibration_scored_horizons"] = 2
-	calibration.thresholds["paper"].units = 2
 	calibration.thresholds["paper"].thresholds = [1.0] * 4
 	path = tmp_path / "cached"
 	save_calibration(path, calibration, calibrated[1].references)
@@ -156,11 +155,11 @@ def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
 		study.require_calibration("gsm8k", path)
 	report = json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())
 	assert report["passed"] is False
-	assert report["scored_policy_horizons"] == 2
+	assert report["nonoverlapping_score_windows"] == 5
 	assert (
 		json.loads((study.root / "status.json").read_text())["status"] == "calibration_gate_failed"
 	)
-	# The same cached artifact has enough quota horizons; MMD failure is arm-specific.
+	# The same cached artifact has enough quota horizons; a thin MMD null is arm-specific.
 	study.arms = ("quota",)
 	study.require_calibration("gsm8k", path)
 	assert json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())["passed"]
@@ -209,12 +208,20 @@ def test_calibration_meets_benign_targets_and_round_trips(
 	assert loaded.thresholds == calibration.thresholds
 	window = FakeEncoder().encode([f"probe {i}" for i in range(10)])
 	assert loaded_scorer.score(window) == pytest.approx(scorer.score(window))
+	assert loaded.config.distinct_prompts is True
+	# Artifacts from before distinct-prompt scoring keep scoring every request.
+	import json
+
+	raw = json.loads((tmp_path / "calibration.json").read_text())
+	del raw["config"]["distinct_prompts"]
+	(tmp_path / "calibration.json").write_text(json.dumps(raw))
+	assert load_calibration(tmp_path)[0].config.distinct_prompts is False
 	np.save(tmp_path / "references.npy", scorer.references + 1)
 	with pytest.raises(ValueError, match="reference windows differ"):
 		load_calibration(tmp_path)
 
 
-def test_thresholds_fit_scored_horizons_and_baselines_fit_all() -> None:
+def test_thresholds_and_baselines_fit_the_same_scored_horizons() -> None:
 	calibration, _ = calibrate(
 		config=HarnessConfig(window_size=10, reference_windows=3, bandwidth_sample=60),
 		encoder=FakeEncoder(),
@@ -225,7 +232,24 @@ def test_thresholds_fit_scored_horizons_and_baselines_fit_all() -> None:
 	assert calibration.counts["policy_calibration_scored_horizons"] == 60
 	assert calibration.counts["policy_calibration_unscored_horizons"] == 140
 	assert {thresholds.units for thresholds in calibration.thresholds.values()} == {60}
-	assert calibration.baselines["quota"].units == 200
+	assert calibration.baselines["quota"].units == 60
+	assert calibration.adequacy(baselines=("quota",))["reasons"] == [
+		"quota: need 100 baseline policy horizons"
+	]
+
+
+def test_repeated_prompts_are_scored_once_per_window() -> None:
+	rng = np.random.default_rng(1)
+	references = np.stack([rng.normal(size=(6, 3)) for _ in range(2)])
+	scorer = WindowScorer(references, 1.0)
+	distinct_rows = rng.normal(size=(2, 3))
+	window = distinct_rows[[0, 0, 0, 1, 1, 1]]
+	keys = ["a", "a", "a", "b", "b", "b"]
+	expected = np.mean([mmd2_unbiased(distinct_rows, r, 1.0) for r in references])
+	assert scorer.score(window, keys) == pytest.approx(expected)
+	# Without keys the identical points inflate the within-window term.
+	assert scorer.score(window) > scorer.score(window, keys)
+	assert np.isfinite(scorer.score(window[[0] * 6], ["a"] * 6))
 
 
 def test_shifted_traffic_escalates_and_benign_traffic_mostly_does_not(
@@ -246,6 +270,7 @@ def test_shifted_traffic_escalates_and_benign_traffic_mostly_does_not(
 	assert summary["horizons"] == 51
 	assert summary["reached"]["L4"] >= 1
 	assert summary["reached_rate"]["L1"] < 0.5
+	assert summary["reached_rate_scored"]["L1"] < 0.5
 	lines = (tmp_path / "decisions.jsonl").read_text().splitlines()
 	assert '"action": "refuse"' in lines[-1]
 
@@ -318,7 +343,8 @@ def test_serving_cost_benchmark_times_each_unit_separately(
 	assert units["mmd_per_completed_window"]["n"] == 6
 	assert units["admit_per_scoring_trigger_request"]["n"] == 6
 	assert units["admit_per_other_request"]["n"] == 54
-	assert units["noise_per_request"]["p95_ms"] >= units["noise_per_request"]["p50_ms"] >= 0
+	noise = units["noise_per_request"]
+	assert noise["p99_ms"] >= noise["p95_ms"] >= noise["p90_ms"] >= noise["p50_ms"] >= 0
 	assert report["peak_policy_memory_bytes"] > 0
 	plain = serving_costs(calibration=calibration, scorer=scorer, texts=texts)
 	assert plain["units"]["embedding_per_request"] is None

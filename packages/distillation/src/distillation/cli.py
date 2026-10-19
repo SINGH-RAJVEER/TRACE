@@ -359,14 +359,19 @@ def diagnose_tasks_command(
 			path = study.calibrate(task)
 			study.calibration_report(task, path)
 			result = study.detectability(task, path, budget)
+			arm_summaries = {
+				arm: json.loads((study.root / task / "benign-test" / f"{arm}.json").read_text())
+				for arm in result["results"]
+			}
 			sweep[task][f"{share:g}"] = {
 				"mmd_signal": result["mmd_signal"],
 				"arms": {
 					arm: {
 						"extractor": value["extractor"],
-						"benign_reached_rate": json.loads(
-							(study.root / task / "benign-test" / f"{arm}.json").read_text()
-						)["reached_rate"],
+						**{
+							f"benign_{key}": arm_summaries[arm][key]
+							for key in ("reached_rate", "reached_rate_scored")
+						},
 						"benign_rate_at_extractor_peak": value["benign_rate_at_extractor_peak"],
 						"escalates_beyond_benign": value["escalates_beyond_benign"],
 					}

@@ -39,6 +39,11 @@ class HarnessConfig(BaseModel):
 	# Overlapping windows are dependent; counts record the independent windows too. None uses
 	# a quarter window; window_size reproduces non-overlapping null windows.
 	null_stride: int | None = Field(default=None, ge=1)
+	# Score each per-account window over its distinct prompts, collapsing exact repeats, so a
+	# client that resends prompts is not scored as concentrated traffic. Calibrations saved
+	# before this setting existed load with False, matching how their null was built. The
+	# aggregate monitor always scores every request.
+	distinct_prompts: bool = True
 	bandwidth_sample: int = Field(default=2000, ge=2)
 	scales: tuple[float, ...] = SCALES
 	# Nominal benign targets for reaching L1 to L4 at least once in a horizon.
@@ -73,7 +78,7 @@ class BenignRequest(BaseModel):
 class LevelThresholds(BaseModel):
 	thresholds: list[float]
 	achieved: list[float]
-	# Horizons fitted: scored horizons for accumulators, all horizons for block baselines.
+	# Horizons fitted: those with at least one complete window, for every defense.
 	units: int
 	# One-sided 95% Clopper-Pearson upper bounds on each achieved rate over `units`.
 	upper95: list[float] = Field(default_factory=list)
@@ -101,7 +106,7 @@ class Calibration(BaseModel):
 	thresholds: dict[str, LevelThresholds]
 	# Theoretical log(1/target) thresholds; valid only for e_process under its assumptions.
 	ville_thresholds: list[float]
-	# Block-only baselines fitted to the L4 target on the same benign horizons: "quota" in
+	# Block-only baselines fitted to the L4 target on the same scored horizons: "quota" in
 	# requests per horizon and, when every request has a time, "rate_per_minute".
 	baselines: dict[str, LevelThresholds] = Field(default_factory=dict)
 	counts: dict[str, int]
@@ -149,6 +154,8 @@ class Calibration(BaseModel):
 			fitted = self.baselines.get(name)
 			if fitted is None or fitted.units < minimum_policy:
 				reasons.append(f"{name}: need {minimum_policy} baseline policy horizons")
+			elif fitted.units != scored:
+				reasons.append(f"{name}: baseline not fitted on the scored horizons")
 		return {
 			"rule": "calibration-resolution-v1",
 			"passed": not reasons,
@@ -397,7 +404,10 @@ def calibrate(
 				members = [next(indices) for _ in horizon]
 				per_horizon.append(
 					[
-						scorer.score(embedded[[members[i] for i in window]])
+						scorer.score(
+							embedded[[members[i] for i in window]],
+							[horizon[i].text for i in window] if config.distinct_prompts else None,
+						)
 						for window in complete_windows(len(members), size, stride)
 					]
 				)
@@ -416,6 +426,14 @@ def calibrate(
 		for stream in account_streams(score_calibration).values()
 		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts)
 	)
+	# Null windows by client type, so the benign mix behind the null can be disclosed.
+	null_by_type: dict[str, int] = {}
+	for stream in account_streams(score_calibration).values():
+		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts):
+			key = f"score_calibration_windows_{horizon[0].client_type or 'unknown'}"
+			null_by_type[key] = null_by_type.get(key, 0) + len(
+				complete_windows(len(horizon), size, stride)
+			)
 	if not null_scores:
 		raise ValueError("score calibration produced no complete windows")
 	calibration = Calibration(
@@ -457,6 +475,7 @@ def calibrate(
 		"score_calibration_windows": len(null_scores),
 		"score_calibration_independent_windows": independent_null,
 		"score_calibration_stride": stride,
+		**null_by_type,
 		"policy_calibration_requests": len(policy_calibration),
 		"policy_calibration_accounts": len(account_streams(policy_calibration)),
 		"policy_calibration_horizons": len(units),
@@ -464,10 +483,13 @@ def calibrate(
 		"policy_calibration_unscored_horizons": len(units) - len(scored_units),
 		**truncated,
 	}
+	# Baselines are fitted on the same scored horizons as the accumulators, so every defense
+	# is held to its target among the accounts long enough to be scored.
 	policy_horizons = [
 		horizon
 		for stream in account_streams(policy_calibration).values()
 		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts)
+		if len(horizon) >= size
 	]
 	block_target = [config.level_targets[-1]]
 	calibration.baselines["quota"] = nested_thresholds(
@@ -556,7 +578,10 @@ def save_calibration(directory: Path, calibration: Calibration, references: Arra
 
 
 def load_calibration(directory: Path) -> tuple[Calibration, WindowScorer]:
-	calibration = Calibration.model_validate_json((directory / "calibration.json").read_text())
+	raw = json.loads((directory / "calibration.json").read_text())
+	# Older artifacts scored every request in a window; keep that for their frozen null.
+	raw["config"].setdefault("distinct_prompts", False)
+	calibration = Calibration.model_validate(raw)
 	if calibration.config.task != "text" and calibration.serialization != SERIALIZATION:
 		raise ValueError(
 			f"calibration uses detector serialization {calibration.serialization}, "

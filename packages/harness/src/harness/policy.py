@@ -17,7 +17,7 @@ import numpy as np
 from harness.calibration import Calibration, HarnessConfig
 from harness.deception import keyed_unit
 from harness.encoder import Encoder
-from harness.mmd import Array, WindowScorer
+from harness.mmd import Array, WindowScorer, distinct
 from harness.pow import Challenge, ChallengeBook
 from harness.serialization import detector_text
 
@@ -281,7 +281,8 @@ class MMDPolicy(_HorizonPolicy):
 		completed = len(state.buffer) == self.scorer.window_size
 		if completed:
 			window = np.stack(state.buffer)
-			score = self.scorer.score(window)
+			keys = state.buffer_digests if self.calibration.config.distinct_prompts else None
+			score = self.scorer.score(window, keys)
 			state.windows += 1
 			p_value = self.calibration.p_value(score)
 			state.statistic = self.spec.update(state.statistic, p_value)
@@ -289,9 +290,11 @@ class MMDPolicy(_HorizonPolicy):
 			if self.actions == "direct":
 				reached = 4 if reached >= 4 else 0
 			if reached > state.level:
-				values = self.scorer.witness(window)
+				# The witness ranks the queries that were scored, so repeats appear once.
+				kept = distinct(keys) if keys is not None else list(range(len(window)))
+				values = self.scorer.witness(window[kept])
 				top = np.argsort(-values)[: self.witness_size]
-				witness = tuple((state.buffer_digests[i], float(values[i])) for i in top)
+				witness = tuple((state.buffer_digests[kept[i]], float(values[i])) for i in top)
 			state.level = max(state.level, reached)
 			state.buffer.clear()
 			state.buffer_digests.clear()
