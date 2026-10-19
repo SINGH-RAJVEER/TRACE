@@ -114,6 +114,7 @@ class GatewayStudy:
 				requests_per_account=self.requests_per_account,
 				seed=42,
 				references=references,
+				concentrated=self.study.concentrated_share,
 			)
 			self.benign[role] = rows
 			directory = self.root / "benign" / role

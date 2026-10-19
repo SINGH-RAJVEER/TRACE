@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.markup import escape
@@ -306,8 +306,20 @@ def diagnose_tasks_command(
 	tasks: str = "ag_news,squad",
 	run_dir: Path = Path("artifacts/task-diagnostic"),
 	budget: int = 2000,
+	concentrated_shares: Annotated[
+		str,
+		typer.Option(
+			help="Comma-separated specialist and repetitive client shares to sweep; "
+			"0.4 reproduces the v1 equal split."
+		),
+	] = "0,0.1,0.4",
 ) -> None:
-	"""Calibrate task clients, replay held-out accounts, and test one extraction account."""
+	"""Calibrate task clients, replay held-out accounts, and test one extraction account.
+
+	Each benign client mix gets its own calibration, so the sweep shows how much of the
+	detectability result is set by the share of concentrated benign traffic.
+	"""
+	from distillation.benchmarks.models import save_json
 	from distillation.launcher import Launcher, TaskPipeline
 	from distillation.study import Study
 
@@ -321,12 +333,40 @@ def diagnose_tasks_command(
 		1,
 		False,
 	)
-	study = Study(pipeline, run_dir, "", "", 8000, "", 8003, None, "refuse")
-	for task in pipeline.tasks:
-		path = study.calibrate(task)
-		study.calibration_report(task, path)
-		study.benign_holdout(task, path)
-		study.detectability(task, path, budget)
+	sweep: dict[str, Any] = {task: {} for task in pipeline.tasks}
+	for share in dict.fromkeys(float(s) for s in concentrated_shares.split(",") if s.strip()):
+		study = Study(
+			pipeline,
+			run_dir / f"concentrated-{share:g}",
+			"",
+			"",
+			8000,
+			"",
+			8003,
+			None,
+			"refuse",
+			concentrated_share=share,
+		)
+		for task in pipeline.tasks:
+			path = study.calibrate(task)
+			study.calibration_report(task, path)
+			result = study.detectability(task, path, budget)
+			sweep[task][f"{share:g}"] = {
+				"mmd_signal": result["mmd_signal"],
+				"arms": {
+					arm: {
+						"extractor": value["extractor"],
+						"benign_reached_rate": json.loads(
+							(study.root / task / "benign-test" / f"{arm}.json").read_text()
+						)["reached_rate"],
+						"benign_rate_at_extractor_peak": value["benign_rate_at_extractor_peak"],
+						"escalates_beyond_benign": value["escalates_beyond_benign"],
+					}
+					for arm, value in result["results"].items()
+				},
+			}
+	save_json(run_dir / "detectability-sweep.json", sweep)
+	typer.echo(f"wrote {run_dir / 'detectability-sweep.json'}")
 
 
 @app.command("train")

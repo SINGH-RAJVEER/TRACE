@@ -18,7 +18,7 @@ from distillation.campaign import ProtectedTeacher, collect_campaign
 from distillation.cli import app
 from distillation.collection import CollectionOptions, collect
 from distillation.io import read_jsonl
-from distillation.launcher import Launcher, TaskPipeline, run_app
+from distillation.launcher import Launcher, LaunchError, TaskPipeline, run_app
 from distillation.schemas import (
 	Message,
 	PromptRecord,
@@ -187,7 +187,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	monkeypatch.setattr(Study, "calibrate", lambda self, task: Path("calibration"))
 	monkeypatch.setattr(Study, "calibration_report", lambda self, task, path: None)
 	monkeypatch.setattr(Study, "benign_holdout", lambda self, task, path: None)
-	monkeypatch.setattr(Study, "detectability", lambda self, task, path: None)
+	monkeypatch.setattr(Study, "detectability", lambda self, task, path: {"mmd_signal": True})
 	from types import SimpleNamespace
 
 	monkeypatch.setattr(
@@ -488,6 +488,23 @@ async def test_campaign_records_refusals_and_preserves_interrupted_budget(tmp_pa
 			)
 	finally:
 		await gateway.close()
+
+
+def test_detectability_gate_stops_unless_quota_comparison_is_allowed(tmp_path: Path) -> None:
+	pipeline = TaskPipeline(Launcher("test"), "fixture", ["ag_news"], [42], [1], tmp_path, 1, False)
+	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, None, "refuse")
+	signals = {"ag_news": {"mmd_signal": False}, "squad": {"mmd_signal": True}}
+	with pytest.raises(LaunchError, match="ag_news: no MMD defense"):
+		study.require_signal(signals)
+	assert json.loads((study.root / "status.json").read_text())["tasks"] == ["ag_news"]
+	study.allow_undetected = True
+	study.require_signal(signals)
+	gate = json.loads((study.root / "detectability-gate.json").read_text())
+	assert gate == {
+		"undetected_tasks": ["ag_news"],
+		"allow_undetected": True,
+		"reading": "quota comparison",
+	}
 
 
 def test_empty_protected_campaign_skips_training(
