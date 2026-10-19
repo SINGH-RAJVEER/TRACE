@@ -121,6 +121,11 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collect_only: bool, qualifies: bool
 ) -> None:
 	monkeypatch.chdir(tmp_path)
+	# This small fixture verifies HTTP and training sequencing, not calibration adequacy.
+	calibration_checks: list[str] = []
+	monkeypatch.setattr(
+		Study, "require_calibration", lambda self, task, path: calibration_checks.append(task)
+	)
 	config = tmp_path / "train.toml"
 	config.write_text('base_model="fixture"\nbase_revision="' + "a" * 40 + '"\n')
 	for domain, cap in (("ag_news", 16), ("gsm8k", 256)):
@@ -366,6 +371,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 				gateway.run()
 	finally:
 		stop(pipeline.launcher)
+	assert calibration_checks == ([] if collect_only else ["gateway"])
 	if not qualifies:
 		assert json.loads((gateway.root / "status.json").read_text())["status"] == "failed"
 		assert len(training_datasets) == 6

@@ -619,6 +619,7 @@ class GatewayStudy:
 			self.root / "protocol.json",
 			{
 				"version": "shared-gateway-v2",
+				"calibration_gate": None if collect_only else "calibration-resolution-v1",
 				"transfer_analysis": analysis_protocol(self.study.minimum_gain, pipeline.tasks)
 				if not collect_only
 				else None,
@@ -659,6 +660,7 @@ class GatewayStudy:
 		budgets = sorted(pipeline.budgets or [sum(map(len, self.pools.values()))])
 		calibration_path = None if collect_only else self.calibration()
 		if calibration_path:
+			self.study.require_calibration("gateway", calibration_path)
 			calibration, scorer = load_calibration(calibration_path)
 			freeze(
 				self.root / "policy-horizons.json",

@@ -103,6 +103,8 @@ Counts from builds on 2026-10-16 with the default seed 42:
 
 The GSM8K attacker pool holds 3,389 problems, so it supports budgets of 500 and 2,000 but not 8,000 without replacement. Run GSM8K at B_A ∈ {500, 2,000} and declare that reduced matrix before final testing.
 
+GSM8K remains available by default for undefended distillation. Its documented calibration pools do not support defended study execution under `calibration-resolution-v1`. From the 682 score and 669 policy prompts, the default synthetic client allocation yields only five non-overlapping score windows and two scored policy horizons; these are arithmetic checks, not a completed local GSM8K build. Defended studies now stop before teacher collection when a selected defense lacks calibration resolution, including on cached artifacts. The default MMD requirements are 99 non-overlapping score windows, 100 scored policy horizons, and distinct L1 to L4 thresholds. Quota requires 100 calibration horizons. Inspect `TASK/calibration-adequacy.json`, supply more disjoint benign calibration data, and use a new run directory after changing the protocol. Neither overlapping windows nor `--allow-undetected` bypasses the check. See [harness.md](harness.md) for the limits of this minimum-resolution gate.
+
 ## Budgets and seeds
 
 `distill tasks budget` takes the first B_A attacker prompts in an order fixed by `--seed`. Budgets nest for the same seed: the 500-prompt set is a prefix of the 2,000-prompt set, which is a prefix of the 8,000-prompt set. Different seeds give different query pools over the same split, which pairs pools across conditions as Section IV-E requires.

@@ -12,6 +12,7 @@ from harness.calibration import (
 	Calibration,
 	HarnessConfig,
 	LevelThresholds,
+	binomial_upper,
 	calibrate,
 	fit_threshold,
 	load_calibration,
@@ -85,6 +86,84 @@ def test_thresholds_use_strict_exceedance_and_report_achieved_rates() -> None:
 	assert fit_threshold([7, 7, 7, 1], 0.25) == (7, 0.0)
 	assert fit_threshold([3, 2, 1], 0.01) == (3, 0.0)
 	assert peak_per_minute([0, 10, 59.9, 60, 61, 200]) == 4
+	# Zero of 20 benign horizons bounds the rate only near 14%, far above a 1% target.
+	assert binomial_upper(0, 20) == pytest.approx(1 - 0.05 ** (1 / 20), abs=1e-6)
+	assert binomial_upper(5, 5) == 1.0
+	assert 0.01 < binomial_upper(10, 1000) < 0.02
+
+
+def test_calibration_adequacy_rejects_small_pools_and_overlapping_window_inflation(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	calibration = calibrated[0].model_copy(deep=True)
+	calibration.counts.update(
+		score_calibration_independent_windows=5,
+		score_calibration_windows=1000,
+		policy_calibration_scored_horizons=2,
+	)
+	calibration.calibration_scores = [0.0] * 1000
+	calibration.thresholds["paper"].thresholds = [1.0] * 4
+	calibration.thresholds["paper"].units = 2
+	report = calibration.adequacy(accumulators=("paper",))
+	assert report["passed"] is False
+	assert report["minimum_score_windows"] == 99
+	assert report["minimum_policy_horizons"] == 100
+	assert report["nonoverlapping_score_windows"] == 5
+	assert report["empirical_p_value_floor"] == pytest.approx(1 / 1001)
+	assert len(report["reasons"]) == 3
+
+
+def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	calibration = calibrated[0].model_copy(deep=True)
+	calibration.counts["policy_calibration_scored_horizons"] = 100
+	calibration.counts["score_calibration_independent_windows"] = 99
+	calibration.thresholds["paper"].thresholds = [1.0, 2.0, 3.0, 4.0]
+	calibration.thresholds["paper"].units = 100
+	assert calibration.adequacy(accumulators=("paper",))["passed"] is True
+	calibration.thresholds["instantaneous"].thresholds = [1.0] * 4
+	assert calibration.adequacy(accumulators=("instantaneous",))["passed"] is False
+	calibration.counts.pop("policy_calibration_scored_horizons")
+	assert calibration.adequacy(accumulators=("paper",))["passed"] is False
+	# Quota has its own denominator and does not need an MMD null.
+	calibration.counts["score_calibration_independent_windows"] = 0
+	assert calibration.adequacy(accumulators=(), baselines=("quota",))["passed"] is True
+	calibration.baselines["quota"].units = 12
+	assert calibration.adequacy(accumulators=(), baselines=("quota",))["passed"] is False
+
+
+def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	import json
+
+	from distillation.launcher import Launcher, LaunchError, TaskPipeline
+	from distillation.study import Study
+
+	calibration = calibrated[0].model_copy(deep=True)
+	calibration.counts["score_calibration_independent_windows"] = 5
+	calibration.counts["policy_calibration_scored_horizons"] = 2
+	calibration.thresholds["paper"].units = 2
+	calibration.thresholds["paper"].thresholds = [1.0] * 4
+	path = tmp_path / "cached"
+	save_calibration(path, calibration, calibrated[1].references)
+	pipeline = TaskPipeline(Launcher("test"), "fixture", ["gsm8k"], [42], [1], tmp_path, 1, False)
+	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, path, "refuse")
+	study.allow_undetected = True
+	study.arms = ("full",)
+	with pytest.raises(LaunchError, match="gsm8k: inadequate calibration"):
+		study.require_calibration("gsm8k", path)
+	report = json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())
+	assert report["passed"] is False
+	assert report["scored_policy_horizons"] == 2
+	assert (
+		json.loads((study.root / "status.json").read_text())["status"] == "calibration_gate_failed"
+	)
+	# The same cached artifact has enough quota horizons; MMD failure is arm-specific.
+	study.arms = ("quota",)
+	study.require_calibration("gsm8k", path)
+	assert json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())["passed"]
 
 
 def test_pooled_accounts_break_up_source_ordered_groups() -> None:
@@ -112,12 +191,17 @@ def test_calibration_meets_benign_targets_and_round_trips(
 	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
 ) -> None:
 	calibration, scorer = calibrated
-	assert calibration.counts["score_calibration_windows"] == 100
+	assert calibration.counts["score_calibration_independent_windows"] == 100
+	assert calibration.counts["score_calibration_windows"] > 100
 	assert calibration.counts["policy_calibration_horizons"] == 200
 	for thresholds in calibration.thresholds.values():
 		assert thresholds.thresholds == sorted(thresholds.thresholds)
 		for achieved, target in zip(thresholds.achieved, (0.10, 0.05, 0.02, 0.01), strict=True):
 			assert achieved <= target
+		assert all(
+			upper >= achieved
+			for upper, achieved in zip(thresholds.upper95, thresholds.achieved, strict=True)
+		)
 	assert calibration.baselines["quota"].thresholds == [40]
 	assert "rate_per_minute" in calibration.baselines
 	save_calibration(tmp_path, calibration, scorer.references)
@@ -128,6 +212,20 @@ def test_calibration_meets_benign_targets_and_round_trips(
 	np.save(tmp_path / "references.npy", scorer.references + 1)
 	with pytest.raises(ValueError, match="reference windows differ"):
 		load_calibration(tmp_path)
+
+
+def test_thresholds_fit_scored_horizons_and_baselines_fit_all() -> None:
+	calibration, _ = calibrate(
+		config=HarnessConfig(window_size=10, reference_windows=3, bandwidth_sample=60),
+		encoder=FakeEncoder(),
+		fitting=_benign("fit", 4, 30),
+		score_calibration=_benign("score", 20, 50),
+		policy_calibration=_benign("policy", 60, 40) + _benign("short", 140, 5),
+	)
+	assert calibration.counts["policy_calibration_scored_horizons"] == 60
+	assert calibration.counts["policy_calibration_unscored_horizons"] == 140
+	assert {thresholds.units for thresholds in calibration.thresholds.values()} == {60}
+	assert calibration.baselines["quota"].units == 200
 
 
 def test_shifted_traffic_escalates_and_benign_traffic_mostly_does_not(
