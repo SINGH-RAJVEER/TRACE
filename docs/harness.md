@@ -133,7 +133,7 @@ uv run --extra embed harness replay \
 	--policy mmd --accumulator paper
 ```
 
-Replay sends requests through one policy in file order, writing one decision per line. Requests without a time are spaced one second apart. On benign traffic, the summary's `reached_rate` per level is the account-level false-escalation rate FPR_ℓ. Replay counts challenges but does not solve them, so it measures detection, not what a solving client receives. `--policy` also accepts `allow`, `quota`, and `rate`.
+Replay sends requests through one policy in file order, writing one decision per line. Requests without a time are spaced one second apart. On benign traffic, the summary's `reached_rate` per level is the account-level false-escalation rate FPR_ℓ over all horizons, and `reached_rate_scored` is the same rate over horizons with a complete window, the denominator the thresholds were fitted on. Gateway profile summaries report both. Replay counts challenges but does not solve them, so it measures detection, not what a solving client receives. `--policy` also accepts `allow`, `quota`, and `rate`.
 
 ## Accounts
 

@@ -65,7 +65,8 @@ def replay(
 	"""Process requests in file order. Requests without a time are spaced one second apart.
 
 	The summary counts, per account horizon, the highest level reached. On benign traffic its
-	rates are the account-level false-escalation rates FPR_1 to FPR_4.
+	rates are the account-level false-escalation rates FPR_1 to FPR_4 over all horizons;
+	`reached_rate_scored` restricts them to horizons with a complete window.
 	"""
 	runner = make_policy(
 		policy,
@@ -146,6 +147,13 @@ def replay(
 		"reached_rate": {
 			f"L{level}": sum(peak >= level for peak in peaks) / units
 			if units and level in levels
+			else None
+			for level in range(1, 5)
+		},
+		# Over horizons with a complete window, the denominator the thresholds were fitted on.
+		"reached_rate_scored": {
+			f"L{level}": sum(peaks[unit] >= level for unit in scored) / len(scored)
+			if scored and policy == "mmd" and level in levels
 			else None
 			for level in range(1, 5)
 		},
