@@ -1,7 +1,7 @@
 { pkgs, lib, ... }:
 
 {
-    dotenv.disableHint = true;
+	dotenv.disableHint = true;
 	packages = with pkgs; [
 		bash
 		just
@@ -13,7 +13,7 @@
 		# Native compilation for Python extensions and Triton training kernels.
 		stdenv.cc
 		zlib
-	];
+	] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.bubblewrap pkgs.util-linux ];
 
 	env = {
 		PYTHONUNBUFFERED = "1";
@@ -31,11 +31,12 @@
 	# pydantic-settings, and uvicorn, plus development tools mypy, packaging,
 	# pytest, pytest-asyncio, and Ruff.
 	# Optional evaluation: uv sync --all-packages --extra eval
+	# Optional coding sandbox: uv sync --extra coding
 	# Optional training: uv sync --all-packages --extra train
 	# Training includes torch, transformers, datasets, accelerate, peft, TRL,
 	# and bitsandbytes on Linux. Evaluation includes datasets and huggingface-hub.
 	enterShell = ''
-		uv sync --all-packages
+		uv sync
 	'';
 
 	processes.teacher-api.exec = "uv run teacher-api";

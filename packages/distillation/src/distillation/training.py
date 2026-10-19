@@ -345,7 +345,11 @@ def train(config: TrainingConfig) -> Path:
 				"dataset_hashes": dataset_hashes,
 				"preflight": preflight,
 				"resolved_base_revision": getattr(model.config, "_commit_hash", None),
-				"resolved_adapter_modules": [name for name, module in trainer.model.named_modules() if hasattr(module, "lora_A")],
+				"resolved_adapter_modules": [
+					name
+					for name, module in trainer.model.named_modules()
+					if hasattr(module, "lora_A")
+				],
 				"chat_template_sha256": chat_template_sha256,
 				"eos_token": tokenizer.eos_token,
 				"eos_token_id": tokenizer.eos_token_id,
@@ -367,9 +371,7 @@ def train(config: TrainingConfig) -> Path:
 		)
 		return config.output_dir
 
-	resume_from, offloaded_before = _resume_point(
-		config, training_identity(config)["inputs"]
-	)
+	resume_from, offloaded_before = _resume_point(config, training_identity(config)["inputs"])
 	offload = config.activation_offloading is True or (
 		config.activation_offloading == "auto" and offloaded_before
 	)

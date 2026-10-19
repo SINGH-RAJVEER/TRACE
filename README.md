@@ -11,6 +11,7 @@ apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
 apps/harness-api/         Protected teacher API: the harness in front of the teacher gateway
 apps/dashboard/           Read-only task and traffic results with shadcn controls
 packages/distillation/    Task splits, collection, usability review, training, evaluation
+packages/coding/          Optional Python sandbox and full-corpus qualification
 packages/harness/         Extraction detector, calibration, and graduated access policy
 configs/                  Task training recipe, per-task evaluation, traffic settings
 docs/                     Protocol, operations, metrics, and manuscript revisions
@@ -18,6 +19,8 @@ scripts/                  Cross-platform task-study and teacher-host launcher
 ```
 
 ## Run the study
+
+The optional [coding extension](docs/coding-task.md) currently provides corpus qualification and a sandboxed pass@1 scorer. Install with `uv sync --extra coding`. Qualification consumes the entire supplied corpus with no 8,000-example cap; task-study integration and model results remain pending. It is developed in the separate `../capstone-coding` JJ workspace, with its own environment and artifacts.
 
 Requirements are Python 3.14, uv, and optionally just. NixOS users can enter `devenv shell` for Python, uv, Bun, native libraries, and build tools. Copy the environment file and set `TEACHER_TERMS_REVIEW_ID` before collection. Set `TEACHER_API_TOKEN` when serving beyond loopback.
 

@@ -1,5 +1,7 @@
 # Run scripts
 
+For the optional Linux-only coding sandbox and full-corpus qualifier, use `uv run --extra coding python -m coding.scoring` or `uv run --extra coding python -m coding.dataset` inside `devenv shell`. Each command has `--help`. See [coding-task.md](coding-task.md) for inputs, corpus policy and the pending study integration. Coding is not currently a `scripts/pipeline.py` task.
+
 `scripts/pipeline.py` runs the task study on Linux, macOS, and Windows.
 
 | Scenario | Purpose |

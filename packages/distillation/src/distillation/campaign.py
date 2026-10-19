@@ -194,7 +194,7 @@ def event_summary(
 		status: sum(e["status"] == status for e in outcomes.values())
 		for status in ("received", "blocked", "failed", "deadline", "challenge")
 	}
-	level_results = {}
+	level_results: dict[str, dict[str, Any] | None] = {}
 	for level in range(1, 5):
 		if level not in levels:
 			level_results[f"L{level}"] = None
