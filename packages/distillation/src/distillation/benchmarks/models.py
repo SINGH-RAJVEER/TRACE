@@ -88,11 +88,15 @@ class FrozenSuite(StrictModel):
 			raise ValueError("frozen suite hash mismatch")
 		if len({item.id for item in self.items}) != len(self.items):
 			raise ValueError("duplicate benchmark item IDs")
+		# A benchmark may draw from several pinned sources, such as HumanEval+ and MBPP+.
 		counts = {
 			s.benchmark: sum(i.benchmark == s.benchmark for i in self.items) for s in self.sources
 		}
-		if len(counts) != len(self.sources) or any(
-			counts[s.benchmark] != s.selected for s in self.sources
+		selected = {
+			name: sum(s.selected for s in self.sources if s.benchmark == name) for name in counts
+		}
+		if counts != selected or len({(s.benchmark, s.repository) for s in self.sources}) != len(
+			self.sources
 		):
 			raise ValueError("source counts do not match frozen items")
 		if {item.benchmark for item in self.items} != set(counts):

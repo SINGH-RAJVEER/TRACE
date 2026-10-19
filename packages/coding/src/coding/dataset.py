@@ -11,15 +11,16 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import asdict, dataclass
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from coding.extract import extract_code
 from coding.sandbox import Limits
-from coding.scoring import CodingItem, pass_at_1
+from coding.scoring import CodingItem, Score, pass_at_1
 
 if TYPE_CHECKING:
 	from distillation.tasks import TaskExample
@@ -206,6 +207,18 @@ def convert(row: Mapping[str, Any]) -> CodingExample:
 	)
 
 
+@dataclass
+class Pending:
+	"""A row read ahead of its in-order decision, with its reference run if one started."""
+
+	row: Mapping[str, Any]
+	example: CodingExample | None = None
+	fingerprints: list[tuple[str, str]] = field(default_factory=list)
+	match: str | None = None
+	score: Future[Score] | None = None
+	error: Ineligible | None = None
+
+
 def prepare_corpus(
 	rows: Iterable[Mapping[str, Any]],
 	evaluation: Iterable[Mapping[str, str]],
@@ -214,13 +227,18 @@ def prepare_corpus(
 	limits: Limits | None = None,
 	input_sha256: str = "unrecorded",
 	progress: Callable[[dict[str, int]], None] | None = None,
+	workers: int = 1,
 ) -> dict[str, Any]:
 	"""Consume ALL input rows, without sampling or a budget cap, and validate references.
 
 	Disk-backed exact deduplication keeps memory independent of pool size. The first
 	eligible occurrence in immutable source order survives. An interrupted output retains
-	complete=false and is never silently reused as a completed corpus.
+	complete=false and is never silently reused as a completed corpus. With workers > 1,
+	reference runs execute concurrently but rows are decided in source order, so the
+	output matches a sequential build.
 	"""
+	if workers < 1:
+		raise ValueError("workers must be at least 1")
 	decontaminator = Decontaminator(evaluation)
 	output.mkdir(parents=True, exist_ok=False)
 	manifest: dict[str, Any] = {
@@ -246,32 +264,63 @@ def prepare_corpus(
 		(output / "exclusions.jsonl").open("w") as exclusions,
 	):
 		seen.execute("CREATE TABLE seen (kind TEXT, hash TEXT, PRIMARY KEY (kind, hash))")
-		for row in rows:
+
+		def duplicate(fingerprints: list[tuple[str, str]]) -> bool:
+			return any(
+				seen.execute("SELECT 1 FROM seen WHERE kind=? AND hash=?", pair).fetchone()
+				for pair in fingerprints
+			)
+
+		def admit(row: Mapping[str, Any]) -> Pending:
+			"""Converts a row and, with workers, starts its reference run ahead of its commit."""
+			try:
+				example = convert(row)
+			except Ineligible as error:
+				return Pending(row, error=error)
+			fingerprints = [
+				("id", example.key),
+				("specification", specification_hash(example.specification)),
+				("ast", ast_hash(example.solution)),
+			]
+			match = decontaminator.overlap(example)
+			score = None
+			if executor and not match and not duplicate(fingerprints):
+				score = executor.submit(
+					pass_at_1, CodingItem(example.tests), example.solution, limits=limits
+				)
+			return Pending(row, example, fingerprints, match, score)
+
+		def commit(pending: Pending) -> None:
+			"""Decides one row in source order, so the first eligible occurrence survives."""
 			counts["raw"] += 1
 			reason = ""
 			detail = ""
-			match = None
+			match = pending.match
 			try:
-				example = convert(row)
-				fingerprints = [
-					("id", example.key),
-					("specification", specification_hash(example.specification)),
-					("ast", ast_hash(example.solution)),
-				]
-				if match := decontaminator.overlap(example):
+				if pending.error:
+					raise pending.error
+				assert pending.example is not None
+				if match:
 					reason = "test_overlap"
-				elif any(
-					seen.execute("SELECT 1 FROM seen WHERE kind=? AND hash=?", pair).fetchone()
-					for pair in fingerprints
-				):
+				elif duplicate(pending.fingerprints):
 					reason = "duplicate"
+					if pending.score:
+						pending.score.cancel()
 				else:
-					score = pass_at_1(CodingItem(example.tests), example.solution, limits=limits)
+					score = (
+						pending.score.result()
+						if pending.score
+						else pass_at_1(
+							CodingItem(pending.example.tests),
+							pending.example.solution,
+							limits=limits,
+						)
+					)
 					if not score.correct:
 						reason = "reference_" + (score.status if score.status != "ok" else "failed")
 					else:
-						seen.executemany("INSERT INTO seen VALUES (?, ?)", fingerprints)
-						eligible.write(json.dumps(asdict(example), sort_keys=True) + "\n")
+						seen.executemany("INSERT INTO seen VALUES (?, ?)", pending.fingerprints)
+						eligible.write(json.dumps(asdict(pending.example), sort_keys=True) + "\n")
 						counts["eligible"] += 1
 			except Ineligible as error:
 				reason = "malformed_or_unsupported"
@@ -281,7 +330,7 @@ def prepare_corpus(
 				exclusions.write(
 					json.dumps(
 						{
-							"id": row.get("id"),
+							"id": pending.row.get("id"),
 							"reason": reason,
 							"detail": detail,
 							"matched_test": match,
@@ -295,6 +344,21 @@ def prepare_corpus(
 				manifest_path.write_text(json.dumps(manifest, indent="\t") + "\n")
 				if progress:
 					progress(dict(counts))
+
+		# Each reference run is its own sandboxed process, so threads overlap their startup.
+		# A window of runs ahead of the commit point keeps every worker busy.
+		executor = ThreadPoolExecutor(workers) if workers > 1 else None
+		window: deque[Pending] = deque()
+		try:
+			for row in rows:
+				window.append(admit(row))
+				if len(window) > (4 * workers if executor else 0):
+					commit(window.popleft())
+			while window:
+				commit(window.popleft())
+		finally:
+			if executor:
+				executor.shutdown(cancel_futures=True)
 	manifest.update(complete=True, counts=dict(counts))
 	manifest["eligible_sha256"] = file_hash(output / "eligible.jsonl")
 	manifest_path.write_text(json.dumps(manifest, indent=4) + "\n")
