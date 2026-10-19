@@ -210,6 +210,18 @@ A 428 body carries the challenge's `nonce`, `prefix`, `difficulty`, and `expires
 
 Other settings, all in `apps/harness-api/src/harness_api/settings.py`: `HARNESS_POLICY` (`mmd`, `allow`, `quota`, or `rate`), `HARNESS_ACCUMULATOR`, `HARNESS_THRESHOLDS`, `HARNESS_L4_ACTION`, `HARNESS_DECEPTION_RATE`, `HARNESS_DECEPTION_KEY`, `HARNESS_DECEPTION_KEY_FILE`, `HARNESS_TASK`, `HARNESS_POW_DIFFICULTY`, `HARNESS_MIN_INTERVAL_SECONDS`, and `HARNESS_PORT`.
 
+## Proof-solving resources and latency
+
+`ProtectedTeacher` solves SHA-256 challenges in persistent spawned worker processes. HTTP handling and arrival scheduling stay on the event loop. Workers process at most 4,096 hashes per submission and check the effective deadline every 256 hashes. The effective deadline is the earlier of the request deadline and the challenge expiry, converted from the server's Unix timestamp. The client and server clocks must agree. Cancellation drains the current bounded submission and starts no further work. Expired or cancelled solves never redeem a proof, and their completed hashes remain counted.
+
+`measure_utility(..., solver_workers=4)` shares one pool across all benign accounts, independently of its default HTTP concurrency of 32. `collect_gateway(..., solver_workers=4)` shares the same kind of pool across campaign accounts. Standalone `ProtectedTeacher` owns one worker unless the caller supplies a shared `ProofSolver`. Utility and campaign runners warm their workers before starting the measured schedule. Every solve event records its worker allowance, worker PIDs, exact hash count, wall time, worker elapsed time, CPU time, status, and dispatch/queue wait. Queue wait sums submission-to-worker-start intervals, including process communication overhead.
+
+Utility results separate arrival delay, client admission queueing, HTTP elapsed time, proof wall time, proof queue wait, worker elapsed time, and proof CPU time. Response latency stops when the response arrives or the request fails. Answer scoring runs after all timed requests finish, so it cannot delay later arrivals or inflate measured response latency and throughput. Its duration appears separately as `scoring_seconds`.
+
+The utility contract records `utility-response-latency-v2`, the solver version, chunk size, and worker count. Campaign contracts also include solver identity and capacity. Changed contracts refuse cached artifacts; use a new run directory rather than combining old and new measurements.
+
+A four-worker pool serving 32 accounts is a shared compute limit, not 32 independently provisioned user devices. Report that limit and solver queue wait with L3 latency. To estimate latency for independent users, provision sufficient client CPU or use separate load-generator hosts, and keep their CPU allocation separate from the teacher's. Existing latency artifacts must be rerun under the declared resource configuration before supporting that claim.
+
 ## Not yet implemented
 
 - Realistic legitimate-account construction, which calibration needs before its thresholds mean anything

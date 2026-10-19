@@ -15,6 +15,7 @@ from anyio import Path as AsyncPath
 
 from distillation.collection import CollectionOptions, _collect_one
 from distillation.io import append_jsonl, read_jsonl
+from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver, SolveMetrics
 from distillation.schemas import (
 	LedgerRecord,
 	PromptRecord,
@@ -49,7 +50,12 @@ class CampaignAllowance:
 
 class ProtectedTeacher:
 	def __init__(
-		self, url: str, token: str, *, transport: httpx.AsyncBaseTransport | None = None
+		self,
+		url: str,
+		token: str,
+		*,
+		transport: httpx.AsyncBaseTransport | None = None,
+		solver: ProofSolver | None = None,
 	) -> None:
 		self.client = httpx.AsyncClient(
 			base_url=f"{url.rstrip('/')}/",
@@ -57,6 +63,8 @@ class ProtectedTeacher:
 			timeout=300,
 			transport=transport,
 		)
+		self.solver = solver or ProofSolver()
+		self._owns_solver = solver is None
 		self.challenges = 0
 		self.challenge_seconds = 0.0
 		self.hashes = 0
@@ -161,31 +169,41 @@ class ProtectedTeacher:
 			challenge = response.json()["challenge"]
 			started = time.monotonic()
 			self.challenges += 1
-			counter = 0
+			metrics = SolveMetrics(workers=self.solver.workers)
+			# Server expiries use Unix time; process workers share the host monotonic clock.
+			expires = started + max(0.0, float(challenge["expires_at"]) - time.time())
+			deadline = min(self.deadline, expires)
 			try:
-				while True:
+				counter = await self.solver.solve(
+					challenge["prefix"], challenge["difficulty"], deadline, metrics
+				)
+				if counter is None:
 					if self.remaining() <= 0:
 						raise BudgetExhausted
-					digest = hashlib.sha256(f"{challenge['prefix']}{counter}".encode()).digest()
-					self.hashes += 1
-					if 256 - int.from_bytes(digest).bit_length() >= challenge["difficulty"]:
-						break
-					counter += 1
-					if counter % 4096 == 0:
-						await asyncio.sleep(0)
+					raise AttemptFailed("proof challenge expired")
+			except Exception:
+				if metrics.status == "cancelled":
+					metrics.status = "error"
+				raise
 			finally:
 				elapsed = time.monotonic() - started
+				self.hashes += metrics.hashes
 				self.challenge_seconds += elapsed
 				self._write(
 					{
 						"event": "solve",
 						"policy_request_id": self.prompt_request_id,
-						"hashes": counter + 1,
+						**asdict(metrics),
 						"seconds": elapsed,
+						"solver": SOLVER_VERSION,
 						"hardware": platform.machine(),
 						"processor": platform.processor(),
 					}
 				)
+			if time.monotonic() >= deadline:
+				if self.remaining() <= 0:
+					raise BudgetExhausted
+				raise AttemptFailed("proof challenge expired before redemption")
 			response = await self._post(payload, f"{challenge['nonce']}:{counter}")
 		if response.status_code == 403 and response.headers.get("X-Harness-Decision") == "block":
 			raise PolicyRefusal
@@ -196,7 +214,11 @@ class ProtectedTeacher:
 		return TeacherGeneration.model_validate(response.json())
 
 	async def close(self) -> None:
-		await self.client.aclose()
+		try:
+			await self.client.aclose()
+		finally:
+			if self._owns_solver:
+				await self.solver.close()
 
 
 def event_summary(
@@ -293,7 +315,8 @@ async def collect_campaign(
 		contract = hashlib.sha256(
 			(
 				f"campaign-v2:{campaign_contract(prompts_path, options)}"
-				f":{limit}:{deadline_seconds}:{levels}"
+				f":{limit}:{deadline_seconds}:{levels}:{SOLVER_VERSION}:{teacher.solver.workers}"
+				f":{CHUNK_HASHES}"
 			).encode()
 		).hexdigest()
 		events = summary_path.with_suffix(".events.jsonl")
@@ -316,6 +339,7 @@ async def collect_campaign(
 		await AsyncPath(events).touch()
 		teacher.event_path, teacher.contract = events, contract
 		teacher.max_requests = limit
+		await teacher.solver.warmup()
 		teacher.started = time.monotonic()
 		teacher.deadline = teacher.started + deadline_seconds
 		attempt_log = ledger_path.with_name(f"{ledger_path.stem}.attempts.jsonl")
@@ -368,6 +392,11 @@ async def collect_campaign(
 			"challenges": teacher.challenges,
 			"challenge_seconds": teacher.challenge_seconds,
 			"hashes": teacher.hashes,
+			"solver": {
+				"version": SOLVER_VERSION,
+				"workers": teacher.solver.workers,
+				"chunk_hashes": CHUNK_HASHES,
+			},
 			"ledger_sha256": hashlib.sha256(await AsyncPath(ledger_path).read_bytes()).hexdigest(),
 			"events_sha256": hashlib.sha256(await AsyncPath(events).read_bytes()).hexdigest(),
 		}
