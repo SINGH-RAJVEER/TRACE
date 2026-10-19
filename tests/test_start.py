@@ -881,8 +881,42 @@ def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(
 				],
 			},
 		)
+	run = tmp_path / "ag_news" / f"s42-b{budget}"
+	control = json.loads((run / "report.protected-full.json").read_text())
+	save_json(run / "report.full-matched-volume.json", control)
+	save_json(
+		run / "protected" / "full" / "matched-prefix" / "control.json", {"training_examples": 0}
+	)
+	levels = {"L4": {"J": 7, "Q": 6, "reached": True, "censored": False}}
+	save_json(run / "protected" / "full" / "budget-campaign.json", {"levels": levels})
+	for phase, utility in (("before", 0.8), ("after", 0.6)):
+		save_json(
+			tmp_path / "ag_news" / "s42" / "full" / f"utility-{phase}.json",
+			{"unconditional_utility": utility, "served_only_quality": 0.8}
+			| dict.fromkeys(
+				("submitted", "served", "completion_rate", "latency_p50", "latency_p95", "strata")
+			),
+		)
+	save_json(
+		tmp_path / "ag_news" / "benign-test" / "full.json",
+		{
+			"horizons": 10,
+			"unscored_horizons": 2,
+			"implemented_levels": [1, 2, 3, 4],
+			"reached": {"L1": 1},
+			"reached_rate": {"L1": 0.1},
+		},
+	)
 	write_study_results(tmp_path)
 	report = json.loads((tmp_path / "study-report.json").read_text())
+	controls = report["per_seed"][0]["controls"]
+	assert controls["matched-volume"]["score"] == 60
+	assert controls["matched-volume"]["defended_minus_control"]["primary_delta_pp"] == 0
+	assert controls["matched-prefix"]["status"] == "no_usable_examples"
+	assert report["per_seed"][0]["escalation"]["levels"] == levels
+	assert report["benign_utility"][0]["unconditional_utility_change"] == pytest.approx(-0.2)
+	assert report["benign_utility"][0]["served_only_quality_change"] == 0
+	assert report["benign_false_escalation"][0]["false_escalation_rate"] == {"L1": 0.1}
 	assert report["missing_pairs"] == []
 	assert report["per_seed"][0]["budget"] == budget
 	assert report["per_seed"][0]["Delta_D"] == 30

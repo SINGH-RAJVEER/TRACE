@@ -845,22 +845,12 @@ class Study:
 
 	def reports(self) -> None:
 		from distillation.benchmarks.reporting import build_report, experiments
-		from distillation.benchmarks.traffic_reporting import (
-			build_traffic_report,
-			traffic_experiments,
-		)
 
 		for directory in self.root.glob("*/s*-b*/benchmarks/*"):
 			for experiment in experiments(directory)["experiments"]:
 				save_json(
 					directory.parent.parent / f"report.{directory.name}.json",
 					build_report(directory, experiment["id"]),
-				)
-		for directory in self.root.glob("*/s*/*/traffic-results"):
-			for experiment in traffic_experiments(directory)["experiments"]:
-				save_json(
-					directory.parent / "traffic-report.json",
-					build_traffic_report(directory, experiment["id"]),
 				)
 
 	def run(self) -> None:
