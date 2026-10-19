@@ -56,7 +56,10 @@ class Encoder:
 
 
 def test_deceiving_policy_looks_like_l3_and_marks_a_keyed_share() -> None:
-	requests = [BenignRequest(account=f"a{i // 30}", text=f"q {i}") for i in range(600)]
+	requests = [
+		BenignRequest(account=f"role{i // 200}-a{i % 200 // 30}", text=f"q {i}")
+		for i in range(600)
+	]
 	calibration, references = calibrate(
 		config=HarnessConfig(window_size=5, reference_windows=2, bandwidth_sample=20),
 		encoder=Encoder(),

@@ -171,7 +171,9 @@ class Study:
 				"teacher": teacher,
 				"teacher_after": teacher,
 				"student_before": student,
-				"student_after": student.model_copy(update={"adapter_path": None if untrained else adapter}),
+				"student_after": student.model_copy(
+					update={"adapter_path": None if untrained else adapter}
+				),
 			},
 		)
 		path = directory / f"eval.{condition}.toml"
@@ -271,14 +273,21 @@ class Study:
 			for role in ("fitting", "score_calibration", "policy_calibration")
 		}
 		validate_separation({**groups, "benign_test": self.pooled(task, "benign_test")})
-		path = self.calibration_root / task if self.calibration_root else self.root / task / "calibration"
+		path = (
+			self.calibration_root / task
+			if self.calibration_root
+			else self.root / task / "calibration"
+		)
 		if (path / "calibration.json").exists():
 			existing, _ = load_calibration(path)
 			# Older calibrations sliced article-ordered SQuAD pools or embedded whole turns.
 			if (
 				existing.config.task != task
 				or set(existing.config.accumulators) != set(DECLARED_ACCUMULATORS)
-				or any(existing.sha256.get(role) != requests_sha256(rows) for role, rows in groups.items())
+				or any(
+					existing.sha256.get(role) != requests_sha256(rows)
+					for role, rows in groups.items()
+				)
 				or existing.config.aggregate_enabled
 			):
 				raise LaunchError(
@@ -736,7 +745,9 @@ class Study:
 				for budget in budgets:
 					for arm in self.arms:
 						trained = self.train_protected(task, seed, budget, budgets[-1], arm)
-						config = self.evaluation(task, seed, budget, "attacker", arm=arm, untrained=not trained)
+						config = self.evaluation(
+							task, seed, budget, "attacker", arm=arm, untrained=not trained
+						)
 						self.benchmark(config, "student_before")
 						self.benchmark(config, "student_after")
 						train_controls(self, task, seed, budget, arm)

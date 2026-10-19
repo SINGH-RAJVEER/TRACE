@@ -1,5 +1,7 @@
 # Task capability evaluation
 
+The optional `coding-task` package supplies a standalone Python assertion scorer, described in [coding-task.md](coding-task.md). Its single-completion pass@1 includes incorrect, invalid, truncated and timed-out submissions in the denominator. Sandbox infrastructure failures abort rather than become model failures. The task benchmark runner and dashboard are not yet wired to this scorer; the existing frozen suite schema and hashes are unchanged.
+
 Evaluate AG News, SQuAD 1.1, and GSM8K through the suites frozen by `distill tasks build`. Each task has its own prompt contract, output limit, test split, and adapters. See [paper-tasks.md](paper-tasks.md) for dataset pins, source grouping, development selection, and query budgets.
 
 ## Run an evaluation
@@ -72,7 +74,7 @@ Before final defense testing, establish positive undefended capability transfer 
 
 These sequential evaluations do not measure concurrent serving throughput, time to first token, GPU peak memory, policy waiting costs, or proof-of-work effort. Measure those separately for paper claims.
 
-Each output directory contains a verified `suite-SHA256.json`, completed run JSON files, and append-only sample journals. A run records model and generation config, source revision, artifact and training hashes, packages, platform, and JJ code revision. A comparison exports the suite, selected runs, per-task scores, category slices, paired metrics, warnings, and responses. Frozen v1 task suites retain empty legacy schema fields solely to preserve existing suite hashes; there is no code-execution scorer.
+Each output directory contains a verified `suite-SHA256.json`, completed run JSON files, and append-only sample journals. A run records model and generation config, source revision, artifact and training hashes, packages, platform, and JJ code revision. A comparison exports the suite, selected runs, per-task scores, category slices, paired metrics, warnings, and responses. Frozen v1 task suites retain empty legacy schema fields solely to preserve existing suite hashes; this benchmark runner does not invoke the optional coding scorer.
 
 Exact training-overlap checks cannot detect paraphrases or pretraining contamination. A declared remote model revision requires independent deployment verification. Dataset-only adapter skip checks do not establish a complete training fingerprint; the implementation checklist tracks that gap.
 

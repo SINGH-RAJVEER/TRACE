@@ -1,5 +1,7 @@
 # Extraction harness
 
+The [coding extension](coding-task.md) is currently limited to corpus qualification and sandboxed scoring. Coding serialization, calibration, workload utility and L4 behavior are not integrated here. Existing detector serialization stays unchanged; do not reuse an existing task's calibration for coding or route code through the current deception formats.
+
 `packages/harness` implements the paper's detector and access policy as a library: query embeddings, the window MMD score, benign-only calibration, accumulated account evidence, and the graduated actions of Table I. Policies take the account, request text, and time as arguments and never read the clock. `apps/harness-api` serves the same decision code over HTTP in front of the teacher API, and a campaign simulator can call it directly.
 
 ## Install

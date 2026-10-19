@@ -14,6 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+coding = ["coding-task"]
 eval = [
 	"datasets>=4.0.0",
 	"huggingface-hub>=0.34.0"
@@ -37,6 +38,9 @@ distill = "distillation.cli:app"
 [build-system]
 requires = ["hatchling", "packaging<26.3"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+coding-task = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/distillation"]

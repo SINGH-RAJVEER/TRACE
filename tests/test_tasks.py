@@ -27,6 +27,7 @@ from distillation.tasks import (
 	budget_run,
 	build_task,
 )
+from distillation.training import TrainingConfig
 from harness.serialization import detector_text
 
 
@@ -170,6 +171,10 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "test-approval")
 	monkeypatch.setattr(launcher.Launcher, "install", lambda self, component: None)
+	# Replace tokenizer/model loading while retaining the production provenance checks.
+	monkeypatch.setattr(
+		"distillation.training.training_identity", lambda config: config.model_dump(mode="json")
+	)
 	build_task(task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows())
 	(tmp_path / "configs").mkdir()
 	(tmp_path / "configs/train.task.toml").write_text(
@@ -209,8 +214,18 @@ def test_paper_tasks_scenario_keeps_its_own_ledger_and_resumes(
 			output.mkdir(parents=True)
 			digest = hashlib.sha256(Path(values["dataset_path"]).read_bytes()).hexdigest()
 			(output / "training-manifest.json").write_text(
-				json.dumps({"dataset_sha256": digest, "config": values})
+				json.dumps(
+					{
+						"dataset_sha256": digest,
+						"config": values,
+						"fingerprint": TrainingConfig.model_validate(values).model_dump(
+							mode="json"
+						),
+					}
+				)
 			)
+			(output / "adapter_config.json").write_text("{}")
+			(output / "adapter_model.safetensors").write_bytes(b"fixture")
 		else:
 			if args[0] == "review":
 				# The length check loads the tokenizer, which needs the training stack.

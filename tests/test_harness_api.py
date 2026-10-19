@@ -228,7 +228,9 @@ async def test_challenges_bind_to_the_request_and_cannot_be_reused(
 async def test_l4_noise_needs_no_teacher_and_looks_like_l3(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
-	l3, _, _ = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_TASK="ag_news")
+	l3, _, _ = _app(
+		artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
+	)
 	l4, teacher, log = _app(
 		artifacts, tmp_path, [-1] * 4, HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
 	)

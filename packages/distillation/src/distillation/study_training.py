@@ -29,7 +29,11 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 
 	pipeline = study.pipeline
 	path = study.root / task / "recipe.json"
-	if int(pipeline.manifest(task)["roles"]["attacker"]) < 2000 or 42 not in pipeline.seeds or max(pipeline.plan[task]) < 2000:
+	if (
+		int(pipeline.manifest(task)["roles"]["attacker"]) < 2000
+		or 42 not in pipeline.seeds
+		or max(pipeline.plan[task]) < 2000
+	):
 		raise LaunchError("recipe selection requires 2000 attacker prompts")
 	base = tomllib.loads(pipeline.config.read_text())
 	contract = {
@@ -44,7 +48,7 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 	freeze(path.with_name("recipe-protocol.json"), contract)
 	if path.exists():
 		return dict(json.loads(path.read_text()))
-	trials = []
+	trials: list[dict[str, Any]] = []
 	for rate in (1e-4, 2e-4):
 		for epochs in (1, 2, 3):
 			name = f"lr{rate}-e{epochs}"

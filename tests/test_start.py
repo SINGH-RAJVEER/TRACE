@@ -6,7 +6,7 @@ import json
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import httpx
 import pytest
@@ -25,9 +25,11 @@ from distillation.schemas import (
 	SFTRecord,
 	TeacherGeneration,
 	TeacherGenerationRequest,
+	TokenUsage,
 )
 from distillation.study import Study
 from distillation.tasks import build_task
+from distillation.training import TrainingConfig
 from typer.testing import CliRunner
 
 
@@ -41,6 +43,7 @@ class Teacher:
 			message=Message(role="assistant", content="World"),
 			finish_reason="stop",
 			endpoint="fixture://teacher",
+			usage=TokenUsage(output_tokens=1),
 		)
 
 	async def close(self) -> None:
@@ -107,6 +110,18 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	monkeypatch.setattr(Study, "calibrate", lambda self, task: Path("calibration"))
 	monkeypatch.setattr(Study, "calibration_report", lambda self, task, path: None)
 	monkeypatch.setattr(Study, "benign_holdout", lambda self, task, path: None)
+	monkeypatch.setattr(Study, "detectability", lambda self, task, path: None)
+	# Model selection itself needs GPU evaluations; this test checks sequencing only.
+	monkeypatch.setattr(
+		"distillation.study_training.select_recipe",
+		lambda study, task: {
+			"selected": {"learning_rate": 2e-4, "epochs": 1},
+			"transfer_gate_passed": True,
+		},
+	)
+	monkeypatch.setattr(
+		"distillation.training.training_identity", lambda config: config.model_dump(mode="json")
+	)
 	import distillation.benchmarks.traffic as traffic
 
 	freeze_traffic = traffic.freeze_traffic
@@ -136,6 +151,17 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 			)
 		raise AssertionError(request.url)
 
+	import distillation.utility as utility
+
+	measure_utility = utility.measure_utility
+
+	async def measured_utility(**kwargs: Any) -> dict[str, Any]:
+		# Keep the real utility scorer with immediate arrivals and mocked inference.
+		kwargs["requests"] = [row.model_copy(update={"time": 0.0}) for row in kwargs["requests"]]
+		return await measure_utility(**kwargs, transport=httpx.MockTransport(response))
+
+	monkeypatch.setattr(utility, "measure_utility", measured_utility)
+
 	def distill(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
 		def option(name: str) -> str:
 			return args[args.index(name) + 1]
@@ -154,8 +180,9 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 				)
 			)
 		elif args[0] == "collect-protected":
-			assert "harness" in services
-			steps.append("protected-collect")
+			protected = "protected" in option("--output")
+			assert ("harness" in services) == protected
+			steps.append("protected-collect" if protected else "collect")
 			asyncio.run(
 				collect_campaign(
 					prompts_path=Path(option("--input")),
@@ -182,9 +209,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 				assert "teacher" in services
 			assert config.models["student_before"].load_in_4bit
 			steps.append(f"benchmark {slot}")
-			# The production runner validates adapters separately. This fixture uses its
-			# real suite/scoring/report path while replacing model weights and optimization.
-			config.models["student_after"].adapter_path = None
+			# Keep adapter provenance and the real scoring path; only inference is mocked.
 			asyncio.run(run_evaluation(config, cast(Slot, slot), factory=lambda config: Teacher()))
 		elif args[:2] == ("benchmark", "traffic"):
 			settings = load_traffic_config(Path(option("--config")))
@@ -213,9 +238,14 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 							Path(values["dataset_path"]).read_bytes()
 						).hexdigest(),
 						"config": values,
+						"fingerprint": TrainingConfig.model_validate(values).model_dump(
+							mode="json"
+						),
 					}
 				)
 			)
+			(output / "adapter_config.json").write_text("{}")
+			(output / "adapter_model.safetensors").write_bytes(b"fixture")
 			steps.append("train protected" if "protected" in str(output) else "train baseline")
 		else:
 			if args[0] == "review":
@@ -240,18 +270,18 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	for arm in ("full", "instantaneous", "quota"):
 		assert len(read_jsonl(root / f"protected/{arm}/train.jsonl", SFTRecord)) == 4
 		assert (root / f"report.protected-{arm}.json").is_file()
-		assert (root.parent / f"s42/{arm}/traffic-report.json").is_file()
+		assert (root.parent / f"s42/{arm}/utility-after.json").is_file()
 	assert json.loads(Path("artifacts/start/status.json").read_text())["status"] == "complete"
-	baseline = Path("data/tasks/ag_news/ledger.jsonl").read_bytes()
+	baseline = (root.parent / "s42/undefended/ledger.jsonl").read_bytes()
 	steps.clear()
 	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
 	assert "train baseline" not in steps and "train protected" not in steps
-	assert Path("data/tasks/ag_news/ledger.jsonl").read_bytes() == baseline
+	assert (root.parent / "s42/undefended/ledger.jsonl").read_bytes() == baseline
 
 
 @pytest.mark.asyncio
-async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_path: Path) -> None:
+async def test_campaign_records_refusals_and_preserves_interrupted_budget(tmp_path: Path) -> None:
 	from distillation.io import write_jsonl
 	from distillation.schemas import LedgerRecord, PromptSource
 
@@ -304,6 +334,17 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 	original = ledger.read_bytes()
 	assert len(read_jsonl(ledger, LedgerRecord)) == 1 and not summary.exists()
 	broken = False
+	with pytest.raises(ValueError, match="retained its spent budget"):
+		await collect_campaign(
+			prompts_path=prompts,
+			ledger_path=ledger,
+			summary_path=summary,
+			teacher=teacher(),
+			options=options,
+		)
+	assert ledger.read_bytes() == original
+	# Restart only in a separately declared campaign with fresh policy state.
+	ledger, summary = tmp_path / "fresh/ledger.jsonl", tmp_path / "fresh/campaign.json"
 	result = await collect_campaign(
 		prompts_path=prompts,
 		ledger_path=ledger,
@@ -312,11 +353,6 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 		options=options,
 	)
 	assert result["queries"] == 3 and result["blocked"] == 1 and result["ledger_records"] == 2
-	assert result["interrupted_attempts"] == 1
-	archived = await asyncio.to_thread(
-		lambda: next(tmp_path.glob("interrupted/*/ledger.jsonl")).read_bytes()
-	)
-	assert archived == original
 	assert all(r.example_id != "1" for r in read_jsonl(ledger, LedgerRecord))
 	before = ledger.read_bytes()
 	assert (
@@ -343,7 +379,7 @@ async def test_campaign_records_refusals_and_archives_interrupted_attempts(tmp_p
 	assert (result["queries"], result["blocked"], result["failed"]) == (3, 1, 1)
 	assert result["received"] == result["ledger_records"] == 1
 	events = (charged / "campaign.events.jsonl").read_text().splitlines()
-	assert json.loads(events[2])["status"] == "failed"
+	assert any(json.loads(event).get("status") == "failed" for event in events)
 	# A generic 403 must not be counted as a confirmed policy refusal.
 	gateway = ProtectedTeacher(
 		"http://fixture", "bad", transport=httpx.MockTransport(lambda request: httpx.Response(403))
@@ -382,6 +418,7 @@ def test_empty_protected_campaign_skips_training(
 		],
 	)
 	write_jsonl(study.protected_dir("ag_news", 42, 1, "full") / "ledger.jsonl", [])
+	(study.protected_dir("ag_news", 42, 1, "full") / "campaign.events.jsonl").write_text("")
 
 	def review(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
 		assert args[0] == "review"

@@ -1,5 +1,7 @@
 # Paper tasks
 
+The optional [coding extension](coding-task.md) has a separate package for corpus qualification and sandboxed scoring. It is not yet accepted by `distill tasks` or included in the study matrix. Its default is the full eligible corpus, followed by disjoint role allocation; the existing 500/2,000/8,000 budgets below apply to the implemented paper tasks and do not cap coding qualification.
+
 The paper's distillation study (Section IV-B) measures extraction on narrow task APIs rather than general chat. `distill tasks` builds those tasks: AG News four-class classification and SQuAD 1.1 extractive QA form the core study, and GSM8K adds a generative, multi-step task with an objective answer. Each task is a separate service with its own prompt format, output limit, ledger, frozen suites, and evaluation config, so results are reported per task as Table VI requires.
 
 This is the repository's only distillation workflow. The study measures task-specific extraction and legitimate utility; it makes no general-chat capability claim.
