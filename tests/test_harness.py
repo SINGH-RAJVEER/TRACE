@@ -246,6 +246,7 @@ def test_shifted_traffic_escalates_and_benign_traffic_mostly_does_not(
 	assert summary["horizons"] == 51
 	assert summary["reached"]["L4"] >= 1
 	assert summary["reached_rate"]["L1"] < 0.5
+	assert summary["reached_rate_scored"]["L1"] < 0.5
 	lines = (tmp_path / "decisions.jsonl").read_text().splitlines()
 	assert '"action": "refuse"' in lines[-1]
 

@@ -70,20 +70,29 @@ def profile_rates(rows: list[GatewayRequest], decisions: Path, levels: list[int]
 		peaks[key] = max(peaks.get(key, 0), decision["level"])
 		if decision["window_completed"]:
 			scored.add(key)
-	return {
-		str(profile): {
-			"horizons": len(keys),
-			"scored_horizons": len(set(keys) & scored),
-			"reached_rate": {
-				f"L{level}": sum(peaks[k] >= level for k in keys) / len(keys)
-				if level in levels
-				else None
-				for level in range(1, 5)
-			},
+
+	def rates(keys: list[tuple[str, int]]) -> dict[str, float | None]:
+		return {
+			f"L{level}": sum(peaks[k] >= level for k in keys) / len(keys)
+			if keys and level in levels
+			else None
+			for level in range(1, 5)
 		}
-		for profile in set(profiles.values())
-		if (keys := [k for k in peaks if profiles[k[0]] == profile])
-	}
+
+	result: dict[str, Any] = {}
+	for profile in set(profiles.values()):
+		keys = [k for k in peaks if profiles[k[0]] == profile]
+		if not keys:
+			continue
+		scored_keys = [k for k in keys if k in scored]
+		result[str(profile)] = {
+			"horizons": len(keys),
+			"scored_horizons": len(scored_keys),
+			"reached_rate": rates(keys),
+			# Over scored horizons, the denominator the thresholds were fitted on.
+			"reached_rate_scored": rates(scored_keys),
+		}
+	return result
 
 
 def campaign_results(
