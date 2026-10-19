@@ -43,7 +43,7 @@ from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
 from harness.policy import Decision, MMDPolicy, Policy
 from harness.replay import make_policy
-from harness.serialization import detector_text
+from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
 
 from harness_api.settings import Settings
 
@@ -316,6 +316,7 @@ def create_app(
 		x_harness_proof: str | None = Header(default=None),
 		x_harness_time: str | None = Header(default=None),
 		x_benchmark_request: str | None = Header(default=None),
+		x_gateway_domain: str | None = Header(default=None),
 	) -> JSONResponse:
 		# X-Benchmark-Request is a test correlation ID: it is logged, never used to decide.
 		account = resolve(authorization, x_benchmark_actor)
@@ -323,7 +324,30 @@ def create_app(
 			return _error(401, "unauthorized", "unknown API key", None)
 		now = now_from(x_harness_time)
 		text = current_turn(request)
-		binding = canonical_json(request.model_dump(mode="json"))
+		if served_task == "gateway":
+			if (
+				x_gateway_domain not in config.gateway_caps
+				or request.max_output_tokens != config.gateway_caps[x_gateway_domain]
+			):
+				return _error(
+					422, "invalid_domain", "declare a configured domain and its frozen cap", None
+				)
+			assert x_gateway_domain is not None
+			if (
+				len(request.messages) != 1
+				or request.messages[0].role != "user"
+				or not valid_gateway_turn(x_gateway_domain, text)
+			):
+				return _error(
+					422,
+					"invalid_template",
+					"use the declared domain task template in one user message",
+					None,
+				)
+			text = gateway_turn(x_gateway_domain, text)
+		binding = canonical_json(
+			{"request": request.model_dump(mode="json"), "detector_turn": text}
+		)
 		digest = hashlib.sha256(binding.encode()).hexdigest()
 		if x_harness_proof is not None:
 			nonce, _, counter = x_harness_proof.partition(":")

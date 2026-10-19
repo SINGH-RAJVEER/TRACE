@@ -24,8 +24,9 @@ async def measure_utility(
 	references: dict[str, BenchmarkItem],
 	url: str,
 	keys: dict[str, str],
-	max_output_tokens: int,
+	max_output_tokens: int | dict[str, int],
 	output: Path,
+	account_profiles: dict[str, str] | None = None,
 	concurrency: int = 32,
 	request_deadline: float = 120,
 	transport: httpx.AsyncBaseTransport | None = None,
@@ -41,6 +42,7 @@ async def measure_utility(
 				"requests": [r.model_dump() for r in requests],
 				"references": {k: v.model_dump(mode="json") for k, v in references.items()},
 				"cap": max_output_tokens,
+				"account_profiles": account_profiles,
 				"concurrency": concurrency,
 				"deadline": request_deadline,
 				"url": url,
@@ -62,14 +64,24 @@ async def measure_utility(
 	warmup = ProtectedTeacher(url, keys.get("warmup", keys.get("default", "")), transport=transport)
 	try:
 		item = references[str(requests[0].example_id)]
+		if isinstance(max_output_tokens, dict):
+			warmup.domain = item.benchmark
 		for _ in range(5):
-			await warmup.generate(
-				TeacherGenerationRequest(
-					messages=item.messages,
-					max_output_tokens=max_output_tokens,
-					enable_thinking=False,
+			warmup.deadline = time.monotonic() + request_deadline
+			try:
+				await warmup.generate(
+					TeacherGenerationRequest(
+						messages=item.messages,
+						max_output_tokens=(
+							max_output_tokens[item.benchmark]
+							if isinstance(max_output_tokens, dict)
+							else max_output_tokens
+						),
+						enable_thinking=False,
+					)
 				)
-			)
+			except PolicyRefusal, AttemptFailed, BudgetExhausted, httpx.HTTPError:
+				continue
 	finally:
 		await warmup.close()
 	streams: dict[str, list[BenignRequest]] = {}
@@ -89,6 +101,8 @@ async def measure_utility(
 				await asyncio.sleep(max(0, arrival - time.monotonic()))
 				teacher.deadline = arrival + request_deadline
 				item = references[str(row.example_id)]
+				if isinstance(max_output_tokens, dict):
+					teacher.domain = item.benchmark
 				status, quality, received = "abandoned", 0.0, False
 				before = teacher.hashes
 				attempt_started = time.monotonic()
@@ -98,7 +112,11 @@ async def measure_utility(
 							generation = await teacher.generate(
 								TeacherGenerationRequest(
 									messages=item.messages,
-									max_output_tokens=max_output_tokens,
+									max_output_tokens=(
+										max_output_tokens[item.benchmark]
+										if isinstance(max_output_tokens, dict)
+										else max_output_tokens
+									),
 									enable_thinking=False,
 								)
 							)
@@ -122,6 +140,8 @@ async def measure_utility(
 				results.append(
 					{
 						"account": account,
+						"domain": item.benchmark,
+						"domain_profile": (account_profiles or {}).get(account),
 						"sequence": index,
 						"example_id": row.example_id,
 						"source_group": row.source_group,
@@ -154,6 +174,23 @@ async def measure_utility(
 		"latency_p95": latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
 		if latencies
 		else None,
+		"strata": {
+			field: {
+				str(value): {
+					"submitted": len(rows),
+					"served": sum(r["received"] for r in rows),
+					"unconditional_utility": statistics.fmean(r["quality"] for r in rows),
+					"served_only_quality": statistics.fmean(
+						r["quality"] for r in rows if r["received"]
+					)
+					if any(r["received"] for r in rows)
+					else None,
+				}
+				for value in {r.get(field) for r in results}
+				if (rows := [r for r in results if r.get(field) == value])
+			}
+			for field in ("domain", "domain_profile", "client_type")
+		},
 		"load": {
 			"concurrency": concurrency,
 			"deadline_seconds": request_deadline,

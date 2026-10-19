@@ -1,6 +1,6 @@
 # Task extraction study
 
-This repository studies how an access policy affects extraction from narrow language-model APIs. The default study covers AG News classification, SQuAD 1.1 extractive question answering, GSM8K generative math, and Python coding. Each task has separate query pools, ledgers, adapters, and frozen evaluation suites.
+This repository studies how an access policy affects extraction from narrow language-model APIs. The default study covers AG News classification, SQuAD 1.1 extractive question answering, GSM8K generative math, and Python coding. Each domain keeps separate source pools and frozen evaluation suites. Default campaigns combine received supervision into one student adapter behind one shared gateway.
 
 Students learn from teacher-generated text through sequence-level supervised fine-tuning with completion-only loss. The study measures task capability, extraction under query budgets, and legitimate utility. It makes no general-chat or token-distribution distillation claim.
 
@@ -29,7 +29,7 @@ cp .env.example .env
 just start
 ```
 
-`just start` builds the task corpora, loads the teacher, collects ledgers, benchmarks the teacher and base student, trains and benchmarks the baseline students, then starts the extraction harness alongside the teacher. It collects a separate protected ledger, trains a fresh student on usable protected responses, and benchmarks that student on the same frozen tests. Capability and before/after traffic reports are written under `artifacts/start`. See [docs/run-scripts.md](docs/run-scripts.md#complete-pipeline) for options, outputs, and resuming.
+`just start` builds missing corpora, calibrates one mixed account policy, collects undefended and protected campaigns, selects a shared recipe using development data, and trains one combined student per campaign and condition. The same adapter is evaluated on every domain. Benign utility and token-matched controls are recorded separately. Outputs are in `artifacts/gateway`. See [docs/run-scripts.md](docs/run-scripts.md#complete-pipeline) for options and [the shared protocol](docs/multi-domain-study.md#run-the-shared-pipeline) for accounting and validation limits.
 
 For collection and training without automatic benchmarks or the protected cycle:
 
@@ -37,12 +37,12 @@ For collection and training without automatic benchmarks or the protected cycle:
 just distill
 ```
 
-The launcher builds missing task splits, collects each seed's largest supported query budget, stops a locally hosted teacher to free GPU memory, reviews response usability without gold answers, and trains attacker and gold-label reference adapters. Both `just start` and `just distill` default to AG News, SQuAD, GSM8K, and coding, three seeds, and `--budgets full`. Each task uses its whole attacker pool: 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries with the pinned builds. Coding uses the complete qualified attacker allocation from its manifest. The four-task matrix plans 24 undefended attacker/gold training runs. Explicit numeric budgets select smaller subsets. GSM8K supplies the math capability distillation corpus. Its 256-token cap and coding's 512-token cap remain provisional until their implemented cap pilots pass against the actual teacher. Use `--tasks ag_news,squad` to select only classification and QA. Collection and training resume from existing artifacts. With `distill`, evaluation runs separately. `start` produces separate-task results, not shared-gateway results, and freezes resolved budgets and policy horizons for reporting.
+Both launchers include all four domains, seeds 42/1/20, and full attacker inventories by default. `full` combines every domain's attacker pool under one campaign allowance and deadline. Numeric budgets are shared totals with balanced domain allocations. A5 uses six accounts under that same allowance. `distill` runs undefended A1 collection and shared training only; `start` also runs A2/A5 and all three defenses. GSM8K's 256-token and coding's 512-token caps remain provisional until their implemented pilots pass against the actual teacher. Use `--mode tasks` for the retained separate-task workflow. Completed campaign artifacts are verified on reuse; interrupted campaigns require a new directory to avoid replenishing spent resources.
 
 For a smaller declared matrix or a remote teacher:
 
 ```bash
-just distill --tasks ag_news --seeds 42 --budgets 500,2000
+just distill --tasks ag_news,squad,gsm8k,coding --seeds 42 --budgets 6000
 just teacher-host
 # On the student machine, with the same API token:
 just distill --teacher-url http://TEACHER_IP:8000

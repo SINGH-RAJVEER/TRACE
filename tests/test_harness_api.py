@@ -386,3 +386,185 @@ async def test_traffic_benchmark_separates_noise_from_useful_responses(
 	)
 	with pytest.raises(ValueError, match="harness log not found"):
 		await run_traffic(config, "after", transport=httpx.ASGITransport(app=app))
+
+
+@pytest.mark.asyncio
+async def test_gateway_campaign_shares_quota_across_domains_and_budget_across_accounts(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway
+	from distillation.io import read_jsonl, write_jsonl
+	from distillation.schemas import GatewayRequest, LedgerRecord, PromptRecord, PromptSource
+	from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX
+
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.config.horizon_attempts = 2
+	calibration.baselines["quota"].thresholds = [1.0]
+	app, teacher, decisions = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_TASK="gateway",
+		HARNESS_GATEWAY_CAPS={"ag_news": 16, "gsm8k": 256},
+		HARNESS_POLICY="quota",
+	)
+
+	# Real credential resolution, independent of test actor headers.
+	# _app uses actor headers; wrap only auth routing for this fixture.
+	class Transport(httpx.ASGITransport):
+		async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+			request.headers["X-Benchmark-Actor"] = request.headers["Authorization"].removeprefix(
+				"Bearer "
+			)
+			return await super().handle_async_request(request)
+
+	rows = [
+		GatewayRequest(
+			request_id=f"q{i}",
+			account="shared" if i < 4 else "other",
+			time=0,
+			max_output_tokens=16 if i % 2 == 0 else 256,
+			prompt=PromptRecord(
+				example_id=f"p{i}",
+				task="ag_news" if i % 2 == 0 else "gsm8k",
+				split="train",
+				source=PromptSource(
+					corpus="fixture", source_id=str(i), group_id=str(i), license="fixture"
+				),
+				prompt=[
+					Message(
+						role="user",
+						content=AG_NEWS_PROMPT.format(text=f"story {i}")
+						if i % 2 == 0
+						else f"problem {i}{GSM8K_EVAL_SUFFIX}",
+					)
+				],
+			),
+		)
+		for i in range(8)
+	]
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	output = tmp_path / "campaign"
+	kwargs: dict[str, Any] = dict(
+		schedule=schedule,
+		output=output,
+		url="http://gateway",
+		keys={"shared": "shared", "other": "other"},
+		options=CollectionOptions(terms_review_id="fixture", concurrency=1, enable_thinking=False),
+		attempt_budget=5,
+		transport=Transport(app=app),
+		decision_log=decisions,
+	)
+	summary = await collect_gateway(**kwargs)
+	assert summary["queries"] == 5
+	assert summary["blocked"] >= 1
+	assert summary["received"] == teacher.calls
+	events = [
+		json.loads(line) for line in (output / "campaign.events.jsonl").read_text().splitlines()
+	]
+	attempts = [e for e in events if e["event"] == "attempt"]
+	assert [e["index"] for e in attempts] == list(range(1, 6))
+	assert {e["domain"] for e in attempts} == {"ag_news", "gsm8k"}
+	assert {e["account"] for e in attempts} == {"shared", "other"}
+	assert len(read_jsonl(output / "ledger.jsonl", LedgerRecord)) == summary["received"]
+	assert all(e["contract"] == summary["contract"] for e in attempts)
+	assert await collect_gateway(**kwargs) == summary
+	assert teacher.calls == summary["received"]
+	with pytest.raises(ValueError, match="changed"):
+		await collect_gateway(**(kwargs | {"attempt_budget": 6}))
+	(output / "campaign.json").unlink()
+	with pytest.raises(ValueError, match="interrupted"):
+		await collect_gateway(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_gateway_challenge_binding_and_proofs_share_the_campaign_budget(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway
+	from distillation.io import write_jsonl
+	from distillation.schemas import GatewayRequest, PromptRecord, PromptSource
+	from distillation.tasks import AG_NEWS_PROMPT
+
+	app, teacher, decisions = _app(
+		artifacts,
+		tmp_path,
+		[-1, -1, -1, 1e9],
+		HARNESS_TASK="gateway",
+		HARNESS_GATEWAY_CAPS={"ag_news": 16, "gsm8k": 256},
+	)
+
+	class Transport(httpx.ASGITransport):
+		async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+			request.headers["X-Benchmark-Actor"] = "one"
+			return await super().handle_async_request(request)
+
+	rows = [
+		GatewayRequest(
+			request_id=f"q{i}",
+			account="one",
+			time=0,
+			max_output_tokens=16,
+			prompt=PromptRecord(
+				example_id=f"p{i}",
+				task="ag_news",
+				split="train",
+				source=PromptSource(
+					corpus="test", source_id=str(i), group_id=str(i), license="test"
+				),
+				prompt=[Message(role="user", content=AG_NEWS_PROMPT.format(text=f"story{i}"))],
+			),
+		)
+		for i in range(5)
+	]
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	summary = await collect_gateway(
+		schedule=schedule,
+		output=tmp_path / "campaign",
+		url="http://gateway",
+		keys={"one": "key"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=3,
+		decision_log=decisions,
+		transport=Transport(app=app),
+	)
+	assert summary["queries"] == 3
+	assert summary["proof_requests"] == 1
+	assert summary["received"] == teacher.calls == 2
+	assert summary["hashes"] >= 1
+	async with httpx.AsyncClient(transport=Transport(app=app), base_url="http://gateway") as client:
+		invalid = await client.post(
+			"/v1/teacher/generate", json=_request("bad"), headers={"X-Gateway-Domain": "gsm8k"}
+		)
+		assert invalid.status_code == 422
+		malformed = await client.post(
+			"/v1/teacher/generate",
+			json=_request("unmatched free text"),
+			headers={"X-Gateway-Domain": "ag_news"},
+		)
+		assert malformed.status_code == 422
+		first = await client.post(
+			"/v1/teacher/generate",
+			json=_request(AG_NEWS_PROMPT.format(text="binding")),
+			headers={"X-Gateway-Domain": "ag_news"},
+		)
+		assert first.status_code == 428
+		challenge = first.json()["challenge"]
+		proof = solve_challenge(challenge["prefix"], challenge["difficulty"])
+		changed = _request(
+			"binding\nSolve step by step. End with #### followed by the final numeric answer."
+		) | {"max_output_tokens": 256}
+		second = await client.post(
+			"/v1/teacher/generate",
+			json=changed,
+			headers={
+				"X-Gateway-Domain": "gsm8k",
+				"X-Harness-Proof": f"{challenge['nonce']}:{proof}",
+			},
+		)
+		assert second.status_code == 403

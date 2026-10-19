@@ -243,7 +243,7 @@ def test_distill_scenario_keeps_its_own_ledger_and_resumes(
 		lambda self, host, port, upstream_url, api_log: steps.append("serve"),
 	)
 	monkeypatch.setattr(launcher.Launcher, "stop_background", lambda self: steps.append("stop"))
-	command = ["distill", "--tasks", "ag_news", "--seeds", "42,1"]
+	command = ["distill", "--mode", "tasks", "--tasks", "ag_news", "--seeds", "42,1"]
 	if budgets is not None:
 		command += ["--budgets", budgets]
 	planned = [manifest["roles"]["attacker"]] if budgets is None else [40, 80]
@@ -296,3 +296,20 @@ def test_detector_text_strips_each_task_template() -> None:
 	# Off-template turns and template-free services embed the whole turn.
 	assert detector_text("ag_news", "Summarize this.") == "Summarize this."
 	assert detector_text("text", squad) == squad
+
+
+def test_gateway_serialization_validates_the_declared_task_templates() -> None:
+	from coding.dataset import PROMPT
+	from harness.serialization import gateway_turn, valid_gateway_turn
+
+	turns = {
+		"ag_news": AG_NEWS_PROMPT.format(text="Markets rally"),
+		"squad": SQUAD_PROMPT.format(context="Paris is in France.", question="Where is Paris?"),
+		"gsm8k": "Add 2 and 3." + GSM8K_EVAL_SUFFIX,
+		"coding": PROMPT.format(specification="Return x + 1.", signature="def inc(x):"),
+	}
+	for domain, turn in turns.items():
+		assert valid_gateway_turn(domain, turn)
+		assert detector_text("gateway", gateway_turn(domain, turn)).startswith(f"{domain}\n")
+		assert not valid_gateway_turn(domain, "unmatched free text")
+		assert not valid_gateway_turn(domain, next(t for d, t in turns.items() if d != domain))

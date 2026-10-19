@@ -128,3 +128,45 @@ def schedule_command(
 		_write(output, requests, manifest)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("collect")
+def collect_command(
+	input_dir: Annotated[Path, typer.Option(help="Immutable gateway schedule directory.")],
+	output: Annotated[Path, typer.Option()],
+	teacher_url: str = "http://127.0.0.1:8003",
+	keys_file: Path | None = None,
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+	terms_review_id: Annotated[str, typer.Option(envvar="TEACHER_TERMS_REVIEW_ID")] = "",
+	decision_log: Path | None = None,
+	concurrency: Annotated[int, typer.Option(min=1)] = 4,
+) -> None:
+	"""Execute a schedule with one global HTTP budget and one combined response ledger."""
+	import asyncio
+
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway, digest
+
+	try:
+		manifest = json.loads((input_dir / "manifest.json").read_text())
+		schedule = input_dir / "requests.jsonl"
+		if digest(schedule) != manifest["sha256"][schedule.name]:
+			raise ValueError("gateway schedule hash does not match its manifest")
+		keys = json.loads(keys_file.read_text()) if keys_file else {"default": token}
+		result = asyncio.run(
+			collect_gateway(
+				schedule=schedule,
+				output=output,
+				url=teacher_url,
+				keys=keys,
+				options=CollectionOptions(
+					terms_review_id=terms_review_id, concurrency=concurrency, enable_thinking=False
+				),
+				attempt_budget=manifest["attempt_budget"],
+				deadline_seconds=manifest["deadline_seconds"],
+				decision_log=decision_log,
+			)
+		)
+		typer.echo(json.dumps(result, indent="\t"))
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
