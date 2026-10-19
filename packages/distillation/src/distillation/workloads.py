@@ -17,13 +17,17 @@ from distillation.schedules import pool_hashes, validate_pools
 from distillation.schemas import GatewayRequest, PromptRecord
 
 WORKLOAD_VERSION = "task-clients-v2"
-GATEWAY_WORKLOAD_VERSION = "gateway-clients-v2"
+GATEWAY_WORKLOAD_VERSION = "gateway-clients-v3"
 CLIENT_TYPES = ("specialist", "repetitive", "batch", "bursty", "short")
 # Specialist and repetitive clients send concentrated windows that score above any broad window,
 # so their share sets the benign null's upper tail. The v1 workloads used an equal five-way
 # split (0.4); detectability is reported across a sweep of this share.
 DEFAULT_CONCENTRATED_SHARE = 0.1
 LEGACY_CONCENTRATED_SHARE = 0.4
+# Benign gateway account lengths: Pareto shape and cap. With a 100-request minimum, about 35%
+# of non-short accounts exceed 200 requests and 9% exceed 500.
+DEFAULT_LENGTH_TAIL = 1.5
+DEFAULT_MAX_REQUESTS_PER_ACCOUNT = 2000
 
 
 def client_shares(concentrated: float) -> dict[str, float]:
@@ -170,6 +174,19 @@ def workload_summary(
 	}
 
 
+def account_length(base: int, tail: float | None, limit: int, seed: int, index: int) -> int:
+	"""A seeded Pareto length with minimum `base` and shape `tail`, capped at `limit`.
+
+	Fixed lengths at the window size let no benign account accumulate evidence or exceed a
+	per-horizon quota fitted to the same lengths, so the default draws a heavy tail.
+	"""
+	if tail is None:
+		return base
+	u = random.Random(f"{seed}:gateway-length:{index}").random()
+	drawn: float = base * (1 - u) ** (-1 / tail)
+	return min(limit, max(base, math.floor(drawn)))
+
+
 def mixed_clients(
 	*,
 	pools: Mapping[str, Sequence[PromptRecord]],
@@ -181,6 +198,8 @@ def mixed_clients(
 	seed: int = 42,
 	references: Mapping[str, BenchmarkItem] | None = None,
 	concentrated: float = DEFAULT_CONCENTRATED_SHARE,
+	length_tail: float | None = DEFAULT_LENGTH_TAIL,
+	max_requests_per_account: int = DEFAULT_MAX_REQUESTS_PER_ACCOUNT,
 ) -> tuple[list[GatewayRequest], dict[str, Any]]:
 	"""Build specialist and generalist accounts independently of timing/repetition style.
 
@@ -191,6 +210,11 @@ def mixed_clients(
 	Generalists use two or more domains. Prompts are consumed without replacement, except
 	for disclosed repetition within repetitive accounts. Source sharing within a role is
 	retained for clustered uncertainty; callers must use disjoint pools for different roles.
+
+	Non-short accounts draw a Pareto length with minimum `requests_per_account` and shape
+	`length_tail`, capped at `max_requests_per_account`; `None` keeps fixed lengths. Every
+	account first receives its minimum length, then long accounts extend from the capacity
+	left in their domains. Requested and achieved lengths are both recorded.
 	"""
 	from distillation.tasks import LEGITIMATE_ROLES
 
@@ -201,6 +225,10 @@ def mixed_clients(
 		raise ValueError("accounts must be positive")
 	if type(requests_per_account) is not int or requests_per_account < 1:
 		raise ValueError("requests_per_account must be positive")
+	if type(max_requests_per_account) is not int or max_requests_per_account < requests_per_account:
+		raise ValueError("max_requests_per_account must be at least requests_per_account")
+	if length_tail is not None and (not math.isfinite(length_tail) or length_tail <= 0):
+		raise ValueError("length_tail must be positive or None")
 	if not math.isfinite(generalist_share) or not 0 <= generalist_share <= 1:
 		raise ValueError("generalist_share must be between zero and one")
 	if references is not None and any(
@@ -224,8 +252,18 @@ def mixed_clients(
 	generalist_count = math.floor(accounts * generalist_share + 0.5)
 	generalists = set(rng.sample(range(accounts), generalist_count))
 	rng.shuffle(domains)
+	# Specialists follow pool capacity, so a small domain such as GSM8K is not exhausted by
+	# an equal share of a large workload. Smooth weighted round-robin keeps it deterministic.
+	capacity = {domain: len(ordered[domain]) for domain in domains}
+	assigned: Counter[str] = Counter()
+	specialist_domains = []
+	for slot in range(accounts):
+		total = sum(capacity.values())
+		domain = max(domains, key=lambda d: capacity[d] / total * (slot + 1) - assigned[d])
+		assigned[domain] += 1
+		specialist_domains.append(domain)
 	cursors: Counter[str] = Counter()
-	requests = []
+	plans = []
 	for index, kind in enumerate(assign_types(accounts, client_shares(concentrated))):
 		length = min(requests_per_account, 20) if kind == "short" else requests_per_account
 		unique = math.ceil(length / 3) if kind == "repetitive" else length
@@ -235,7 +273,7 @@ def mixed_clients(
 		chosen = (
 			rng.sample(domains, rng.randint(2, min(len(domains), unique)))
 			if is_generalist
-			else [domains[index % len(domains)]]
+			else [specialist_domains[index]]
 		)
 		chunk = []
 		for offset in range(unique):
@@ -244,8 +282,36 @@ def mixed_clients(
 				raise ValueError(f"mixed benign clients exhaust {domain} pool; reduce account load")
 			chunk.append(ordered[domain][cursors[domain]])
 			cursors[domain] += 1
+		target = (
+			length
+			if kind == "short"
+			else account_length(
+				requests_per_account, length_tail, max_requests_per_account, seed, index
+			)
+		)
 		if kind == "repetitive":
-			chunk = [prompt for prompt in chunk for _ in range(3)][:length]
+			# Extended repetitive accounts end on a complete triple.
+			target = max(length, target - target % 3)
+		plans.append((index, kind, is_generalist, chosen, chunk, target))
+	requested: dict[str, int] = {}
+	limited: list[str] = []
+	requests = []
+	for index, kind, is_generalist, chosen, chunk, target in plans:
+		account = f"{role}-gateway-{index:05d}"
+		requested[account] = target
+		wanted = math.ceil(target / 3) if kind == "repetitive" else target
+		step = len(chunk)
+		while len(chunk) < wanted:
+			available = [d for d in chosen if cursors[d] < len(ordered[d])]
+			if not available:
+				limited.append(account)
+				break
+			domain = available[step % len(available)]
+			chunk.append(ordered[domain][cursors[domain]])
+			cursors[domain] += 1
+			step += 1
+		if kind == "repetitive":
+			chunk = [prompt for prompt in chunk for _ in range(3)][:target]
 		for offset, prompt in enumerate(chunk):
 			at = offset * 0.1 if kind == "batch" else offset * 2.0
 			if kind == "bursty":
@@ -253,7 +319,7 @@ def mixed_clients(
 			requests.append(
 				GatewayRequest(
 					request_id=f"{role}-gateway-{index:05d}-{offset:05d}",
-					account=f"{role}-gateway-{index:05d}",
+					account=account,
 					time=at,
 					prompt=prompt,
 					max_output_tokens=caps[prompt.task],
@@ -276,6 +342,15 @@ def mixed_clients(
 		"generalist_share_achieved": generalist_count / accounts,
 		"generalist_accounts": generalist_count,
 		"requests_per_account_requested": requests_per_account,
+		"specialist_domain_rule": "weighted round-robin by role pool size",
+		"length_distribution": {
+			"minimum": requests_per_account,
+			"pareto_shape": length_tail,
+			"maximum": max_requests_per_account,
+			"short_accounts": "capped at 20",
+		},
+		"account_lengths_requested": dict(sorted(requested.items())),
+		"capacity_limited_accounts": sorted(limited),
 		"requests": len(requests),
 		"domain_requests": dict(sorted(Counter(r.domain for r in requests).items())),
 		"domain_unique_prompts": dict(cursors),
@@ -286,6 +361,8 @@ def mixed_clients(
 		"account_lengths": {account: len(rows) for account, rows in sorted(by_account.items())},
 		"client_types": dict(Counter(rows[0].client_type for rows in by_account.values())),
 		"scored_accounts": sum(len(rows) >= 100 for rows in by_account.values()),
+		"complete_100_request_windows": sum(len(rows) // 100 for rows in by_account.values()),
+		"multi_window_accounts": sum(len(rows) >= 200 for rows in by_account.values()),
 		"source_documents": len(
 			{(r.prompt.source.corpus, r.prompt.source.group_id) for r in requests}
 		),
@@ -302,7 +379,7 @@ def mixed_clients(
 			else "domain only"
 			for domain, pool in sorted(pools.items())
 		},
-		"arrival_times": "synthetic, accounts start together; short accounts capped at 20",
+		"arrival_times": "synthetic, accounts start together",
 		"max_output_tokens": dict(caps),
 		"pool_sha256": pool_hashes(pools),
 		"execution_status": "not_run",

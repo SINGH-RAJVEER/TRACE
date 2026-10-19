@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from distillation.benchmarks.models import BenchmarkItem
+from distillation.external_sources import EXTERNAL_SOURCES
 from distillation.gateway_cli import app
 from distillation.io import read_jsonl, write_jsonl
 from distillation.schedules import Attack, campaign_schedule
@@ -156,6 +157,54 @@ def test_mixed_benign_profiles_preserve_domain_identity_and_disclose_realized_mi
 		requests_per_account=30,
 		concentrated=LEGACY_CONCENTRATED_SHARE,
 	)
+
+
+def test_benign_account_lengths_are_heavy_tailed_and_capacity_limited() -> None:
+	pools = _pools(2000, split="test")
+	rows, manifest = mixed_clients(
+		pools=pools, caps=CAPS, role="benign_test", accounts=30, requests_per_account=30
+	)
+	lengths = Counter(r.account for r in rows)
+	kinds = {r.account: r.client_type for r in rows}
+	long = [n for account, n in lengths.items() if kinds[account] != "short"]
+	assert min(long) >= 30 and max(long) > 60
+	assert manifest["multi_window_accounts"] == sum(n >= 200 for n in lengths.values())
+	assert manifest["length_distribution"]["pareto_shape"] == 1.5
+	assert all(
+		lengths[a] == manifest["account_lengths_requested"][a]
+		for a in lengths
+		if a not in manifest["capacity_limited_accounts"]
+	)
+	fixed, _ = mixed_clients(
+		pools=pools,
+		caps=CAPS,
+		role="benign_test",
+		accounts=30,
+		requests_per_account=30,
+		length_tail=None,
+	)
+	assert {n for a, n in Counter(r.account for r in fixed).items() if kinds[a] != "short"} == {30}
+	# A tail larger than the pools is cut at the remaining capacity and disclosed.
+	small, small_manifest = mixed_clients(
+		pools=_pools(120, split="test"),
+		caps=CAPS,
+		role="benign_test",
+		accounts=6,
+		requests_per_account=20,
+		max_requests_per_account=2000,
+		length_tail=0.2,
+	)
+	assert small_manifest["capacity_limited_accounts"]
+	assert len({r.prompt.example_id for r in small}) <= 360
+	with pytest.raises(ValueError, match="max_requests_per_account"):
+		mixed_clients(
+			pools=pools,
+			caps=CAPS,
+			role="benign_test",
+			accounts=2,
+			requests_per_account=30,
+			max_requests_per_account=10,
+		)
 
 
 def test_concentrated_share_sets_the_benign_client_mix() -> None:
@@ -425,3 +474,54 @@ async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path:
 	assert result["queries"] == result["deadline"] == 2
 	assert result["pending"] == result["received"] == 0
 	assert set(result["termination_by_account"].values()) == {"deadline"}
+
+
+def _external(pools: dict[str, list[PromptRecord]]) -> dict[str, list[PromptRecord]]:
+	return {
+		domain: [
+			p.model_copy(
+				update={
+					"example_id": p.example_id.replace(domain, f"{domain}-external", 1),
+					"source": p.source.model_copy(
+						update={"corpus": EXTERNAL_SOURCES[domain].dataset.repository}
+					),
+				}
+			)
+			for p in pool
+		]
+		for domain, pool in pools.items()
+	}
+
+
+def test_extended_strategies_share_one_budget_and_disclose_their_sources() -> None:
+	pools = _pools()
+	external = _external(pools)
+	sybil, manifest = campaign_schedule(pools=pools, caps=CAPS, attack="A6", budget=60)
+	baseline, _ = campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=60)
+	assert {r.prompt.example_id for r in sybil} == {r.prompt.example_id for r in baseline}
+	assert len(manifest["accounts"]) == 6
+	assert all(len(domains) >= 2 for domains in manifest["account_domains"].values())
+	independent, manifest = campaign_schedule(pools=external, caps=CAPS, attack="A7", budget=60)
+	assert manifest["prompt_sources"] == "independent external"
+	assert len({r.account for r in independent}) == 1
+	assert all(
+		r.prompt.source.corpus == EXTERNAL_SOURCES[r.domain].dataset.repository for r in independent
+	)
+	covered, manifest = campaign_schedule(
+		pools=external, caps=CAPS, attack="A3", budget=60, cover_pools=pools, cover_share=0.5
+	)
+	kinds = Counter(r.client_type for r in covered)
+	assert kinds == {"cover": 30, "extraction": 30}
+	assert manifest["attempt_budget"] == len(covered) == 60
+	assert sum(manifest["cover_allocation"].values()) == 30
+	assert all((r.client_type == "cover") == (r.prompt.source.corpus == r.domain) for r in covered)
+	with pytest.raises(ValueError, match="external"):
+		campaign_schedule(pools=pools, caps=CAPS, attack="A7", budget=60)
+	with pytest.raises(ValueError, match="task attacker pools"):
+		campaign_schedule(pools=external, caps=CAPS, attack="A1", budget=60)
+	with pytest.raises(ValueError, match="cover pools"):
+		campaign_schedule(pools=external, caps=CAPS, attack="A3", budget=60)
+	with pytest.raises(ValueError, match="disjoint"):
+		campaign_schedule(pools=external, caps=CAPS, attack="A3", budget=60, cover_pools=external)
+	with pytest.raises(ValueError, match="at least two accounts"):
+		campaign_schedule(pools=pools, caps=CAPS, attack="A6", budget=60, accounts=1)

@@ -30,6 +30,27 @@ def percentile(values: list[float], fraction: float) -> float | None:
 	return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
+QUANTILES = (0.5, 0.9, 0.95, 0.99)
+
+
+def distribution(values: list[float]) -> dict[str, Any]:
+	"""Count, mean, max, and p50/p90/p95/p99 by linear interpolation.
+
+	A quantile q is `supported` only with at least 1/(1 - q) observations; below that it is
+	an interpolation toward the sample maximum, not an estimate of the tail.
+	"""
+	result: dict[str, Any] = {
+		"n": len(values),
+		"mean": sum(values) / len(values) if values else None,
+		"max": max(values) if values else None,
+	}
+	for q in QUANTILES:
+		name = f"p{round(q * 100)}"
+		result[name] = percentile(values, q)
+		result[f"{name}_supported"] = len(values) >= math.ceil(1 / (1 - q) - 1e-9)
+	return result
+
+
 def mean_ci(values: list[float]) -> list[float]:
 	"""Normal-approximation 95% interval for a mean, in percent."""
 	if len(values) < 2:
@@ -74,7 +95,9 @@ def summarize(samples: list[SampleResult]) -> dict[str, Any]:
 		"ci95": wilson(correct, len(samples)),
 		"statuses": dict(Counter(s.status for s in samples)),
 		"latency_p50": percentile(latencies, 0.5),
+		"latency_p90": percentile(latencies, 0.9),
 		"latency_p95": percentile(latencies, 0.95),
+		"latency_p99": percentile(latencies, 0.99),
 		"tokens_per_second": tokens / seconds if seconds else None,
 		"token_coverage": len(known) / len(samples) if samples else 0,
 		**_f1_summary(samples),

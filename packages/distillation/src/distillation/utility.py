@@ -13,6 +13,7 @@ from anyio import Path as AsyncPath
 from harness.calibration import BenignRequest
 
 from distillation.benchmarks.models import BenchmarkItem, save_json
+from distillation.benchmarks.reporting import distribution
 from distillation.benchmarks.scoring import evaluate_answer
 from distillation.campaign import AttemptFailed, BudgetExhausted, PolicyRefusal, ProtectedTeacher
 from distillation.schemas import TeacherGenerationRequest
@@ -160,7 +161,7 @@ async def measure_utility(
 	await asyncio.gather(*(client(account, rows) for account, rows in streams.items()))
 	elapsed = time.monotonic() - started
 	served = [r for r in results if r["received"]]
-	latencies = sorted(r["latency_seconds"] for r in served)
+	latency = distribution([r["latency_seconds"] for r in served])
 	summary = {
 		"contract": contract,
 		"submitted": len(results),
@@ -170,15 +171,17 @@ async def measure_utility(
 		"completion_rate": len(served) / len(results),
 		"elapsed_seconds": elapsed,
 		"throughput": len(served) / elapsed,
-		"latency_p50": statistics.median(latencies) if latencies else None,
-		"latency_p95": latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
-		if latencies
-		else None,
+		**{f"latency_{q}": latency[q] for q in ("p50", "p90", "p95", "p99")},
+		"latency_seconds": latency,
+		"service_and_queue_seconds": distribution([r["service_and_queue_seconds"] for r in served]),
 		"strata": {
 			field: {
 				str(value): {
 					"submitted": len(rows),
 					"served": sum(r["received"] for r in rows),
+					"latency_seconds": distribution(
+						[r["latency_seconds"] for r in rows if r["received"]]
+					),
 					"unconditional_utility": statistics.fmean(r["quality"] for r in rows),
 					"served_only_quality": statistics.fmean(
 						r["quality"] for r in rows if r["received"]

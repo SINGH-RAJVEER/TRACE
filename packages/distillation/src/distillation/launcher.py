@@ -819,7 +819,7 @@ def start_command(
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared gateway is the default; tasks selects the legacy study."),
 	] = "gateway",
-	attacks: str = "A1,A2,A5",
+	attacks: str = "A1,A2,A5,A7",
 	interval_seconds: Annotated[float, typer.Option(min=0)] = 1,
 	deadline_seconds: Annotated[float, typer.Option(min=0)] = 86400,
 	benign_accounts: Annotated[int, typer.Option(min=1)] = 20,

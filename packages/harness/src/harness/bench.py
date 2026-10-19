@@ -20,15 +20,16 @@ from harness.mmd import Array, WindowScorer
 from harness.policy import MMDPolicy
 from harness.serialization import detector_text
 
+QUANTILES = (50, 90, 95, 99)
+
 
 def _quantiles(seconds: list[float]) -> dict[str, float | int | None]:
 	if not seconds:
-		return {"n": 0, "p50_ms": None, "p95_ms": None}
+		return {"n": 0, **{f"p{q}_ms": None for q in QUANTILES}}
 	values = np.asarray(seconds) * 1000
 	return {
 		"n": len(seconds),
-		"p50_ms": float(np.percentile(values, 50)),
-		"p95_ms": float(np.percentile(values, 95)),
+		**{f"p{q}_ms": float(np.percentile(values, q)) for q in QUANTILES},
 	}
 
 
