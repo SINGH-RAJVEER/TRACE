@@ -34,6 +34,11 @@ class HarnessConfig(BaseModel):
 	task: Task = "text"
 	window_size: int = Field(default=100, ge=2)
 	reference_windows: int = Field(default=20, ge=1)
+	# Score-calibration windows start every `null_stride` requests within an account, so the
+	# null resolves smaller p-values from a pool that bounds the number of benign accounts.
+	# Overlapping windows are dependent; counts record the independent windows too. None uses
+	# a quarter window; window_size reproduces non-overlapping null windows.
+	null_stride: int | None = Field(default=None, ge=1)
 	bandwidth_sample: int = Field(default=2000, ge=2)
 	scales: tuple[float, ...] = SCALES
 	# Nominal benign targets for reaching L1 to L4 at least once in a horizon.
@@ -68,7 +73,10 @@ class BenignRequest(BaseModel):
 class LevelThresholds(BaseModel):
 	thresholds: list[float]
 	achieved: list[float]
+	# Horizons fitted: scored horizons for accumulators, all horizons for block baselines.
 	units: int
+	# One-sided 95% Clopper-Pearson upper bounds on each achieved rate over `units`.
+	upper95: list[float] = Field(default_factory=list)
 
 
 class AggregateCalibration(BaseModel):
@@ -101,6 +109,60 @@ class Calibration(BaseModel):
 	aggregate: AggregateCalibration | None = None
 	aggregate_skipped: str | None = None
 	_aggregate_references: Array | None = PrivateAttr(default=None)
+
+	def adequacy(
+		self, *, accumulators: tuple[str, ...] = (), baselines: tuple[str, ...] = ()
+	) -> dict[str, Any]:
+		"""Minimum resolution for selected study defenses, not a false-positive guarantee.
+
+		Overlapping score windows do not count toward the minimum null size. Scored policy
+		horizons must permit at least one exceedance at the smallest target, and selected MMD
+		levels must remain distinct. Legacy artifacts without scored counts fail closed.
+		"""
+		target = min(self.config.level_targets)
+		minimum_policy = math.ceil(1 / target)
+		minimum_score = minimum_policy - 1
+		null_windows = self.counts.get("score_calibration_independent_windows", 0)
+		scored = self.counts.get("policy_calibration_scored_horizons", 0)
+		reasons = []
+		if accumulators:
+			if null_windows < minimum_score:
+				reasons.append(
+					f"{null_windows} non-overlapping score windows; need {minimum_score}"
+				)
+			if scored < minimum_policy:
+				reasons.append(f"{scored} scored policy horizons; need {minimum_policy}")
+			for name in accumulators:
+				fitted = self.thresholds.get(name)
+				if fitted is None or fitted.units != scored:
+					reasons.append(f"{name}: missing thresholds or incompatible scored denominator")
+				elif (
+					len(fitted.thresholds) != LEVELS
+					or any(not math.isfinite(value) for value in fitted.thresholds)
+					or any(
+						a >= b
+						for a, b in zip(fitted.thresholds, fitted.thresholds[1:], strict=False)
+					)
+				):
+					reasons.append(f"{name}: level thresholds are collapsed or invalid")
+		for name in baselines:
+			fitted = self.baselines.get(name)
+			if fitted is None or fitted.units < minimum_policy:
+				reasons.append(f"{name}: need {minimum_policy} baseline policy horizons")
+		return {
+			"rule": "calibration-resolution-v1",
+			"passed": not reasons,
+			"reasons": reasons,
+			"accumulators": list(accumulators),
+			"baselines": list(baselines),
+			"minimum_score_windows": minimum_score,
+			"minimum_policy_horizons": minimum_policy,
+			"nonoverlapping_score_windows": null_windows,
+			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
+			"scored_policy_horizons": scored,
+			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
+			"interpretation": "minimum resolution only; not evidence of population error control",
+		}
 
 	def p_value(self, score: float) -> float:
 		"""Paper Eq. 3: the upper-tail rank of a score among benign calibration scores."""
@@ -188,8 +250,29 @@ def interleave(
 	return order, "round_robin"
 
 
-def complete_windows(count: int, size: int) -> list[range]:
-	return [range(start, start + size) for start in range(0, count - size + 1, size)]
+def complete_windows(count: int, size: int, stride: int | None = None) -> list[range]:
+	return [range(start, start + size) for start in range(0, count - size + 1, stride or size)]
+
+
+def binomial_upper(successes: int, trials: int, confidence: float = 0.95) -> float:
+	"""One-sided Clopper-Pearson upper bound for a binomial rate, by bisection."""
+	if trials < 1 or not 0 <= successes <= trials:
+		raise ValueError("binomial bound needs 0 <= successes <= trials and trials >= 1")
+	if successes == trials:
+		return 1.0
+	alpha = 1 - confidence
+
+	def cdf(rate: float) -> float:
+		return sum(
+			math.comb(trials, k) * rate**k * (1 - rate) ** (trials - k)
+			for k in range(successes + 1)
+		)
+
+	low, high = successes / trials, 1.0
+	for _ in range(60):
+		middle = (low + high) / 2
+		low, high = (middle, high) if cdf(middle) > alpha else (low, middle)
+	return high
 
 
 def fit_threshold(values: list[float], target: float) -> tuple[float, float]:
@@ -211,10 +294,13 @@ def nested_thresholds(values: list[float], targets: Iterable[float]) -> LevelThr
 	for target in targets:
 		threshold, _ = fit_threshold(values, target)
 		thresholds.append(max([threshold, *thresholds[-1:]]))
-	achieved = [
-		sum(value > threshold for value in values) / len(values) for threshold in thresholds
-	]
-	return LevelThresholds(thresholds=thresholds, achieved=achieved, units=len(values))
+	exceeded = [sum(value > threshold for value in values) for threshold in thresholds]
+	return LevelThresholds(
+		thresholds=thresholds,
+		achieved=[count / len(values) for count in exceeded],
+		units=len(values),
+		upper95=[binomial_upper(count, len(values)) for count in exceeded],
+	)
 
 
 def requests_sha256(requests: list[BenignRequest]) -> str:
@@ -290,7 +376,10 @@ def calibrate(
 	scorer = WindowScorer(references, sigma, config.scales)
 
 	def stream_scores(
-		requests: list[BenignRequest], label: str, embedded: Array | None = None
+		requests: list[BenignRequest],
+		label: str,
+		embedded: Array | None = None,
+		stride: int | None = None,
 	) -> list[list[list[float]]]:
 		"""Window scores per account, then per horizon, in order."""
 		streams = account_streams(requests)
@@ -309,7 +398,7 @@ def calibrate(
 				per_horizon.append(
 					[
 						scorer.score(embedded[[members[i] for i in window]])
-						for window in complete_windows(len(members), size)
+						for window in complete_windows(len(members), size, stride)
 					]
 				)
 			result.append(per_horizon)
@@ -317,11 +406,15 @@ def calibrate(
 
 	report(f"embedding {len(score_calibration):,} score-calibration requests")
 	null_embedded = embed(score_calibration, "score_calibration")
+	stride = config.null_stride or max(1, size // 4)
+	null_streams = stream_scores(score_calibration, "score-calibration", null_embedded, stride)
 	null_scores = sorted(
-		score
-		for account in stream_scores(score_calibration, "score-calibration", null_embedded)
-		for horizon in account
-		for score in horizon
+		score for account in null_streams for horizon in account for score in horizon
+	)
+	independent_null = sum(
+		len(horizon) // size
+		for stream in account_streams(score_calibration).values()
+		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts)
 	)
 	if not null_scores:
 		raise ValueError("score calibration produced no complete windows")
@@ -340,8 +433,14 @@ def calibrate(
 		for account in stream_scores(policy_calibration, "policy-calibration")
 		for horizon in account
 	]
+	# Thresholds are fitted on scored horizons only: an unscored horizon has statistic 0 and
+	# can never escalate, so counting it would loosen every level's rate among scorable
+	# accounts. The all-horizon rate is then at most each target times the scored fraction.
+	scored_units = [scores for scores in units if scores]
+	if not scored_units:
+		raise ValueError("policy calibration has no horizon with a complete window")
 	maxima: dict[str, list[float]] = {name: [] for name in config.accumulators}
-	for scores in units:
+	for scores in scored_units:
 		p_values = [calibration.p_value(score) for score in scores]
 		for name, spec in config.accumulators.items():
 			state, peak = 0.0, 0.0
@@ -356,10 +455,13 @@ def calibrate(
 		"fitting_requests": len(fitting),
 		"score_calibration_requests": len(score_calibration),
 		"score_calibration_windows": len(null_scores),
+		"score_calibration_independent_windows": independent_null,
+		"score_calibration_stride": stride,
 		"policy_calibration_requests": len(policy_calibration),
 		"policy_calibration_accounts": len(account_streams(policy_calibration)),
 		"policy_calibration_horizons": len(units),
-		"policy_calibration_unscored_horizons": sum(not scores for scores in units),
+		"policy_calibration_scored_horizons": len(scored_units),
+		"policy_calibration_unscored_horizons": len(units) - len(scored_units),
 		**truncated,
 	}
 	policy_horizons = [

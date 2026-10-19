@@ -535,6 +535,28 @@ class Study:
 				"to run the study as a quota comparison"
 			)
 
+	def require_calibration(self, task: str, path: Path) -> None:
+		"""Reject degenerate selected defenses, including when reusing a saved calibration."""
+		from harness.calibration import load_calibration
+
+		calibration, _ = load_calibration(path)
+		selected = [DEFENSES[arm] for arm in self.arms]
+		report = calibration.adequacy(
+			accumulators=tuple(dict.fromkeys(a for p, a in selected if p == "mmd")),
+			baselines=tuple(dict.fromkeys(p for p, _ in selected if p != "mmd")),
+		)
+		save_json(self.root / task / "calibration-adequacy.json", report)
+		if not report["passed"]:
+			save_json(
+				self.root / "status.json",
+				{"status": "calibration_gate_failed", "task": task, "reasons": report["reasons"]},
+			)
+			raise LaunchError(
+				f"{task}: inadequate calibration: {'; '.join(report['reasons'])}. "
+				"Supply more disjoint benign calibration data in a new run directory. "
+				"Undefended distillation remains available through distill."
+			)
+
 	def calibration_report(self, task: str, path: Path) -> None:
 		"""Record the per-task calibration settings the paper discloses in Section III-B."""
 		from harness.calibration import load_calibration
@@ -888,6 +910,7 @@ class Study:
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
 				"protocol_version": "task-study-v5",
+				"calibration_gate": "calibration-resolution-v1",
 				"transfer_analysis": analysis_protocol(self.minimum_gain, self.pipeline.tasks),
 				"study_kind": "separate_task",
 				"budget_plan": "budgets.json",
@@ -916,6 +939,8 @@ class Study:
 			{task: self.pipeline.manifest(task) for task in self.pipeline.tasks},
 		)
 		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
+		for task, path in calibrations.items():
+			self.require_calibration(task, path)
 		from harness.calibration import load_calibration
 
 		freeze(

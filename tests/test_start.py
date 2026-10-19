@@ -186,6 +186,9 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
 	monkeypatch.setattr(Study, "calibrate", lambda self, task: Path("calibration"))
 	monkeypatch.setattr(Study, "calibration_report", lambda self, task, path: None)
+	monkeypatch.setattr(
+		Study, "require_calibration", lambda self, task, path: steps.append("calibration gate")
+	)
 	monkeypatch.setattr(Study, "benign_holdout", lambda self, task, path: None)
 	monkeypatch.setattr(Study, "detectability", lambda self, task, path: {"mmd_signal": True})
 	from types import SimpleNamespace
@@ -360,6 +363,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
 	harnesses = [step for step in steps if step.startswith("harness")]
+	assert steps.index("calibration gate") < steps.index("serve")
 	assert harnesses == ["harness full", "harness instantaneous", "harness quota"]
 	assert steps.index("train baseline") < steps.index(harnesses[0])
 	assert steps.index(harnesses[-1]) < steps.index("train protected")
