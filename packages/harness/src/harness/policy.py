@@ -99,15 +99,18 @@ class _HorizonPolicy:
 
 	def _state(self, account: str, now: float) -> AccountState:
 		state = self.accounts.get(account)
-		if (
-			state is None
-			or state.attempts >= self.horizon_attempts
-			or now - state.horizon_start >= self.horizon_seconds
-		):
+		if state is None or now - state.horizon_start >= self.horizon_seconds:
 			state = AccountState(horizon_start=now)
 			self.accounts[account] = state
 		state.attempts += 1
 		return state
+
+	def _at_capacity(self, account: str, state: AccountState, now: float) -> Decision | None:
+		"""The attempt cap denies new admissions; only elapsed time can renew it."""
+		if state.attempts > self.horizon_attempts:
+			state.level = 4
+			return Decision(account, state.attempts, 4, "refuse", now)
+		return None
 
 
 class AllowPolicy(_HorizonPolicy):
@@ -141,6 +144,8 @@ class QuotaPolicy(_HorizonPolicy):
 		binding: str | None = None,
 	) -> Decision:
 		state = self._state(account, now)
+		if capped := self._at_capacity(account, state, now):
+			return capped
 		if state.level >= 4 or state.attempts > self.quota:
 			state.level = 4
 			return Decision(account, state.attempts, 4, "refuse", now)
@@ -163,6 +168,10 @@ class RatePolicy(_HorizonPolicy):
 		binding: str | None = None,
 	) -> Decision:
 		state = self._state(account, now)
+		if capped := self._at_capacity(account, state, now):
+			return capped
+		if state.level >= 4:
+			return Decision(account, state.attempts, 4, "refuse", now)
 		state.recent.append(now)
 		while state.recent and state.recent[0] <= now - 60:
 			state.recent.popleft()
@@ -206,6 +215,7 @@ class MMDPolicy(_HorizonPolicy):
 		witness_size: int = 5,
 		actions: Literal["graduated", "direct"] = "graduated",
 	) -> None:
+		calibration.require_current_policy()
 		config: HarnessConfig = calibration.config
 		if config.task == "coding" and l4_action == "deceive":
 			raise ValueError("coding deception is not implemented; use L4 refusal")
@@ -265,6 +275,8 @@ class MMDPolicy(_HorizonPolicy):
 		passes the whole canonical request so a solution cannot be reused with other settings."""
 		bound = text if binding is None else binding
 		state = self._state(account, now)
+		if capped := self._at_capacity(account, state, now):
+			return capped
 		if state.level >= 4:
 			action, release_at, challenge, deceive = self._respond(account, state, text, now, bound)
 			return Decision(

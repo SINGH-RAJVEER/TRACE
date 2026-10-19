@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import httpx
 from anyio import Path as AsyncPath
+from harness.calibration import HORIZON_POLICY
 
 from distillation.collection import CollectionOptions, _collect_one
 from distillation.io import append_jsonl, read_jsonl
@@ -316,7 +317,7 @@ async def collect_campaign(
 			(
 				f"campaign-v2:{campaign_contract(prompts_path, options)}"
 				f":{limit}:{deadline_seconds}:{levels}:{SOLVER_VERSION}:{teacher.solver.workers}"
-				f":{CHUNK_HASHES}"
+				f":{CHUNK_HASHES}:{HORIZON_POLICY}"
 			).encode()
 		).hexdigest()
 		events = summary_path.with_suffix(".events.jsonl")
@@ -391,6 +392,7 @@ async def collect_campaign(
 			"ledger_records": len(read_jsonl(ledger_path, LedgerRecord)),
 			"challenges": teacher.challenges,
 			"challenge_seconds": teacher.challenge_seconds,
+			"horizon_policy": HORIZON_POLICY,
 			"hashes": teacher.hashes,
 			"solver": {
 				"version": SOLVER_VERSION,

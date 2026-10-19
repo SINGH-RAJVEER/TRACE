@@ -24,6 +24,7 @@ def make_policy(
 	actions: Literal["graduated", "direct"] = "graduated",
 ) -> Policy:
 	config = calibration.config
+	calibration.require_current_policy()
 	horizon = (config.horizon_seconds, config.horizon_attempts)
 	if name == "allow":
 		return AllowPolicy(*horizon)
@@ -128,6 +129,7 @@ def replay(
 		else ({4} if policy != "allow" else set())
 	)
 	return {
+		"horizon_policy": calibration.horizon_policy,
 		"policy": policy,
 		"accumulator": accumulator if policy == "mmd" else None,
 		"actions": actions if policy == "mmd" else None,

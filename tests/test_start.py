@@ -626,7 +626,10 @@ def test_study_report_uses_only_budgets_that_fit_each_task(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: Path) -> None:
+@pytest.mark.parametrize("time_reset", [False, True])
+async def test_refusals_and_time_resets_preserve_campaign_attempt_budget(
+	tmp_path: Path, time_reset: bool
+) -> None:
 	from distillation.io import write_jsonl
 	from distillation.schemas import PromptSource
 	from harness.policy import QuotaPolicy
@@ -649,7 +652,8 @@ async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: 
 
 	async def response(request: httpx.Request) -> httpx.Response:
 		payload = TeacherGenerationRequest.model_validate_json(request.content)
-		decision = policy.admit("extractor", payload.messages[-1].content, 0)
+		now = (int(payload.messages[-1].content) // 3) * 86400 if time_reset else 0
+		decision = policy.admit("extractor", payload.messages[-1].content, now)
 		if decision.action == "refuse":
 			return httpx.Response(403, headers={"X-Harness-Decision": "block"})
 		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
@@ -667,8 +671,8 @@ async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: 
 		max_requests=7,
 	)
 	assert result["queries"] == result["attempt_budget"] == 7
-	assert result["received"] == 3
-	assert result["blocked"] == 4
+	assert result["received"] == (3 if time_reset else 1)
+	assert result["blocked"] == (4 if time_reset else 6)
 	assert result["termination"] == "attempt_budget"
 	events = [
 		json.loads(line) for line in (tmp_path / "campaign.events.jsonl").read_text().splitlines()
