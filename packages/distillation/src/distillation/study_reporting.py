@@ -63,6 +63,87 @@ def defense_effect(
 	}
 
 
+CONTROLS = ("matched-volume", "matched-prefix")
+UTILITY_FIELDS = (
+	"submitted",
+	"served",
+	"served_only_quality",
+	"unconditional_utility",
+	"completion_rate",
+	"latency_p50",
+	"latency_p95",
+	"strata",
+)
+
+
+def _load(path: Path) -> Any:
+	return json.loads(path.read_text()) if path.exists() else None
+
+
+def _student_after(report: dict[str, Any]) -> list[SampleResult]:
+	return [SampleResult.model_validate(s["results"]["student_after"]) for s in report["samples"]]
+
+
+def _controls(directory: Path, task: str, arm: str, defended: dict[str, Any]) -> dict[str, Any]:
+	"""Undefended responses matched to the defended released tokens, scored on the same suite."""
+	results = {}
+	for name in CONTROLS:
+		tokens = _load(directory / "protected" / arm / name / "control.json")
+		report = _load(directory / f"report.{arm}-{name}.json")
+		if report and report["suite"]["sha256"] != defended["suite"]["sha256"]:
+			raise ValueError("control comparison mixes frozen suites")
+		if report:
+			status = "reported"
+		elif tokens and not tokens["training_examples"]:
+			status = "no_usable_examples"
+		else:
+			status = "missing"
+		results[name] = {
+			"tokens": tokens,
+			"score": report["scores"]["student_after"][task]["primary_score"] if report else None,
+			"defended_minus_control": paired(_student_after(report), _student_after(defended))
+			if report
+			else None,
+			"status": status,
+		}
+	return results
+
+
+def _utility(root: Path, task: str, seed: int, arm: str) -> dict[str, Any]:
+	"""Held-out benign task utility through the bare teacher, then through the defense."""
+	directory = root / task / f"s{seed}" / arm
+	before, after = (_load(directory / f"utility-{phase}.json") for phase in ("before", "after"))
+
+	def change(field: str) -> float | None:
+		if not before or not after or before[field] is None or after[field] is None:
+			return None
+		return after[field] - before[field]
+
+	return {
+		"task": task,
+		"seed": seed,
+		"defense": arm,
+		"before": {k: before[k] for k in UTILITY_FIELDS} if before else None,
+		"after": {k: after[k] for k in UTILITY_FIELDS} if after else None,
+		"unconditional_utility_change": change("unconditional_utility"),
+		"served_only_quality_change": change("served_only_quality"),
+	}
+
+
+def _benign_escalation(root: Path, task: str, arm: str) -> dict[str, Any] | None:
+	"""Account-horizon false-escalation rates from replaying the held-out benign pool."""
+	summary = _load(root / task / "benign-test" / f"{arm}.json")
+	if summary is None:
+		return None
+	return {
+		"task": task,
+		"defense": arm,
+		**{k: summary[k] for k in ("horizons", "unscored_horizons", "implemented_levels")},
+		"false_escalations": summary["reached"],
+		"false_escalation_rate": summary["reached_rate"],
+	}
+
+
 def study_report(root: Path) -> dict[str, Any]:
 	protocol = json.loads((root / "protocol.json").read_text())
 	plan_path = root / "budgets.json"
@@ -138,16 +219,7 @@ def study_report(root: Path) -> dict[str, Any]:
 						raise ValueError(
 							"study comparison mixes student models or inference settings"
 						)
-					comparison = paired(
-						[
-							SampleResult.model_validate(s["results"]["student_after"])
-							for s in left["samples"]
-						],
-						[
-							SampleResult.model_validate(s["results"]["student_after"])
-							for s in right["samples"]
-						],
-					)
+					comparison = paired(_student_after(left), _student_after(right))
 					inference = None
 					if selection.get("analysis_version") == ANALYSIS_VERSION and all(
 						"student_before" in s["results"] for s in left["samples"]
@@ -173,6 +245,11 @@ def study_report(root: Path) -> dict[str, Any]:
 							**identity,
 							**defense_effect(b, u, d, development_gate=gate, inference=inference),
 							"defended_minus_undefended": comparison,
+							"controls": _controls(directory, task, arm, right),
+							# J and Q over this budget's prefix of the largest campaign.
+							"escalation": _load(
+								directory / "protected" / arm / "budget-campaign.json"
+							),
 							"baseline_report": str(baseline),
 							"defended_report": str(defended),
 						}
@@ -248,6 +325,18 @@ def study_report(root: Path) -> dict[str, Any]:
 						"observed_budgets": [r["budget"] for r in curve],
 					}
 				)
+	utility = [
+		_utility(root, task, seed, arm)
+		for task in protocol["tasks"]
+		for seed in protocol["seeds"]
+		for arm in protocol["arms"]
+	]
+	benign = [
+		result
+		for task in protocol["tasks"]
+		for arm in protocol["arms"]
+		if (result := _benign_escalation(root, task, arm))
+	]
 	return {
 		"study_kind": "separate_task",
 		"task_budgets": budgets,
@@ -257,6 +346,10 @@ def study_report(root: Path) -> dict[str, Any]:
 		"budget_curves": rows,
 		"cost_to_target": cost,
 		"missing_pairs": missing,
+		"benign_utility": utility,
+		"benign_false_escalation": benign,
+		"benign_false_escalation_scope": "held-out benign pool replayed offline with pooled "
+		"accounts; checks the pipeline on unseen requests, not real-user rates",
 		"units": "scores and gains in percentage points; retention is a ratio",
 		"sampling_uncertainty": "paired source-document bootstrap conditional on trained models; "
 		"separate from seed SD",

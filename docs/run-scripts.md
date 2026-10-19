@@ -72,6 +72,8 @@ just diagnose --tasks ag_news,squad --concentrated-shares 0,0.1,0.4
 
 Each share gets its own calibration under `artifacts/task-diagnostic/concentrated-SHARE`, and `artifacts/task-diagnostic/detectability-sweep.json` tabulates the extractor's peak level against benign escalation rates for every share and defense.
 
+`artifacts/start/study-report.json` joins everything the run produces. Each per-seed row carries the capability effect, both token-matched controls (`controls`: matched tokens, control score, and the paired defended-minus-control difference; a control with no usable examples is marked `no_usable_examples`), and `escalation`, which holds J and Q per level over that budget's prefix of the largest campaign. `benign_utility` gives served-only quality and unconditional utility for each task, seed, and defense, through the bare teacher and then through the defense, with their changes. `benign_false_escalation` gives account-horizon escalation counts and rates from the held-out benign replay, including unscored horizons. These replayed rates check the pipeline on unseen requests. They are not real-user false-positive rates.
+
 Long steps show progress on stderr. Nonterminal logs receive periodic progress lines. Weight downloads show their own progress; service startup displays elapsed time and the latest log line. `distill` does not run evaluation automatically; `start` includes it.
 
 ## Runtime selection
