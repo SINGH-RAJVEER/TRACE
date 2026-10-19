@@ -40,6 +40,8 @@ DEFENSES: dict[str, tuple[str, str]] = {
 	"instantaneous": ("mmd", "instantaneous"),
 	"quota": ("quota", "paper"),
 }
+# Resumed passes over an undefended campaign that lost prompts to teacher failures.
+UNDEFENDED_PASSES = 3
 # Each task's success target recovers this fraction of the selected recipe's development gain.
 TARGET_GAIN_FRACTION = 0.5
 # The accumulators the paper reports: the full policy, its baseline, and the memory ablations.
@@ -649,28 +651,88 @@ class Study:
 		)
 
 	def collect_undefended(self) -> None:
+		"""Collect each seed's largest budget without a defense, under the campaign envelope.
+
+		The undefended teacher holds no policy state, so an interrupted or failed campaign
+		resumes on its original clock and retries prompts that lack a response. Training
+		requires a response for every planned prompt; anything less stops the study.
+		"""
 		for task, budgets in self.pipeline.plan.items():
 			for seed in self.pipeline.seeds:
 				directory = self.root / task / f"s{seed}" / "undefended"
-				self.pipeline.launcher.distill(
-					"collect-protected",
-					"--input",
-					str(self.pipeline.run_dir(task, seed, budgets[-1]) / "prompts.jsonl"),
-					"--output",
-					str(directory / "ledger.jsonl"),
-					"--summary",
-					str(directory / "campaign.json"),
-					"--teacher-url",
-					self.url,
-					"--terms-review-id",
-					self.pipeline.terms_review_id,
-					"--max-output-tokens",
-					str(self.pipeline.manifest(task)["max_output_tokens"]),
-					"--max-requests",
-					str(budgets[-1]),
-					env={"TEACHER_API_TOKEN": self.token},
-				)
+				prompts = self.pipeline.run_dir(task, seed, budgets[-1]) / "prompts.jsonl"
+				for _ in range(UNDEFENDED_PASSES):
+					self.pipeline.launcher.distill(
+						"collect-protected",
+						"--input",
+						str(prompts),
+						"--output",
+						str(directory / "ledger.jsonl"),
+						"--summary",
+						str(directory / "campaign.json"),
+						"--teacher-url",
+						self.url,
+						"--terms-review-id",
+						self.pipeline.terms_review_id,
+						"--max-output-tokens",
+						str(self.pipeline.manifest(task)["max_output_tokens"]),
+						"--max-requests",
+						str(budgets[-1]),
+						"--resumable",
+						env={"TEACHER_API_TOKEN": self.token},
+					)
+					problem = self.undefended_gap(prompts, directory)
+					# A deadline leaves no time, and a policy block means the wrong endpoint.
+					if (
+						problem is None
+						or problem["termination"] == "deadline"
+						or problem["blocked"]
+					):
+						break
+				if problem is not None:
+					save_json(
+						self.root / "status.json",
+						{"status": "undefended_baseline_incomplete", "task": task, "seed": seed}
+						| problem,
+					)
+					if problem["blocked"]:
+						remedy = "a policy refused requests; the baseline must use the bare teacher"
+					elif problem["termination"] == "deadline":
+						remedy = (
+							"the declared deadline cannot carry this budget, and defended "
+							"campaigns at the same budget would be cut off too; pass smaller "
+							"--budgets"
+						)
+					else:
+						remedy = "check the teacher, then rerun with the same --run-dir to resume"
+					raise LaunchError(
+						f"{task} seed {seed}: undefended baseline received "
+						f"{problem['received']} of {problem['expected']} prompts "
+						f"({problem['termination']}); {remedy}"
+					)
 				self.pipeline.run_ledgers[(task, seed)] = directory / "ledger.jsonl"
+
+	@staticmethod
+	def undefended_gap(prompts: Path, directory: Path) -> dict[str, Any] | None:
+		"""None when every planned prompt has an undefended response, else what is missing."""
+		summary = json.loads((directory / "campaign.json").read_text())
+		wanted = {p.example_id for p in read_jsonl(prompts, PromptRecord)}
+		have = {
+			json.loads(line)["example_id"]
+			for line in (directory / "ledger.jsonl").read_text().splitlines()
+		}
+		if (
+			summary["termination"] == "prompts_exhausted"
+			and wanted <= have
+			and not summary["blocked"]
+		):
+			return None
+		return {
+			"termination": summary["termination"],
+			"received": len(wanted & have),
+			"expected": len(wanted),
+			"blocked": summary["blocked"],
+		}
 
 	def collect_protected(self, task: str, seed: int, budget: int, token: str, arm: str) -> None:
 		directory = self.protected_dir(task, seed, budget, arm)

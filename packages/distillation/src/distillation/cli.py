@@ -119,6 +119,13 @@ def collect_protected_command(
 	deadline_seconds: float = 86400,
 	decision_log: Path | None = None,
 	block_only: bool = False,
+	resumable: Annotated[
+		bool,
+		typer.Option(
+			help="Resume an interrupted or incomplete campaign on its original clock. "
+			"Only for endpoints without policy state, such as the undefended baseline."
+		),
+	] = False,
 ) -> None:
 	"""Collect an ordered protected campaign, solving challenges and recording refusals."""
 	from distillation.campaign import ProtectedTeacher, collect_campaign
@@ -133,6 +140,7 @@ def collect_protected_command(
 			deadline_seconds=deadline_seconds,
 			decision_log=decision_log,
 			levels=(4,) if block_only else (1, 2, 3, 4),
+			resumable=resumable,
 			options=CollectionOptions(
 				terms_review_id=terms_review_id,
 				max_output_tokens=max_output_tokens,

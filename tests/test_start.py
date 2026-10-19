@@ -285,6 +285,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 						concurrency=1,
 						max_attempts=1,
 					),
+					resumable="--resumable" in args,
 				)
 			)
 		elif args[:2] == ("benchmark", "run"):
@@ -376,6 +377,126 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
 	assert "train baseline" not in steps and "train protected" not in steps
 	assert (root.parent / "s42/undefended/ledger.jsonl").read_bytes() == baseline
+
+
+@pytest.mark.asyncio
+async def test_resumable_campaign_keeps_its_clock_and_retries_missing_prompts(
+	tmp_path: Path,
+) -> None:
+	from distillation.io import write_jsonl
+	from distillation.schemas import PromptSource
+
+	prompts = tmp_path / "prompts.jsonl"
+	write_jsonl(
+		prompts,
+		[
+			PromptRecord(
+				example_id=str(i),
+				split="train",
+				task="fixture",
+				source=PromptSource(corpus="fixture", source_id=str(i), license="mit"),
+				prompt=[Message(role="user", content=str(i))],
+			)
+			for i in range(3)
+		],
+	)
+	options = CollectionOptions(
+		terms_review_id="fixture",
+		max_output_tokens=16,
+		enable_thinking=False,
+		concurrency=1,
+		max_attempts=1,
+	)
+	status = 502
+
+	async def response(request: httpx.Request) -> httpx.Response:
+		payload = TeacherGenerationRequest.model_validate_json(request.content)
+		if payload.messages[-1].content == "1" and status != 200:
+			return httpx.Response(status)
+		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
+
+	async def run(directory: str, deadline: float = 100) -> dict[str, Any]:
+		return await collect_campaign(
+			prompts_path=prompts,
+			ledger_path=tmp_path / directory / "ledger.jsonl",
+			summary_path=tmp_path / directory / "campaign.json",
+			teacher=ProtectedTeacher(
+				"http://fixture", "secret", transport=httpx.MockTransport(response)
+			),
+			options=options,
+			deadline_seconds=deadline,
+			resumable=True,
+		)
+
+	# A failed prompt is charged, then retried by the next pass on the same clock.
+	first = await run("failed")
+	assert (first["termination"], first["ledger_records"], first["failed"]) == (
+		"prompts_exhausted",
+		2,
+		1,
+	)
+	status = 200
+	second = await run("failed")
+	assert (second["ledger_records"], second["queries"]) == (3, 4)
+	assert (second["resumes"], second["retried_queries"]) == (1, 1)
+	assert await run("failed") == second
+	# An interruption resumes from its last recorded time, so the deadline still binds.
+	status = 401
+	with pytest.raises(httpx.HTTPStatusError):
+		await run("interrupted")
+	events = tmp_path / "interrupted/campaign.events.jsonl"
+	lines = [json.loads(line) for line in events.read_text().splitlines()]
+	lines[-1]["at_seconds"] = 150.0
+	events.write_text("".join(json.dumps(line) + "\n" for line in lines) + '{"event": "att')
+	status = 200
+	resumed = await run("interrupted")
+	assert resumed["termination"] == "deadline" and resumed["ledger_records"] == 1
+	assert await run("interrupted") == resumed
+
+
+def test_undefended_baseline_stops_when_any_prompt_lacks_a_response(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from distillation.io import write_jsonl
+	from distillation.schemas import PromptSource
+
+	pipeline = TaskPipeline(Launcher("test"), "fixture", ["ag_news"], [42], [2], tmp_path, 1, False)
+	pipeline.plan = {"ag_news": [2]}
+	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, None, "refuse")
+	prompts = pipeline.run_dir("ag_news", 42, 2) / "prompts.jsonl"
+	write_jsonl(
+		prompts,
+		[
+			PromptRecord(
+				example_id=str(i),
+				split="train",
+				task="ag_news",
+				source=PromptSource(corpus="fixture", source_id=str(i), license="mit"),
+				prompt=[Message(role="user", content=str(i))],
+			)
+			for i in range(2)
+		],
+	)
+	monkeypatch.setattr(TaskPipeline, "manifest", lambda self, task: {"max_output_tokens": 16})
+	calls: list[tuple[str, ...]] = []
+
+	def distill(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		calls.append(args)
+		directory = Path(args[args.index("--output") + 1]).parent
+		directory.mkdir(parents=True, exist_ok=True)
+		(directory / "ledger.jsonl").write_text(json.dumps({"example_id": "0"}) + "\n")
+		(directory / "campaign.json").write_text(
+			json.dumps({"termination": "deadline", "blocked": 0})
+		)
+
+	monkeypatch.setattr(Launcher, "distill", distill)
+	with pytest.raises(LaunchError, match="received 1 of 2 prompts \\(deadline\\)"):
+		study.collect_undefended()
+	# A deadline is not retried: no time is left in the declared envelope.
+	assert len(calls) == 1 and "--resumable" in calls[0]
+	status = json.loads((study.root / "status.json").read_text())
+	assert status["status"] == "undefended_baseline_incomplete"
+	assert (status["received"], status["expected"]) == (1, 2)
 
 
 @pytest.mark.asyncio
