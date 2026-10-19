@@ -16,9 +16,42 @@ from distillation.io import read_jsonl
 from distillation.schedules import pool_hashes, validate_pools
 from distillation.schemas import GatewayRequest, PromptRecord
 
-WORKLOAD_VERSION = "task-clients-v1"
-GATEWAY_WORKLOAD_VERSION = "gateway-clients-v1"
+WORKLOAD_VERSION = "task-clients-v2"
+GATEWAY_WORKLOAD_VERSION = "gateway-clients-v2"
 CLIENT_TYPES = ("specialist", "repetitive", "batch", "bursty", "short")
+# Specialist and repetitive clients send concentrated windows that score above any broad window,
+# so their share sets the benign null's upper tail. The v1 workloads used an equal five-way
+# split (0.4); detectability is reported across a sweep of this share.
+DEFAULT_CONCENTRATED_SHARE = 0.1
+LEGACY_CONCENTRATED_SHARE = 0.4
+
+
+def client_shares(concentrated: float) -> dict[str, float]:
+	"""Shares of the five client types; short clients keep a fifth, the rest splits evenly."""
+	if not math.isfinite(concentrated) or not 0 <= concentrated <= 0.8:
+		raise ValueError("concentrated share must be between zero and 0.8")
+	broad = (0.8 - concentrated) / 2
+	return {
+		"specialist": concentrated / 2,
+		"repetitive": concentrated / 2,
+		"batch": broad,
+		"bursty": broad,
+		"short": 0.2,
+	}
+
+
+def assign_types(count: int, shares: Mapping[str, float]) -> list[str]:
+	"""Smooth weighted round-robin: each slot goes to the type furthest below its share.
+
+	Ties follow CLIENT_TYPES order, so equal shares reproduce plain round-robin.
+	"""
+	assigned: Counter[str] = Counter()
+	kinds = []
+	for index in range(count):
+		kind = max(CLIENT_TYPES, key=lambda k: shares[k] * (index + 1) - assigned[k])
+		assigned[kind] += 1
+		kinds.append(kind)
+	return kinds
 
 
 def task_references(directory: Path) -> dict[str, BenchmarkItem]:
@@ -64,9 +97,11 @@ def clients(
 	role: str,
 	seed: int = 42,
 	references: dict[str, BenchmarkItem] | None = None,
+	concentrated: float = DEFAULT_CONCENTRATED_SHARE,
 ) -> list[BenignRequest]:
 	"""Partition source groups between five client types, then form accounts within each type.
 
+	`concentrated` is the share of source groups given to specialist and repetitive clients.
 	Repetition reuses a prompt only within its original account. Document sharing between
 	accounts is recorded and must be clustered in uncertainty estimates. No natural client
 	identity or real-world arrival distribution is inferred from these synthetic accounts.
@@ -78,8 +113,9 @@ def clients(
 		groups[prompt.source.group_id].append(prompt)
 	ordered = sorted(groups, key=lambda group: hashlib.sha256(f"{seed}:{group}".encode()).digest())
 	buckets: dict[str, list[PromptRecord]] = {kind: [] for kind in CLIENT_TYPES}
-	for index, group in enumerate(ordered):
-		buckets[CLIENT_TYPES[index % len(CLIENT_TYPES)]].extend(groups[group])
+	kinds = assign_types(len(ordered), client_shares(concentrated))
+	for group, kind in zip(ordered, kinds, strict=True):
+		buckets[kind].extend(groups[group])
 	requests = []
 	for kind, pool in buckets.items():
 		pool.sort(key=lambda p: hashlib.sha256(f"{seed}:{p.example_id}".encode()).digest())
@@ -114,10 +150,14 @@ def clients(
 	return requests
 
 
-def workload_summary(rows: list[BenignRequest]) -> dict[str, Any]:
+def workload_summary(
+	rows: list[BenignRequest], concentrated: float = DEFAULT_CONCENTRATED_SHARE
+) -> dict[str, Any]:
 	lengths = Counter(row.account for row in rows)
 	return {
 		"version": WORKLOAD_VERSION,
+		"concentrated_share": concentrated,
+		"client_shares": client_shares(concentrated),
 		"requests": len(rows),
 		"accounts": len(lengths),
 		"scored_accounts": sum(n >= 100 for n in lengths.values()),
@@ -140,8 +180,12 @@ def mixed_clients(
 	requests_per_account: int = 100,
 	seed: int = 42,
 	references: Mapping[str, BenchmarkItem] | None = None,
+	concentrated: float = DEFAULT_CONCENTRATED_SHARE,
 ) -> tuple[list[GatewayRequest], dict[str, Any]]:
 	"""Build specialist and generalist accounts independently of timing/repetition style.
+
+	`concentrated` sets the share of accounts with specialist and repetitive timing styles;
+	`generalist_share` sets domain specialization separately.
 
 	Generalist share is an account fraction, rounded to the nearest account with ties up.
 	Generalists use two or more domains. Prompts are consumed without replacement, except
@@ -182,8 +226,7 @@ def mixed_clients(
 	rng.shuffle(domains)
 	cursors: Counter[str] = Counter()
 	requests = []
-	for index in range(accounts):
-		kind = CLIENT_TYPES[index % len(CLIENT_TYPES)]
+	for index, kind in enumerate(assign_types(accounts, client_shares(concentrated))):
 		length = min(requests_per_account, 20) if kind == "short" else requests_per_account
 		unique = math.ceil(length / 3) if kind == "repetitive" else length
 		is_generalist = index in generalists
@@ -227,6 +270,8 @@ def mixed_clients(
 		"role": role,
 		"seed": seed,
 		"accounts": accounts,
+		"concentrated_share": concentrated,
+		"client_shares": client_shares(concentrated),
 		"generalist_share_requested": generalist_share,
 		"generalist_share_achieved": generalist_count / accounts,
 		"generalist_accounts": generalist_count,

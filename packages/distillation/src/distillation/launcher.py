@@ -833,6 +833,21 @@ def start_command(
 	harness_port: Annotated[int, typer.Option(min=1, max=65535)] = 8003,
 	terms_review_id: TermsReviewIdOption = "",
 	concurrency: ConcurrencyOption = 4,
+	concentrated_share: Annotated[
+		float,
+		typer.Option(
+			min=0,
+			max=0.8,
+			help="Share of benign traffic from specialist and repetitive clients; 0.4 is v1.",
+		),
+	] = 0.1,
+	allow_undetected: Annotated[
+		bool,
+		typer.Option(
+			help="Tasks mode: continue as a quota comparison when no MMD defense separates "
+			"the extraction account from held-out benign accounts."
+		),
+	] = False,
 ) -> None:
 	"""Build corpora, collect, train, benchmark, deploy the harness, and repeat extraction.
 
@@ -865,6 +880,8 @@ def start_command(
 			calibration_root,
 			l4_action,
 			arms=tuple(dict.fromkeys(a.strip() for a in arms.split(",") if a.strip())),
+			concentrated_share=concentrated_share,
+			allow_undetected=allow_undetected,
 		)
 		if mode == "gateway":
 			from typing import cast

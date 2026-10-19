@@ -12,7 +12,7 @@ from distillation.io import read_jsonl, write_jsonl
 from distillation.schedules import campaign_schedule
 from distillation.schemas import GatewayRequest, PromptRecord
 from distillation.tasks import LEGITIMATE_ROLES, TASKS
-from distillation.workloads import mixed_clients, task_references
+from distillation.workloads import DEFAULT_CONCENTRATED_SHARE, mixed_clients, task_references
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -63,6 +63,9 @@ def benign_command(
 	tasks_dir: Path = Path("data/tasks"),
 	domains: str = "ag_news,squad,gsm8k,coding",
 	generalist_share: Annotated[float, typer.Option(min=0, max=1)] = 0.1,
+	concentrated_share: Annotated[
+		float, typer.Option(min=0, max=0.8, help="Specialist and repetitive client share.")
+	] = DEFAULT_CONCENTRATED_SHARE,
 	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
 	seed: int = 42,
 ) -> None:
@@ -79,6 +82,7 @@ def benign_command(
 			generalist_share=generalist_share,
 			requests_per_account=requests_per_account,
 			seed=seed,
+			concentrated=concentrated_share,
 			references={
 				key: item
 				for domain in pools

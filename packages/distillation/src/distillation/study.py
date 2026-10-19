@@ -6,6 +6,7 @@ import os
 import secrets
 import sys
 import tomllib
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from distillation.launcher import (
 	_trained,
 )
 from distillation.schemas import LedgerRecord, PromptRecord, SFTRecord
+from distillation.workloads import DEFAULT_CONCENTRATED_SHARE
 
 # The defended services of Table VI and the primary contrast: harness policy and accumulator.
 DEFENSES: dict[str, tuple[str, str]] = {
@@ -50,6 +52,41 @@ def freeze(path: Path, value: dict[str, Any]) -> None:
 			raise LaunchError(f"{path} changed; select a new --run-dir")
 	else:
 		save_json(path, value)
+
+
+def _replayed_horizons(
+	decisions: Path, client_of: list[str]
+) -> dict[str, tuple[list[int], list[int], list[float]]]:
+	"""Per client type: each horizon's peak level and completed windows, and window p-values."""
+	groups: dict[str, tuple[list[int], list[int], list[float]]] = defaultdict(lambda: ([], [], []))
+	unit: dict[str, int] = {}
+	with decisions.open(encoding="utf-8") as source:
+		for line in source:
+			record = json.loads(line)
+			peaks, windows, p_values = groups[client_of[record["index"]]]
+			if record["attempt"] == 1:
+				unit[record["account"]] = len(peaks)
+				peaks.append(0)
+				windows.append(0)
+			index = unit[record["account"]]
+			peaks[index] = max(peaks[index], record["level"])
+			if record["window_completed"]:
+				windows[index] += 1
+				if record["p_value"] is not None:
+					p_values.append(record["p_value"])
+	return dict(groups)
+
+
+def _describe(peaks: list[int], windows: list[int], p_values: list[float]) -> dict[str, Any]:
+	ordered = sorted(p_values)
+	return {
+		"horizons": len(peaks),
+		"scored_horizons": sum(count > 0 for count in windows),
+		"peak_levels": {f"L{level}": peaks.count(level) for level in range(5)},
+		"windows": len(ordered),
+		"p_value_mean": sum(ordered) / len(ordered) if ordered else None,
+		"p_value_median": ordered[len(ordered) // 2] if ordered else None,
+	}
 
 
 class _MemoEncoder:
@@ -84,6 +121,11 @@ class Study:
 	l4_action: Literal["refuse", "deceive"]
 	references: dict[str, EvaluationRun] = field(default_factory=dict)
 	arms: tuple[str, ...] = tuple(DEFENSES)
+	# Share of benign source groups sent by specialist and repetitive clients; see workloads.
+	concentrated_share: float = DEFAULT_CONCENTRATED_SHARE
+	# Continue when no MMD defense separates the extractor from benign accounts, reporting
+	# the study as a quota comparison rather than a detection result.
+	allow_undetected: bool = False
 
 	@property
 	def protected_url(self) -> str:
@@ -254,13 +296,21 @@ class Study:
 		prompts = read_jsonl(
 			self.pipeline.task_dir(task) / "legitimate" / f"{role}.jsonl", PromptRecord
 		)
-		rows = clients(prompts, role, references=task_references(self.pipeline.task_dir(task)))
+		rows = clients(
+			prompts,
+			role,
+			references=task_references(self.pipeline.task_dir(task)),
+			concentrated=self.concentrated_share,
+		)
 		if role == "fitting":
 			# Fit references on unique prompts; repeated clients belong only to calibration/test.
 			rows = list({row.example_id: row for row in rows}.values())
 		save_json(
 			self.root / task / "workloads" / f"{role}.json",
-			{"summary": workload_summary(rows), "requests": [r.model_dump() for r in rows]},
+			{
+				"summary": workload_summary(rows, self.concentrated_share),
+				"requests": [r.model_dump() for r in rows],
+			},
 		)
 		return rows
 
@@ -330,8 +380,14 @@ class Study:
 		save_calibration(path, calibration, references)
 		return path
 
-	def detectability(self, task: str, path: Path, budget: int = 2000) -> None:
-		"""Development diagnostic only; never tune thresholds using attacker replay."""
+	def detectability(self, task: str, path: Path, budget: int = 2000) -> dict[str, Any]:
+		"""Development diagnostic only; never tune thresholds using attacker replay.
+
+		Compares one extraction account with the held-out benign accounts, per client type,
+		under each defense. MMD arms compare against benign horizons that complete a window.
+		`mmd_signal` is True when some MMD defense escalates the extractor to a level that
+		fewer than `level_targets[0]` of those benign horizons reach.
+		"""
 		from harness.calibration import BenignRequest, load_calibration
 		from harness.encoder import BGEEncoder
 		from harness.replay import replay
@@ -349,32 +405,93 @@ class Study:
 			)
 			for i, p in enumerate(prompts)
 		]
+		self.benign_holdout(task, path)
+		benign_types = [row.client_type or "unknown" for row in self.pooled(task, "benign_test")]
 		calibration, scorer = load_calibration(path)
+		target = calibration.config.level_targets[0]
 		encoder = _MemoEncoder(BGEEncoder(device="cpu"))
 		results = {}
-		for arm, (policy, accumulator) in DEFENSES.items():
-			results[arm] = replay(
+		for arm in self.arms:
+			policy, accumulator = DEFENSES[arm]
+			output = self.root / task / "detectability" / f"{arm}.jsonl"
+			summary = replay(
 				calibration=calibration,
 				scorer=scorer,
 				requests=requests,
-				output=self.root / task / "detectability" / f"{arm}.jsonl",
+				output=output,
 				policy=policy,
 				accumulator=accumulator,
 				encoder=encoder if policy == "mmd" else None,
 			)
+			benign = _replayed_horizons(
+				self.root / task / "benign-test" / f"{arm}.decisions.jsonl", benign_types
+			)
+			extractor = _replayed_horizons(output, ["extractor"] * len(requests))["extractor"]
+			peak = max(extractor[0])
+			# MMD can only escalate horizons that complete a window; short accounts never do,
+			# so they would dilute the benign comparison.
+			benign_peaks = [
+				level
+				for peaks, windows, _ in benign.values()
+				for level, count in zip(peaks, windows, strict=True)
+				if count or policy != "mmd"
+			]
+			rate = (
+				sum(level >= peak for level in benign_peaks) / len(benign_peaks)
+				if peak and benign_peaks
+				else 1.0
+			)
+			results[arm] = {
+				**summary,
+				"extractor": _describe(*extractor),
+				"benign_by_client_type": {
+					kind: _describe(*benign[kind]) for kind in sorted(benign)
+				},
+				"benign_rate_at_extractor_peak": rate,
+				"escalates_beyond_benign": bool(peak) and rate < target,
+			}
+		mmd = [
+			results[arm]["escalates_beyond_benign"]
+			for arm in self.arms
+			if DEFENSES[arm][0] == "mmd"
+		]
+		result = {
+			"budget": budget,
+			"seed": 42,
+			"single_account": True,
+			"purpose": "development diagnostic, not a power estimate",
+			"concentrated_share": self.concentrated_share,
+			"level_target": target,
+			"calibration_sha256": hashlib.sha256(
+				(path / "calibration.json").read_bytes()
+			).hexdigest(),
+			"mmd_signal": any(mmd) if mmd else None,
+			"results": results,
+		}
+		save_json(self.root / task / "detectability.json", result)
+		return result
+
+	def require_signal(self, signals: dict[str, dict[str, Any]]) -> None:
+		"""Stop before the matrix when no MMD defense separates the extractor from benign users."""
+		missing = sorted(task for task, result in signals.items() if result["mmd_signal"] is False)
 		save_json(
-			self.root / task / "detectability.json",
+			self.root / "detectability-gate.json",
 			{
-				"budget": budget,
-				"seed": 42,
-				"single_account": True,
-				"purpose": "development diagnostic, not a power estimate",
-				"calibration_sha256": hashlib.sha256(
-					(path / "calibration.json").read_bytes()
-				).hexdigest(),
-				"results": results,
+				"undetected_tasks": missing,
+				"allow_undetected": self.allow_undetected,
+				"reading": "quota comparison" if missing else "detection",
 			},
 		)
+		if missing and not self.allow_undetected:
+			save_json(
+				self.root / "status.json",
+				{"status": "detectability_gate_failed", "tasks": missing},
+			)
+			raise LaunchError(
+				f"{', '.join(missing)}: no MMD defense escalates the extraction account beyond "
+				"held-out benign accounts; see detectability.json, or pass --allow-undetected "
+				"to run the study as a quota comparison"
+			)
 
 	def calibration_report(self, task: str, path: Path) -> None:
 		"""Record the per-task calibration settings the paper discloses in Section III-B."""
@@ -714,10 +831,12 @@ class Study:
 				for calibration, _ in [load_calibration(path)]
 			},
 		)
+		signals = {}
 		for task, path in calibrations.items():
 			self.calibration_report(task, path)
 			self.benign_holdout(task, path)
-			self.detectability(task, path)
+			signals[task] = self.detectability(task, path)
+		self.require_signal(signals)
 		self.ensure_teacher()
 		self.collect_undefended()
 		launcher.stop_background()
