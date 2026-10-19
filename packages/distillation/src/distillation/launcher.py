@@ -800,6 +800,19 @@ def distill_command(
 	scenario("distill", body)
 
 
+def _gain_margins(values: list[str] | None) -> dict[str, float]:
+	margins = {}
+	for value in values or []:
+		try:
+			task, amount = value.split("=", 1)
+			if task in margins:
+				raise ValueError("duplicate task")
+			margins[task] = float(amount)
+		except ValueError as error:
+			raise LaunchError("--minimum-gain requires unique TASK=PP entries") from error
+	return margins
+
+
 @run_app.command("start")
 def start_command(
 	mode: Annotated[
@@ -812,6 +825,12 @@ def start_command(
 	benign_accounts: Annotated[int, typer.Option(min=1)] = 20,
 	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
 	development_budget: Annotated[int, typer.Option(min=2)] = 2000,
+	minimum_gain: Annotated[
+		list[str] | None,
+		typer.Option(
+			help="Minimum useful gain in percentage points; repeat TASK=PP. Default: 2 per task."
+		),
+	] = None,
 	tasks: Annotated[
 		str,
 		typer.Option(
@@ -903,6 +922,7 @@ def start_command(
 			arms=tuple(dict.fromkeys(a.strip() for a in arms.split(",") if a.strip())),
 			concentrated_share=concentrated_share,
 			allow_undetected=allow_undetected,
+			minimum_gain=_gain_margins(minimum_gain),
 		)
 		if mode == "gateway":
 			from typing import cast

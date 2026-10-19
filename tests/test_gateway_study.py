@@ -24,7 +24,7 @@ from distillation.benchmarks.models import (
 from distillation.benchmarks.runner import run_evaluation
 from distillation.gateway_study import GatewayStudy, benign_requests
 from distillation.io import read_jsonl, write_jsonl
-from distillation.launcher import Launcher, TaskPipeline, run_app
+from distillation.launcher import Launcher, LaunchError, TaskPipeline, run_app
 from distillation.review import review_ledger
 from distillation.schemas import (
 	Message,
@@ -116,9 +116,9 @@ def test_launchers_default_to_shared_students_with_math_and_coding(
 	]
 
 
-@pytest.mark.parametrize("collect_only", [False, True])
+@pytest.mark.parametrize("collect_only,qualifies", [(False, True), (False, False), (True, True)])
 def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domain(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collect_only: bool
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collect_only: bool, qualifies: bool
 ) -> None:
 	monkeypatch.chdir(tmp_path)
 	config = tmp_path / "train.toml"
@@ -198,13 +198,13 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 						split=split,
 						license="fixture",
 						url="https://example.com",
-						available=1,
-						selected=1,
+						available=4,
+						selected=4,
 					)
 				],
 				items=[
 					BenchmarkItem(
-						id=f"{domain}-{split}",
+						id=f"{domain}-{split}-{index}",
 						benchmark=domain,
 						category="topic",
 						question=question,
@@ -220,6 +220,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 						answer="World" if domain == "ag_news" else "7",
 						choices=["World", "Sports"] if domain == "ag_news" else [],
 					)
+					for index in range(4)
 				],
 			)
 			suite.sha256 = suite.digest()
@@ -324,7 +325,8 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 					settings,
 					slot,
 					factory=lambda model: Inference(
-						bool(model.adapter_path) or model.backend == "teacher_api"
+						(bool(model.adapter_path) or model.backend == "teacher_api")
+						and (qualifies or "qualification" not in settings.experiment)
 					),
 				)
 			)
@@ -357,9 +359,21 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		development_budget=8,
 	)
 	try:
-		gateway.run(collect_only=collect_only)
+		if qualifies:
+			gateway.run(collect_only=collect_only)
+		else:
+			with pytest.raises(LaunchError, match="qualification"):
+				gateway.run()
 	finally:
 		stop(pipeline.launcher)
+	if not qualifies:
+		assert json.loads((gateway.root / "status.json").read_text())["status"] == "failed"
+		assert len(training_datasets) == 6
+		recipe = json.loads((gateway.root / "recipe.json").read_text())
+		assert recipe["transfer_gate_passed"] is False
+		assert all(q["gain_pp"] == 0 for q in recipe["qualification"].values())
+		assert not (gateway.root / "results.json").exists()
+		return
 	assert json.loads((gateway.root / "status.json").read_text())["status"] == "complete"
 	assert not services
 	assert all(not s.thread.is_alive() for s in all_servers)
@@ -373,6 +387,17 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		return
 	results = json.loads((gateway.root / "results.json").read_text())["results"]
 	assert len(results) == 4
+	assert all(r["ratio_valid"] for r in results)
+	assert all(r["undefended_gain_ci95_pp"] == [100.0, 100.0] for r in results)
+	recipe = json.loads((gateway.root / "recipe.json").read_text())
+	assert all(q["passed"] for q in recipe["qualification"].values())
+	for domain in pipeline.tasks:
+		selection = load_config(gateway.root / "development/lr0.0001-e1" / f"eval.{domain}.toml")
+		qualification = load_config(
+			gateway.root / "development/qualification" / f"eval.{domain}.toml"
+		)
+		assert selection.suite_path != qualification.suite_path
+		assert recipe["qualification"][domain]["minimum_gain_pp"] == 2.0
 	assert all(set(r["controls"]) == {"matched-volume", "matched-prefix"} for r in results)
 	assert all(r["http"]["queries"] >= 1 for r in results)
 	assert {r["domain"] for r in results} == {"ag_news", "gsm8k"}
