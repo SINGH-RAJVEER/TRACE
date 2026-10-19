@@ -50,7 +50,7 @@ just distill --teacher-url http://TEACHER_IP:8000
 
 Without just, use `python3 scripts/pipeline.py distill`. On Windows, select non-coding tasks with `--tasks ag_news,squad,gsm8k`. The bootstrap uses `py -3 scripts\pipeline.py distill --teacher-url http://TEACHER_IP:8000` or an existing local server through `--upstream-url`.
 
-See [docs/paper-tasks.md](docs/paper-tasks.md) for splits, budgets, output limits, development selection, and the implementation checklist; [docs/run-scripts.md](docs/run-scripts.md) for launchers and environment settings; and [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for collection and training internals.
+See [docs/paper-tasks.md](docs/paper-tasks.md) for splits, budgets, output limits, and development selection; [docs/run-scripts.md](docs/run-scripts.md) for launchers and environment settings; and [docs/distillation-pipeline.md](docs/distillation-pipeline.md) for collection and training internals.
 
 ## Task evaluation and dashboard
 
@@ -64,7 +64,7 @@ bun run --cwd apps/dashboard build
 uv run distill benchmark dashboard --results-dir outputs/tasks/ag_news
 ```
 
-Open `http://127.0.0.1:8002`. Primary metrics are AG News accuracy, SQuAD token F1, and GSM8K numeric exact match. The report also records SQuAD exact match, agreement, failures, latency, and provenance. See [docs/benchmarks.md](docs/benchmarks.md) for denominators and limitations.
+Open `http://127.0.0.1:8002`. Primary metrics are AG News accuracy, SQuAD token F1, GSM8K numeric exact match, and coding pass@1. The report also records SQuAD exact match, agreement, failures, latency, and provenance. See [docs/benchmarks.md](docs/benchmarks.md) for denominators and limitations, and its [metrics reference](docs/benchmarks.md#metrics-reference) for every field the capability, campaign, timing, benign-cost, calibration, traffic, and overhead benchmarks record.
 
 For a labeled simulation without model execution:
 
@@ -77,6 +77,6 @@ uv run distill benchmark dashboard --results-dir outputs/tasks-demo/ag_news
 
 `packages/harness` implements query embeddings, window MMD scores, benign-only calibration, accumulated account evidence, and graduated access actions. See [docs/harness.md](docs/harness.md) and [docs/harness-benchmarks.md](docs/harness-benchmarks.md). Synthetic traffic fixtures do not enter task training or capability scores.
 
-Configured experiments and passing software tests do not establish extraction effectiveness or defense utility. Establish positive undefended transfer on development data before final defense testing, then compare paired defended and undefended students with matched supervision controls. Track manuscript changes in [docs/paper-revision-todo.md](docs/paper-revision-todo.md).
+Configured experiments and passing software tests do not establish extraction effectiveness or defense utility. Establish positive undefended transfer on development data before final defense testing, then compare paired defended and undefended students with matched supervision controls.
 
 The current configs use Qwen3.5-9B and Qwen3.5-2B-Base. The draft's Qwen2.5 victim and student sizes remain an unresolved protocol difference. Resolve and freeze the actual model identities before final experiments.
