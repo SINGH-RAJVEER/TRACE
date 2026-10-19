@@ -5,19 +5,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-pytest.importorskip("coding", reason="install the optional coding extra")
-
-from coding.dataset import (  # noqa: E402
+from coding.dataset import (
 	Decontaminator,
 	Ineligible,
 	ast_hash,
 	convert,
 	prepare_corpus,
 )
-from coding.extract import extract_code  # noqa: E402
-from coding.sandbox import Limits, SandboxUnavailable, run_python  # noqa: E402
-from coding.scoring import CodingItem, Score, pass_at_1  # noqa: E402
+from coding.extract import extract_code
+from coding.sandbox import Limits, SandboxUnavailable, run_python
+from coding.scoring import CodingItem, Score, pass_at_1
 
 
 @pytest.fixture
