@@ -48,3 +48,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Editor lock files
+.~lock.*#
