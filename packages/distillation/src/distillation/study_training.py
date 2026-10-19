@@ -5,13 +5,15 @@ import json
 import random
 import tomllib
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from distillation.benchmarks.models import save_json
+from distillation.benchmarks.models import load_config, load_suite, save_json
 from distillation.benchmarks.reporting import discover_runs
 from distillation.io import read_jsonl, write_jsonl
 from distillation.launcher import LaunchError, _toml, _trained
 from distillation.schemas import LedgerRecord, SFTRecord
+from distillation.transfer import analysis_protocol, qualification
 
 if TYPE_CHECKING:
 	from distillation.study import Study
@@ -20,11 +22,15 @@ if TYPE_CHECKING:
 def primary_score(samples: list[Any], task: str) -> float:
 	if not samples:
 		raise ValueError("capability scoring requires a nonempty suite")
-	return sum((s.f1 or 0) if task == "squad" else float(s.correct) for s in samples) / len(samples)
+	return (
+		100
+		* sum((s.f1 or 0) if task == "squad" else float(s.correct) for s in samples)
+		/ len(samples)
+	)
 
 
 def select_recipe(study: Study, task: str) -> dict[str, Any]:
-	"""Six seed-42, 2000-query candidates; only development scores select the recipe."""
+	"""Select six candidates, freeze the winner, then qualify it on untouched sources."""
 	from distillation.study import freeze
 
 	pipeline = study.pipeline
@@ -35,9 +41,13 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 		or max(pipeline.plan[task]) < 2000
 	):
 		raise LaunchError("recipe selection requires 2000 attacker prompts")
+	suites = study.development_suites(task)
+	analysis = analysis_protocol(study.minimum_gain, pipeline.tasks)
 	base = tomllib.loads(pipeline.config.read_text())
 	contract = {
 		"training": base,
+		"transfer_analysis": analysis,
+		"suites": {key: load_suite(path).sha256 for key, path in suites.items()},
 		"development_sha256": hashlib.sha256(
 			(pipeline.task_dir(task) / "development-suite.json").read_bytes()
 		).hexdigest(),
@@ -48,6 +58,39 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 	freeze(path.with_name("recipe-protocol.json"), contract)
 	if path.exists():
 		return dict(json.loads(path.read_text()))
+
+	def evaluate(adapter: Path, name: str, split: str) -> dict[str, Any]:
+		config_path = study.evaluation(
+			task,
+			42,
+			2000,
+			name,
+			development=True,
+			development_split=split,
+			adapter_override=adapter,
+		)
+		config = load_config(config_path)
+		study.benchmark(config_path, "student_before")
+		study.benchmark(config_path, "student_after")
+		runs, errors = discover_runs(config.output_dir)
+		if errors:
+			raise LaunchError("invalid development evaluation artifacts")
+		return {
+			slot: max(
+				(
+					r
+					for r in runs
+					if r.slot == slot
+					and r.model == config.models[slot]
+					and r.generation == config.generation
+					and r.dimensions == config.dimensions
+					and r.suite_sha256 == load_suite(config.suite_path).sha256
+				),
+				key=lambda r: r.completed_at,
+			)
+			for slot in ("student_before", "student_after")
+		}
+
 	trials: list[dict[str, Any]] = []
 	for rate in (1e-4, 2e-4):
 		for epochs in (1, 2, 3):
@@ -57,20 +100,7 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 			)
 			candidate.train_run(base | {"learning_rate": rate, "epochs": epochs}, task, 42, 2000)
 			adapter = candidate.artifact_root / task / "s42-b2000" / "attacker"
-			config = study.evaluation(
-				task, 42, 2000, name, development=True, adapter_override=adapter
-			)
-			study.benchmark(config, "student_before")
-			study.benchmark(config, "student_after")
-			from distillation.benchmarks.models import load_config
-
-			runs, errors = discover_runs(load_config(config).output_dir)
-			if errors:
-				raise LaunchError("invalid development evaluation artifacts")
-			latest = {
-				slot: max((r for r in runs if r.slot == slot), key=lambda r: r.completed_at)
-				for slot in ("student_before", "student_after")
-			}
+			latest = evaluate(adapter, name, "selection")
 			trials.append(
 				{
 					"learning_rate": rate,
@@ -83,10 +113,21 @@ def select_recipe(study: Study, task: str) -> dict[str, Any]:
 			)
 	# Stable tie break: fewer epochs, then lower learning rate.
 	winner = max(trials, key=lambda row: (row["score"], -row["epochs"], -row["learning_rate"]))
+	freeze(path.with_name("selected-recipe.json"), winner)
+	latest = evaluate(Path(winner["adapter"]), "winner", "qualification")
+	qualified = qualification(
+		latest["student_before"].samples,
+		latest["student_after"].samples,
+		analysis["minimum_gain_pp"][task],
+	)
+	qualified["evaluation_ids"] = {k: v.id for k, v in latest.items()}
+	qualified["suite_sha256"] = load_suite(suites["qualification"]).sha256
 	result = {
 		"selected": {"learning_rate": winner["learning_rate"], "epochs": winner["epochs"]},
 		"development_gain": winner["score"] - winner["base_score"],
-		"transfer_gate_passed": winner["score"] > winner["base_score"],
+		"transfer_gate_passed": qualified["passed"],
+		"qualification": qualified,
+		"analysis_version": analysis["version"],
 		"trials": trials,
 		"selection": "highest development primary score; "
 		"ties use fewer epochs then lower learning rate",

@@ -5,9 +5,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from distillation.benchmarks.models import save_json
+from distillation.benchmarks.models import SampleResult, save_json
 from distillation.io import canonical_json, read_jsonl
 from distillation.schemas import GatewayRequest, LedgerRecord, SFTRecord
+from distillation.transfer import effect_inference
 
 
 def supervision(directory: Path, domains: list[str], schedule: Path, *, gold: bool) -> None:
@@ -86,7 +87,13 @@ def profile_rates(rows: list[GatewayRequest], decisions: Path, levels: list[int]
 
 
 def campaign_results(
-	directory: Path, seed: int, budget: int, arms: tuple[str, ...], domains: list[str]
+	directory: Path,
+	seed: int,
+	budget: int,
+	arms: tuple[str, ...],
+	domains: list[str],
+	*,
+	qualification: dict[str, Any],
 ) -> list[dict[str, Any]]:
 	def load(path: Path) -> Any:
 		return json.loads(path.read_text())
@@ -103,7 +110,25 @@ def campaign_results(
 		for domain in domains:
 			base = baseline[domain]["student_before"]
 			gain = baseline[domain]["student_after"] - base
-			protected_gain = scores[domain]["student_after"] - scores[domain]["student_before"]
+			protected_gain = scores[domain]["student_after"] - base
+			if baseline[domain]["suite_sha256"] != scores[domain]["suite_sha256"]:
+				raise ValueError("shared study comparison mixes frozen suites")
+			inference = effect_inference(
+				[
+					SampleResult.model_validate(s)
+					for s in baseline[domain]["samples"]["student_before"]
+				],
+				[
+					SampleResult.model_validate(s)
+					for s in baseline[domain]["samples"]["student_after"]
+				],
+				[
+					SampleResult.model_validate(s)
+					for s in scores[domain]["samples"]["student_after"]
+				],
+				margin=qualification[domain]["minimum_gain_pp"],
+				qualified=qualification[domain]["passed"],
+			)
 			results.append(
 				{
 					"campaign": str(directory),
@@ -116,8 +141,7 @@ def campaign_results(
 					"defended_score": scores[domain]["student_after"],
 					"undefended_gain": gain,
 					"defended_gain": protected_gain,
-					"retained_gain_fraction": protected_gain / gain if gain > 0 else None,
-					"gain_removed_fraction": 1 - protected_gain / gain if gain > 0 else None,
+					**inference,
 					"evaluation_ids": scores[domain]["evaluation_ids"],
 					"undefended_evaluation_ids": baseline[domain]["evaluation_ids"],
 					"teacher_score": teacher[domain]["teacher"],

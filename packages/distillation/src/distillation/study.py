@@ -70,13 +70,16 @@ def capability_target(selection: dict[str, Any]) -> dict[str, Any]:
 		if {"learning_rate": trial["learning_rate"], "epochs": trial["epochs"]}
 		== selection["selected"]
 	)
-	base, score = winner["base_score"], winner["score"]
+	evidence = selection.get("qualification", winner)
+	base, score = evidence["base_score"], evidence["score"]
 	return {
 		"target_score": base + TARGET_GAIN_FRACTION * (score - base),
 		"gain_fraction": TARGET_GAIN_FRACTION,
 		"development_base_score": base,
 		"development_score": score,
-		"source": "selected recipe at seed 42 and B=2000 on the development suite",
+		"source": "selected recipe on untouched development qualification suite"
+		if "qualification" in selection
+		else "legacy selected development scores",
 	}
 
 
@@ -152,6 +155,7 @@ class Study:
 	# Continue when no MMD defense separates the extractor from benign accounts, reporting
 	# the study as a quota comparison rather than a detection result.
 	allow_undetected: bool = False
+	minimum_gain: dict[str, float] = field(default_factory=dict)
 
 	@property
 	def protected_url(self) -> str:
@@ -177,6 +181,14 @@ class Study:
 	def protected_dir(self, task: str, seed: int, budget: int, arm: str) -> Path:
 		return self.run_dir(task, seed, budget) / "protected" / arm
 
+	def development_suites(self, task: str) -> dict[str, Path]:
+		from distillation.transfer import development_suites
+
+		return development_suites(
+			self.pipeline.task_dir(task) / "development-suite.json",
+			self.root / task / "development-suites",
+		)
+
 	def evaluation(
 		self,
 		task: str,
@@ -186,6 +198,7 @@ class Study:
 		*,
 		arm: str | None = None,
 		development: bool = False,
+		development_split: str = "selection",
 		adapter_override: Path | None = None,
 		untrained: bool = False,
 	) -> Path:
@@ -215,7 +228,7 @@ class Study:
 		)
 		condition = f"protected-{arm}" if arm else kind
 		if development:
-			condition = f"development-{kind}"
+			condition = f"development-{development_split}-{kind}"
 		if adapter_override:
 			adapter = adapter_override
 		config = EvaluationConfig(
@@ -226,11 +239,14 @@ class Study:
 				"budget": budget,
 				"condition": condition,
 				"schedule": "uniform_without_replacement",
-				"split": "development" if development else "test",
+				"split": development_split if development else "test",
 			},
 			experiment=f"start-{task}-s{seed}-b{budget}-{condition}",
-			suite_path=self.pipeline.task_dir(task)
-			/ ("development-suite.json" if development else "test-suite.json"),
+			suite_path=(
+				self.development_suites(task)[development_split]
+				if development
+				else self.pipeline.task_dir(task) / "test-suite.json"
+			),
 			output_dir=directory / "benchmarks" / condition,
 			generation=GenerationConfig(
 				max_output_tokens=self.pipeline.manifest(task)["max_output_tokens"]
@@ -863,6 +879,8 @@ class Study:
 		self.pipeline.artifact_root = self.root / "adapters"
 		if not self.arms or set(self.arms) - set(DEFENSES):
 			raise LaunchError(f"--arms must name defenses from {', '.join(DEFENSES)}")
+		from distillation.transfer import analysis_protocol
+
 		freeze(
 			self.root / "protocol.json",
 			{
@@ -879,7 +897,8 @@ class Study:
 				"terms_review_id": self.pipeline.terms_review_id,
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
-				"protocol_version": "task-study-v4",
+				"protocol_version": "task-study-v5",
+				"transfer_analysis": analysis_protocol(self.minimum_gain, self.pipeline.tasks),
 				"study_kind": "separate_task",
 				"budget_plan": "budgets.json",
 				"capability_target_rule": (
@@ -943,7 +962,7 @@ class Study:
 					},
 				)
 				raise LaunchError(
-					f"{task}: undefended development transfer is not positive; "
+					f"{task}: undefended qualification did not establish meaningful transfer; "
 					"final defense testing stopped"
 				)
 			freeze(self.root / task / "target.json", capability_target(selection))

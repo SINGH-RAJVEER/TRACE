@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -9,13 +10,35 @@ from typing import Any
 
 from distillation.benchmarks.models import SampleResult, save_json
 from distillation.benchmarks.reporting import paired
+from distillation.transfer import ANALYSIS_VERSION, effect_inference
 
 
 def defense_effect(
-	base: float, undefended: float, defended: float, *, development_gate: bool
+	base: float,
+	undefended: float,
+	defended: float,
+	*,
+	development_gate: bool,
+	inference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	gain = undefended - base
-	valid = development_gate and gain > 0
+	evidence = inference or {
+		"retained_gain_fraction": None,
+		"gain_removed_fraction": None,
+		"ratio_valid": False,
+		"ratio_invalid_reason": "missing_paired_inference",
+	}
+	if inference and any(
+		not math.isclose(value, inference["sample_scores_pp"][key], abs_tol=1e-8)
+		for key, value in (("base", base), ("undefended", undefended), ("defended", defended))
+	):
+		raise ValueError("aggregate capability scores disagree with paired samples")
+	valid = development_gate and evidence["ratio_valid"]
+	reason = (
+		None
+		if valid
+		else ("qualification_failed" if not development_gate else evidence["ratio_invalid_reason"])
+	)
 	return {
 		"base": base,
 		"undefended": undefended,
@@ -23,11 +46,20 @@ def defense_effect(
 		"G_U": gain,
 		"G_D": defended - base,
 		"Delta_D": undefended - defended,
-		"R_D": (defended - base) / gain if valid else None,
-		"R_D_valid": valid,
-		"R_D_invalid_reason": None
+		**evidence,
+		"retained_gain_fraction": evidence["retained_gain_fraction"] if valid else None,
+		"gain_removed_fraction": evidence["gain_removed_fraction"] if valid else None,
+		# Compatibility alias always keeps the historical retained-gain meaning.
+		"R_D": evidence["retained_gain_fraction"] if valid else None,
+		"R_D_semantics": "deprecated alias of retained_gain_fraction",
+		"ratio_valid": valid,
+		"retained_gain_fraction_ci95": evidence.get("retained_gain_fraction_ci95")
 		if valid
-		else "nonpositive undefended gain or failed development transfer gate",
+		else None,
+		"gain_removed_fraction_ci95": evidence.get("gain_removed_fraction_ci95") if valid else None,
+		"ratio_invalid_reason": reason,
+		"R_D_valid": valid,
+		"R_D_invalid_reason": reason,
 	}
 
 
@@ -57,10 +89,10 @@ def study_report(root: Path) -> dict[str, Any]:
 	rows, missing = [], []
 	for task in protocol["tasks"]:
 		selection_path = root / task / "recipe.json"
-		gate = (
-			selection_path.exists()
-			and json.loads(selection_path.read_text())["transfer_gate_passed"]
-		)
+		selection = json.loads(selection_path.read_text()) if selection_path.exists() else {}
+		gate = selection.get("analysis_version") == ANALYSIS_VERSION and selection.get(
+			"qualification", {}
+		).get("passed", False)
 		for seed in protocol["seeds"]:
 			for budget in budgets[task]:
 				directory = root / task / f"s{seed}-b{budget}"
@@ -116,10 +148,30 @@ def study_report(root: Path) -> dict[str, Any]:
 							for s in right["samples"]
 						],
 					)
+					inference = None
+					if selection.get("analysis_version") == ANALYSIS_VERSION and all(
+						"student_before" in s["results"] for s in left["samples"]
+					):
+						inference = effect_inference(
+							[
+								SampleResult.model_validate(s["results"]["student_before"])
+								for s in left["samples"]
+							],
+							[
+								SampleResult.model_validate(s["results"]["student_after"])
+								for s in left["samples"]
+							],
+							[
+								SampleResult.model_validate(s["results"]["student_after"])
+								for s in right["samples"]
+							],
+							margin=selection["qualification"]["minimum_gain_pp"],
+							qualified=gate,
+						)
 					rows.append(
 						{
 							**identity,
-							**defense_effect(b, u, d, development_gate=gate),
+							**defense_effect(b, u, d, development_gate=gate, inference=inference),
 							"defended_minus_undefended": comparison,
 							"baseline_report": str(baseline),
 							"defended_report": str(defended),
@@ -131,7 +183,17 @@ def study_report(root: Path) -> dict[str, Any]:
 	aggregates = []
 	for (task, budget, defense), members in groups.items():
 		values = {}
-		for field in ("base", "undefended", "defended", "G_U", "G_D", "Delta_D", "R_D"):
+		for field in (
+			"base",
+			"undefended",
+			"defended",
+			"G_U",
+			"G_D",
+			"Delta_D",
+			"retained_gain_fraction",
+			"gain_removed_fraction",
+			"R_D",
+		):
 			numbers = [r[field] for r in members if r[field] is not None]
 			values[field] = {
 				"n": len(numbers),
@@ -196,7 +258,9 @@ def study_report(root: Path) -> dict[str, Any]:
 		"cost_to_target": cost,
 		"missing_pairs": missing,
 		"units": "scores and gains in percentage points; retention is a ratio",
-		"sampling_uncertainty": "paired source-document bootstrap, separate from seed SD",
+		"sampling_uncertainty": "paired source-document bootstrap conditional on trained models; "
+		"separate from seed SD",
+		"ratio_semantics": "R_D is a deprecated retained-gain alias; invalid ratios remain null",
 		"seed_sd_sources": "query order and training randomness (paired seeds)"
 		if fixed_training_seed is None
 		else f"query order only (training seed fixed at {fixed_training_seed})",

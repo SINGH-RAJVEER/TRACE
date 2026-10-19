@@ -363,6 +363,7 @@ class GatewayStudy:
 		budget: int,
 		*,
 		development: bool = False,
+		development_split: str = "selection",
 		teacher: bool = False,
 		teacher_after: bool = False,
 	) -> dict[str, Any]:
@@ -380,6 +381,7 @@ class GatewayStudy:
 				"gateway",
 				adapter_override=adapter,
 				development=development,
+				development_split=development_split,
 				untrained=adapter is None,
 			)
 			config = load_config(config_path)
@@ -417,6 +419,11 @@ class GatewayStudy:
 				slot: primary_score(run.samples, domain) for slot, run in latest.items()
 			}
 			results[domain]["evaluation_ids"] = {slot: run.id for slot, run in latest.items()}
+			results[domain]["suite_sha256"] = load_suite(config.suite_path).sha256
+			results[domain]["samples"] = {
+				slot: [sample.model_dump(mode="json") for sample in run.samples]
+				for slot, run in latest.items()
+			}
 		save_json(
 			directory
 			/ (
@@ -431,6 +438,22 @@ class GatewayStudy:
 		return results
 
 	def select_recipe(self, schedule: Path, campaign: Path) -> None:
+		from distillation.benchmarks.models import SampleResult
+		from distillation.transfer import analysis_protocol, qualification
+
+		analysis = analysis_protocol(self.study.minimum_gain, self.study.pipeline.tasks)
+		# Materialize both source-disjoint halves before any candidate evaluation.
+		suites = {d: self.study.development_suites(d) for d in self.study.pipeline.tasks}
+		freeze(
+			self.root / "development/protocol.json",
+			{
+				"analysis": analysis,
+				"suites": {
+					d: {k: load_suite(p).sha256 for k, p in paths.items()}
+					for d, paths in suites.items()
+				},
+			},
+		)
 		trials = []
 		for rate in (1e-4, 2e-4):
 			for epochs in (1, 2, 3):
@@ -456,22 +479,46 @@ class GatewayStudy:
 			trials, key=lambda t: (t["mean"], -t["recipe"]["epochs"], -t["recipe"]["learning_rate"])
 		)
 		self.selected = winner["recipe"]
-		gains = {d: s["student_after"] - s["student_before"] for d, s in winner["scores"].items()}
+		freeze(self.root / "development/selected-recipe.json", winner)
+		directory = (
+			self.root
+			/ "development"
+			/ f"lr{self.selected['learning_rate']}-e{self.selected['epochs']}"
+		)
+		qualified_scores = self.evaluate(
+			self.root / "development/qualification",
+			directory / "adapter",
+			42,
+			self.development_budget,
+			development=True,
+			development_split="qualification",
+		)
+		qualifications = {
+			d: qualification(
+				[SampleResult.model_validate(s) for s in scores["samples"]["student_before"]],
+				[SampleResult.model_validate(s) for s in scores["samples"]["student_after"]],
+				analysis["minimum_gain_pp"][d],
+			)
+			| {"evaluation_ids": scores["evaluation_ids"], "suite_sha256": scores["suite_sha256"]}
+			for d, scores in qualified_scores.items()
+		}
+		passed = all(q["passed"] for q in qualifications.values())
 		freeze(
 			self.root / "recipe.json",
 			{
 				"selected": self.selected,
 				"trials": trials,
-				"development_gains": gains,
-				"transfer_gate_passed": all(g > 0 for g in gains.values()),
-				"selection": "equal-weight domain development mean; "
+				"qualification": qualifications,
+				"analysis_version": analysis["version"],
+				"transfer_gate_passed": passed,
+				"selection": "equal-weight domain selection mean; "
 				"ties favor fewer epochs then lower rate",
 				"inventory_sha256": digest(schedule),
 			},
 		)
-		if not all(g > 0 for g in gains.values()):
+		if not passed:
 			raise LaunchError(
-				"shared-student development transfer gate failed in at least one domain"
+				"shared-student qualification did not establish meaningful transfer in every domain"
 			)
 
 	def utility(self, directory: Path, *, keys: dict[str, str] | None = None) -> None:
@@ -546,6 +593,8 @@ class GatewayStudy:
 			self.study.pipeline.launcher.stop_background()
 
 	def _run(self, *, collect_only: bool = False) -> None:
+		from distillation.transfer import analysis_protocol
+
 		pipeline, launcher = self.study.pipeline, self.study.pipeline.launcher
 		pipeline.validate()
 		if len(pipeline.tasks) < 2 or len(set(pipeline.tasks)) != len(pipeline.tasks):
@@ -569,7 +618,10 @@ class GatewayStudy:
 		freeze(
 			self.root / "protocol.json",
 			{
-				"version": "shared-gateway-v1",
+				"version": "shared-gateway-v2",
+				"transfer_analysis": analysis_protocol(self.study.minimum_gain, pipeline.tasks)
+				if not collect_only
+				else None,
 				"study_kind": "shared_gateway",
 				"domains": pipeline.tasks,
 				"seeds": pipeline.seeds,
@@ -723,12 +775,22 @@ class GatewayStudy:
 				self.evaluate(campaign, adapter, seed, budget)
 				self.controls(directory / "undefended", campaign, schedule, seed, budget)
 			results.extend(
-				campaign_results(directory, seed, budget, self.study.arms, pipeline.tasks)
+				campaign_results(
+					directory,
+					seed,
+					budget,
+					self.study.arms,
+					pipeline.tasks,
+					qualification=json.loads((self.root / "recipe.json").read_text())[
+						"qualification"
+					],
+				)
 			)
 		save_json(
 			self.root / "results.json",
 			{
 				"study_kind": "shared_gateway",
+				"units": "scores and gains in percentage points; fractions are dimensionless",
 				"results": results,
 				"uncertainty": "schedules and ledgers retain source identities; "
 				"no across-seed independence assumed",

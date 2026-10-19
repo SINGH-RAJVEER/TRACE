@@ -352,8 +352,8 @@ This checklist applies to the task-only extraction and account-policy study. It 
 
 ### 24. Report defense capability and validate reduction metrics
 
-- [ ] Paper for the narrow study: establish positive undefended transfer on development data before freezing the defense experiment. Record the learnability gate and its result without using final test outcomes for recipe selection.
-- [ ] Implement defended capability and `R_D` using each task's primary metric, with explicit validity checks for its reference scores and denominator. Retain raw scores and explain why the ratio is unavailable when its interpretation fails.
+- [x] Implement a shared qualification rule in both study runners: select among six recipes on one source-disjoint development half, freeze the winner, and qualify it once on the untouched half. Require the lower paired 95% gain bound to exceed a frozen task margin, defaulting to 2 percentage points. Keep actual qualification results pending until model runs complete.
+- [x] Implement explicit retained-gain and gain-removed fractions using each task's primary metric. Require qualification and a final undefended-gain interval above the task margin; preserve raw outcomes and reasons for null ratios. Jointly resample the three paired student outcomes. Keep legacy `R_D` as a deprecated retained-gain alias.
 - [ ] Add budget curves and cost to a declared capability target, reporting targets not reached within observed budgets. Validate positive, zero, and negative undefended transfer cases.
 
 ### 25. Score legitimate task quality and unconditional utility
@@ -411,9 +411,9 @@ Required for Table VI and the primary contrast:
 
 - [x] Add the missing defended arms to `just start --mode tasks`. `study.py` hardcodes `HARNESS_ACCUMULATOR=paper` and `HARNESS_POLICY=mmd`. Table VI and the primary contrast also need `instantaneous` and `quota` campaigns, each with its own ledger, adapter, and evaluation. Done: `--arms full,instantaneous,quota`, each under `protected/ARM/`.
 - [ ] Add the development sweep over learning rate {1e-4, 2e-4} and epochs {1, 2, 3}. Six runs per core task on the undefended attacker set at B_A = 2,000 and seed 42, scored on `development-suite.json`, are cheap next to the main matrix. Freeze the winner in each task's generated config. The paper then names that sweep set, rather than this checklist fixing 2e-4 and 3 epochs without selection.
-- [ ] Wire the development transfer gate (item 24) into `just start --mode tasks`, so defended campaigns stop or are flagged when the undefended development gain is not positive.
+- [x] Wire independent development qualification into both study runners so failed or uncertain transfer stops final defense testing. Freeze suite hashes, margins, and qualification evidence in versioned artifacts; require a new run directory for protocol changes.
 - [x] Charge failures to the campaign instead of aborting. `ProtectedTeacher.generate` raises on any non-block error, and `_collect_one` retries up to three times without charging retries to B_A (item 11). Done for defended campaigns: failed attempts are charged and never retried; undefended collector retries remain a disclosed re-query.
-- [ ] Add the study-level report: `G_D`, `Delta_D`, `R_D` with its validity rule, per-seed results with mean and SD, budget curves, and cost to target. `reporting.paired` bootstraps independent items; replace it with source-document clusters for SQuAD (item 26).
+- [x] Add per-seed task reports, mean and SD, budget curves, cost to target, and paired source bootstrap capability intervals. Export retained and removed fractions with qualification and denominator validity checks; preserve SQuAD source groups. Across-training-run effectiveness and final study evidence remain pending.
 - [x] Add a direct-block mode to `MMDPolicy`, which is one of item 22's priority ablations and needs only an L4-only threshold set. The paper drops the stride row instead of the repository adding rolling windows. Done: `MMDPolicy(actions="direct")`, `HARNESS_ACTIONS`, and `harness replay --actions direct`.
 
 Bookkeeping:

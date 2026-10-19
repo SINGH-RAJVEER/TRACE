@@ -705,6 +705,13 @@ def test_capability_target_comes_from_selected_development_scores(tmp_path: Path
 	}
 	target = capability_target(selection)
 	assert target["target_score"] == 20.0
+	qualified_target = capability_target(
+		selection
+		| {
+			"qualification": {"base_score": 40.0, "score": 60.0},
+		}
+	)
+	assert qualified_target["target_score"] == 50.0
 	protocol = {
 		"tasks": ["gsm8k"],
 		"seeds": [42, 1],
@@ -794,7 +801,11 @@ async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: 
 	assert [e["index"] for e in events if e["event"] == "attempt"] == list(range(1, 8))
 
 
-def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(tmp_path: Path) -> None:
+@pytest.mark.parametrize("qualified", [False, True])
+def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(
+	tmp_path: Path,
+	qualified: bool,
+) -> None:
 	from distillation.benchmarks.models import SampleResult, save_json
 	from distillation.study_reporting import write_study_results
 
@@ -817,7 +828,14 @@ def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(tmp_path
 		}
 	}
 	save_json(tmp_path / "policy-horizons.json", horizons)
-	save_json(tmp_path / "ag_news" / "recipe.json", {"transfer_gate_passed": True})
+	save_json(
+		tmp_path / "ag_news" / "recipe.json",
+		{
+			"analysis_version": "transfer-v2",
+			"transfer_gate_passed": qualified,
+			"qualification": {"passed": qualified, "minimum_gain_pp": 2},
+		},
+	)
 	sample = SampleResult(
 		item_id="held-out",
 		benchmark="ag_news",
@@ -848,7 +866,19 @@ def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(tmp_path
 						"model": {"model": "fixture", "adapter_path": arm},
 					}
 				},
-				"samples": [{"results": {"student_after": sample.model_dump(mode="json")}}],
+				"samples": [
+					{
+						"results": {
+							"student_before": sample.model_copy(
+								update={"item_id": str(i), "correct": i < 5}
+							).model_dump(mode="json"),
+							"student_after": sample.model_copy(
+								update={"item_id": str(i), "correct": i < score / 5}
+							).model_dump(mode="json"),
+						}
+					}
+					for i in range(20)
+				],
 			},
 		)
 	write_study_results(tmp_path)
@@ -856,6 +886,16 @@ def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(tmp_path
 	assert report["missing_pairs"] == []
 	assert report["per_seed"][0]["budget"] == budget
 	assert report["per_seed"][0]["Delta_D"] == 30
+	row = report["per_seed"][0]
+	assert row["ratio_valid"] is qualified
+	assert row["gain_removed"] == 30
+	assert len(row["gain_removed_ci95_pp"]) == 2
+	if qualified:
+		assert row["R_D"] == row["retained_gain_fraction"] == pytest.approx(35 / 65)
+		assert row["gain_removed_fraction"] == pytest.approx(30 / 65)
+	else:
+		assert row["R_D"] is row["gain_removed_fraction"] is None
+		assert row["ratio_invalid_reason"] == "qualification_failed"
 	assert report["study_kind"] == "separate_task"
 	assert report["policy_horizons"] == horizons
 	assert json.loads((tmp_path / "study-manifest.json").read_text())["complete"]
