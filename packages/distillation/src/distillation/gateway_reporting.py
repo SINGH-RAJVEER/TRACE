@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from distillation.benchmarks.models import SampleResult, save_json
+from distillation.campaign_timing import campaign_timing
 from distillation.io import canonical_json, read_jsonl
 from distillation.schemas import GatewayRequest, LedgerRecord, SFTRecord
 from distillation.transfer import effect_inference
@@ -70,20 +71,29 @@ def profile_rates(rows: list[GatewayRequest], decisions: Path, levels: list[int]
 		peaks[key] = max(peaks.get(key, 0), decision["level"])
 		if decision["window_completed"]:
 			scored.add(key)
-	return {
-		str(profile): {
-			"horizons": len(keys),
-			"scored_horizons": len(set(keys) & scored),
-			"reached_rate": {
-				f"L{level}": sum(peaks[k] >= level for k in keys) / len(keys)
-				if level in levels
-				else None
-				for level in range(1, 5)
-			},
+
+	def rates(keys: list[tuple[str, int]]) -> dict[str, float | None]:
+		return {
+			f"L{level}": sum(peaks[k] >= level for k in keys) / len(keys)
+			if keys and level in levels
+			else None
+			for level in range(1, 5)
 		}
-		for profile in set(profiles.values())
-		if (keys := [k for k in peaks if profiles[k[0]] == profile])
-	}
+
+	result: dict[str, Any] = {}
+	for profile in set(profiles.values()):
+		keys = [k for k in peaks if profiles[k[0]] == profile]
+		if not keys:
+			continue
+		scored_keys = [k for k in keys if k in scored]
+		result[str(profile)] = {
+			"horizons": len(keys),
+			"scored_horizons": len(scored_keys),
+			"reached_rate": rates(keys),
+			# Over scored horizons, the denominator the thresholds were fitted on.
+			"reached_rate_scored": rates(scored_keys),
+		}
+	return result
 
 
 def campaign_results(
@@ -107,6 +117,8 @@ def campaign_results(
 		scores = load(campaign / "scores.json")
 		events = load(campaign / "campaign.json")
 		prepared = load(campaign / "supervision.json")
+		timing = campaign_timing(campaign)
+		save_json(directory / arm / "campaign-timing.json", timing)
 		for domain in domains:
 			base = baseline[domain]["student_before"]
 			gain = baseline[domain]["student_after"] - base
@@ -147,6 +159,14 @@ def campaign_results(
 					"teacher_score": teacher[domain]["teacher"],
 					"teacher_after_score": teacher_after[domain]["teacher_after"],
 					"http": events["domains"][domain],
+					"timing": str(directory / arm / "campaign-timing.json"),
+					"first_intervention": {
+						level: {k: v[k] for k in ("reached", "seconds", "attempt_index", "account")}
+						| {"received_before": v["received_before"].get(domain, {})}
+						for level, v in timing["levels"].items()
+					},
+					"campaign_stopped": timing["campaign_stopped"],
+					"campaign_stop_seconds": timing["campaign_stop_seconds"],
 					"supervision": prepared["domains"][domain],
 					"utility": str(directory / arm / "utility.json"),
 					"controls": {

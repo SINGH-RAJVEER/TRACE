@@ -22,11 +22,13 @@ from distillation.benchmarks.models import (
 	save_json,
 )
 from distillation.benchmarks.runner import run_evaluation
+from distillation.external_sources import EXTERNAL_SOURCES, build_external
 from distillation.gateway_study import GatewayStudy, benign_requests
 from distillation.io import read_jsonl, write_jsonl
 from distillation.launcher import Launcher, LaunchError, TaskPipeline, run_app
 from distillation.review import review_ledger
 from distillation.schemas import (
+	GatewayRequest,
 	Message,
 	PromptRecord,
 	PromptSource,
@@ -111,7 +113,7 @@ def test_launchers_default_to_shared_students_with_math_and_coding(
 			["ag_news", "squad", "gsm8k", "coding"],
 			command == "distill",
 			None,
-			("A1",) if command == "distill" else ("A1", "A2", "A5"),
+			("A1",) if command == "distill" else ("A1", "A2", "A5", "A7"),
 		)
 	]
 
@@ -301,7 +303,21 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		def option(name: str) -> Path:
 			return Path(args[args.index(name) + 1])
 
-		if args[0] == "review":
+		if args[:2] == ("gateway", "external"):
+			domain = option("--task")
+			build_external(
+				task=str(domain),
+				task_dir=option("--tasks-dir") / domain,
+				rows={
+					"train": [
+						{"text": f"bbc ag_news story {i}"}
+						if str(domain) == "ag_news"
+						else {"question_without_options": f"gsm8k external problem {i}"}
+						for i in range(20)
+					]
+				},
+			)
+		elif args[0] == "review":
 			review_ledger(ledger_path=option("--ledger"), output_path=option("--output"))
 		elif args[0] == "train":
 			assert not services, "inference services must stop before training"
@@ -357,7 +373,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	)
 	gateway = GatewayStudy(
 		study,
-		attacks=("A1", "A5"),
+		attacks=("A1", "A5", "A7"),
 		interval_seconds=0,
 		benign_accounts=4,
 		requests_per_account=2,
@@ -377,6 +393,9 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		assert len(training_datasets) == 6
 		recipe = json.loads((gateway.root / "recipe.json").read_text())
 		assert recipe["transfer_gate_passed"] is False
+		assert recipe["informative_domains"] == []
+		assert set(recipe["uninformative_domains"]) == set(pipeline.tasks)
+		assert all(set(t["ranks"]) == set(pipeline.tasks) for t in recipe["trials"])
 		assert all(q["gain_pp"] == 0 for q in recipe["qualification"].values())
 		assert not (gateway.root / "results.json").exists()
 		return
@@ -384,7 +403,8 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	assert not services
 	assert all(not s.thread.is_alive() for s in all_servers)
 	if collect_only:
-		assert len(training_datasets) == 4
+		# A1 and A5 train attacker and gold students; A7 has no gold answers.
+		assert len(training_datasets) == 5
 		for dataset in training_datasets:
 			prepared = read_jsonl(dataset, SFTRecord)
 			assert len(prepared) == 8
@@ -392,7 +412,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		assert not (gateway.root / "calibration").exists()
 		return
 	results = json.loads((gateway.root / "results.json").read_text())["results"]
-	assert len(results) == 4
+	assert len(results) == 6
 	assert all(r["ratio_valid"] for r in results)
 	assert all(r["undefended_gain_ci95_pp"] == [100.0, 100.0] for r in results)
 	recipe = json.loads((gateway.root / "recipe.json").read_text())
@@ -406,6 +426,10 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 		assert recipe["qualification"][domain]["minimum_gain_pp"] == 2.0
 	assert all(set(r["controls"]) == {"matched-volume", "matched-prefix"} for r in results)
 	assert all(r["http"]["queries"] >= 1 for r in results)
+	assert all(set(r["first_intervention"]) == {"L1", "L2", "L3", "L4"} for r in results)
+	assert all(Path(r["timing"]).exists() for r in results)
+	timing = json.loads(Path(results[0]["timing"]).read_text())
+	assert timing["latency_seconds"]["received"]["n"] >= 1
 	assert {r["domain"] for r in results} == {"ag_news", "gsm8k"}
 	for attack in ("A1", "A5"):
 		directory = gateway.root / attack / "s42-b8"
@@ -424,3 +448,32 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 				d for d in pipeline.tasks if any(d in r.prompt[0].content for r in prepared)
 			} == set(pipeline.tasks)
 	assert len([p for p in training_datasets if "development" in str(p)]) == 6
+	independent = gateway.root / "A7" / "s42-b8"
+	assert not (independent / "gold").exists()
+	inventory = json.loads((independent / "inventory.json").read_text())
+	assert inventory["prompt_sources"] == "independent external"
+	assert all(
+		r.prompt.source.corpus == EXTERNAL_SOURCES[r.domain].dataset.repository
+		for r in read_jsonl(independent / "requests.jsonl", GatewayRequest)
+	)
+
+
+def test_recipe_selection_ranks_domains_instead_of_averaging_raw_scores() -> None:
+	from distillation.gateway_study import rank_trials
+
+	def trial(rate: float, epochs: int, *gains: float) -> dict[str, Any]:
+		return {
+			"recipe": {"learning_rate": rate, "epochs": epochs},
+			"gains": dict(zip(("ag_news", "squad", "coding"), gains, strict=True)),
+		}
+
+	domains = ["ag_news", "squad", "coding"]
+	# A raw mean picks the large coding swing (14 > 7); ranks favor the recipe that is better
+	# in two of three domains.
+	trials = [trial(1e-4, 1, 10.0, 10.0, 1.0), trial(2e-4, 1, 1.0, 1.0, 40.0)]
+	winner = rank_trials(trials, domains)
+	assert winner["recipe"] == {"learning_rate": 1e-4, "epochs": 1}
+	assert winner["ranks"] == {"ag_news": 1.0, "squad": 1.0, "coding": 2.0}
+	tied = [trial(2e-4, 3, 1.0, 1.0, 1.0), trial(1e-4, 3, 1.0, 1.0, 1.0)]
+	assert rank_trials(tied, domains)["recipe"]["learning_rate"] == 1e-4
+	assert all(t["mean_rank"] == 1.5 for t in tied)

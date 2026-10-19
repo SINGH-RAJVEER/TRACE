@@ -5,7 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from distillation.benchmarks.reporting import percentile, wilson
+from distillation.benchmarks.reporting import distribution, percentile, wilson
 from distillation.benchmarks.traffic import TrafficRun, TrafficSample, load_traffic_suite
 
 
@@ -74,17 +74,23 @@ def summarize_traffic(samples: list[TrafficSample], seconds: float) -> dict[str,
 		if with_tokens
 		else None,
 		"token_coverage": len(with_tokens) / len(successes) if successes else None,
-		"latency_p50": percentile(
-			[s.completed_seconds - s.started_seconds for s in successes], 0.5
-		),
-		"latency_p95": percentile(
-			[s.completed_seconds - s.started_seconds for s in successes], 0.95
-		),
+		**{
+			f"latency_p{round(q * 100)}": percentile(
+				[s.completed_seconds - s.started_seconds for s in successes], q
+			)
+			for q in (0.5, 0.9, 0.95, 0.99)
+		},
 		"schedule_delay_p95": percentile(
 			[s.started_seconds - s.scheduled_seconds for s in samples], 0.95
 		),
-		"end_to_end_p95": percentile(
-			[s.completed_seconds - s.scheduled_seconds for s in samples], 0.95
+		**{
+			f"end_to_end_p{round(q * 100)}": percentile(
+				[s.completed_seconds - s.scheduled_seconds for s in samples], q
+			)
+			for q in (0.5, 0.9, 0.95, 0.99)
+		},
+		"challenge_seconds": distribution(
+			[s.challenge_seconds for s in samples if s.challenge_seconds]
 		),
 	}
 

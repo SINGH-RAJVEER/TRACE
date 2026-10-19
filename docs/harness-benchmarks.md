@@ -1,5 +1,7 @@
 # Harness traffic benchmarks
 
+This is an HTTP smoke test, not detector evidence. Its default suite has 48 generic-chat genuine requests, 12 per actor, so no genuine account completes a 100-request window and no detector false positive can occur. Report false escalation, detection timing, and benign cost from the shared study instead: held-out benign replay, live benign utility, and each campaign's `campaign-timing.json` ([multi-domain-study.md](multi-domain-study.md#campaign-timing)).
+
 This benchmark compares the unprotected teacher before harness deployment with the same teacher behind the harness afterward. It measures whether genuine users still receive responses while extraction attempts slow down, receive rate limits, and eventually get blocked. Student training and the existing four-slot model-quality comparison are separate experiments.
 
 The benchmark creates a held-out synthetic traffic suite. It does not add anything to the task prompt pools, collection ledgers, training data, or task capability suites. Only explicitly running `benchmark traffic run` sends its requests. The harness is in `packages/harness`, served over HTTP by `apps/harness-api` ([harness.md](harness.md)).
@@ -90,8 +92,9 @@ Every frozen request remains in its class denominator, including failures, inval
 | `throttled`, `rate_limited` | Explicit `throttle` decision count and HTTP 429 outcome count. They can overlap; neither is added to the confirmed block count. |
 | `decision_coverage` | Fraction of requests with a recognized harness decision. |
 | `statuses` | Disjoint outcome counts for successful, blocked, rate-limited, HTTP error, timeout, transport error, and invalid responses. |
-| `latency_p50`, `latency_p95` | Dispatch-to-completion latency among successful requests, in seconds. Includes server delays, generation, and network time. |
-| `schedule_delay_p95`, `end_to_end_p95` | p95 scheduled-to-dispatch delay and scheduled-to-completion delay respectively, over all requests. |
+| `latency_p50`, `latency_p90`, `latency_p95`, `latency_p99` | Dispatch-to-completion latency among successful requests, in seconds. Includes server delays, generation, and network time. |
+| `schedule_delay_p95`, `end_to_end_p50` to `end_to_end_p99` | p95 scheduled-to-dispatch delay, and p50/p90/p95/p99 scheduled-to-completion delay, over all requests. |
+| `challenge_seconds` | Distribution of proof-of-work solving time over challenged requests, with p50/p90/p95/p99. |
 | `successful_requests_per_second` | Successful requests divided by the greater of the frozen replay duration and last completion offset. Failed and blocked attempts still consume observation time. |
 | `noised`, `noised_percent` | Successful responses that were keyed noise, and `100 × noised / n`. Available only when the harness log covers every successful response. For genuine requests these are silent corruptions: false positives that were never shown as blocks. |
 | `useful_succeeded`, `useful_success_percent` | Successful responses that carried the teacher's answer: `succeeded − noised`, and `100 × useful_succeeded / n`. For extraction requests this is the supervision the attacker actually obtained. |

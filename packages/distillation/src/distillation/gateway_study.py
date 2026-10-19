@@ -39,7 +39,7 @@ from distillation.launcher import (
 	_trained,
 )
 from distillation.preparation import prepare_sft_dataset
-from distillation.schedules import Attack, campaign_schedule
+from distillation.schedules import ATTACKS, EXTERNAL_ATTACKS, Attack, campaign_schedule
 from distillation.schemas import GatewayRequest, LedgerRecord, Message, PromptRecord, SFTRecord
 from distillation.study import DECLARED_ACCUMULATORS, DEFENSES, Study, _MemoEncoder, freeze
 from distillation.study_training import primary_score, token_controls
@@ -66,16 +66,38 @@ def benign_requests(rows: list[GatewayRequest], *, serialized: bool = True) -> l
 	]
 
 
+def rank_trials(trials: list[dict[str, Any]], domains: list[str]) -> dict[str, Any]:
+	"""Choose the recipe with the lowest mean per-domain rank of development gain.
+
+	Domain metrics have different scales and variances, so a raw cross-domain mean would let
+	the noisiest domain choose. Ties share their average rank; equal mean ranks favor fewer
+	epochs, then the lower learning rate.
+	"""
+	for domain in domains:
+		gains = [trial["gains"][domain] for trial in trials]
+		for trial in trials:
+			higher = sum(g > trial["gains"][domain] for g in gains)
+			equal = sum(g == trial["gains"][domain] for g in gains)
+			trial.setdefault("ranks", {})[domain] = higher + (equal + 1) / 2
+	for trial in trials:
+		trial["mean_rank"] = sum(trial["ranks"].values()) / len(trial["ranks"])
+	return min(
+		trials, key=lambda t: (t["mean_rank"], t["recipe"]["epochs"], t["recipe"]["learning_rate"])
+	)
+
+
 @dataclass
 class GatewayStudy:
 	study: Study
-	attacks: tuple[Attack, ...] = ("A1", "A2", "A5")
+	# A7 uses independently pinned prompts, the positive control for a distribution shift.
+	attacks: tuple[Attack, ...] = ("A1", "A2", "A5", "A7")
 	interval_seconds: float = 1
 	deadline_seconds: float = 86400
 	benign_accounts: int = 20
 	requests_per_account: int = 100
 	development_budget: int = 2000
 	pools: dict[str, list[PromptRecord]] = field(default_factory=dict)
+	external_pools: dict[str, list[PromptRecord]] = field(default_factory=dict)
 	caps: dict[str, int] = field(default_factory=dict)
 	benign: dict[str, list[GatewayRequest]] = field(default_factory=dict)
 	selected: dict[str, Any] = field(default_factory=dict)
@@ -95,7 +117,28 @@ class GatewayStudy:
 				)
 			self.pools[domain] = read_jsonl(directory / "attacker.jsonl", PromptRecord)
 			self.caps[domain] = int(pipeline.manifest(domain)["max_output_tokens"])
+			if set(self.attacks) & EXTERNAL_ATTACKS:
+				if not (directory / "external" / "manifest.json").exists():
+					pipeline.launcher.distill(
+						"gateway",
+						"external",
+						"--task",
+						domain,
+						"--tasks-dir",
+						str(directory.parent),
+					)
+				self.external_pools[domain] = read_jsonl(
+					directory / "external" / "attacker.jsonl", PromptRecord
+				)
 		freeze(self.root / "tasks.json", {d: pipeline.manifest(d) for d in pipeline.tasks})
+		if self.external_pools:
+			freeze(
+				self.root / "external.json",
+				{
+					d: json.loads((pipeline.task_dir(d) / "external" / "manifest.json").read_text())
+					for d in pipeline.tasks
+				},
+			)
 		if not benign:
 			return
 		references = {
@@ -166,8 +209,19 @@ class GatewayStudy:
 	def inventory(
 		self, directory: Path, attack: Attack, seed: int, budget: int, *, full: bool = False
 	) -> Path:
+		external = attack in EXTERNAL_ATTACKS
+		pools = self.external_pools if external else self.pools
+		if full and attack == "A3":
+			raise LaunchError("A3 splits a numeric budget between cover and extraction")
+		# Full external inventories match the task pools wherever the source is large enough,
+		# and the campaign allowance is that inventory's own total.
+		allocation = (
+			{d: min(len(p), len(pools[d])) for d, p in self.pools.items()} if full else None
+		)
+		if allocation is not None:
+			budget = sum(allocation.values())
 		rows, manifest = campaign_schedule(
-			pools=self.pools,
+			pools=pools,
 			caps=self.caps,
 			attack=attack,
 			seed=seed,
@@ -175,7 +229,8 @@ class GatewayStudy:
 			campaign_id=f"{attack}-s{seed}-b{budget}",
 			interval_seconds=self.interval_seconds,
 			deadline_seconds=self.deadline_seconds,
-			allocation={d: len(p) for d, p in self.pools.items()} if full else None,
+			allocation=allocation,
+			cover_pools=self.pools if attack == "A3" else None,
 		)
 		freeze(directory / "inventory.json", manifest)
 		path = directory / "requests.jsonl"
@@ -472,12 +527,12 @@ class GatewayStudy:
 					{
 						"recipe": recipe,
 						"scores": scores,
-						"mean": sum(s["student_after"] for s in scores.values()) / len(scores),
+						"gains": {
+							d: s["student_after"] - s["student_before"] for d, s in scores.items()
+						},
 					}
 				)
-		winner = max(
-			trials, key=lambda t: (t["mean"], -t["recipe"]["epochs"], -t["recipe"]["learning_rate"])
-		)
+		winner = rank_trials(trials, self.study.pipeline.tasks)
 		self.selected = winner["recipe"]
 		freeze(self.root / "development/selected-recipe.json", winner)
 		directory = (
@@ -503,6 +558,9 @@ class GatewayStudy:
 			for d, scores in qualified_scores.items()
 		}
 		passed = all(q["passed"] for q in qualifications.values())
+		# A domain without qualified development transfer is uninformative about the defense:
+		# it stays in every report with that label. The study stops only when none qualifies.
+		informative = sorted(d for d, q in qualifications.items() if q["passed"])
 		freeze(
 			self.root / "recipe.json",
 			{
@@ -511,14 +569,16 @@ class GatewayStudy:
 				"qualification": qualifications,
 				"analysis_version": analysis["version"],
 				"transfer_gate_passed": passed,
-				"selection": "equal-weight domain selection mean; "
+				"informative_domains": informative,
+				"uninformative_domains": sorted(set(qualifications) - set(informative)),
+				"selection": "lowest mean per-domain rank of development gain; "
 				"ties favor fewer epochs then lower rate",
 				"inventory_sha256": digest(schedule),
 			},
 		)
-		if not passed:
+		if not informative:
 			raise LaunchError(
-				"shared-student qualification did not establish meaningful transfer in every domain"
+				"shared-student qualification did not establish meaningful transfer in any domain"
 			)
 
 	def utility(self, directory: Path, *, keys: dict[str, str] | None = None) -> None:
@@ -603,7 +663,7 @@ class GatewayStudy:
 			raise LaunchError("shared gateway currently supports L4 refusal")
 		if (
 			not self.attacks
-			or set(self.attacks) - {"A1", "A2", "A5"}
+			or set(self.attacks) - set(ATTACKS)
 			or len(set(self.attacks)) != len(self.attacks)
 			or not self.study.arms
 			or set(self.study.arms) - DEFENSES.keys()
@@ -618,7 +678,7 @@ class GatewayStudy:
 		freeze(
 			self.root / "protocol.json",
 			{
-				"version": "shared-gateway-v2",
+				"version": "shared-gateway-v3",
 				"calibration_gate": None if collect_only else "calibration-resolution-v1",
 				"transfer_analysis": analysis_protocol(self.study.minimum_gain, pipeline.tasks)
 				if not collect_only
@@ -696,7 +756,9 @@ class GatewayStudy:
 					schedule = self.inventory(
 						directory, attack, seed, budget, full=pipeline.budgets is None
 					)
-					jobs.append((directory, schedule, seed, budget))
+					# Full external inventories can be smaller than the task-pool total.
+					allowance = json.loads((directory / "inventory.json").read_text())
+					jobs.append((directory, schedule, seed, allowance["attempt_budget"]))
 		development = self.root / "development"
 		devschedule = (
 			None if collect_only else self.inventory(development, "A1", 42, self.development_budget)
@@ -708,7 +770,7 @@ class GatewayStudy:
 			launcher.stop_background()
 			for directory, schedule, seed, _ in jobs:
 				self.train(directory / "undefended", schedule, seed, {})
-				if pipeline.gold:
+				if pipeline.gold and directory.parent.name not in EXTERNAL_ATTACKS:
 					self.train(directory / "gold", schedule, seed, {}, gold=True)
 			save_json(
 				self.root / "status.json", {"status": "complete", "mode": "shared_distillation"}
@@ -766,7 +828,8 @@ class GatewayStudy:
 		for directory, schedule, seed, budget in jobs:
 			base_adapter = self.train(directory / "undefended", schedule, seed, self.selected)
 			self.evaluate(directory / "undefended", base_adapter, seed, budget)
-			if pipeline.gold:
+			# Independent sources carry no gold answers, so A3 and A7 have no gold reference.
+			if pipeline.gold and directory.parent.name not in EXTERNAL_ATTACKS:
 				gold_adapter = self.train(
 					directory / "gold", schedule, seed, self.selected, gold=True
 				)
