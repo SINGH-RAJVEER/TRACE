@@ -283,7 +283,7 @@ class GatewayStudy:
 			directory / "training-protocol.json",
 			base
 			| {
-				"seed": seed,
+				"seed": pipeline.training_seed_for(seed),
 				"input_sha256": {
 					d: digest(pipeline.task_dir(d) / "gold-answers.jsonl") for d in self.pools
 				}
@@ -293,7 +293,14 @@ class GatewayStudy:
 			},
 		)
 		config.write_text(
-			_toml(base | {"seed": seed, "dataset_path": str(dataset), "output_dir": str(adapter)})
+			_toml(
+				base
+				| {
+					"seed": pipeline.training_seed_for(seed),
+					"dataset_path": str(dataset),
+					"output_dir": str(adapter),
+				}
+			)
 		)
 		if gold:
 			answers = {
@@ -578,6 +585,12 @@ class GatewayStudy:
 				"development_budget": self.development_budget,
 				"collect_only": collect_only,
 				"gold": pipeline.gold,
+				# Recorded only when set, so existing paired-seed run directories still match.
+				**(
+					{"training_seed": pipeline.training_seed}
+					if pipeline.training_seed is not None
+					else {}
+				),
 				"resource_unit": "all HTTP submissions including proofs",
 				"aggregate_monitor": "disabled",
 				"teacher_url": self.study.url,

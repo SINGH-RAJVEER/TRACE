@@ -40,6 +40,8 @@ DEFENSES: dict[str, tuple[str, str]] = {
 	"instantaneous": ("mmd", "instantaneous"),
 	"quota": ("quota", "paper"),
 }
+# Each task's success target recovers this fraction of the selected recipe's development gain.
+TARGET_GAIN_FRACTION = 0.5
 # The accumulators the paper reports: the full policy, its baseline, and the memory ablations.
 # The e-value accumulators stay in the library but out of study calibrations and reports.
 DECLARED_ACCUMULATORS = ("paper", "instantaneous", "paper_no_memory", "paper_no_decay")
@@ -52,6 +54,28 @@ def freeze(path: Path, value: dict[str, Any]) -> None:
 			raise LaunchError(f"{path} changed; select a new --run-dir")
 	else:
 		save_json(path, value)
+
+
+def capability_target(selection: dict[str, Any]) -> dict[str, Any]:
+	"""A per-task success target on the task's own score scale, from development scores only.
+
+	A single fixed score cannot serve every task: base and teacher scores differ by task, and
+	a target above what undefended transfer reaches makes every cost-to-target "not reached".
+	"""
+	winner = next(
+		trial
+		for trial in selection["trials"]
+		if {"learning_rate": trial["learning_rate"], "epochs": trial["epochs"]}
+		== selection["selected"]
+	)
+	base, score = winner["base_score"], winner["score"]
+	return {
+		"target_score": base + TARGET_GAIN_FRACTION * (score - base),
+		"gain_fraction": TARGET_GAIN_FRACTION,
+		"development_base_score": base,
+		"development_score": score,
+		"source": "selected recipe at seed 42 and B=2000 on the development suite",
+	}
 
 
 def _replayed_horizons(
@@ -196,7 +220,7 @@ class Study:
 			dimensions={
 				"task": task,
 				"query_seed": seed,
-				"training_seed": seed,
+				"training_seed": self.pipeline.training_seed_for(seed),
 				"budget": budget,
 				"condition": condition,
 				"schedule": "uniform_without_replacement",
@@ -793,10 +817,14 @@ class Study:
 				"terms_review_id": self.pipeline.terms_review_id,
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
-				"protocol_version": "task-study-v3",
+				"protocol_version": "task-study-v4",
 				"study_kind": "separate_task",
 				"budget_plan": "budgets.json",
-				"capability_targets": {task: 80.0 for task in self.pipeline.tasks},
+				"capability_target_rule": (
+					f"development base score plus {TARGET_GAIN_FRACTION:g} of the selected "
+					"recipe's development gain, frozen in TASK/target.json before test evaluation"
+				),
+				"training_seed": self.pipeline.training_seed,
 				"attempt_budget_unit": "HTTP submissions, including proof redemption",
 				"deadline_seconds": 86400,
 				"schedule": "uniform_without_replacement",
@@ -856,6 +884,7 @@ class Study:
 					f"{task}: undefended development transfer is not positive; "
 					"final defense testing stopped"
 				)
+			freeze(self.root / task / "target.json", capability_target(selection))
 		self.ensure_teacher()
 		self.baseline_evaluations(("teacher",))
 		for task in self.pipeline.tasks:

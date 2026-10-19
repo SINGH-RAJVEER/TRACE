@@ -335,6 +335,12 @@ class TaskPipeline:
 	plan: dict[str, list[int]] = field(default_factory=dict)
 	recipes: dict[str, dict[str, Any]] = field(default_factory=dict)
 	run_ledgers: dict[tuple[str, int], Path] = field(default_factory=dict)
+	# None pairs each training run with its query seed, so seed spread mixes query order and
+	# training randomness. A fixed value holds training randomness constant across seeds.
+	training_seed: int | None = None
+
+	def training_seed_for(self, seed: int) -> int:
+		return seed if self.training_seed is None else self.training_seed
 
 	def validate(self) -> None:
 		if not self.terms_review_id:
@@ -503,7 +509,11 @@ class TaskPipeline:
 			output = self.artifact_root / task / f"s{seed}-b{budget}" / kind
 			config = directory / f"train.{kind}.toml"
 			values = {key: value for key, value in base.items() if key != "validation_dataset_path"}
-			values |= {"dataset_path": str(dataset), "output_dir": str(output), "seed": seed}
+			values |= {
+				"dataset_path": str(dataset),
+				"output_dir": str(output),
+				"seed": self.training_seed_for(seed),
+			}
 			config.write_text(_toml(values), encoding="utf-8")
 			if kind == "attacker":
 				reviews = directory / "reviews.jsonl"
@@ -635,6 +645,13 @@ TermsReviewIdOption = Annotated[
 ConcurrencyOption = Annotated[
 	int, typer.Option(envvar="DISTILL_CONCURRENCY", min=1, help="Parallel teacher requests.")
 ]
+TrainingSeedOption = Annotated[
+	int | None,
+	typer.Option(
+		help="Fixed student training seed for every campaign seed; by default each run "
+		"trains with its own campaign seed."
+	),
+]
 PortOption = Annotated[
 	int, typer.Option(envvar="TEACHER_PORT", min=1, max=65535, help="Teacher API port.")
 ]
@@ -720,6 +737,7 @@ def distill_command(
 		Path, typer.Option(dir_okay=False, help="Training recipe copied into every run.")
 	] = TASK_CONFIG,
 	concurrency: ConcurrencyOption = 4,
+	training_seed: TrainingSeedOption = None,
 ) -> None:
 	"""Collect across all four domains and train one shared student by default.
 
@@ -738,6 +756,7 @@ def distill_command(
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
+			training_seed=training_seed,
 		)
 		if mode == "gateway":
 			from typing import cast
@@ -833,6 +852,7 @@ def start_command(
 	harness_port: Annotated[int, typer.Option(min=1, max=65535)] = 8003,
 	terms_review_id: TermsReviewIdOption = "",
 	concurrency: ConcurrencyOption = 4,
+	training_seed: TrainingSeedOption = None,
 	concentrated_share: Annotated[
 		float,
 		typer.Option(
@@ -866,6 +886,7 @@ def start_command(
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
+			training_seed=training_seed,
 		)
 		root = run_dir or Path("artifacts/gateway" if mode == "gateway" else "artifacts/start")
 		pipeline.artifact_root = root / "baseline-adapters"

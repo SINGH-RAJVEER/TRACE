@@ -47,7 +47,8 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--tasks` | `ag_news,squad,gsm8k,coding` | Tasks to run; math and coding are included by default |
-| `--seeds` | `42,1,20` | Paired seeds; each orders its own attacker queries and sets the training seed |
+| `--seeds` | `42,1,20` | Campaign seeds; each orders its own attacker queries and, by default, sets the training seed |
+| `--training-seed` | none | Fixed training seed for every campaign seed, so seed spread reflects query order only; reports record which sources the seed SD covers |
 | `--budgets` | `full` | Use the whole attacker pool per task; pass comma-separated integers for smaller query budgets B_A |
 | `--gold/--no-gold` | `--gold` | Also train the gold-label reference student |
 | `--config` | `configs/train.task.toml` | Recipe copied into each run with that run's dataset, output directory, and seed |

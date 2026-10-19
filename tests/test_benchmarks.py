@@ -107,6 +107,11 @@ def test_choice_parser_never_guesses(response: str, prediction: str | None, corr
 		("#### 1200 and 9", False),
 		("#### 1,20,0", False),
 		("#### 12", False),
+		("#### 1200.", True),
+		("#### $1,200", True),
+		("#### $1200.", True),
+		("#### 1200..", False),
+		("#### $$1200", False),
 	],
 )
 def test_math_exact_match_requires_a_final_answer(response: str, correct: bool) -> None:
