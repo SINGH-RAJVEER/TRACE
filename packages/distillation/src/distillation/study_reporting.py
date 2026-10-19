@@ -53,6 +53,7 @@ def study_report(root: Path) -> dict[str, Any]:
 			)
 	horizons_path = root / "policy-horizons.json"
 	horizons = json.loads(horizons_path.read_text()) if horizons_path.exists() else {}
+	fixed_training_seed = protocol.get("training_seed")
 	rows, missing = [], []
 	for task in protocol["tasks"]:
 		selection_path = root / task / "recipe.json"
@@ -69,7 +70,9 @@ def study_report(root: Path) -> dict[str, Any]:
 					identity = {
 						"task": task,
 						"query_seed": seed,
-						"training_seed": seed,
+						"training_seed": seed
+						if fixed_training_seed is None
+						else fixed_training_seed,
 						"budget": budget,
 						"defense": arm,
 						"schedule": "uniform_without_replacement",
@@ -94,7 +97,7 @@ def study_report(root: Path) -> dict[str, Any]:
 							dim["query_seed"],
 							dim["training_seed"],
 							dim["budget"],
-						) != (task, seed, seed, budget):
+						) != (task, seed, identity["training_seed"], budget):
 							raise ValueError("study comparison mixes experiment dimensions")
 					models = [r["runs"]["student_after"]["model"] for r in (left, right)]
 					if [{k: v for k, v in m.items() if k != "adapter_path"} for m in models][0] != {
@@ -146,7 +149,13 @@ def study_report(root: Path) -> dict[str, Any]:
 		)
 	cost = []
 	for task in protocol["tasks"]:
-		target = protocol.get("capability_targets", {}).get(task, 80.0)
+		target_path = root / task / "target.json"
+		target = (
+			json.loads(target_path.read_text())["target_score"]
+			if target_path.exists()
+			# Studies before task-study-v4 declared one target score in the protocol.
+			else protocol.get("capability_targets", {}).get(task)
+		)
 		for seed in protocol["seeds"]:
 			for defense in protocol["arms"]:
 				curve = sorted(
@@ -157,7 +166,11 @@ def study_report(root: Path) -> dict[str, Any]:
 					],
 					key=lambda r: r["budget"],
 				)
-				reached = next((r for r in curve if r["defended"] >= target), None)
+				reached = (
+					None
+					if target is None
+					else next((r for r in curve if r["defended"] >= target), None)
+				)
 				cost.append(
 					{
 						"task": task,
@@ -165,7 +178,9 @@ def study_report(root: Path) -> dict[str, Any]:
 						"defense": defense,
 						"target_score": target,
 						"first_observed_budget": reached["budget"] if reached else None,
-						"status": "reached_at_observed_budget"
+						"status": "target_not_declared"
+						if target is None
+						else "reached_at_observed_budget"
 						if reached
 						else "not_reached_within_observed_budgets",
 						"observed_budgets": [r["budget"] for r in curve],
@@ -182,6 +197,9 @@ def study_report(root: Path) -> dict[str, Any]:
 		"missing_pairs": missing,
 		"units": "scores and gains in percentage points; retention is a ratio",
 		"sampling_uncertainty": "paired source-document bootstrap, separate from seed SD",
+		"seed_sd_sources": "query order and training randomness (paired seeds)"
+		if fixed_training_seed is None
+		else f"query order only (training seed fixed at {fixed_training_seed})",
 	}
 
 

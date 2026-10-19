@@ -203,6 +203,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 		lambda study, task: {
 			"selected": {"learning_rate": 2e-4, "epochs": 1},
 			"transfer_gate_passed": True,
+			"trials": [{"learning_rate": 2e-4, "epochs": 1, "base_score": 20.0, "score": 60.0}],
 		},
 	)
 	monkeypatch.setattr(
@@ -566,6 +567,38 @@ def test_study_report_uses_resolved_task_budgets(tmp_path: Path, legacy: bool) -
 		("ag_news", 53893),
 		("gsm8k", 3389),
 	]
+	assert {row["status"] for row in report["cost_to_target"]} == {"target_not_declared"}
+	assert report["seed_sd_sources"].startswith("query order and training")
+
+
+def test_capability_target_comes_from_selected_development_scores(tmp_path: Path) -> None:
+	from distillation.study import capability_target
+	from distillation.study_reporting import study_report
+
+	selection = {
+		"selected": {"learning_rate": 2e-4, "epochs": 2},
+		"trials": [
+			{"learning_rate": 1e-4, "epochs": 2, "base_score": 10.0, "score": 90.0},
+			{"learning_rate": 2e-4, "epochs": 2, "base_score": 10.0, "score": 30.0},
+		],
+	}
+	target = capability_target(selection)
+	assert target["target_score"] == 20.0
+	protocol = {
+		"tasks": ["gsm8k"],
+		"seeds": [42, 1],
+		"budgets": [2000],
+		"arms": ["full"],
+		"training_seed": 7,
+	}
+	(tmp_path / "protocol.json").write_text(json.dumps(protocol))
+	(tmp_path / "budgets.json").write_text(json.dumps({"gsm8k": [2000]}))
+	(tmp_path / "gsm8k").mkdir()
+	(tmp_path / "gsm8k" / "target.json").write_text(json.dumps(target))
+	report = study_report(tmp_path)
+	assert {row["training_seed"] for row in report["missing_pairs"]} == {7}
+	assert {row["target_score"] for row in report["cost_to_target"]} == {20.0}
+	assert report["seed_sd_sources"] == "query order only (training seed fixed at 7)"
 
 
 def test_study_report_uses_only_budgets_that_fit_each_task(tmp_path: Path) -> None:
