@@ -2,7 +2,7 @@
 
 The study asks which distillation campaigns an account-level harness restricts, whether those restrictions prevent useful capability transfer within a declared resource envelope, and what legitimate users lose. One gateway serves AG News, SQuAD, GSM8K, and coding. Each campaign trains one student on all the responses it actually receives. The same strategy runs without a defense, with instantaneous MMD, with the full policy, and with a simple query quota. The attempted-request and time limits define a fair comparison; budget curves are secondary.
 
-Status: shared gateway calibration, live multi-account campaigns, combined student training, per-domain evaluation, development recipe selection, token controls, and reporting are implemented. `just start` selects this path by default. `just distill` collects a mixed undefended campaign and trains a shared student without the protected evaluation cycle. Both retain all four domains and full attacker inventories by default. The GSM8K and coding output caps remain provisional until their development pilots pass. No model effectiveness result follows from implementation tests. The manuscript is unchanged.
+Status: shared gateway calibration, live multi-account campaigns, combined student training, per-domain evaluation, development recipe selection, token controls, and reporting are implemented. `just start` selects this path by default. `just distill` collects a mixed undefended campaign and trains a shared student without the protected evaluation cycle. Both retain all four domains and full attacker inventories by default. The GSM8K and coding output caps remain provisional until their development pilots pass. No model effectiveness result follows from implementation tests. The manuscript now records this implementation status.
 
 ## Run the shared pipeline
 
@@ -40,7 +40,7 @@ The harness requires `HARNESS_TASK=gateway`, `HARNESS_GATEWAY_CAPS` as a JSON do
 
 ## What the paper can claim
 
-The [manuscript](../paper/main.tex) now uses the title "Evaluating an account-level harness against multi-domain model distillation". Its abstract, threat model, methods, result templates, and conclusion follow this protocol. It reports the input generators as implemented and gateway execution and effectiveness results as pending.
+The [manuscript](../paper/main.tex) includes coding as the fourth shared-gateway domain and describes the implemented collection, calibration, shared-training, controls, and reporting paths. It distinguishes the launchers' full-pool defaults from the proposed balanced 6,000-submission matrix, which allocates 1,500 candidate prompts per domain. The corpus and cap measurements, GPU training, final target thresholds, clustered analysis, and effectiveness results remain pending. Local HTTP and artifact tests are identified as implementation checks.
 
 The local compiled copy is `paper/main.pdf`, which is gitignored. Regenerate it from the repository root with `tectonic --outdir paper paper/main.tex`; auxiliary files stay temporary under Tectonic's default output settings.
 
@@ -51,7 +51,7 @@ The manuscript asks:
 3. What are the false-escalation, completion, latency, and unconditional task-utility costs for specialist and generalist users?
 4. What does accumulated MMD add beyond instantaneous MMD and a simple quota at comparable benign cost?
 
-The revised manuscript proposes a primary envelope of 6,000 total HTTP submissions and 24 hours, a balanced candidate inventory of 2,000 prompts per domain, six accounts for A5, and a 10% generalist account share. These are proposed settings to freeze before final testing. It also specifies one shared development-selected training recipe, per-domain transfer gates, and numeric domain success targets selected on development evidence. The target values and final matrix remain unresolved. Older full-pool per-task budgets describe the existing task launcher, not the proposed gateway study.
+The revised manuscript proposes a primary envelope of 6,000 total HTTP submissions and 24 hours, a balanced candidate inventory of 1,500 prompts per domain across four domains, six accounts for A5, and a 10% generalist account share. These are proposed settings to freeze before final testing. It also specifies one shared development-selected training recipe, per-domain transfer gates, and numeric domain success targets selected on development evidence. The target values and final matrix remain unresolved. Older full-pool per-task budgets describe the existing task launcher, not the proposed gateway study.
 
 Detection, response restriction, and reduced learned capability are separate observations. An alert or a blocked account does not establish that a campaign failed. The undefended reference must demonstrate positive transfer first. Call it a successful undefended extraction baseline, rather than "perfect distillation". Task accuracy and agreement with the victim measure different extraction objectives, so keep both with their explicit denominators. This distinction follows [Jagielski et al., USENIX Security 2020](https://www.usenix.org/conference/usenixsecurity20/presentation/jagielski).
 
@@ -69,7 +69,7 @@ Account identities are stable experiment identities, not proof of a production i
 
 ## Benign traffic and calibration
 
-Domain profile and request style are separate dimensions. Specialists use one domain; generalists use at least two. Either can be repetitive, batch, bursty, or short. The benign CLI supplies `task_references(...)` for every selected domain. AG News sources are ordered by news label and SQuAD by article title. GSM8K references all have category `math`, so its specialists remain domain-only rather than math-subtopic controls. The manifest records `domain_topic_categories` and `specialist_scope` so that limitation is visible. These are synthetic workloads, not measured user populations.
+Domain profile and request style are separate dimensions. Specialists use one domain; generalists use at least two. Either can be repetitive, batch, bursty, or short. `--concentrated-share` (default 0.1) sets the share of accounts with specialist or repetitive request styles. Repeated prompts score far above broad windows, so this share shapes the benign null; `gateway-clients-v1` used an equal five-way split, which `--concentrated-share 0.4` reproduces. Short accounts keep a fifth of the accounts and batch and bursty styles share the rest. The benign CLI supplies `task_references(...)` for every selected domain. AG News sources are ordered by news label and SQuAD by article title. GSM8K references all have category `math`, so its specialists remain domain-only rather than math-subtopic controls. The manifest records `domain_topic_categories` and `specialist_scope` so that limitation is visible. These are synthetic workloads, not measured user populations.
 
 Calibrate and test on source-separated fitting, score-calibration, policy-calibration, and benign-test pools across all domains. Generate each role separately. Record the requested and achieved generalist account fractions, domain request fractions, account lengths, unique prompts, source groups, and scored-account counts. Repeated prompts and shared source documents do not create independent evidence.
 
@@ -83,11 +83,11 @@ Report achieved benign error rates and uncertainty at the available independent 
 
 | ID | Campaign | Account and ordering rule | First-phase status |
 |---|---|---|---|
-| A1 | Multiplexed | One account; seeded interleaving of the selected domain prompts | Generator implemented |
-| A2 | Domain-sequential | One account; one seeded block per domain | Generator implemented |
+| A1 | Multiplexed | One account; seeded interleaving of the selected domain prompts | Live execution implemented |
+| A2 | Domain-sequential | One account; one seeded block per domain | Live execution implemented |
 | A3 | Cover traffic | Multiplexed extraction plus declared cover traffic; every received response can train the student | Deferred |
 | A4 | Slow | Multiplexed extraction at a declared synthetic rate | Deferred |
-| A5 | Sybil per domain | A declared total of k accounts partitioned across domains; each account specializes | Generator implemented; execution deferred |
+| A5 | Sybil per domain | A declared total of k accounts partitioned across domains; each account specializes | Live execution implemented |
 | A6 | Sybil random | Multiplexed requests split across k accounts | Deferred |
 | A7 | Independent prompt sources | Domain-matched prompts from separately pinned public or synthetic sources | Deferred |
 | A8 | Active coverage | Live selection, training updates, and reselection using the attacker's observable information | Deferred |
@@ -139,7 +139,7 @@ Use existing replay for detection diagnostics first. A later enforcement simulat
 
 Phase 1 exits when generators have deterministic output, validate pool capacity and domain identity, preserve source provenance, expose achieved profile composition, and keep A5 allocations inside one total budget. Validate the CLI on existing local pools and test its immutable output behavior. This phase produces no effectiveness claim.
 
-The live Phase 2 execution and Phase 3 shared-training paths are implemented and covered by bounded integration tests. Cached execution is still deferred. Phase 4 requires real teacher collection, GPU training, frozen numeric targets, clustered analysis, and the final study matrix. No manuscript changes accompany this implementation.
+The live Phase 2 execution and Phase 3 shared-training paths are implemented and covered by bounded integration tests. Cached execution is still deferred. Phase 4 requires real teacher collection, GPU training, frozen numeric targets, clustered analysis, and the final study matrix. The manuscript describes the implemented live path while keeping model outcomes unmeasured.
 
 The proposed 48 primary adapters assume A1/A2/A5/A7 × four arms × three seeds. A7 is currently deferred. A1/A2/A5 alone plan 36 adapter conditions; identical undefended datasets may permit reuse only when the complete training contract matches. Neither count includes development recipe selection, matched controls, specialist references, sensitivity retraining, or A8. Declare those costs before freezing the matrix.
 
