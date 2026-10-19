@@ -4,7 +4,7 @@ Coding is included in both launcher defaults. On Linux, `devenv shell` provides 
 
 `scripts/pipeline.py` runs the task study on Linux, macOS, and Windows.
 
-For the new gateway study, `uv run distill gateway benign` builds mixed benign clients and `uv run distill gateway schedule` builds fixed A1/A2/A5 inventories from existing task pools. These commands generate hashed inputs only. See the [multi-domain protocol and examples](multi-domain-study.md#run-the-implemented-input-builders) for profiles, budgets, and pending execution phases.
+`start` and `distill` default to the shared multi-domain pipeline. Input generation remains available through `distill gateway benign` and `distill gateway schedule`, and `distill gateway collect` executes a frozen schedule. See [the shared pipeline protocol](multi-domain-study.md#run-the-shared-pipeline).
 
 | Scenario | Purpose |
 | --- | --- |
@@ -21,7 +21,7 @@ python3 scripts/pipeline.py distill --help
 
 On Windows, use `py -3 scripts\pipeline.py`. The bootstrap accepts Python 3.9 or newer and installs the Python 3.14 workspace. Relative option paths resolve against the repository root. just forwards options unquoted, so values cannot contain spaces.
 
-The launcher first loads `.env` and installs the workspace. After validating command options, it installs the training stack and, when needed, vLLM. It then invokes the task builder, collector, reviewer, preparation, and trainer as foreground subprocesses. `start` requires uv, directly or through devenv, to install the complete workspace. See [paper-tasks.md](paper-tasks.md#run-the-whole-study) for the task matrix and all options.
+The launcher first loads `.env` and installs the workspace. After validating command options, it installs the training stack and, when needed, vLLM. It builds missing task pools and runs collection and preparation, with review, training, and evaluation invoked as foreground subprocesses. `start` requires uv, directly or through devenv, to install the complete workspace. See [paper-tasks.md](paper-tasks.md#run-the-whole-study) for the task matrix and all options.
 
 ## Complete pipeline
 
@@ -29,58 +29,30 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env`, then run:
 
 ```bash
 just start
-# Smaller matrix, with the same stages:
-just start --tasks ag_news --seeds 42 --budgets 500 --no-gold
-# Existing teacher API or existing OpenAI-compatible inference server:
+just start --budgets 6000 --seeds 42 --run-dir artifacts/gateway-b6000
 just start --teacher-url http://TEACHER_IP:8000
 just start --upstream-url http://127.0.0.1:18011/v1
 just start --help
 ```
 
-Defaults match `distill`: AG News, SQuAD, GSM8K, and coding; seeds 42, 1, and 20; `--budgets full`, resolved from each task's manifest. The pinned builds provide 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries. GSM8K supplies the math capability distillation corpus. Its 256-token cap is provisional; `distill tasks pilot` provides the development-only cap check for GSM8K and coding. The pilot remains required before freezing that cap for final study evidence. Missing task builds are generated automatically. Explicit numeric budgets remain available, with values above a task's pool skipped. Coding uses the complete qualified attacker pool, whose size is recorded by the build. Its 512-token cap is provisional pending a development pilot. The defaults plan 12 undefended attacker adapters and 12 gold references, then up to 12 protected adapters for each defense, excluding development recipe trials and matched supervision controls. `--arms` selects the defenses, by default all three: `full`, `instantaneous`, and `quota`. Each defense collects its own campaign through a fresh service, with its own ledger, adapter, evaluation, and traffic replay. `--no-gold` omits the gold references. `--config` selects the shared training recipe. Both attacker conditions start independently from its base model and revision.
+Defaults are AG News, SQuAD, GSM8K, and coding; seeds 42, 1, and 20; full candidate inventories; A1/A2/A5; and `full`, `instantaneous`, and `quota` defenses. A5 has six total accounts. Numeric budgets are total campaign allowances, balanced across domains. Full mode uses all attacker pools with an unequal allocation and one shared allowance equal to their sum. The 24-hour deadline can stop collection before the full inventory is submitted. Proofs and failures consume that same allowance across every policy reset.
 
-These are separate task studies, not multi-domain gateway results. `budgets.json` freezes the resolved numeric budgets per task and the final report uses that plan, including skipped oversized budgets. Reports for older `full` protocols can recover budgets from their frozen `tasks.json`. `policy-horizons.json` records the calibrated attempt and time horizons. Full-pool campaigns can cross several 10,000-attempt policy horizons. Policy state resets at those boundaries, while the collector retains one campaign-wide attempt limit and deadline. Interpret the resulting defense scores as campaigns spanning those resets.
+The runner builds missing corpora, calibrates one mixed account policy, collects undefended campaigns, selects a single shared recipe on development data, checks positive transfer in every domain, evaluates the teacher, and collects protected campaigns through fresh harness instances. Managed inference services stop before student work. One adapter per campaign and condition trains on all domains' received responses and is evaluated separately on every frozen suite. Optional gold references and per-domain token-matched controls also train shared adapters. Held-out benign replay and live utility remain separate from attacker training.
 
-Coding supports L4 refusal; `--l4-action deceive` requires an explicit task list without coding. The task list is frozen in `protocol.json`. To add GSM8K to a study directory previously frozen with only AG News and SQuAD, select a new `--run-dir`; the launcher rejects changes to an existing protocol.
+`artifacts/gateway` contains frozen protocol and source manifests, calibration, development selection, campaign ledgers and HTTP events, combined training datasets and adapters, per-domain evaluations, utility measurements, and `results.json`. `just distill` performs undefended mixed collection and shared training only, under `artifacts/gateway-distill`. It defaults to A1 and accepts `--attacks`. `start` accepts `--attacks`, `--arms`, `--interval-seconds`, `--deadline-seconds`, `--benign-accounts`, `--requests-per-account`, and `--development-budget`. See [the protocol](multi-domain-study.md#run-the-shared-pipeline) for exact accounting, controls, and validation limits.
 
-The stages run in this order:
+GSM8K's 256-token and coding's 512-token caps remain provisional. Run `distill tasks pilot` against the actual teacher before freezing final study evidence. Coding requires Linux sandbox tools. Shared execution supports L4 refusal only. Existing completed campaigns are verified before reuse; interrupted campaigns cannot restart in place with fresh policy state. Use a new run directory to change the protocol. Externally managed teacher services remain the caller's responsibility during student training.
 
-1. Download missing task datasets and build disjoint prompt pools and frozen tests. Reuse existing manifests and append missing baseline responses to `data/tasks/TASK/ledger.jsonl`.
-2. Download and serve the teacher through vLLM and the teacher API, or connect to the supplied server. Collect each seed's largest budget, evaluate the teacher, and replay the frozen genuine/extraction traffic benchmark against the unprotected endpoint.
-3. Stop managed teacher services, evaluate the unmodified student, review and prepare baseline ledgers, train attacker and optional gold-reference adapters, and benchmark the trained students.
-4. Calibrate the harness on benign pools with the paper's declared accumulators only, write `TASK/calibration-report.json`, and replay `legitimate/benign_test.jsonl` through every defense for held-out account false-escalation rates. Restart the teacher and reevaluate it to measure drift. Start the authenticated protected API on loopback port 8003 alongside the teacher.
-5. Collect the same largest budget through a fresh protected service instance for every task, seed, and defense. Solve proof-of-work challenges, log confirmed refusals, and save received text in a separate ledger. Replay the same traffic benchmark with independent authenticated actor accounts.
-6. Stop managed services. Prepare each budget's received responses, review usability without gold answers, run training preflight, and train a fresh protected student. If no usable responses remain, skip training and record the reason.
-7. Benchmark trained protected students on the same frozen tests and write capability reports, paired traffic reports, and completion status.
+For the previous separate-task study, pass `--mode tasks` to `start` or `distill`. Its defaults and artifacts remain per task, including `artifacts/start`, numeric budget resolution, and policy-horizon reports. A single-domain study must select this mode:
 
-`distill benchmark run --slot SLOT` evaluates one model independently. The launcher separates teacher and student work to free managed teacher GPU memory. Identical teacher/base-student results are shared across budgets and conditions with their original IDs and timestamps. Every adapter gets its own evaluation. Capability reports use the unprotected teacher as the common reference. Traffic reports measure protected endpoint request success, refusals, throttling, latency, and challenge cost. Synthetic traffic never enters student training, and its HTTP success rate does not measure task-answer correctness.
-
-L4 refuses by default. Use `--l4-action deceive` with a fresh `--run-dir` for the separate deception condition. Its ledger includes deceptive text received by the client. A 403 counts as refusal only with `X-Harness-Decision: block`. Failed proofs, server failures, and timeouts are charged to the budget as `failed` attempts, are never retried or replaced, and appear in `campaign.json` and the event log. Authentication errors, a 403 without a harness decision, or 10 consecutive failures stop collection.
-
-Default calibration groups legitimate fitting, score-calibration, and policy-calibration pools into 500-request accounts after a seeded shuffle of each pool, so no account or window inherits the article order of the SQuAD source split. It uses a 100-request window and up to 20 reference windows as the fitting pool permits, recording the count, the truncation counts, and the skipped aggregate monitor in `TASK/calibration-report.json`. With 500-request accounts, the fitted quota is the account length, so the quota arm measures that construction rather than a fitted client limit until realistic accounts replace it. A run directory whose calibration was built from other benign accounts, including any calibrated before this shuffle, is refused rather than reused; select a fresh `--run-dir`. These artificial accounts exercise the pipeline and do not establish real-user false-positive rates. Supply independently prepared calibrations with `--calibration-root PATH`, containing `PATH/TASK/calibration.json` and its reference arrays for every selected task. Calibration and the BGE encoder use CPU.
-
-`--run-dir` defaults to `artifacts/start`. Paths below are relative to it:
-
-| Path | Contents |
-| --- | --- |
-| `protocol.json`, `budgets.json`, `tasks.json`, `policy-horizons.json` | Frozen options, resolved per-task budgets, task manifests, policy reset settings |
-| `baseline-adapters/TASK/sSEED-bBUDGET/attacker` and `gold` | Baseline adapters |
-| `TASK/calibration-report.json` | Reference windows, truncation, thresholds, quota, aggregate-monitor status |
-| `TASK/benign-test/ARM.json`, `ARM.decisions.jsonl` | Held-out benign account escalation per defense |
-| `TASK/sSEED-bBUDGET/protected/ARM/ledger.jsonl` | Received responses from the largest campaign against defense ARM |
-| `TASK/sSEED-bBUDGET/protected/ARM/campaign.json` and `.events.jsonl` | Query counts, refusals, proof costs, outcomes |
-| `TASK/sSEED-bBUDGET/protected/ARM/train.jsonl`, `adapter/`, `training-status.json` | Protected data, adapter, or skip reason |
-| `TASK/sSEED-bBUDGET/benchmarks/`, `report.*.json` | Capability runs and reports; protected runs are `protected-ARM` |
-| `TASK/sSEED/ARM/traffic-results/`, `traffic-report.json`, `decisions.jsonl` | Paired traffic results and the harness decision log |
-| `TASK/sSEED/credentials.json`, `accounts.json` | Restricted client credentials and account mappings |
-
-Rerunning preserves baseline ledger rows, reuses completed protected campaigns, and skips matching completed adapters. All planned baseline ledgers and their resume contracts are validated before loading the teacher. For damaged files, use the [ledger recovery command](distillation-pipeline.md#recover-a-damaged-collection-ledger) to back up the original, preserve valid responses, and recollect missing IDs. Changed training data, recipes, or frozen protocol options require a fresh `--run-dir`. Benchmarks run again, sharing reference inference within that invocation.
-
-The protected service keeps account evidence in memory. Interrupted campaigns retain their ledgers, events, and spent costs in place. The collector refuses to restart them with a fresh allowance. Preserve those artifacts and explicitly declare a new campaign directory with fresh policy state if another campaign is needed.
-
-The harness runs locally for this experiment and stops on completion or interruption. Only services started here are stopped. External teachers and upstream servers keep running, so use another GPU or stop an external local server before student work when memory is shared. Logs live in `artifacts/logs/`. `status.json` becomes `complete` only after reports are written. Outstanding paper experiments and analyses remain in [paper-tasks.md](paper-tasks.md#implementation-todo).
+```bash
+just start --mode tasks --tasks ag_news --seeds 42 --budgets 500 --no-gold
+just distill --mode tasks --tasks ag_news --seeds 42 --budgets 500,2000
+```
 
 ## Task-study operation
+
+This section describes the legacy `--mode tasks` workflow.
 
 Copy `.env.example` to `.env` and set `TEACHER_TERMS_REVIEW_ID`. A local run starts the teacher only when planned prompts are missing from task ledgers. `--teacher-url` uses an existing repository teacher API and requires its server root, not its upstream OpenAI URL. `--upstream-url` uses an existing OpenAI-compatible model server while starting the repository API locally.
 

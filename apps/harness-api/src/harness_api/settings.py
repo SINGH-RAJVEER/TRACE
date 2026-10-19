@@ -30,9 +30,10 @@ class Settings(BaseSettings):
 		default=Path("artifacts/harness/deception.key"), alias="HARNESS_DECEPTION_KEY_FILE"
 	)
 	# The endpoint's output format for noise: ag_news, squad, gsm8k, or text for general chat.
-	task: Literal["ag_news", "squad", "gsm8k", "coding", "text"] = Field(
+	task: Literal["ag_news", "squad", "gsm8k", "coding", "text", "gateway"] = Field(
 		default="text", alias="HARNESS_TASK"
 	)
+	gateway_caps: dict[str, int] = Field(default_factory=dict, alias="HARNESS_GATEWAY_CAPS")
 	pow_difficulty: int = Field(default=20, ge=1, le=64, alias="HARNESS_POW_DIFFICULTY")
 	challenge_ttl_seconds: float = Field(default=300, gt=0, alias="HARNESS_CHALLENGE_TTL_SECONDS")
 	min_interval_seconds: float = Field(default=1.0, ge=0, alias="HARNESS_MIN_INTERVAL_SECONDS")
@@ -64,6 +65,14 @@ class Settings(BaseSettings):
 
 	@model_validator(mode="after")
 	def coding_l4(self) -> Settings:
-		if self.task == "coding" and self.l4_action != "refuse":
-			raise ValueError("coding supports L4 refusal; coding deception is not implemented")
+		if self.task in {"coding", "gateway"} and self.l4_action != "refuse":
+			raise ValueError("coding and gateway modes support L4 refusal only")
+		if self.task == "gateway" and (
+			len(self.gateway_caps) < 2
+			or set(self.gateway_caps) - {"ag_news", "squad", "gsm8k", "coding"}
+			or any(cap < 1 for cap in self.gateway_caps.values())
+		):
+			raise ValueError(
+				"gateway mode requires positive caps for at least two supported domains"
+			)
 		return self

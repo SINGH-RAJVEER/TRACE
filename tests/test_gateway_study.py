@@ -1,0 +1,395 @@
+"""Shared execution uses native HTTP, policy, preparation, scoring, and artifact joins."""
+
+import asyncio
+import hashlib
+import json
+import socket
+import threading
+import time
+import tomllib
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+import uvicorn
+from distillation.benchmarks.models import (
+	BenchmarkItem,
+	DatasetSource,
+	FrozenSuite,
+	Slot,
+	load_config,
+	save_json,
+)
+from distillation.benchmarks.runner import run_evaluation
+from distillation.gateway_study import GatewayStudy, benign_requests
+from distillation.io import read_jsonl, write_jsonl
+from distillation.launcher import Launcher, TaskPipeline, run_app
+from distillation.review import review_ledger
+from distillation.schemas import (
+	Message,
+	PromptRecord,
+	PromptSource,
+	SFTRecord,
+	TeacherGeneration,
+	TeacherGenerationRequest,
+	TokenUsage,
+)
+from distillation.study import Study
+from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX, LEGITIMATE_ROLES, GoldRecord
+from distillation.teacher import TeacherAPIGateway
+from distillation.training import TrainingConfig
+from fastapi import FastAPI
+from harness.calibration import HarnessConfig, calibrate, load_calibration, save_calibration
+from harness_api.app import create_app
+from harness_api.settings import Settings
+from test_harness_api import Encoder
+from typer.testing import CliRunner
+
+
+class Server:
+	def __init__(self, app: FastAPI) -> None:
+		self.socket = socket.socket()
+		self.socket.bind(("127.0.0.1", 0))
+		self.port = self.socket.getsockname()[1]
+		self.server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+		self.thread = threading.Thread(
+			target=self.server.run, kwargs={"sockets": [self.socket]}, daemon=True
+		)
+		self.thread.start()
+		deadline = time.monotonic() + 5
+		while not self.server.started:
+			if not self.thread.is_alive() or time.monotonic() > deadline:
+				raise RuntimeError("test HTTP server did not start")
+			time.sleep(0.01)
+
+	def close(self) -> None:
+		self.server.should_exit = True
+		self.thread.join(timeout=5)
+		self.socket.close()
+		assert not self.thread.is_alive()
+
+
+class Inference:
+	def __init__(self, correct: bool = True) -> None:
+		self.correct = correct
+
+	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+		text = request.messages[-1].content
+		answer = "World" if "ag_news" in text else "#### 7"
+		return TeacherGeneration(
+			id="fixture",
+			provider="fixture",
+			model="fixture",
+			generated_at=datetime.now(UTC),
+			endpoint="fixture",
+			message=Message(role="assistant", content=answer if self.correct else "wrong"),
+			finish_reason="stop",
+			usage=TokenUsage(output_tokens=2, input_tokens=5),
+		)
+
+	async def close(self) -> None:
+		pass
+
+
+@pytest.mark.parametrize("command", ["start", "distill"])
+def test_launchers_default_to_shared_students_with_math_and_coding(
+	command: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	seen = []
+
+	def run(self: GatewayStudy, *, collect_only: bool = False) -> None:
+		seen.append(
+			(self.study.pipeline.tasks, collect_only, self.study.pipeline.budgets, self.attacks)
+		)
+
+	monkeypatch.setattr(GatewayStudy, "run", run)
+	result = CliRunner().invoke(run_app, [command])
+	assert result.exit_code == 0, result.exception
+	assert seen == [
+		(
+			["ag_news", "squad", "gsm8k", "coding"],
+			command == "distill",
+			None,
+			("A1",) if command == "distill" else ("A1", "A2", "A5"),
+		)
+	]
+
+
+@pytest.mark.parametrize("collect_only", [False, True])
+def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domain(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, collect_only: bool
+) -> None:
+	monkeypatch.chdir(tmp_path)
+	config = tmp_path / "train.toml"
+	config.write_text('base_model="fixture"\nbase_revision="' + "a" * 40 + '"\n')
+	for domain, cap in (("ag_news", 16), ("gsm8k", 256)):
+		directory = tmp_path / "data/tasks" / domain
+		manifest = {"task": domain, "max_output_tokens": cap, "roles": {"attacker": 20}}
+		save_json(directory / "manifest.json", manifest)
+		references = {}
+		for role in ("attacker", *LEGITIMATE_ROLES):
+			rows = [
+				PromptRecord(
+					example_id=f"{domain}-{role}-{i}",
+					task=domain,
+					split="train",
+					source=PromptSource(
+						corpus=domain,
+						source_id=f"{role}-{i}",
+						group_id=f"{role}-{i}",
+						license="fixture",
+					),
+					prompt=[
+						Message(
+							role="user",
+							content=AG_NEWS_PROMPT.format(text=f"{domain} {role} input {i}")
+							if domain == "ag_news"
+							else f"{domain} {role} input {i}{GSM8K_EVAL_SUFFIX}",
+						)
+					],
+				)
+				for i in range(20)
+			]
+			write_jsonl(
+				directory / "attacker.jsonl"
+				if role == "attacker"
+				else directory / "legitimate" / f"{role}.jsonl",
+				rows,
+			)
+			if role == "attacker":
+				write_jsonl(
+					directory / "gold-answers.jsonl",
+					[
+						GoldRecord(
+							example_id=r.example_id,
+							completion="World" if domain == "ag_news" else "#### 7",
+						)
+						for r in rows
+					],
+				)
+			else:
+				for row in rows:
+					references[row.example_id] = BenchmarkItem(
+						id=row.example_id,
+						benchmark=domain,
+						category="topic",
+						question=row.prompt[0].content,
+						messages=row.prompt,
+						metric="label_accuracy" if domain == "ag_news" else "numeric_exact_match",
+						answer="World" if domain == "ag_news" else "7",
+						choices=["World", "Sports"] if domain == "ag_news" else [],
+					)
+		save_json(
+			directory / "legitimate-references.json",
+			{k: v.model_dump(mode="json") for k, v in references.items()},
+		)
+		for split in ("development", "test"):
+			question = f"{domain} held out {split}"
+			suite = FrozenSuite(
+				seed=42,
+				created_at=datetime.now(UTC),
+				sources=[
+					DatasetSource(
+						benchmark=domain,
+						repository="fixture",
+						revision="a" * 40,
+						configuration="default",
+						split=split,
+						license="fixture",
+						url="https://example.com",
+						available=1,
+						selected=1,
+					)
+				],
+				items=[
+					BenchmarkItem(
+						id=f"{domain}-{split}",
+						benchmark=domain,
+						category="topic",
+						question=question,
+						messages=[
+							Message(
+								role="user",
+								content=AG_NEWS_PROMPT.format(text=question)
+								if domain == "ag_news"
+								else f"{question}{GSM8K_EVAL_SUFFIX}",
+							)
+						],
+						metric="label_accuracy" if domain == "ag_news" else "numeric_exact_match",
+						answer="World" if domain == "ag_news" else "7",
+						choices=["World", "Sports"] if domain == "ag_news" else [],
+					)
+				],
+			)
+			suite.sha256 = suite.digest()
+			save_json(directory / f"{split}-suite.json", suite)
+	services: list[Server] = []
+	all_servers: list[Server] = []
+	training_datasets: list[Path] = []
+
+	def ensure_teacher(self: Study) -> None:
+		if services:
+			return
+		app = FastAPI()
+
+		@app.post("/v1/teacher/generate")
+		async def generate(request: TeacherGenerationRequest) -> TeacherGeneration:
+			return await Inference().generate(request)
+
+		server = Server(app)
+		services.append(server)
+		all_servers.append(server)
+		self.teacher_url = f"http://127.0.0.1:{server.port}"
+		self.pipeline.launcher.background.append(cast(Any, server))
+
+	def stop(self: Launcher, keep: int = 0) -> None:
+		for server in reversed(services[keep:]):
+			server.close()
+		del services[keep:]
+		del self.background[keep:]
+
+	def start(
+		self: Launcher, name: str, command: list[str], log_path: Path | None, env: dict[str, str]
+	) -> Any:
+		calibration, scorer = load_calibration(Path(env["HARNESS_CALIBRATION_DIR"]))
+		with monkeypatch.context() as context:
+			for key, value in env.items():
+				context.setenv(key, value)
+			settings = Settings(_env_file=None)  # type: ignore[call-arg]
+		app = create_app(
+			settings=settings,
+			teacher=TeacherAPIGateway(base_url=env["HARNESS_TEACHER_URL"], token=""),
+			encoder=Encoder(),
+			calibration=calibration,
+			scorer=scorer,
+		)
+		server = Server(app)
+		study.harness_port = server.port
+		services.append(server)
+		all_servers.append(server)
+		self.background.append(cast(Any, server))
+		return server
+
+	def small_calibration(self: GatewayStudy) -> Path:
+		path = self.root / "calibration"
+		if (path / "calibration.json").exists():
+			return path
+		groups = {
+			r: benign_requests(self.benign[r]) for r in LEGITIMATE_ROLES if r != "benign_test"
+		}
+		calibration, refs = calibrate(
+			config=HarnessConfig(
+				task="gateway", window_size=2, reference_windows=2, aggregate_enabled=False
+			),
+			encoder=Encoder(),
+			fitting=groups["fitting"],
+			score_calibration=groups["score_calibration"],
+			policy_calibration=groups["policy_calibration"],
+		)
+		calibration.baselines["quota"].thresholds = [2.0]
+		save_calibration(path, calibration, refs)
+		return path
+
+	def command(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		def option(name: str) -> Path:
+			return Path(args[args.index(name) + 1])
+
+		if args[0] == "review":
+			review_ledger(ledger_path=option("--ledger"), output_path=option("--output"))
+		elif args[0] == "train":
+			assert not services, "inference services must stop before training"
+			if "--preflight-only" in args:
+				return
+			values = tomllib.loads(option("--config").read_text())
+			dataset = Path(values["dataset_path"])
+			training_datasets.append(dataset)
+			adapter = Path(values["output_dir"])
+			save_json(
+				adapter / "training-manifest.json",
+				{
+					"config": values,
+					"dataset_sha256": hashlib.sha256(dataset.read_bytes()).hexdigest(),
+					"fingerprint": TrainingConfig.model_validate(values).model_dump(mode="json"),
+				},
+			)
+			(adapter / "adapter_config.json").write_text("{}")
+			(adapter / "adapter_model.safetensors").write_bytes(b"fixture weights")
+		elif args[:2] == ("benchmark", "run"):
+			settings = load_config(option("--config"))
+			slot = cast(Slot, args[args.index("--slot") + 1])
+			assert bool(services) == (slot in {"teacher", "teacher_after"})
+			asyncio.run(
+				run_evaluation(
+					settings,
+					slot,
+					factory=lambda model: Inference(
+						bool(model.adapter_path) or model.backend == "teacher_api"
+					),
+				)
+			)
+		else:
+			raise AssertionError(args)
+
+	monkeypatch.setattr(Launcher, "install", lambda *args: None)
+	monkeypatch.setattr(Launcher, "distill", command)
+	monkeypatch.setattr(Launcher, "start", start)
+	monkeypatch.setattr(Launcher, "stop_background", stop)
+	monkeypatch.setattr(Launcher, "wait_for_http", lambda *args: None)
+	monkeypatch.setattr(Study, "ensure_teacher", ensure_teacher)
+	monkeypatch.setattr(GatewayStudy, "calibration", small_calibration)
+	monkeypatch.setattr("distillation.gateway_study.BGEEncoder", lambda **kwargs: Encoder())
+	monkeypatch.setattr(
+		"distillation.training.training_identity", lambda c: c.model_dump(mode="json")
+	)
+	pipeline = TaskPipeline(
+		Launcher("fixture"), "fixture", ["ag_news", "gsm8k"], [42], [8], config, 2, True
+	)
+	study = Study(
+		pipeline, tmp_path / "run", "", "", 8000, "", 8003, None, "refuse", arms=("quota",)
+	)
+	gateway = GatewayStudy(
+		study,
+		attacks=("A1", "A5"),
+		interval_seconds=0,
+		benign_accounts=4,
+		requests_per_account=2,
+		development_budget=8,
+	)
+	try:
+		gateway.run(collect_only=collect_only)
+	finally:
+		stop(pipeline.launcher)
+	assert json.loads((gateway.root / "status.json").read_text())["status"] == "complete"
+	assert not services
+	assert all(not s.thread.is_alive() for s in all_servers)
+	if collect_only:
+		assert len(training_datasets) == 4
+		for dataset in training_datasets:
+			prepared = read_jsonl(dataset, SFTRecord)
+			assert len(prepared) == 8
+			assert all(any(d in r.prompt[0].content for r in prepared) for d in pipeline.tasks)
+		assert not (gateway.root / "calibration").exists()
+		return
+	results = json.loads((gateway.root / "results.json").read_text())["results"]
+	assert len(results) == 4
+	assert all(set(r["controls"]) == {"matched-volume", "matched-prefix"} for r in results)
+	assert all(r["http"]["queries"] >= 1 for r in results)
+	assert {r["domain"] for r in results} == {"ag_news", "gsm8k"}
+	for attack in ("A1", "A5"):
+		directory = gateway.root / attack / "s42-b8"
+		assert len(read_jsonl(directory / "undefended/train.jsonl", SFTRecord)) == 8
+		assert len(read_jsonl(directory / "gold/train.jsonl", SFTRecord)) == 8
+		for condition in ("undefended", "quota/campaign"):
+			models = [
+				load_config(directory / condition / f"eval.{d}.toml")
+				.models["student_after"]
+				.adapter_path
+				for d in pipeline.tasks
+			]
+			assert models[0] == models[1] == directory / condition / "adapter"
+			prepared = read_jsonl(directory / condition / "train.jsonl", SFTRecord)
+			assert {
+				d for d in pipeline.tasks if any(d in r.prompt[0].content for r in prepared)
+			} == set(pipeline.tasks)
+	assert len([p for p in training_datasets if "development" in str(p)]) == 6

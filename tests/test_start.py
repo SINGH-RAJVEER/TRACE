@@ -85,7 +85,7 @@ def test_launchers_default_tasks_and_supported_budgets(
 	# Exercise CLI task selection and real budget planning without collecting or training.
 	monkeypatch.setattr(TaskPipeline, "train_all", record)
 	monkeypatch.setattr(Study, "run", plan)
-	command = [scenario]
+	command = [scenario, "--mode", "tasks"]
 	if tasks is not None:
 		command += ["--tasks", tasks]
 	if budgets is not None:
@@ -142,7 +142,7 @@ def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
 		assert result.exit_code == 0, result.output
 
 	monkeypatch.setattr(Launcher, "distill", distill)
-	command = ["start", "--tasks", task, "--seeds", "42", "--no-gold"]
+	command = ["start", "--mode", "tasks", "--tasks", task, "--seeds", "42", "--no-gold"]
 	if budgets is not None:
 		command += ["--budgets", budgets]
 	result = CliRunner().invoke(run_app, command)
@@ -343,7 +343,18 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	monkeypatch.setattr(Study, "start_harness", harness)
 	monkeypatch.setattr(Launcher, "stop_background", stop)
 	monkeypatch.setattr(Launcher, "distill", distill)
-	command = ["start", "--tasks", "ag_news", "--seeds", "42", "--budgets", "4", "--no-gold"]
+	command = [
+		"start",
+		"--mode",
+		"tasks",
+		"--tasks",
+		"ag_news",
+		"--seeds",
+		"42",
+		"--budgets",
+		"4",
+		"--no-gold",
+	]
 	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
 	harnesses = [step for step in steps if step.startswith("harness")]

@@ -316,3 +316,84 @@ def test_a5_defaults_to_six_total_accounts() -> None:
 	assert Counter(domains[0] for domains in manifest["account_domains"].values()) == dict.fromkeys(
 		CAPS, 2
 	)
+
+
+@pytest.mark.asyncio
+async def test_live_campaign_charges_failures_and_wakes_future_accounts_when_budget_is_spent(
+	tmp_path: Path,
+) -> None:
+	import asyncio
+
+	import httpx
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway
+	from test_harness_api import Teacher
+
+	rows, _ = campaign_schedule(
+		pools=_pools(), caps=CAPS, attack="A5", budget=6, interval_seconds=0
+	)
+	rows[-1].time = 1e6
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	calls = 0
+	teacher = Teacher()
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		nonlocal calls
+		calls += 1
+		if calls == 1:
+			return httpx.Response(500)
+		from distillation.schemas import TeacherGenerationRequest
+
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	async with asyncio.timeout(1):
+		result = await collect_gateway(
+			schedule=schedule,
+			output=tmp_path / "campaign",
+			url="http://fixture",
+			keys={"default": "fixture"},
+			options=CollectionOptions(terms_review_id="fixture"),
+			attempt_budget=2,
+			transport=httpx.MockTransport(respond),
+		)
+	assert result["queries"] == calls == 2
+	assert result["failed"] == result["received"] == 1
+	assert result["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path: Path) -> None:
+	import asyncio
+
+	import httpx
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway
+
+	rows, _ = campaign_schedule(
+		pools=_pools(), caps=CAPS, attack="A5", budget=6, interval_seconds=0
+	)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		await asyncio.sleep(10)
+		return httpx.Response(500)
+
+	async with asyncio.timeout(1):
+		result = await collect_gateway(
+			schedule=schedule,
+			output=tmp_path / "campaign",
+			url="http://fixture",
+			keys={"default": "fixture"},
+			options=CollectionOptions(terms_review_id="fixture", concurrency=2),
+			attempt_budget=6,
+			deadline_seconds=0.02,
+			transport=httpx.MockTransport(respond),
+		)
+	assert result["queries"] == result["deadline"] == 2
+	assert result["pending"] == result["received"] == 0
+	assert set(result["termination_by_account"].values()) == {"deadline"}

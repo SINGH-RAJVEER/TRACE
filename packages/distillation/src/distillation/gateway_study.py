@@ -1,0 +1,726 @@
+"""One shared gateway, campaign ledger, and student adapter across all selected domains."""
+
+import asyncio
+import hashlib
+import json
+import os
+import secrets
+import sys
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from harness.calibration import (
+	BenignRequest,
+	HarnessConfig,
+	calibrate,
+	load_calibration,
+	requests_sha256,
+	save_calibration,
+	validate_separation,
+)
+from harness.encoder import BGEEncoder
+from harness.replay import replay
+from harness.serialization import gateway_turn
+
+from distillation.benchmarks.models import Slot, load_config, load_suite, save_json
+from distillation.benchmarks.reporting import discover_runs
+from distillation.collection import CollectionOptions
+from distillation.gateway_campaign import collect_gateway, digest
+from distillation.gateway_reporting import campaign_results, profile_rates, supervision
+from distillation.io import read_jsonl, write_jsonl
+from distillation.launcher import (
+	DEFAULT_TEACHER_MODEL,
+	DEFAULT_TEACHER_REVISION,
+	LOG_DIR,
+	LaunchError,
+	_toml,
+	_trained,
+)
+from distillation.preparation import prepare_sft_dataset
+from distillation.schedules import Attack, campaign_schedule
+from distillation.schemas import GatewayRequest, LedgerRecord, Message, PromptRecord, SFTRecord
+from distillation.study import DECLARED_ACCUMULATORS, DEFENSES, Study, _MemoEncoder, freeze
+from distillation.study_training import primary_score, token_controls
+from distillation.tasks import LEGITIMATE_ROLES, GoldRecord
+from distillation.utility import measure_utility
+from distillation.workloads import mixed_clients, task_references
+
+
+def benign_requests(rows: list[GatewayRequest], *, serialized: bool = True) -> list[BenignRequest]:
+	return [
+		BenignRequest(
+			account=row.account,
+			text=gateway_turn(
+				row.domain, next(m.content for m in reversed(row.prompt.prompt) if m.role == "user")
+			)
+			if serialized
+			else next(m.content for m in reversed(row.prompt.prompt) if m.role == "user"),
+			time=row.time,
+			example_id=row.prompt.example_id,
+			source_group=f"{row.domain}:{row.prompt.source.group_id}",
+			client_type=row.client_type,
+		)
+		for row in rows
+	]
+
+
+@dataclass
+class GatewayStudy:
+	study: Study
+	attacks: tuple[Attack, ...] = ("A1", "A2", "A5")
+	interval_seconds: float = 1
+	deadline_seconds: float = 86400
+	benign_accounts: int = 20
+	requests_per_account: int = 100
+	development_budget: int = 2000
+	pools: dict[str, list[PromptRecord]] = field(default_factory=dict)
+	caps: dict[str, int] = field(default_factory=dict)
+	benign: dict[str, list[GatewayRequest]] = field(default_factory=dict)
+	selected: dict[str, Any] = field(default_factory=dict)
+	_active: bool = False
+
+	@property
+	def root(self) -> Path:
+		return self.study.root
+
+	def build(self, *, benign: bool = True) -> None:
+		pipeline = self.study.pipeline
+		for domain in pipeline.tasks:
+			directory = pipeline.task_dir(domain)
+			if not (directory / "manifest.json").exists():
+				pipeline.launcher.distill(
+					"tasks", "build", "--task", domain, "--output-dir", str(directory)
+				)
+			self.pools[domain] = read_jsonl(directory / "attacker.jsonl", PromptRecord)
+			self.caps[domain] = int(pipeline.manifest(domain)["max_output_tokens"])
+		freeze(self.root / "tasks.json", {d: pipeline.manifest(d) for d in pipeline.tasks})
+		if not benign:
+			return
+		references = {
+			k: v for d in pipeline.tasks for k, v in task_references(pipeline.task_dir(d)).items()
+		}
+		for role in LEGITIMATE_ROLES:
+			pools = {
+				d: read_jsonl(pipeline.task_dir(d) / "legitimate" / f"{role}.jsonl", PromptRecord)
+				for d in pipeline.tasks
+			}
+			rows, manifest = mixed_clients(
+				pools=pools,
+				caps=self.caps,
+				role=role,
+				accounts=self.benign_accounts,
+				requests_per_account=self.requests_per_account,
+				seed=42,
+				references=references,
+			)
+			self.benign[role] = rows
+			directory = self.root / "benign" / role
+			freeze(directory / "manifest.json", manifest)
+			self.write_requests(directory / "requests.jsonl", rows)
+		# The held-out role must be disjoint from every calibration role, too.
+		validate_separation({role: benign_requests(rows) for role, rows in self.benign.items()})
+
+	def write_requests(self, path: Path, rows: list[GatewayRequest]) -> None:
+		if path.exists():
+			if read_jsonl(path, GatewayRequest) != rows:
+				raise LaunchError(f"gateway inventory changed: {path}")
+		else:
+			path.parent.mkdir(parents=True, exist_ok=True)
+			write_jsonl(path, rows)
+
+	def calibration(self) -> Path:
+		path = self.study.calibration_root or self.root / "calibration"
+		groups = {
+			r: benign_requests(self.benign[r]) for r in LEGITIMATE_ROLES if r != "benign_test"
+		}
+		if (path / "calibration.json").exists():
+			calibration, _ = load_calibration(path)
+			if calibration.config.task != "gateway" or any(
+				calibration.sha256[r] != requests_sha256(rows) for r, rows in groups.items()
+			):
+				raise LaunchError("gateway calibration does not match this mixed benign workload")
+			return path
+		if len(groups["fitting"]) < 100:
+			raise LaunchError("mixed calibration needs at least 100 fitting requests")
+		defaults = HarnessConfig().accumulators
+		config = HarnessConfig(
+			task="gateway",
+			reference_windows=min(20, len(groups["fitting"]) // 100),
+			aggregate_enabled=False,
+			accumulators={name: defaults[name] for name in DECLARED_ACCUMULATORS},
+		)
+		calibration, references = calibrate(
+			config=config,
+			encoder=BGEEncoder(device="cpu"),
+			fitting=groups["fitting"],
+			score_calibration=groups["score_calibration"],
+			policy_calibration=groups["policy_calibration"],
+			log=self.study.pipeline.launcher.log,
+		)
+		save_calibration(path, calibration, references)
+		return path
+
+	def inventory(
+		self, directory: Path, attack: Attack, seed: int, budget: int, *, full: bool = False
+	) -> Path:
+		rows, manifest = campaign_schedule(
+			pools=self.pools,
+			caps=self.caps,
+			attack=attack,
+			seed=seed,
+			budget=budget,
+			campaign_id=f"{attack}-s{seed}-b{budget}",
+			interval_seconds=self.interval_seconds,
+			deadline_seconds=self.deadline_seconds,
+			allocation={d: len(p) for d, p in self.pools.items()} if full else None,
+		)
+		freeze(directory / "inventory.json", manifest)
+		path = directory / "requests.jsonl"
+		self.write_requests(path, rows)
+		return path
+
+	def collect(
+		self,
+		schedule: Path,
+		directory: Path,
+		budget: int,
+		seed: int,
+		*,
+		keys: dict[str, str] | None = None,
+		decisions: Path | None = None,
+	) -> dict[str, Any]:
+		return asyncio.run(
+			collect_gateway(
+				schedule=schedule,
+				output=directory,
+				url=self.study.protected_url if keys else self.study.url,
+				keys=keys if keys else {"default": self.study.token},
+				options=CollectionOptions(
+					terms_review_id=self.study.pipeline.terms_review_id,
+					seed=seed,
+					enable_thinking=False,
+					concurrency=self.study.pipeline.concurrency,
+				),
+				attempt_budget=budget,
+				deadline_seconds=self.deadline_seconds,
+				decision_log=decisions,
+			)
+		)
+
+	def start_harness(
+		self, directory: Path, schedule: Path, calibration: Path, arm: str
+	) -> tuple[dict[str, str], Path]:
+		accounts = sorted(
+			{r.account for r in read_jsonl(schedule, GatewayRequest)}
+			| {r.account for r in self.benign["benign_test"]}
+			| {"warmup"}
+		)
+		credentials = directory / "credentials.json"
+		if not credentials.exists():
+			credentials.parent.mkdir(parents=True, exist_ok=True)
+			with open(credentials, "x", opener=lambda p, f: os.open(p, f, 0o600)) as stream:
+				json.dump({a: secrets.token_hex(32) for a in accounts}, stream)
+		keys: dict[str, str] = json.loads(credentials.read_text())
+		accounts_file = directory / "accounts.json"
+		save_json(
+			accounts_file, {hashlib.sha256(k.encode()).hexdigest(): a for a, k in keys.items()}
+		)
+		decisions = directory / "decisions.jsonl"
+		policy, accumulator = DEFENSES[arm]
+		env = {
+			"HARNESS_HOST": "127.0.0.1",
+			"HARNESS_PORT": str(self.study.harness_port),
+			"HARNESS_TEACHER_URL": self.study.url,
+			"HARNESS_TEACHER_TOKEN": self.study.token,
+			"HARNESS_TASK": "gateway",
+			"HARNESS_GATEWAY_CAPS": json.dumps(self.caps),
+			"HARNESS_CALIBRATION_DIR": str(calibration),
+			"HARNESS_ACCOUNTS_FILE": str(accounts_file),
+			"HARNESS_TRUST_ACTOR_HEADER": "false",
+			"HARNESS_TEST_CLOCK": "false",
+			"HARNESS_POLICY": policy,
+			"HARNESS_ACCUMULATOR": accumulator,
+			"HARNESS_L4_ACTION": "refuse",
+			"HARNESS_THRESHOLDS": "calibrated",
+			"HARNESS_ENCODER_DEVICE": "cpu",
+			"HARNESS_DECISION_LOG": str(decisions),
+			"HARNESS_DECEPTION_KEY_FILE": str(self.root / "deception.key"),
+		}
+		launcher = self.study.pipeline.launcher
+		log = LOG_DIR / "gateway-harness.log"
+		process = launcher.start("gateway", [sys.executable, "-m", "harness_api"], log, env)
+		launcher.wait_for_http(
+			f"{self.study.protected_url}/healthz",
+			'"ready"',
+			300,
+			"Starting shared gateway",
+			process,
+			log,
+		)
+		return keys, decisions
+
+	def train(
+		self,
+		directory: Path,
+		schedule: Path,
+		seed: int,
+		recipe: dict[str, Any],
+		*,
+		gold: bool = False,
+	) -> Path | None:
+		pipeline = self.study.pipeline
+		base = tomllib.loads(pipeline.config.read_text()) | recipe
+		base.pop("validation_dataset_path", None)
+		dataset, adapter, config = (
+			directory / "train.jsonl",
+			directory / "adapter",
+			directory / "train.toml",
+		)
+		freeze(
+			directory / "training-protocol.json",
+			base
+			| {
+				"seed": seed,
+				"input_sha256": {
+					d: digest(pipeline.task_dir(d) / "gold-answers.jsonl") for d in self.pools
+				}
+				if gold
+				else {"ledger": digest(directory / "ledger.jsonl")},
+				"schedule_sha256": digest(schedule),
+			},
+		)
+		config.write_text(
+			_toml(base | {"seed": seed, "dataset_path": str(dataset), "output_dir": str(adapter)})
+		)
+		if gold:
+			answers = {
+				r.example_id: r.completion
+				for d in self.pools
+				for r in read_jsonl(pipeline.task_dir(d) / "gold-answers.jsonl", GoldRecord)
+			}
+			write_jsonl(
+				dataset,
+				[
+					SFTRecord(
+						prompt=r.prompt.prompt,
+						completion=[
+							Message(role="assistant", content=answers[r.prompt.example_id])
+						],
+					)
+					for r in read_jsonl(schedule, GatewayRequest)
+				],
+			)
+			count = len(read_jsonl(dataset, SFTRecord))
+		else:
+			reviews = directory / "reviews.jsonl"
+			pipeline.launcher.distill(
+				"review",
+				"--ledger",
+				str(directory / "ledger.jsonl"),
+				"--output",
+				str(reviews),
+				"--config",
+				str(config),
+			)
+			prompts = directory / "prompts.jsonl"
+			write_jsonl(prompts, [r.prompt for r in read_jsonl(schedule, GatewayRequest)])
+			count, _ = prepare_sft_dataset(
+				input_path=directory / "ledger.jsonl",
+				output_path=dataset,
+				reviews_path=reviews,
+				prompts_path=prompts,
+			)
+		supervision(directory, pipeline.tasks, schedule, gold=gold)
+		if count and not _trained(adapter, dataset, config):
+			pipeline.launcher.distill("train", "--config", str(config), "--preflight-only")
+			pipeline.launcher.distill("train", "--config", str(config))
+		save_json(
+			directory / "training-status.json",
+			{
+				"status": "trained" if count else "no_usable_responses",
+				"examples": count,
+				"domains": self.study.pipeline.tasks,
+				"shared_adapter": str(adapter) if count else None,
+			},
+		)
+		return adapter if count else None
+
+	def evaluate(
+		self,
+		directory: Path,
+		adapter: Path | None,
+		seed: int,
+		budget: int,
+		*,
+		development: bool = False,
+		teacher: bool = False,
+		teacher_after: bool = False,
+	) -> dict[str, Any]:
+		results: dict[str, Any] = {}
+		slots: tuple[Slot, ...] = (
+			(("teacher_after",) if teacher_after else ("teacher",))
+			if teacher
+			else ("student_before", "student_after")
+		)
+		for domain in self.study.pipeline.tasks:
+			config_path = self.study.evaluation(
+				domain,
+				seed,
+				budget,
+				"gateway",
+				adapter_override=adapter,
+				development=development,
+				untrained=adapter is None,
+			)
+			config = load_config(config_path)
+			config.output_dir = directory / "benchmarks" / domain
+			config.experiment = str(directory)
+			config.dimensions |= {
+				"study_kind": "shared_gateway",
+				"condition": str(directory),
+				"schedule": "mixed_domain",
+			}
+			config_path = directory / f"eval.{domain}.toml"
+			config_path.parent.mkdir(parents=True, exist_ok=True)
+			config_path.write_text(_toml(config.model_dump(mode="json")))
+			for slot in slots:
+				self.study.benchmark(config_path, slot)
+			runs, errors = discover_runs(config.output_dir)
+			if errors:
+				raise LaunchError("invalid shared student evaluation artifacts")
+			latest = {
+				slot: max(
+					(
+						r
+						for r in runs
+						if r.slot == slot
+						and r.model == config.models[slot]
+						and r.generation == config.generation
+						and r.dimensions == config.dimensions
+						and r.suite_sha256 == load_suite(config.suite_path).sha256
+					),
+					key=lambda r: r.completed_at,
+				)
+				for slot in slots
+			}
+			results[domain] = {
+				slot: primary_score(run.samples, domain) for slot, run in latest.items()
+			}
+			results[domain]["evaluation_ids"] = {slot: run.id for slot, run in latest.items()}
+		save_json(
+			directory
+			/ (
+				"teacher-after-scores.json"
+				if teacher_after
+				else "teacher-scores.json"
+				if teacher
+				else "scores.json"
+			),
+			results,
+		)
+		return results
+
+	def select_recipe(self, schedule: Path, campaign: Path) -> None:
+		trials = []
+		for rate in (1e-4, 2e-4):
+			for epochs in (1, 2, 3):
+				directory = self.root / "development" / f"lr{rate}-e{epochs}"
+				write_jsonl(
+					directory / "ledger.jsonl", read_jsonl(campaign / "ledger.jsonl", LedgerRecord)
+				)
+				recipe = {"learning_rate": rate, "epochs": epochs}
+				adapter = self.train(directory, schedule, 42, recipe)
+				if adapter is None:
+					raise LaunchError("balanced development campaign produced no usable responses")
+				scores = self.evaluate(
+					directory, adapter, 42, self.development_budget, development=True
+				)
+				trials.append(
+					{
+						"recipe": recipe,
+						"scores": scores,
+						"mean": sum(s["student_after"] for s in scores.values()) / len(scores),
+					}
+				)
+		winner = max(
+			trials, key=lambda t: (t["mean"], -t["recipe"]["epochs"], -t["recipe"]["learning_rate"])
+		)
+		self.selected = winner["recipe"]
+		gains = {d: s["student_after"] - s["student_before"] for d, s in winner["scores"].items()}
+		freeze(
+			self.root / "recipe.json",
+			{
+				"selected": self.selected,
+				"trials": trials,
+				"development_gains": gains,
+				"transfer_gate_passed": all(g > 0 for g in gains.values()),
+				"selection": "equal-weight domain development mean; "
+				"ties favor fewer epochs then lower rate",
+				"inventory_sha256": digest(schedule),
+			},
+		)
+		if not all(g > 0 for g in gains.values()):
+			raise LaunchError(
+				"shared-student development transfer gate failed in at least one domain"
+			)
+
+	def utility(self, directory: Path, *, keys: dict[str, str] | None = None) -> None:
+		references = {
+			k: v
+			for d in self.pools
+			for k, v in task_references(self.study.pipeline.task_dir(d)).items()
+		}
+		asyncio.run(
+			measure_utility(
+				requests=benign_requests(self.benign["benign_test"], serialized=False),
+				references=references,
+				url=self.study.protected_url if keys else self.study.url,
+				keys=keys if keys else {"default": self.study.token},
+				max_output_tokens=self.caps,
+				account_profiles={
+					r.account: r.domain_profile or "unknown" for r in self.benign["benign_test"]
+				},
+				output=directory / "utility.json",
+				concurrency=self.study.pipeline.concurrency,
+			)
+		)
+
+	def controls(
+		self, baseline: Path, defended: Path, schedule: Path, seed: int, budget: int
+	) -> None:
+		before = read_jsonl(baseline / "ledger.jsonl", LedgerRecord)
+		after = read_jsonl(defended / "ledger.jsonl", LedgerRecord)
+		selections: dict[str, list[LedgerRecord]] = {"matched-volume": [], "matched-prefix": []}
+		matches: dict[str, dict[str, Any]] = {name: {} for name in selections}
+		for domain in self.pools:
+			rows = [r for r in after if r.task == domain]
+			if any(r.usage.output_tokens is None for r in rows):
+				raise LaunchError("token controls require measured released tokens")
+			target = sum(int(r.usage.output_tokens or 0) for r in rows)
+			for name, (selected, tokens) in token_controls(
+				[r for r in before if r.task == domain], target, seed
+			).items():
+				selections[name].extend(selected)
+				matches[name][domain] = {
+					"target_tokens": target,
+					"achieved_tokens": tokens,
+					"residual_tokens": tokens - target,
+				}
+		for name, rows in selections.items():
+			directory = defended / name
+			write_jsonl(directory / "ledger.jsonl", rows)
+			freeze(directory / "control.json", matches[name])
+			adapter = self.train(directory, schedule, seed, self.selected)
+			self.evaluate(directory, adapter, seed, budget)
+
+	def run(self, *, collect_only: bool = False) -> None:
+		self._active = False
+		try:
+			self._run(collect_only=collect_only)
+		except BaseException as error:
+			if self._active:
+				save_json(
+					self.root / "status.json",
+					{
+						"status": "interrupted"
+						if isinstance(error, KeyboardInterrupt)
+						else "failed",
+						"reason": str(error),
+						"error_type": type(error).__name__,
+					},
+				)
+			if isinstance(error, (OSError, ValueError, KeyError)):
+				raise LaunchError(str(error)) from error
+			raise
+		finally:
+			self.study.pipeline.launcher.stop_background()
+
+	def _run(self, *, collect_only: bool = False) -> None:
+		pipeline, launcher = self.study.pipeline, self.study.pipeline.launcher
+		pipeline.validate()
+		if len(pipeline.tasks) < 2 or len(set(pipeline.tasks)) != len(pipeline.tasks):
+			raise LaunchError("shared gateway requires at least two distinct domains")
+		if self.study.l4_action != "refuse":
+			raise LaunchError("shared gateway currently supports L4 refusal")
+		if (
+			not self.attacks
+			or set(self.attacks) - {"A1", "A2", "A5"}
+			or len(set(self.attacks)) != len(self.attacks)
+			or not self.study.arms
+			or set(self.study.arms) - DEFENSES.keys()
+		):
+			raise LaunchError("unknown gateway attack or defense")
+		if self.study.harness_port in {self.study.port, int(os.environ.get("VLLM_PORT") or 8001)}:
+			raise LaunchError("harness port must differ from teacher ports")
+		if self.study.teacher_url and self.study.upstream_url:
+			raise LaunchError("choose teacher-url or upstream-url")
+		os.environ["TEACHER_TERMS_REVIEW_ID"] = pipeline.terms_review_id
+		os.environ["TEACHER_API_TOKEN"] = self.study.token
+		freeze(
+			self.root / "protocol.json",
+			{
+				"version": "shared-gateway-v1",
+				"study_kind": "shared_gateway",
+				"domains": pipeline.tasks,
+				"seeds": pipeline.seeds,
+				"budgets": pipeline.budgets or "full",
+				"attacks": list(self.attacks),
+				"arms": list(self.study.arms),
+				"training": pipeline.config.read_text(),
+				"terms_review_id": pipeline.terms_review_id,
+				"deadline_seconds": self.deadline_seconds,
+				"interval_seconds": self.interval_seconds,
+				"benign_accounts": self.benign_accounts,
+				"requests_per_account": self.requests_per_account,
+				"development_budget": self.development_budget,
+				"collect_only": collect_only,
+				"gold": pipeline.gold,
+				"resource_unit": "all HTTP submissions including proofs",
+				"aggregate_monitor": "disabled",
+				"teacher_url": self.study.url,
+				"teacher_model": os.environ.get("TEACHER_UPSTREAM_MODEL") or DEFAULT_TEACHER_MODEL,
+				"teacher_revision": os.environ.get("TEACHER_MODEL_REVISION")
+				or DEFAULT_TEACHER_REVISION,
+				"upstream_url": self.study.upstream_url,
+			},
+		)
+		save_json(self.root / "status.json", {"status": "running"})
+		self._active = True
+		launcher.install("train")
+		self.build(benign=not collect_only)
+		budgets = sorted(pipeline.budgets or [sum(map(len, self.pools.values()))])
+		calibration_path = None if collect_only else self.calibration()
+		if calibration_path:
+			calibration, scorer = load_calibration(calibration_path)
+			freeze(
+				self.root / "policy-horizons.json",
+				{
+					"attempts": calibration.config.horizon_attempts,
+					"seconds": calibration.config.horizon_seconds,
+					"campaign_budget_replenished_on_reset": False,
+				},
+			)
+			encoder = _MemoEncoder(BGEEncoder(device="cpu"))
+			for arm in self.study.arms:
+				policy, accumulator = DEFENSES[arm]
+				result = replay(
+					calibration=calibration,
+					scorer=scorer,
+					requests=benign_requests(self.benign["benign_test"]),
+					output=self.root / "benign-test" / f"{arm}.jsonl",
+					policy=policy,
+					accumulator=accumulator,
+					encoder=encoder if policy == "mmd" else None,
+				)
+				result["profiles"] = profile_rates(
+					self.benign["benign_test"],
+					self.root / "benign-test" / f"{arm}.jsonl",
+					result["implemented_levels"],
+				)
+				save_json(self.root / "benign-test" / f"{arm}.json", result)
+		jobs = []
+		for seed in pipeline.seeds:
+			for budget in budgets:
+				for attack in self.attacks:
+					directory = self.root / attack / f"s{seed}-b{budget}"
+					schedule = self.inventory(
+						directory, attack, seed, budget, full=pipeline.budgets is None
+					)
+					jobs.append((directory, schedule, seed, budget))
+		development = self.root / "development"
+		devschedule = (
+			None if collect_only else self.inventory(development, "A1", 42, self.development_budget)
+		)
+		self.study.ensure_teacher()
+		for directory, schedule, seed, budget in jobs:
+			self.collect(schedule, directory / "undefended", budget, seed)
+		if collect_only:
+			launcher.stop_background()
+			for directory, schedule, seed, _ in jobs:
+				self.train(directory / "undefended", schedule, seed, {})
+				if pipeline.gold:
+					self.train(directory / "gold", schedule, seed, {}, gold=True)
+			save_json(
+				self.root / "status.json", {"status": "complete", "mode": "shared_distillation"}
+			)
+			return
+		assert devschedule is not None
+		self.collect(devschedule, development / "campaign", self.development_budget, 42)
+		self.utility(self.root / "benign-test" / "undefended")
+		launcher.stop_background()
+		self.select_recipe(devschedule, development / "campaign")
+		self.study.ensure_teacher()
+		for directory, schedule, seed, budget in jobs:
+			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
+			for arm in self.study.arms:
+				defended = directory / arm
+				# A completed collection is reused without restarting a previously spent policy.
+				if (defended / "campaign" / "campaign.json").exists():
+					keys = json.loads((defended / "credentials.json").read_text())
+					self.collect(
+						schedule,
+						defended / "campaign",
+						budget,
+						seed,
+						keys=keys,
+						decisions=defended / "decisions.jsonl",
+					)
+					if not (defended / "utility.json").exists():
+						raise LaunchError(
+							"interrupted protected utility: use a fresh run directory"
+						)
+					continue
+				if (defended / "campaign").exists():
+					raise LaunchError("interrupted protected campaign: use a fresh run directory")
+				keep = len(launcher.background)
+				assert calibration_path is not None
+				keys, decisions = self.start_harness(defended, schedule, calibration_path, arm)
+				try:
+					self.collect(
+						schedule,
+						defended / "campaign",
+						budget,
+						seed,
+						keys=keys,
+						decisions=decisions,
+					)
+					self.utility(defended, keys=keys)
+				finally:
+					launcher.stop_background(keep=keep)
+		for directory, _, seed, budget in jobs:
+			self.evaluate(
+				directory / "teacher", None, seed, budget, teacher=True, teacher_after=True
+			)
+		launcher.stop_background()
+		results = []
+		for directory, schedule, seed, budget in jobs:
+			base_adapter = self.train(directory / "undefended", schedule, seed, self.selected)
+			self.evaluate(directory / "undefended", base_adapter, seed, budget)
+			if pipeline.gold:
+				gold_adapter = self.train(
+					directory / "gold", schedule, seed, self.selected, gold=True
+				)
+				self.evaluate(directory / "gold", gold_adapter, seed, budget)
+			for arm in self.study.arms:
+				campaign = directory / arm / "campaign"
+				adapter = self.train(campaign, schedule, seed, self.selected)
+				self.evaluate(campaign, adapter, seed, budget)
+				self.controls(directory / "undefended", campaign, schedule, seed, budget)
+			results.extend(
+				campaign_results(directory, seed, budget, self.study.arms, pipeline.tasks)
+			)
+		save_json(
+			self.root / "results.json",
+			{
+				"study_kind": "shared_gateway",
+				"results": results,
+				"uncertainty": "schedules and ledgers retain source identities; "
+				"no across-seed independence assumed",
+			},
+		)
+		save_json(
+			self.root / "status.json",
+			{"status": "complete", "campaigns": len(jobs), "shared_student": True},
+		)

@@ -1,8 +1,42 @@
 # Multi-domain harness effectiveness study
 
-The study asks which distillation campaigns an account-level harness restricts, whether those restrictions prevent useful capability transfer within a declared resource envelope, and what legitimate users lose. One gateway serves AG News, SQuAD, and GSM8K. Each campaign trains one student on all the responses it actually receives. The same strategy runs without a defense, with instantaneous MMD, with the full policy, and with a simple query quota. The attempted-request and time limits define a fair comparison; budget curves are secondary.
+The study asks which distillation campaigns an account-level harness restricts, whether those restrictions prevent useful capability transfer within a declared resource envelope, and what legitimate users lose. One gateway serves AG News, SQuAD, GSM8K, and coding. Each campaign trains one student on all the responses it actually receives. The same strategy runs without a defense, with instantaneous MMD, with the full policy, and with a simple query quota. The attempted-request and time limits define a fair comparison; budget curves are secondary.
 
-Status: the mixed benign generator and fixed A1/A2/A5 schedule builders are implemented. They produce hashed input artifacts. Gateway calibration, multi-account execution, enforcement-aware replay, combined student training orchestration, and campaign reporting remain future phases. The current `just start` still runs separate task studies, defaulting to AG News, SQuAD, GSM8K, and coding with full attacker pools. GSM8K supplies the math capability distillation corpus; its output-cap pilot remains pending. No gateway defense effectiveness has been measured.
+Status: shared gateway calibration, live multi-account campaigns, combined student training, per-domain evaluation, development recipe selection, token controls, and reporting are implemented. `just start` selects this path by default. `just distill` collects a mixed undefended campaign and trains a shared student without the protected evaluation cycle. Both retain all four domains and full attacker inventories by default. The GSM8K and coding output caps remain provisional until their development pilots pass. No model effectiveness result follows from implementation tests. The manuscript is unchanged.
+
+## Run the shared pipeline
+
+```bash
+# Four domains, three seeds, full inventories, A1/A2/A5, all three defenses:
+just start
+# A smaller total envelope; 1,500 candidate prompts per domain:
+just start --budgets 6000 --seeds 42 --run-dir artifacts/gateway-b6000
+# Undefended mixed collection and shared training only:
+just distill --budgets 6000 --seeds 42
+# Retain the previous separate-task workflow explicitly:
+just start --mode tasks
+just distill --mode tasks
+```
+
+Numeric budgets apply to the whole campaign, including all accounts and domains. The balanced allocation must fit each pool or the run fails before collection. `full` allocates every domain's complete attacker pool and uses their sum as the global attempt limit, so domain sizes are unequal. A full inventory is a candidate pool, not a promise that all candidates fit the 86,400-second deadline. Planned arrivals default to one second apart and `--interval-seconds` controls that spacing. Refusals, failed HTTP submissions, and proof redemption all spend the same allowance. Policy horizon resets never replenish it. A5 uses six total accounts. Each account has at most one in-flight request, with `--concurrency` limiting the campaign's total concurrency.
+
+`start` fits one mixed benign calibration from disjoint fitting, score-calibration, and policy-calibration roles. Category references order specialists; 10% of accounts are generalists. The default workload requests 20 accounts and 100 requests per account, with short and repetitive styles disclosed in each manifest. `--benign-accounts` and `--requests-per-account` change that load. Insufficient source capacity is an error. Held-out benign replay reports account escalation; live benign traffic separately measures task quality, unconditional utility, completion, latency, and solver work. Synthetic clients do not establish real-user false-positive rates.
+
+Before protected collection, six shared training recipes are compared on an additional balanced 2,000-query, seed-42 development campaign. This collection has its own recorded allowance and is separate from each final campaign's budget. `--development-budget` changes that declared selection inventory. Selection maximizes the equal-weight mean of domain development scores, breaking ties by fewer epochs and then lower learning rate. Every domain must show positive development transfer or final defense testing stops. The selected recipe is frozen across final conditions. Test scores do not select it.
+
+Each final campaign has one combined ledger and one combined attacker adapter, evaluated against every domain's frozen suite at that domain's cap. Gold references are optional through `--no-gold`. Per-domain released-token counts define the matched-volume and matched-prefix undefended controls; each control also trains one combined adapter and records whole-response matching residuals. Empty defended datasets evaluate the unmodified base and record why training was skipped. Managed teacher and harness processes stop before student training and local student inference. An externally managed teacher remains the caller's responsibility.
+
+Outputs default to `artifacts/gateway` for `start` and `artifacts/gateway-distill` for `distill`. `protocol.json`, task and input manifests, calibration hashes, `recipe.json`, `policy-horizons.json`, per-campaign `campaign.events.jsonl`, `ledger.jsonl`, preparation manifests, training fingerprints, per-domain benchmark runs, utility results, and `results.json` preserve provenance. The report names retained gain and removed gain explicitly; it leaves ratios undefined when undefended test gain is nonpositive. It does not invent numeric success targets or independence across overlapping seed inventories. Source identities remain in schedules and ledgers for subsequent clustered analysis. Final target thresholds and uncertainty analysis still require the study's frozen analysis protocol.
+
+Completed campaign files are verified before reuse. Interrupted campaign directories are retained and cannot restart with fresh policy state. Select a new run directory for a new campaign. Training can resume using the existing training fingerprint and checkpoint checks; changing protocol options or source inputs requires a new run directory.
+
+To execute an already generated schedule against a configured shared harness:
+
+```bash
+uv run distill gateway collect --input-dir artifacts/gateway/A5-s42 --output artifacts/gateway/A5-s42-collected --teacher-url http://127.0.0.1:8003 --keys-file PATH_TO_ACCOUNT_KEYS --decision-log PATH_TO_DECISIONS
+```
+
+The harness requires `HARNESS_TASK=gateway`, `HARNESS_GATEWAY_CAPS` as a JSON domain-to-cap mapping, a matching mixed calibration, and authenticated account keys. `just start` configures these automatically. Only refusal mode is supported for shared execution. Cached enforcement simulation and adaptive attacks remain separate work.
 
 ## What the paper can claim
 
@@ -29,7 +63,7 @@ Use one unchanged teacher and one gateway endpoint. Preserve each request's doma
 
 Use one LoRA adapter on `Qwen3.5-2B-Base` per campaign, defense, and training seed. Start each adapter from the same base checkpoint. Combine received supervision across domains and shuffle training examples with a declared seed so collection order is not silently reused as a training curriculum. Preserve prompt/source identity and record domain counts and supervised tokens before and after preparation. A common 2,048-token limit needs measured per-domain exclusions; concatenating datasets does not establish that every example fits.
 
-For this controlled gateway, domain metadata comes from the declared task interface and validated request serialization. Do not treat a client-supplied domain name or a substring inside arbitrary text as trustworthy. A later gateway mode must validate supported templates and define the handling of unmatched requests. Fixed service instructions are excluded from detector text, while task content remains. Task content itself can identify domains, so stripping instructions does not eliminate distribution differences.
+For this controlled gateway, domain metadata comes from the declared task interface and validated request serialization. Do not treat a client-supplied domain name or a substring inside arbitrary text as trustworthy. Gateway mode requires one user message matching the declared task template and its frozen cap. Unknown domains, mismatched templates, extra messages, and mismatched caps receive HTTP 422 before policy admission. The `X-Gateway-Domain` header is bound into proof continuation and calibration uses the same domain-prefixed detector content. Fixed service instructions are excluded from detector text, while task content remains. Task content itself can identify domains, so stripping instructions does not eliminate distribution differences.
 
 Account identities are stable experiment identities, not proof of a production identity system. Account state spans domains within a policy horizon. A Sybil campaign shares one resource envelope and pools every received response across its accounts.
 
@@ -62,7 +96,7 @@ A1, A2, and A5 select identical prompt inventories when the seed, pools, and all
 
 The gateway generators default to four domains: AG News, coding, GSM8K, and SQuAD. A balanced 6,000-query inventory allocates 1,500 per domain; 8,000 allocates 2,000 each. Explicit three-domain lists retain their earlier allocations. Seeds 42, 1, and 20 select overlapping inventories from GSM8K's 3,389-prompt pool; retain source IDs for clustered uncertainty across seeds. Coding capacity is measured after full qualification. Pool capacity is validated before artifacts are written.
 
-`B_A` counts all HTTP submissions, including proof redemption and failures. A schedule with `B_A` ordinary-query candidates is an inventory, not a promise to submit all of them. Proof submissions can displace later candidates. `T_A` includes waiting and solving. The generated timestamps specify intended arrivals; actual submission, admission, and response-completion times belong in the future campaign event ledger. A campaign crossing a policy horizon must retain its spent campaign budget while applying the documented account reset.
+`B_A` counts all HTTP submissions, including proof redemption and failures. A schedule with `B_A` ordinary-query candidates is an inventory, not a promise to submit all of them. Proof submissions can displace later candidates. `T_A` includes waiting and solving. The generated timestamps specify intended arrivals; actual submission, admission, and response-completion times belong in the campaign event ledger. A campaign crossing a policy horizon must retain its spent campaign budget while applying the documented account reset.
 
 The current datasets do not provide natural request timing. A4 cannot claim a measured median benign rate until a source of actual timing exists. Fixed schedules remain fixed selection even if an execution client solves challenges or waits for admission. A8 requires each defense to receive a fresh live feedback loop.
 
@@ -95,23 +129,23 @@ Use existing replay for detection diagnostics first. A later enforcement simulat
 | Main claim and result order | Paper | Lead with campaign outcomes and benign costs. Move detector reproduction and budget curves behind these results. Remove predicted attack rankings. |
 | Mixed benign inputs | Repo | Implemented in `workloads.mixed_clients`; expose achieved account and request mixes and preserve source provenance. |
 | A1/A2/A5 inventories | Repo | Implemented in `schedules.campaign_schedule`; paired selection, explicit account ownership, total budgets, and deterministic artifacts. |
-| Shared gateway and calibration | Hybrid | Add a versioned mixed serialization and one calibrated account state across domains. Preserve existing task-mode artifact compatibility checks. Verify request-dependent caps and malformed-template handling through HTTP. |
-| Multi-account execution | Repo | Consume the new inventory with one durable budget/deadline and authenticated account map. Charge proofs/failures and join releases by request ID. |
+| Shared gateway and calibration | Hybrid | Implemented in `serialization.py`, `harness_api.app`, and `gateway_study.py`. Strict templates, per-domain caps, mixed calibration, and domain-bound proofs retain one account state across domains. Native HTTP checks cover enforcement. |
+| Multi-account execution | Repo | Implemented in `gateway_campaign.collect_gateway`: durable global HTTP allowance, deadline, authenticated account clients, proof/failure costs, release joins, and interruption refusal. |
 | Reuse of teacher outputs | Hybrid | Validate complete response identities and simulator/live equivalence before deriving defended supervision from cached outputs. |
-| Shared student | Repo | Reuse response-token SFT; add combined-data preparation and one adapter identity per campaign/arm/seed. Measure length exclusions, token balance, and per-domain transfer gates. |
-| Reporting correctness | Hybrid | The current `study_reporting.defense_effect` writes retained gain under `R_D`, while the paper defines removed gain. Reconcile names, formulas, and ratio-validity rules before publishing. |
+| Shared student | Repo | Implemented combined preparation, one adapter per campaign/arm/seed, a shared six-recipe development sweep, per-domain transfer gates, and per-domain whole-response token controls. Real length exclusions and learned outcomes still need measured runs. |
+| Reporting correctness | Hybrid | Shared reports explicitly name `retained_gain_fraction` and `gain_removed_fraction`, with undefined ratios for nonpositive undefended test gain. Legacy task reporting retains its previous naming. Development-frozen success targets remain an analysis requirement. |
 | Budget and target identities | Repo | Fixed for task studies: `budgets.json` freezes actual per-task numeric budgets, and reports resolve legacy `full` protocols through frozen task manifests. `policy-horizons.json` records reset settings without replenishing campaign limits. Replace the hardcoded score target of 80 with the declared development-frozen thresholds. |
-| Combined evidence | Repo | Join capability scores, per-domain supervision, event totals, matched controls, and profile-specific benign utility into campaign comparisons. Existing separate artifacts alone are not a completed result. |
+| Combined evidence | Repo | Shared `results.json` joins domain scores, event totals, preparation counts, control token residuals and scores, plus utility paths. Utility includes domain/profile/style strata. Final effectiveness, numeric success targets, and clustered uncertainty remain unmeasured. |
 
 Phase 1 exits when generators have deterministic output, validate pool capacity and domain identity, preserve source provenance, expose achieved profile composition, and keep A5 allocations inside one total budget. Validate the CLI on existing local pools and test its immutable output behavior. This phase produces no effectiveness claim.
 
-Phase 2 adds the shared gateway, mixed calibration, and live multi-account campaigns. Its exit criterion is correct enforcement and event accounting through the HTTP path, including challenge continuation, pending responses, and deadlines. Phase 3 adds validated cached execution where appropriate, combined student training, per-domain evaluation, and token controls. Phase 4 runs the frozen primary matrix, sensitivity settings, and secondary campaigns, then fills the manuscript from those artifacts.
+The live Phase 2 execution and Phase 3 shared-training paths are implemented and covered by bounded integration tests. Cached execution is still deferred. Phase 4 requires real teacher collection, GPU training, frozen numeric targets, clustered analysis, and the final study matrix. No manuscript changes accompany this implementation.
 
 The proposed 48 primary adapters assume A1/A2/A5/A7 × four arms × three seeds. A7 is currently deferred. A1/A2/A5 alone plan 36 adapter conditions; identical undefended datasets may permit reuse only when the complete training contract matches. Neither count includes development recipe selection, matched controls, specialist references, sensitivity retraining, or A8. Declare those costs before freezing the matrix.
 
 ## Run the implemented input builders
 
-Enter `devenv shell` first. Existing task builds are inputs and are not modified. Build any missing domain with `uv run distill tasks build --task DOMAIN`. The local checkout currently has AG News and SQuAD builds; GSM8K must be built before using the gateway generators' three-domain defaults. The separate-task launchers include GSM8K and coding by default and build missing tasks automatically; its output-cap pilot remains pending.
+Enter `devenv shell` first. Existing task builds are inputs and are not modified. Build any missing domain with `uv run distill tasks build --task DOMAIN`. The generators require existing builds for their selected domains. Both default launchers include GSM8K and coding and build missing tasks automatically. Their implemented cap pilots still need actual teacher measurements.
 
 ```sh
 uv run distill gateway benign --domains ag_news,squad --role fitting --accounts 20 --generalist-share 0.3 --requests-per-account 100 --output artifacts/gateway/fitting-g30
@@ -120,9 +154,15 @@ uv run distill gateway schedule --domains ag_news,squad --attack A2 --budget 600
 uv run distill gateway schedule --domains ag_news,squad --attack A5 --budget 6000 --accounts 6 --seed 42 --output artifacts/gateway/A5-s42
 ```
 
-Each command creates `requests.jsonl` and `manifest.json` in a new directory and refuses to overwrite existing inputs. Each request retains its full `PromptRecord`, domain in `prompt.task`, source corpus and group, account, planned time, and frozen output cap. The manifest hashes the prompt pools and output file and records `execution_status="not_run"`. Generate all four benign roles separately from their corresponding task pools. The Python schedule API also accepts an explicit domain allocation that must sum to the total budget. These files are for the future gateway runner; they are not accepted by the current single-task collector or replay CLI.
+Each command creates `requests.jsonl` and `manifest.json` in a new directory and refuses to overwrite existing inputs. Each request retains its full `PromptRecord`, domain in `prompt.task`, source corpus and group, account, planned time, and frozen output cap. The manifest hashes the prompt pools and output file and records `execution_status="not_run"`. Generate all four benign roles separately from their corresponding task pools. The Python schedule API also accepts an explicit domain allocation that must sum to the total budget. `distill gateway collect` accepts these schedule directories and verifies the request-file hash before execution. The legacy single-task collector does not accept them.
 
-## Phase 1 validation
+## Current implementation validation
+
+The shared lifecycle test uses actual localhost teacher and harness HTTP servers, real calibration/policy logic with a small deterministic encoder, combined preparation, adapter provenance checks, and real benchmark scoring. It substitutes model generation and optimizer work. It covers A1 and six-account A5, gold references, development selection, controls, per-domain evaluation of the same adapter, report joins, and stopping managed inference before student work. Additional HTTP tests cover cross-domain quotas, global multi-account budgets, proof spending, domain-bound continuation, and immutable campaign reuse. Full model collection, cap pilots, and GPU training remain unmeasured.
+
+Validation on this checkout: `devenv shell -- uv run pytest -q` completed with 166 passed and four opt-in training-stack tests skipped. Ruff passed, and mypy passed for apps, packages, tests, and the bootstrap scripts. The paper source was unchanged. These checks establish local integration behavior, not measured model effectiveness.
+
+## Historical phase 1 validation
 
 `uv run pytest tests/test_gateway.py tests/test_tasks.py -q` passed all 14 tests. The gateway tests cover three domains, paired inventories, specialist ownership under A5, achieved generalist fractions, request styles, provenance, capacity failures, deterministic input ordering, and immutable CLI artifacts. Scoped Ruff and mypy checks passed.
 
@@ -130,7 +170,7 @@ The real CLI was also run against the existing AG News and SQuAD pools. The beni
 
 The broader `tests/test_start.py` check had three failures in existing startup/campaign tests. All three reproduced in an isolated package copy with the new gateway registration, schemas, and workload additions removed. They concern startup fixtures, interrupted-campaign behavior, and a missing empty-campaign event file. They remain separate existing work, and this phase does not establish that the full study passes.
 
-## Follow-up correctness checks
+## Historical follow-up correctness checks
 
 Task reports use frozen resolved numeric budgets for `full` mode and explicit subsets. The benign CLI loads category references and discloses GSM8K's single-category limitation. A5 defaults to six total accounts in both the Python API and CLI. The separate-task launchers default to AG News, SQuAD, GSM8K, and coding. Math and coding output caps remain provisional. A bounded HTTP collector test crosses two policy resets and verifies that the original campaign attempt allowance remains unchanged. Full-pool task runs can span several policy horizons; those results are not gateway outcomes. Shared-student recipe selection and the GSM8K cap pilot remain pending.
 

@@ -679,6 +679,12 @@ def teacher_host_command(
 
 @run_app.command("distill")
 def distill_command(
+	mode: Annotated[
+		Literal["gateway", "tasks"],
+		typer.Option(help="Shared student or legacy separate-task students."),
+	] = "gateway",
+	run_dir: Path = Path("artifacts/gateway-distill"),
+	attacks: str = "A1",
 	tasks: Annotated[
 		str,
 		typer.Option(
@@ -692,8 +698,8 @@ def distill_command(
 	budgets: Annotated[
 		str,
 		typer.Option(
-			help="'full' uses each task's whole attacker pool; or comma-separated query budgets. "
-			"Budgets above a task's pool are skipped."
+			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
+			"Legacy tasks mode applies budgets separately to each task."
 		),
 	] = "full",
 	gold: Annotated[
@@ -715,12 +721,11 @@ def distill_command(
 	] = TASK_CONFIG,
 	concurrency: ConcurrencyOption = 4,
 ) -> None:
-	"""Run separate task extraction studies for AG News, SQuAD, GSM8K, and coding by default.
+	"""Collect across all four domains and train one shared student by default.
 
-	Each task has its own ledger in data/tasks/TASK and its
-	own adapters in artifacts/tasks/TASK/sSEED-bBUDGET. Builds missing tasks, collects every
-	seed's largest budget, stops a locally started teacher, then trains one attacker student
-	per task, seed, and budget, plus the gold-label reference unless --no-gold.
+	Gateway runs keep one combined ledger and adapter per campaign, seed, and budget,
+	plus a gold reference unless --no-gold. Use --mode tasks for per-task ledgers and
+	adapters. Managed teacher services stop before student training.
 	"""
 
 	def body(launcher: Launcher) -> None:
@@ -734,6 +739,20 @@ def distill_command(
 			concurrency=concurrency,
 			gold=gold,
 		)
+		if mode == "gateway":
+			from typing import cast
+
+			from distillation.gateway_study import GatewayStudy
+			from distillation.schedules import Attack
+			from distillation.study import Study
+
+			GatewayStudy(
+				Study(
+					pipeline, run_dir, teacher_url, token, port, upstream_url, 8003, None, "refuse"
+				),
+				attacks=tuple(cast(Attack, a.strip()) for a in attacks.split(",")),
+			).run(collect_only=True)
+			return
 		pipeline.validate()
 		os.environ["TEACHER_TERMS_REVIEW_ID"] = pipeline.terms_review_id
 		launcher.install("train")
@@ -764,6 +783,16 @@ def distill_command(
 
 @run_app.command("start")
 def start_command(
+	mode: Annotated[
+		Literal["gateway", "tasks"],
+		typer.Option(help="Shared gateway is the default; tasks selects the legacy study."),
+	] = "gateway",
+	attacks: str = "A1,A2,A5",
+	interval_seconds: Annotated[float, typer.Option(min=0)] = 1,
+	deadline_seconds: Annotated[float, typer.Option(min=0)] = 86400,
+	benign_accounts: Annotated[int, typer.Option(min=1)] = 20,
+	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
+	development_budget: Annotated[int, typer.Option(min=2)] = 2000,
 	tasks: Annotated[
 		str,
 		typer.Option(
@@ -775,14 +804,17 @@ def start_command(
 	budgets: Annotated[
 		str,
 		typer.Option(
-			help="'full' uses each task's whole attacker pool; or comma-separated query budgets. "
-			"Budgets above a task's pool are skipped."
+			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
+			"Legacy tasks mode applies budgets separately to each task."
 		),
 	] = "full",
 	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
-	run_dir: Annotated[Path, typer.Option(help="Protected runs and all benchmark results.")] = Path(
-		"artifacts/start"
-	),
+	run_dir: Annotated[
+		Path | None,
+		typer.Option(
+			help="Run directory; defaults to artifacts/gateway or artifacts/start for tasks."
+		),
+	] = None,
 	calibration_root: Annotated[
 		Path | None,
 		typer.Option(help="Existing per-task calibrations; otherwise fit pooled benign accounts."),
@@ -820,10 +852,11 @@ def start_command(
 			concurrency=concurrency,
 			gold=gold,
 		)
-		pipeline.artifact_root = run_dir / "baseline-adapters"
-		Study(
+		root = run_dir or Path("artifacts/gateway" if mode == "gateway" else "artifacts/start")
+		pipeline.artifact_root = root / "baseline-adapters"
+		study = Study(
 			pipeline,
-			run_dir,
+			root,
 			teacher_url,
 			token,
 			port,
@@ -832,7 +865,24 @@ def start_command(
 			calibration_root,
 			l4_action,
 			arms=tuple(dict.fromkeys(a.strip() for a in arms.split(",") if a.strip())),
-		).run()
+		)
+		if mode == "gateway":
+			from typing import cast
+
+			from distillation.gateway_study import GatewayStudy
+			from distillation.schedules import Attack
+
+			GatewayStudy(
+				study,
+				attacks=tuple(cast(Attack, a.strip()) for a in attacks.split(",")),
+				interval_seconds=interval_seconds,
+				deadline_seconds=deadline_seconds,
+				benign_accounts=benign_accounts,
+				requests_per_account=requests_per_account,
+				development_budget=development_budget,
+			).run()
+		else:
+			study.run()
 
 	scenario("start", body)
 

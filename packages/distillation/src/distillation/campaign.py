@@ -5,7 +5,7 @@ import hashlib
 import json
 import platform
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -38,13 +38,22 @@ class BudgetExhausted(Exception):
 MAX_CONSECUTIVE_FAILURES = 10
 
 
+@dataclass
+class CampaignAllowance:
+	"""One HTTP allowance, shared even when policy accounts or horizons change."""
+
+	limit: int
+	used: int = 0
+	exhausted: asyncio.Event | None = None
+
+
 class ProtectedTeacher:
 	def __init__(
 		self, url: str, token: str, *, transport: httpx.AsyncBaseTransport | None = None
 	) -> None:
 		self.client = httpx.AsyncClient(
 			base_url=f"{url.rstrip('/')}/",
-			headers={"Authorization": f"Bearer {token}"},
+			headers={"Authorization": f"Bearer {token}"} if token else {},
 			timeout=300,
 			transport=transport,
 		)
@@ -60,20 +69,34 @@ class ProtectedTeacher:
 		self.deadline = float("inf")
 		self.last_event_id = ""
 		self.prompt_request_id = ""
+		self.allowance: CampaignAllowance | None = None
+		self.account = ""
+		self.domain = ""
+		self.scheduled_id = ""
 
 	def remaining(self) -> float:
 		return self.deadline - time.monotonic()
 
 	def _write(self, event: dict[str, Any]) -> None:
+		if self.account:
+			event.update(account=self.account, domain=self.domain, scheduled_id=self.scheduled_id)
 		if self.event_path:
 			with self.event_path.open("a", encoding="utf-8") as output:
 				output.write(json.dumps(event) + "\n")
 		self.events.append(event)
 
 	async def _post(self, payload: dict[str, Any], proof: str | None = None) -> httpx.Response:
-		count = sum(event["event"] == "attempt" for event in self.events)
+		count = (
+			self.allowance.used
+			if self.allowance
+			else sum(event["event"] == "attempt" for event in self.events)
+		)
 		if count >= self.max_requests or self.remaining() <= 0:
 			raise BudgetExhausted
+		if self.allowance:
+			self.allowance.used += 1
+			if self.allowance.used >= self.allowance.limit and self.allowance.exhausted:
+				self.allowance.exhausted.set()
 		request_id = uuid4().hex
 		self.last_event_id = request_id
 		if proof is None:
@@ -92,6 +115,8 @@ class ProtectedTeacher:
 			}
 		)
 		headers = {"X-Benchmark-Request": self.prompt_request_id}
+		if self.domain:
+			headers["X-Gateway-Domain"] = self.domain
 		if proof:
 			headers["X-Harness-Proof"] = proof
 		outcome: dict[str, Any] = {"event": "outcome", "id": request_id, "status": "failed"}
