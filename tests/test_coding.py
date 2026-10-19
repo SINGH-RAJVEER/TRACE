@@ -209,6 +209,27 @@ def task_build(tmp_path_factory: pytest.TempPathFactory) -> Path:
 					"\tassert np.allclose(candidate(3), 6)\n",
 				}
 			],
+			"test_mbpp": [
+				{
+					"task_id": 7,
+					"code": "def triple(x):\n    return x * 3\n",
+					"prompt": "Write a function to triple a number.",
+					"test_imports": [],
+					"test_list": ["assert triple(2) == 6"],
+					"test": "def assertion(out, exp, atol):\n    assert out == exp\n"
+					"inputs = [[2], [5]]\nresults = [6, 15]\n"
+					"for inp, exp in zip(inputs, results):\n"
+					"    assertion(triple(*inp), exp, 0)\n",
+				},
+				{
+					"task_id": 255,
+					"code": "def excluded(x):\n    return x\n",
+					"prompt": "Declared exclusion.",
+					"test_imports": [],
+					"test_list": [],
+					"test": "assert False\n",
+				},
+			],
 		},
 	)
 	return directory
@@ -227,9 +248,15 @@ def test_default_coding_build_has_disjoint_gold_blind_pools(task_build: Path) ->
 	assert sum(manifest["roles"].values()) == 160
 	assert all(manifest["roles"][role] > 0 for role in ROLES)
 	assert manifest["max_output_tokens"] == 512
-	assert (
-		load_suite(task_build / "test-suite.json").sources[0].repository == "evalplus/humanevalplus"
-	)
+	suite = load_suite(task_build / "test-suite.json")
+	assert [source.repository for source in suite.sources] == [
+		"evalplus/humanevalplus",
+		"evalplus/mbppplus",
+	]
+	assert [item.id for item in suite.items] == ["coding:test:Fixture/double", "coding:test:Mbpp/7"]
+	mbpp = suite.items[1]
+	assert mbpp.entry_point == "triple" and "Example: assert triple(2) == 6" in mbpp.question
+	assert [e["id"] for e in manifest["evaluation_exclusions"]] == ["Mbpp/255"]
 	assert len(load_suite(task_build / "development-suite.json").items) == 5
 	for item in load_suite(task_build / "test-suite.json").items:
 		assert detector_text("coding", item.messages[0].content) == item.question
@@ -290,7 +317,10 @@ async def test_coding_runs_through_existing_benchmark_and_report(
 				model="fixture",
 				generated_at=datetime.now(UTC),
 				message=Message(
-					role="assistant", content="```python\ndef double(x): return x * 2\n```"
+					role="assistant",
+					content=(
+						"```python\ndef double(x): return x * 2\ndef triple(x): return x * 3\n```"
+					),
 				),
 				finish_reason="stop",
 				endpoint="fixture",
