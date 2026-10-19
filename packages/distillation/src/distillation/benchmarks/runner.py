@@ -66,10 +66,13 @@ async def run_evaluation(
 	progress: Callable[[int, int], None] | None = None,
 ) -> EvaluationRun:
 	suite = load_suite(config.suite_path)
+	coding_runtime: dict[str, str | int | float] = {}
 	if any(item.metric == "pass_at_1" for item in suite.items):
+		from coding.sandbox import runtime_protocol
 		from coding.scoring import ensure_runtime
 
 		await asyncio.to_thread(ensure_runtime)
+		coding_runtime = runtime_protocol()
 	model_config = config.models[slot]
 	training_paths = config.training_paths + validate_adapter(model_config)
 	training_hashes = audit_training(config.suite_path, training_paths)
@@ -137,6 +140,7 @@ async def run_evaluation(
 					finish_reason=generation.finish_reason,
 					request_id=generation.request_id,
 					served_model=generation.model,
+					functional_trace=score.functional_trace,
 				)
 			samples.append(result)
 			append_jsonl(config.output_dir / f"{run_id}.samples.jsonl", [result])
@@ -182,6 +186,7 @@ async def run_evaluation(
 		packages=packages,
 		platform=platform.platform(),
 		code_revision=code_revision,
+		coding_runtime=coding_runtime,
 		samples=samples,
 	)
 	config.output_dir.mkdir(parents=True, exist_ok=True)

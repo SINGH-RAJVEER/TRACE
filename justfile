@@ -81,6 +81,6 @@ teacher-host *args:
 start *args:
 	{{python}} scripts/pipeline.py start {{args}}
 
-# Collect teacher responses and train AG News, SQuAD, and GSM8K students. See docs/paper-tasks.md.
+# Collect teacher responses and train AG News, SQuAD, GSM8K, and coding students. See docs/paper-tasks.md.
 distill *args:
 	{{python}} scripts/pipeline.py distill {{args}}

@@ -221,6 +221,35 @@ def tasks_build_command(
 	typer.echo(json.dumps({**summary, "output_dir": str(directory)}, indent="\t"))
 
 
+@tasks_app.command("pilot")
+def tasks_pilot_command(
+	task_dir: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+	output_dir: Annotated[Path, typer.Option(file_okay=False)],
+	teacher_url: Annotated[str, typer.Option()],
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+	max_output_tokens: Annotated[int | None, typer.Option(min=1, max=32768)] = None,
+	limit: Annotated[int, typer.Option(min=1)] = 200,
+	seed: int = 42,
+) -> None:
+	"""Check a provisional output cap on development prompts, without training or retries."""
+	from distillation.pilot import run_cap_pilot
+
+	manifest = json.loads((task_dir / "manifest.json").read_text())
+	result = asyncio.run(
+		run_cap_pilot(
+			task_dir=task_dir,
+			output_dir=output_dir,
+			teacher=TeacherAPIGateway(base_url=teacher_url, token=token),
+			max_output_tokens=max_output_tokens or manifest["max_output_tokens"],
+			limit=limit,
+			seed=seed,
+		)
+	)
+	typer.echo(json.dumps(result, indent="\t"))
+	if result["decision"] != "cap_passed":
+		raise typer.Exit(1)
+
+
 @tasks_app.command("budget")
 def tasks_budget_command(
 	task_dir: Annotated[Path, typer.Option("--task-dir", exists=True, file_okay=False)],

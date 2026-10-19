@@ -1,5 +1,7 @@
 # Task capability evaluation
 
+Coding evaluation uses the shared benchmark runner and dashboard with sandboxed single-completion pass@1. Incorrect, invalid, truncated, and timed-out submissions stay in the denominator; sandbox infrastructure failures abort the run. Existing non-coding suite hashes are preserved. Coding suite hashes include executable tests and entry points. Functional code agreement compares typed output hashes on matching ordered input traces, with valid-pair coverage. Pass/fail agreement is labeled separately. See [coding-task.md](coding-task.md).
+
 Evaluate AG News, SQuAD 1.1, and GSM8K through the suites frozen by `distill tasks build`. Each task has its own prompt contract, output limit, test split, and adapters. See [paper-tasks.md](paper-tasks.md) for dataset pins, source grouping, development selection, and query budgets.
 
 ## Run an evaluation
@@ -45,7 +47,7 @@ AG News accepts exactly one of World, Sports, Business, and Sci/Tech, ignoring c
 
 Blank or unparseable responses are invalid. `finish_reason="length"` is truncated. Other nonterminal or missing finish reasons and thinking traces are invalid. API failures are errors and store no provider error body or credentials. A wrong but parseable answer is `ok` with `correct=false`.
 
-The dashboard uses SQuAD F1 for task-score charts and summaries and exact match for the binary outcome breakdown. It does not combine the three tasks into an overall model-quality score or report teacher-gap closure.
+The dashboard uses SQuAD F1 for task-score charts and summaries and exact match for the binary outcome breakdown. It does not combine the tasks into an overall model-quality score or report teacher-gap closure.
 
 ## Paired comparisons
 
@@ -72,7 +74,7 @@ Before final defense testing, establish positive undefended capability transfer 
 
 These sequential evaluations do not measure concurrent serving throughput, time to first token, GPU peak memory, policy waiting costs, or proof-of-work effort. Measure those separately for paper claims.
 
-Each output directory contains a verified `suite-SHA256.json`, completed run JSON files, and append-only sample journals. A run records model and generation config, source revision, artifact and training hashes, packages, platform, and JJ code revision. A comparison exports the suite, selected runs, per-task scores, category slices, paired metrics, warnings, and responses. Frozen v1 task suites retain empty legacy schema fields solely to preserve existing suite hashes; there is no code-execution scorer.
+Each output directory contains a verified `suite-SHA256.json`, completed run JSON files, and append-only sample journals. A run records model and generation config, source revision, artifact and training hashes, packages, platform, and JJ code revision. A comparison exports the suite, selected runs, per-task scores, category slices, paired metrics, warnings, and responses. Existing non-coding suites retain their hashes. Coding suites include their tests and entry points, and this benchmark runner invokes the sandboxed scorer. Generation latency excludes sandbox scoring time.
 
 Exact training-overlap checks cannot detect paraphrases or pretraining contamination. A declared remote model revision requires independent deployment verification. Dataset-only adapter skip checks do not establish a complete training fingerprint; the implementation checklist tracks that gap.
 

@@ -190,6 +190,14 @@ def test_graduated_actions_space_challenge_and_refuse(
 	assert above[9].level == 4 and above[9].action == "refuse"
 
 
+def test_coding_policy_refuses_deception(calibrated: tuple[Calibration, WindowScorer]) -> None:
+	calibration, scorer = calibrated
+	calibration = calibration.model_copy(deep=True)
+	calibration.config.task = "coding"
+	with pytest.raises(ValueError, match="coding deception"):
+		MMDPolicy(calibration, scorer, l4_action="deceive", deception_key=b"fixture")
+
+
 def test_quota_and_rate_baselines_block_for_the_horizon() -> None:
 	quota = QuotaPolicy(3, horizon_seconds=100, horizon_attempts=1000)
 	assert [quota.admit("a", "q", float(t)).action for t in range(5)][-2:] == ["refuse"] * 2

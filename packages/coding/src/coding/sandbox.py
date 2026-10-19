@@ -12,7 +12,7 @@ import sys
 import sysconfig
 import tempfile
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -23,8 +23,8 @@ class SandboxUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class Limits:
-	wall_seconds: float = 3.0
-	cpu_seconds: int = 2
+	wall_seconds: float = 20.0
+	cpu_seconds: int = 15
 	memory_bytes: int = 256 * 1024 * 1024
 	file_bytes: int = 1024 * 1024
 
@@ -41,6 +41,17 @@ class Execution:
 	returncode: int | None
 	stdout: str = ""
 	stderr: str = ""
+
+
+def runtime_protocol() -> dict[str, str | int | float]:
+	"""Execution limits are comparison dimensions, never implicit scorer state."""
+	return {
+		"version": "bubblewrap-assertions-v2",
+		"trace": "reference-covered-calls-v2",
+		"architecture": platform.machine(),
+		"python": platform.python_version(),
+		**asdict(Limits()),
+	}
 
 
 def _seccomp() -> bytes:
@@ -175,7 +186,7 @@ def run_python(
 			command = [
 				prlimit,
 				f"--as={limits.memory_bytes}",
-				f"--cpu={limits.cpu_seconds}",
+				f"--cpu={limits.cpu_seconds}:{limits.cpu_seconds + 1}",
 				f"--fsize={limits.file_bytes}",
 				"--nofile=32",
 				"--core=0",
@@ -209,6 +220,7 @@ def run_python(
 			diagnostic = stderr.read(limits.file_bytes).decode(errors="replace")
 			if diagnostic.startswith("bwrap:") or diagnostic.startswith("prlimit:"):
 				raise SandboxUnavailable(diagnostic.strip())
-			if process.returncode == -signal.SIGXCPU:
+			# Bubblewrap returns 128+signal when its payload dies from a signal.
+			if process.returncode in {-signal.SIGXCPU, 128 + signal.SIGXCPU}:
 				status = "timeout"
 			return Execution(status, process.returncode, output, diagnostic)

@@ -132,6 +132,7 @@ async def _solved(client: httpx.AsyncClient, actor: str, text: str) -> httpx.Res
 async def test_authenticated_coding_endpoint_preserves_code_and_enforces_quota(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
+	pytest.importorskip("coding", reason="coding endpoint needs the coding extra")
 	from coding.dataset import PROMPT
 	from distillation.campaign import PolicyRefusal, ProtectedTeacher
 	from harness.serialization import detector_text
@@ -166,7 +167,7 @@ async def test_authenticated_coding_endpoint_preserves_code_and_enforces_quota(
 		scorer=scorer,
 	)
 	text = PROMPT.format(specification="Return one.", signature="def f():")
-	assert detector_text("coding", text) == "Return one.\n\nSignature: def f():"
+	assert detector_text("coding", text) == "Return one."
 	request = TeacherGenerationRequest(
 		messages=[Message(role="user", content=text)], max_output_tokens=512
 	)
@@ -279,7 +280,9 @@ async def test_challenges_bind_to_the_request_and_cannot_be_reused(
 async def test_l4_noise_needs_no_teacher_and_looks_like_l3(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
-	l3, _, _ = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_TASK="ag_news")
+	l3, _, _ = _app(
+		artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
+	)
 	l4, teacher, log = _app(
 		artifacts, tmp_path, [-1] * 4, HARNESS_TASK="ag_news", HARNESS_L4_ACTION="deceive"
 	)

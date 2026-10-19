@@ -186,6 +186,11 @@ class Study:
 
 		settings = load_config(config)
 		suite = load_suite(settings.suite_path)
+		coding_runtime: dict[str, str | int | float] = {}
+		if any(item.metric == "pass_at_1" for item in suite.items):
+			from coding.sandbox import runtime_protocol
+
+			coding_runtime = runtime_protocol()
 		runs, errors = discover_runs(settings.output_dir)
 		if errors:
 			raise LaunchError(f"invalid evaluation artifacts in {settings.output_dir}")
@@ -195,6 +200,7 @@ class Study:
 			and run.model == settings.models[slot]
 			and run.generation == settings.generation
 			and run.dimensions == settings.dimensions
+			and run.coding_runtime == coding_runtime
 			for run in runs
 		):
 			return
@@ -204,6 +210,7 @@ class Study:
 				suite.sha256,
 				settings.generation.model_dump(),
 				settings.models[slot].model_dump(mode="json"),
+				coding_runtime,
 			],
 			sort_keys=True,
 		)

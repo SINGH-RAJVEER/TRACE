@@ -183,8 +183,40 @@ def test_gateway_rejects_unusable_pools_and_impossible_allocations() -> None:
 		campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=12)
 
 
-def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(tmp_path: Path) -> None:
-	for domain, prompts in _pools(40).items():
+@pytest.mark.parametrize("include_coding", [False, True])
+def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
+	tmp_path: Path, include_coding: bool
+) -> None:
+	pools = _pools(40)
+	caps = dict(CAPS)
+	if include_coding:
+		pytest.importorskip("coding", reason="coding fixtures need the coding extra")
+		from coding.dataset import PROMPT
+
+		caps["coding"] = 512
+		pools["coding"] = [
+			PromptRecord(
+				example_id=f"coding-{i}",
+				split="train",
+				task="coding",
+				source=PromptSource(
+					corpus="fixture-coding",
+					source_id=str(i),
+					group_id=f"coding-{i}",
+					license="test",
+				),
+				prompt=[
+					Message(
+						role="user",
+						content=PROMPT.format(
+							specification=f"Return {i}", signature="def value():"
+						),
+					)
+				],
+			)
+			for i in range(40)
+		]
+	for domain, prompts in pools.items():
 		directory = tmp_path / "tasks" / domain
 		write_jsonl(directory / "attacker.jsonl", prompts)
 		write_jsonl(directory / "legitimate" / "fitting.jsonl", prompts)
@@ -207,10 +239,12 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(tmp_path: Pat
 			)
 		)
 		(directory / "manifest.json").write_text(
-			json.dumps({"task": domain, "max_output_tokens": CAPS[domain]})
+			json.dumps({"task": domain, "max_output_tokens": caps[domain]})
 		)
 	runner = CliRunner()
-	common = ["--tasks-dir", str(tmp_path / "tasks"), "--domains", ",".join(CAPS)]
+	common = ["--tasks-dir", str(tmp_path / "tasks")]
+	if not include_coding:
+		common += ["--domains", ",".join(CAPS)]
 	args = [
 		"schedule",
 		*common,
@@ -228,6 +262,7 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(tmp_path: Pat
 	assert manifest["sha256"][path.name] == hashlib.sha256(path.read_bytes()).hexdigest()
 	assert len(read_jsonl(path, GatewayRequest)) == 30
 	assert len(manifest["accounts"]) == 6
+	assert set(manifest["domain_allocation"]) == set(caps)
 	assert json.loads((path.parent / "manifest.json").read_text()) == manifest
 	assert runner.invoke(app, args).exit_code != 0
 	result = runner.invoke(
