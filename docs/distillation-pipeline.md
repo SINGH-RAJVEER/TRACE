@@ -162,7 +162,7 @@ The collector rejects empty responses, nonterminal finish reasons, and thinking 
 
 Preparation writes reviewed, accepted, deduplicated prompt-completion rows and a preparation manifest. It refuses the test split and removes prompts or source groups shared across splits. Pass the original prompt inventory through `--prompts`; grouping and held-out separation also depend on the task build. Explicit rejection wins over the low-level `--accept-pending` bypass, which is only for plumbing checks.
 
-The undefended collector retries transport failures. A defended campaign must charge every attempt, filler request, retry, and challenge to the declared budgets and train only on responses actually released. The campaign client and accounting requirements remain on the [implementation checklist](paper-tasks.md#implementation-todo).
+The undefended collector retries transport failures. A defended campaign must charge every attempt, filler request, retry, and challenge to the declared budgets and train only on responses actually released.
 
 ## Student training
 
@@ -272,4 +272,4 @@ Primary capability metrics are AG News label accuracy, SQuAD token F1, and GSM8K
 
 Freeze dataset groups, prompt serialization, model and tokenizer revisions, training settings, query schedules, and the experiment matrix before final testing. Archive task manifests, ledgers, attempts, reviews, generated configs, adapters, training manifests, calibration, and campaign events. Record quantization and actual provider identity as part of the deployed victim.
 
-Training manifests and passing preflight establish software and data checks, not measured capability. Provider aliases can change, generation can vary despite seeds, and exact-overlap checks do not detect paraphrases or pretraining contamination. Report actual completed experiments and their validation boundaries. Outstanding requirements and manuscript revisions are tracked in [paper-tasks.md](paper-tasks.md#implementation-todo) and [paper-revision-todo.md](paper-revision-todo.md).
+Training manifests and passing preflight establish software and data checks, not measured capability. Provider aliases can change, generation can vary despite seeds, and exact-overlap checks do not detect paraphrases or pretraining contamination. Report actual completed experiments and their validation boundaries.
