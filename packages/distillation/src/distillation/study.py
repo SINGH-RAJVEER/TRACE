@@ -86,7 +86,7 @@ def capability_target(selection: dict[str, Any]) -> dict[str, Any]:
 def _replayed_horizons(
 	decisions: Path, client_of: list[str]
 ) -> dict[str, tuple[list[int], list[int], list[float]]]:
-	"""Per client type: each horizon's peak level and completed windows, and window p-values."""
+	"""Per client type: each horizon's peak level and attempts, and window p-values."""
 	groups: dict[str, tuple[list[int], list[int], list[float]]] = defaultdict(lambda: ([], [], []))
 	unit: dict[str, int] = {}
 	with decisions.open(encoding="utf-8") as source:
@@ -99,18 +99,19 @@ def _replayed_horizons(
 				windows.append(0)
 			index = unit[record["account"]]
 			peaks[index] = max(peaks[index], record["level"])
-			if record["window_completed"]:
-				windows[index] += 1
-				if record["p_value"] is not None:
-					p_values.append(record["p_value"])
+			windows[index] = record["attempt"]
+			if record["window_completed"] and record["p_value"] is not None:
+				p_values.append(record["p_value"])
 	return dict(groups)
 
 
-def _describe(peaks: list[int], windows: list[int], p_values: list[float]) -> dict[str, Any]:
+def _describe(
+	peaks: list[int], attempts: list[int], p_values: list[float], size: int
+) -> dict[str, Any]:
 	ordered = sorted(p_values)
 	return {
 		"horizons": len(peaks),
-		"scored_horizons": sum(count > 0 for count in windows),
+		"scored_horizons": sum(count >= size for count in attempts),
 		"peak_levels": {f"L{level}": peaks.count(level) for level in range(5)},
 		"windows": len(ordered),
 		"p_value_mean": sum(ordered) / len(ordered) if ordered else None,
@@ -426,7 +427,7 @@ class Study:
 		"""Development diagnostic only; never tune thresholds using attacker replay.
 
 		Compares one extraction account with the held-out benign accounts, per client type,
-		under each defense. MMD arms compare against benign horizons that complete a window.
+		under each defense, against the benign horizons that complete a window.
 		`mmd_signal` is True when some MMD defense escalates the extractor to a level that
 		fewer than `level_targets[0]` of those benign horizons reach.
 		"""
@@ -470,13 +471,14 @@ class Study:
 			)
 			extractor = _replayed_horizons(output, ["extractor"] * len(requests))["extractor"]
 			peak = max(extractor[0])
-			# MMD can only escalate horizons that complete a window; short accounts never do,
-			# so they would dilute the benign comparison.
+			# Every defense is compared on scored horizons, the population its thresholds were
+			# fitted on; short accounts never complete a window and would dilute the comparison.
+			size = calibration.config.window_size
 			benign_peaks = [
 				level
-				for peaks, windows, _ in benign.values()
-				for level, count in zip(peaks, windows, strict=True)
-				if count or policy != "mmd"
+				for peaks, attempts, _ in benign.values()
+				for level, count in zip(peaks, attempts, strict=True)
+				if count >= size
 			]
 			rate = (
 				sum(level >= peak for level in benign_peaks) / len(benign_peaks)
@@ -485,9 +487,9 @@ class Study:
 			)
 			results[arm] = {
 				**summary,
-				"extractor": _describe(*extractor),
+				"extractor": _describe(*extractor, size),
 				"benign_by_client_type": {
-					kind: _describe(*benign[kind]) for kind in sorted(benign)
+					kind: _describe(*benign[kind], size) for kind in sorted(benign)
 				},
 				"benign_rate_at_extractor_peak": rate,
 				"escalates_beyond_benign": bool(peak) and rate < target,
@@ -568,6 +570,7 @@ class Study:
 				"calibration": str(path),
 				"serialization": calibration.serialization,
 				"window_size": calibration.config.window_size,
+				"distinct_prompts": calibration.config.distinct_prompts,
 				"reference_windows": calibration.config.reference_windows,
 				"sigma": calibration.sigma,
 				"counts": calibration.counts,

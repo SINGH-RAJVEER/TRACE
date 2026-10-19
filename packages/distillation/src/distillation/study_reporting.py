@@ -117,7 +117,7 @@ def _utility(root: Path, task: str, seed: int, arm: str) -> dict[str, Any]:
 	def change(field: str) -> float | None:
 		if not before or not after or before[field] is None or after[field] is None:
 			return None
-		return after[field] - before[field]
+		return float(after[field]) - float(before[field])
 
 	return {
 		"task": task,
@@ -141,6 +141,8 @@ def _benign_escalation(root: Path, task: str, arm: str) -> dict[str, Any] | None
 		**{k: summary[k] for k in ("horizons", "unscored_horizons", "implemented_levels")},
 		"false_escalations": summary["reached"],
 		"false_escalation_rate": summary["reached_rate"],
+		# Over scored horizons, the denominator the level targets were fitted on.
+		"false_escalation_rate_scored": summary.get("reached_rate_scored"),
 	}
 
 

@@ -1,5 +1,7 @@
 """Unbiased squared MMD between query-embedding windows (paper Eq. 1)."""
 
+from collections.abc import Sequence
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -32,6 +34,14 @@ def mmd2_unbiased(x: Array, z: Array, sigma: float, scales: tuple[float, ...] = 
 	)
 
 
+def distinct(keys: Sequence[str]) -> list[int]:
+	"""Positions of each key's first occurrence, in window order."""
+	first: dict[str, int] = {}
+	for index, key in enumerate(keys):
+		first.setdefault(key, index)
+	return list(first.values())
+
+
 def median_bandwidth(sample: Array) -> float:
 	"""The median nonzero pairwise distance in a fixed benign fitting sample."""
 	distances = np.sqrt(squared_distances(sample, sample))
@@ -56,10 +66,25 @@ class WindowScorer:
 			_off_diagonal_mean(kernel(squared_distances(z, z), sigma, scales)) for z in references
 		]
 
-	def score(self, window: Array) -> float:
+	def score(self, window: Array, keys: Sequence[str] | None = None) -> float:
+		"""Eq. 1 against each reference window, averaged.
+
+		With `keys`, exact repeats within the window are collapsed to their first occurrence
+		before scoring. Repeated prompts are identical points whose kernel value of one would
+		otherwise inflate the within-window term. A window of one distinct prompt keeps that
+		value, since no off-diagonal pair remains to estimate it.
+		"""
 		if window.shape[0] != self.window_size:
 			raise ValueError(f"windows must hold {self.window_size} queries")
-		own = _off_diagonal_mean(kernel(squared_distances(window, window), self.sigma, self.scales))
+		if keys is not None:
+			if len(keys) != window.shape[0]:
+				raise ValueError("keys must name every query in the window")
+			window = window[distinct(keys)]
+		own = (
+			_off_diagonal_mean(kernel(squared_distances(window, window), self.sigma, self.scales))
+			if window.shape[0] > 1
+			else 1.0
+		)
 		total = 0.0
 		for z, reference_term in zip(self.references, self._reference_terms, strict=True):
 			cross = float(kernel(squared_distances(window, z), self.sigma, self.scales).mean())
@@ -73,7 +98,7 @@ class WindowScorer:
 		"""
 		own = kernel(squared_distances(window, window), self.sigma, self.scales)
 		n = window.shape[0]
-		inside = (own.sum(1) - np.diag(own)) / (n - 1)
+		inside = (own.sum(1) - np.diag(own)) / (n - 1) if n > 1 else np.ones(1)
 		outside = np.mean(
 			[
 				kernel(squared_distances(window, z), self.sigma, self.scales).mean(1)

@@ -65,7 +65,9 @@ def replay(
 	"""Process requests in file order. Requests without a time are spaced one second apart.
 
 	The summary counts, per account horizon, the highest level reached. On benign traffic its
-	rates are the account-level false-escalation rates FPR_1 to FPR_4.
+	rates are the account-level false-escalation rates FPR_1 to FPR_4 over all horizons;
+	`reached_rate_scored` restricts them to horizons with at least a window's worth of
+	attempts, the denominator every defense's thresholds were fitted on.
 	"""
 	runner = make_policy(
 		policy,
@@ -107,6 +109,9 @@ def replay(
 			deceived += decision.deceive
 			if decision.window_completed:
 				windows += 1
+			# A horizon is scored once it holds a complete window's worth of attempts, the
+			# population every defense's thresholds were fitted on.
+			if decision.attempt >= calibration.config.window_size:
 				scored.add(unit)
 			record = {
 				"index": index,
@@ -134,7 +139,7 @@ def replay(
 		"thresholds": thresholds if policy == "mmd" else None,
 		"requests": len(requests),
 		"horizons": units,
-		"unscored_horizons": units - len(scored) if policy == "mmd" else None,
+		"unscored_horizons": units - len(scored) if policy != "allow" else None,
 		"windows": windows,
 		"l4_action": l4_action if policy == "mmd" else None,
 		"deceived": deceived,
@@ -146,6 +151,13 @@ def replay(
 		"reached_rate": {
 			f"L{level}": sum(peak >= level for peak in peaks) / units
 			if units and level in levels
+			else None
+			for level in range(1, 5)
+		},
+		# Over horizons with a complete window, the denominator the thresholds were fitted on.
+		"reached_rate_scored": {
+			f"L{level}": sum(peaks[unit] >= level for unit in scored) / len(scored)
+			if scored and level in levels
 			else None
 			for level in range(1, 5)
 		},
