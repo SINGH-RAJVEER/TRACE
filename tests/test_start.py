@@ -31,7 +31,7 @@ from distillation.schemas import (
 	TokenUsage,
 )
 from distillation.study import Study
-from distillation.tasks import build_task
+from distillation.tasks import build_task, task_directory
 from distillation.training import TrainingConfig
 from typer.testing import CliRunner
 
@@ -135,8 +135,6 @@ def test_launchers_default_tasks_and_supported_budgets(
 	Path("configs").mkdir()
 	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
 	for task, pool in (("ag_news", 53893), ("squad", 40356), ("gsm8k", 3389), ("coding", 12345)):
-		from distillation.tasks import task_directory
-
 		directory = task_directory(task)
 		directory.mkdir(parents=True)
 		(directory / "manifest.json").write_text(
@@ -191,7 +189,7 @@ def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
 	build_task(
 		task=task,
-		output_dir=Path("data/tasks") / task,
+		output_dir=task_directory(task),
 		rows={
 			"train": [{"text": f"News story {i}", "label": i % 4} for i in range(500)],
 			"test": [{"text": "Held-out news article", "label": 0}],
@@ -206,7 +204,7 @@ def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
 	)
 	Path("configs").mkdir()
 	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
-	ledger = Path("data/tasks") / task / "ledger.jsonl"
+	ledger = task_directory(task) / "ledger.jsonl"
 	ledger.write_bytes(b"\x00" * 64 + b"\n")
 	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
 	monkeypatch.setattr(
@@ -228,9 +226,7 @@ def test_start_checks_corrupt_ledgers_before_loading_the_teacher(
 	assert protocol["budgets"] == ("full" if budgets is None else [1])
 	assert json.loads(Path("artifacts/start/budgets.json").read_text()) == {
 		task: [
-			json.loads((Path("data/tasks") / task / "manifest.json").read_text())["roles"][
-				"attacker"
-			]
+			json.loads((task_directory(task) / "manifest.json").read_text())["roles"]["attacker"]
 			if budgets is None
 			else 1
 		]
@@ -246,7 +242,7 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
 	build_task(
 		task="ag_news",
-		output_dir=Path("data/tasks/ag_news"),
+		output_dir=task_directory("ag_news"),
 		rows={
 			"train": [{"text": f"News story {i}", "label": i % 4} for i in range(500)],
 			"test": [{"text": "Held-out news article", "label": 0}],

@@ -341,6 +341,9 @@ def study_report(root: Path) -> dict[str, Any]:
 	]
 	return {
 		"study_kind": "separate_task",
+		"calibration_adequacy": {
+			task: _load(root / task / "calibration-adequacy.json") for task in protocol["tasks"]
+		},
 		"task_budgets": budgets,
 		"policy_horizons": horizons,
 		"per_seed": rows,

@@ -26,6 +26,7 @@ from distillation.tasks import (
 	GoldRecord,
 	budget_run,
 	build_task,
+	task_directory,
 )
 from harness.serialization import detector_text
 
@@ -176,7 +177,9 @@ def test_distill_scenario_keeps_its_own_ledger_and_resumes(
 		training, "training_identity", lambda config: {"fixture": config.model_dump(mode="json")}
 	)
 	manifest = build_task(
-		task="ag_news", output_dir=tmp_path / "data/tasks/ag_news", rows=_ag_news_rows()
+		task="ag_news",
+		output_dir=task_directory("ag_news", root=tmp_path / "data/tasks"),
+		rows=_ag_news_rows(),
 	)
 	(tmp_path / "configs").mkdir()
 	(tmp_path / "configs/train.task.toml").write_text(
@@ -257,7 +260,7 @@ def test_distill_scenario_keeps_its_own_ledger_and_resumes(
 		for k in ("attacker", "gold")
 	]
 	assert steps == ["serve", "collect", "collect", "stop", *trained, "stop"]
-	task_dir = tmp_path / "data/tasks/ag_news"
+	task_dir = task_directory("ag_news", root=tmp_path / "data/tasks")
 	assert len(read_jsonl(task_dir / "ledger.jsonl", LedgerRecord)) <= 2 * planned[-1]
 	if budgets is None:
 		pool_ids = {p.example_id for p in read_jsonl(task_dir / "attacker.jsonl", PromptRecord)}
@@ -273,13 +276,19 @@ def test_distill_scenario_keeps_its_own_ledger_and_resumes(
 	assert not (tmp_path / "data/teacher").exists()
 	run = task_dir / f"runs/s42-b{planned[0]}"
 	attacker = tomllib.loads((run / "train.attacker.toml").read_text())
-	assert attacker["dataset_path"] == f"data/tasks/ag_news/runs/s42-b{planned[0]}/train.jsonl"
+	assert (
+		attacker["dataset_path"]
+		== f"{task_directory('ag_news')}/runs/s42-b{planned[0]}/train.jsonl"
+	)
 	assert attacker["output_dir"] == f"artifacts/tasks/ag_news/s42-b{planned[0]}/attacker"
 	assert attacker["seed"] == 42
 	assert attacker["chat_template_kwargs"] == {"enable_thinking": False}
 	assert len(read_jsonl(run / "train.jsonl", SFTRecord)) == planned[0]
 	gold = tomllib.loads((run / "train.gold.toml").read_text())
-	assert gold["dataset_path"] == f"data/tasks/ag_news/runs/s42-b{planned[0]}/gold-train.jsonl"
+	assert (
+		gold["dataset_path"]
+		== f"{task_directory('ag_news')}/runs/s42-b{planned[0]}/gold-train.jsonl"
+	)
 
 	# Everything is collected and trained, so a rerun neither serves the teacher nor trains.
 	steps.clear()
@@ -313,3 +322,38 @@ def test_gateway_serialization_validates_the_declared_task_templates() -> None:
 		assert detector_text("gateway", gateway_turn(domain, turn)).startswith(f"{domain}\n")
 		assert not valid_gateway_turn(domain, "unmatched free text")
 		assert not valid_gateway_turn(domain, next(t for d, t in turns.items() if d != domain))
+
+
+@pytest.mark.parametrize("task", ["ag_news", "squad", "gsm8k", "coding"])
+def test_reallocated_roles_preserve_held_out_groups_and_shrink_attacker(task: str) -> None:
+	from distillation.tasks import ROLE_SHARES, _digest, _role
+
+	assert sum(ROLE_SHARES[task]) == pytest.approx(1)
+	for index in range(10000):
+		group = f"group-{index}"
+		u = _digest(42, "task-split", task, group) % 1_000_000
+		role = _role(42, task, group)
+		assert (role == "development") == (u < 100000)
+		assert (role == "benign_test") == (u >= 910000)
+		if role == "attacker":
+			assert 100000 <= u < 550000
+		if task in {"gsm8k", "coding"}:
+			expected = next(
+				r
+				for r, upper in zip(
+					(
+						"development",
+						"attacker",
+						"fitting",
+						"score_calibration",
+						"policy_calibration",
+						"benign_test",
+					),
+					(100000, 550000, 730000, 820000, 910000, 1000000),
+					strict=True,
+				)
+				if u < upper
+			)
+			assert role == expected
+	if task in {"ag_news", "squad"}:
+		assert task_directory(task).name == f"{task}-split-v2-s42"

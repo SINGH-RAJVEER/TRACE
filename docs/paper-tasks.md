@@ -55,7 +55,7 @@ Set `TEACHER_TERMS_REVIEW_ID` in `.env` first. The command then:
 | `--teacher-url` | none | Collect from a running teacher API instead of starting vLLM here |
 | `--port`, `--upstream-url`, `--concurrency` | as in [run-scripts.md](run-scripts.md#task-study-operation) | Local teacher and collection settings |
 
-Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. Both `just distill --mode tasks` and `just start --mode tasks` default to AG News, SQuAD, GSM8K, and coding with three seeds. The default uses each task's whole attacker pool: 53,893 AG News queries, 40,356 SQuAD queries, and 3,389 GSM8K queries with the pinned builds. All three seeds use the same complete pool in different orders. Legacy full-budget task runs use the complete attacker allocation of the declared coding build, which now defaults to the 50,000-eligible-example subset across all roles at `data/tasks/coding-subset-50000-s42`. Use `--coding-pool-size 0` for exhaustive source qualification. This is separate from the shared gateway default of 6,000 total submissions. This plans 12 undefended attacker adapters and 12 gold references, excluding defended students, recipe trials, and matched controls. GSM8K supplies the math capability distillation corpus; its 256-token output cap remains provisional until the implemented cap pilot passes against the actual teacher.
+Each run directory `data/tasks/TASK/runs/sSEED-bBUDGET/` holds the generated `train.attacker.toml` and `train.gold.toml`. The adapters go to `artifacts/tasks/TASK/sSEED-bBUDGET/attacker` and `.../gold`. The command is resumable: collection resumes by `example_id`, training resumes from its last checkpoint, and an adapter whose `training-manifest.json` matches the current dataset is skipped. Both `just distill --mode tasks` and `just start --mode tasks` default to AG News, SQuAD, GSM8K, and coding with three seeds. The default uses each task's whole attacker pool: 35,944 AG News queries, 10,353 SQuAD queries, and 3,389 GSM8K queries with seed-42 split-v2 builds. All three seeds use the same complete pool in different orders. Legacy full-budget task runs use the complete attacker allocation of the declared coding build, which now defaults to the 50,000-eligible-example subset across all roles at `data/tasks/coding-subset-50000-s42`. Use `--coding-pool-size 0` for exhaustive source qualification. This is separate from the shared gateway default of 6,000 total submissions. This plans 12 undefended attacker adapters and 12 gold references, excluding defended students, recipe trials, and matched controls. GSM8K supplies the math capability distillation corpus; its 256-token output cap remains provisional until the implemented cap pilot passes against the actual teacher.
 
 `--budgets 500,2000,8000` selects subsets, skipping 8,000 for GSM8K when it is selected. `start` freezes the resolved numeric plan in `budgets.json`; reporting uses those task-specific values. Existing protocol options remain immutable. Protected campaigns retain one global attempt limit and deadline. Each protected account resets only after its 24-hour time horizon; exceeding 10,000 policy attempts refuses further ordinary requests until then. A full-pool run cannot regain an account allowance by sending refusals. The undefended arm remains unrestricted by this account cap. Time resets never replenish the campaign allowance. The resulting reports describe separate task studies, not shared-gateway execution.
 
@@ -72,7 +72,7 @@ uv run --extra eval distill tasks build --task squad
 uv run --extra eval distill tasks build --task gsm8k
 ```
 
-Each build writes to `data/tasks/TASK/`, which is gitignored, and refuses to overwrite an existing build. Choose a new `--output-dir` when changing the protocol.
+AG News and SQuAD now default to `data/tasks/TASK-split-v2-s42/`; GSM8K keeps `data/tasks/gsm8k/`. These paths are gitignored. Builds refuse to overwrite an existing manifest. Existing `data/tasks/ag_news/` and `data/tasks/squad/` remain untouched; launchers select the new paths automatically. Start studies in a new `--run-dir` because source inventories and calibration rules have changed.
 
 | File | Contents |
 | --- | --- |
@@ -85,7 +85,7 @@ Each build writes to `data/tasks/TASK/`, which is gitignored, and refuses to ove
 
 ### Splits
 
-Each source document is assigned once by a seeded hash of its group. 10% goes to development. The rest is divided equally between the attacker pool and the legitimate pool. The legitimate pool is then split 40/20/20/20 into fitting, score calibration, policy calibration, and final benign testing. Groups never cross roles:
+Each source document is assigned once by a seeded hash of its group. `task-source-split-v2` records absolute role shares in each new non-coding task manifest. AG News uses 10/30/5/12/34/9 percent for development, attacker, fitting, score calibration, policy calibration, and benign testing. SQuAD uses 10/10/6/15/50/9 percent. GSM8K and coding retain 10/45/18/9/9/9 percent. The fitting and attacker shares fund the larger AG News and SQuAD calibration pools. The development and benign-test hash boundaries remain unchanged, and new attacker pools are subsets of the old pools. Groups never cross roles:
 
 - **AG News:** a group is one normalized article text, so exact duplicates stay together. Training rows whose text also appears in the test split are dropped.
 - **SQuAD:** a group is one article title, so every question about a passage stays in one role. Training articles that also appear in the official development split are dropped. Those development articles form the test suite only.
@@ -93,17 +93,19 @@ Each source document is assigned once by a seeded hash of its group. 10% goes to
 
 Duplicate prompts within the pool split are dropped as well. The development suite samples up to `--development-limit` items, round-robin across categories; `0` keeps all of them.
 
-Counts from builds on 2026-10-16 with the default seed 42:
+Counts with seed 42 (AG News and SQuAD split-v2; unchanged GSM8K allocation):
 
 | Task | Development | Attacker | Fitting | Score calibration | Policy calibration | Benign test | Filtered |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ag_news` | 11,848 | 53,893 | 21,558 | 10,754 | 10,836 | 10,950 | 151 duplicate, 10 test overlap |
-| `squad` | 7,141 | 40,356 | 13,170 | 8,229 | 8,079 | 10,431 | 193 duplicate |
+| `ag_news` | 11,848 | 35,944 | 6,012 | 14,337 | 40,748 | 10,950 | 151 duplicate, 10 test overlap |
+| `squad` | 7,141 | 10,353 | 4,110 | 13,226 | 42,145 | 10,431 | 193 duplicate |
 | `gsm8k` | 746 | 3,389 | 1,328 | 682 | 669 | 659 | none |
 
 The GSM8K attacker pool holds 3,389 problems, so it supports budgets of 500 and 2,000 but not 8,000 without replacement. Run GSM8K at B_A ∈ {500, 2,000} and declare that reduced matrix before final testing.
 
-GSM8K remains available by default for undefended distillation. Its documented calibration pools do not support defended study execution under `calibration-resolution-v1`. From the 682 score and 669 policy prompts, the default synthetic client allocation yields only five non-overlapping score windows and two scored policy horizons; these are arithmetic checks, not a completed local GSM8K build. Defended studies now stop before teacher collection when a selected defense lacks calibration resolution, including on cached artifacts. The default MMD requirements are 99 non-overlapping score windows, 100 scored policy horizons, and distinct L1 to L4 thresholds. Quota requires the same 100 scored horizons. Inspect `TASK/calibration-adequacy.json`, supply more disjoint benign calibration data, and use a new run directory after changing the protocol. Neither overlapping windows nor `--allow-undetected` bypasses the check. See [harness.md](harness.md) for the limits of this minimum-resolution gate.
+The default separate-task client generator at concentrated share 0.1 yields 128 non-overlapping score windows and 108 scored policy accounts for AG News, and 116 windows and 113 scored accounts for SQuAD. These are workload counts, not independent clients or measured detection results. Source clustering remains necessary, especially for SQuAD article groups. Changed seeds or client mixtures can produce different counts. Passing these counts does not prove distinct fitted thresholds.
+
+`calibration-resolution-v2` keeps the 99-window and 100-scored-horizon minimum for AG News, SQuAD, coding, and the shared gateway. Separate-task GSM8K runs may continue with `status: resolution-limited` and explicit warnings for insufficient counts or collapsed levels in a small calibration. Missing scored counts, missing fits, nonfinite or decreasing thresholds, and empty score pools still stop execution. The report includes each task's full calibration decision; a resolution-limited result cannot support the nominal 1% false-block claim. This exception does not apply to shared gateway calibration, which pools all domains, or bypass the separate detectability gate. `--allow-undetected` only controls that detectability gate. See [harness.md](harness.md).
 
 ## Budgets and seeds
 
@@ -111,11 +113,11 @@ GSM8K remains available by default for undefended distillation. Its documented c
 
 ```bash
 for budget in 500 2000 8000; do
-	uv run distill tasks budget --task-dir data/tasks/ag_news --budget $budget --seed 42
+	uv run distill tasks budget --task-dir data/tasks/ag_news-split-v2-s42 --budget $budget --seed 42
 done
 ```
 
-Each run writes `prompts.jsonl`, `gold-train.jsonl`, and `budget.json` to `data/tasks/ag_news/runs/s42-bBUDGET/`. Repeat with `--seed 1` and `--seed 20` for the paired seeds.
+Each run writes `prompts.jsonl`, `gold-train.jsonl`, and `budget.json` to `data/tasks/ag_news-split-v2-s42/runs/s42-bBUDGET/`. Repeat with `--seed 1` and `--seed 20` for the paired seeds.
 
 ## Collect, prepare, and train
 
@@ -123,8 +125,8 @@ Collect the largest budget of each seed into one ledger per task. Smaller budget
 
 ```bash
 uv run distill collect \
-	--input data/tasks/ag_news/runs/s42-b8000/prompts.jsonl \
-	--output data/tasks/ag_news/ledger.jsonl \
+	--input data/tasks/ag_news-split-v2-s42/runs/s42-b8000/prompts.jsonl \
+	--output data/tasks/ag_news-split-v2-s42/ledger.jsonl \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id "$TEACHER_TERMS_REVIEW_ID" \
 	--max-output-tokens 16 \
@@ -136,9 +138,9 @@ Use `--max-output-tokens 64` for SQuAD and `256` for GSM8K. Collection resumes b
 Then rerun the budget command with `--ledger` to write each budget's subset of the ledger, in prompt order. It refuses records collected with an output limit other than the task's, which catches a seed collected without `--max-output-tokens`. Its summary in `budget.json` counts prompts the ledger lacks, records the collector rejected, and finish reasons. Missing responses are reported, never replaced.
 
 ```bash
-run=data/tasks/ag_news/runs/s42-b2000
-uv run distill tasks budget --task-dir data/tasks/ag_news --budget 2000 --seed 42 \
-	--ledger data/tasks/ag_news/ledger.jsonl
+run=data/tasks/ag_news-split-v2-s42/runs/s42-b2000
+uv run distill tasks budget --task-dir data/tasks/ag_news-split-v2-s42 --budget 2000 --seed 42 \
+	--ledger data/tasks/ag_news-split-v2-s42/ledger.jsonl
 uv run distill review --ledger $run/ledger.jsonl --output $run/reviews.jsonl \
 	--config configs/train.task.toml
 uv run distill prepare --input $run/ledger.jsonl --output $run/train.jsonl \

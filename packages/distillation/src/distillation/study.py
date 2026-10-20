@@ -546,8 +546,13 @@ class Study:
 		report = calibration.adequacy(
 			accumulators=tuple(dict.fromkeys(a for p, a in selected if p == "mmd")),
 			baselines=tuple(dict.fromkeys(p for p, _ in selected if p != "mmd")),
+			allow_resolution_limited=task == "gsm8k",
 		)
 		save_json(self.root / task / "calibration-adequacy.json", report)
+		if report["status"] == "resolution-limited":
+			self.pipeline.launcher.log(
+				f"{task}: resolution-limited calibration: {'; '.join(report['warnings'])}"
+			)
 		if not report["passed"]:
 			save_json(
 				self.root / "status.json",
@@ -914,7 +919,8 @@ class Study:
 				"l4_action": self.l4_action,
 				"arms": list(self.arms),
 				"protocol_version": "task-study-v5",
-				"calibration_gate": "calibration-resolution-v1",
+				"calibration_gate": "calibration-resolution-v2",
+				"resolution_limited_tasks": ["gsm8k"],
 				"transfer_analysis": analysis_protocol(self.minimum_gain, self.pipeline.tasks),
 				"study_kind": "separate_task",
 				"budget_plan": "budgets.json",

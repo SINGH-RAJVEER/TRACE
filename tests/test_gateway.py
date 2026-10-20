@@ -292,7 +292,9 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
 			for i in range(40)
 		]
 	for domain, prompts in pools.items():
-		directory = tmp_path / "tasks" / domain
+		from distillation.tasks import task_directory
+
+		directory = task_directory(domain, root=tmp_path / "tasks")
 		write_jsonl(directory / "attacker.jsonl", prompts)
 		write_jsonl(directory / "legitimate" / "fitting.jsonl", prompts)
 		(directory / "legitimate-references.json").write_text(

@@ -11,7 +11,7 @@ from distillation.benchmarks.models import save_json
 from distillation.io import read_jsonl, write_jsonl
 from distillation.schedules import campaign_schedule
 from distillation.schemas import GatewayRequest, PromptRecord
-from distillation.tasks import LEGITIMATE_ROLES, TASKS
+from distillation.tasks import LEGITIMATE_ROLES, TASKS, task_directory
 from distillation.workloads import (
 	DEFAULT_CONCENTRATED_SHARE,
 	DEFAULT_LENGTH_TAIL,
@@ -31,7 +31,7 @@ def _pools(
 		raise ValueError("domains must list at least two distinct supported tasks")
 	pools, caps, provenance = {}, {}, {}
 	for domain in sorted(names):
-		directory = tasks_dir / domain
+		directory = task_directory(domain, root=tasks_dir)
 		manifest_path = directory / "manifest.json"
 		manifest = json.loads(manifest_path.read_text())
 		if manifest["task"] != domain:
@@ -114,7 +114,7 @@ def benign_command(
 			references={
 				key: item
 				for domain in pools
-				for key, item in task_references(tasks_dir / domain).items()
+				for key, item in task_references(task_directory(domain, root=tasks_dir)).items()
 			},
 		)
 		manifest["task_manifests"] = provenance
@@ -188,7 +188,9 @@ def external_command(
 	from distillation.external_sources import build_external
 
 	try:
-		manifest = build_external(task=task, task_dir=tasks_dir / task, log=typer.echo)
+		manifest = build_external(
+			task=task, task_dir=task_directory(task, root=tasks_dir), log=typer.echo
+		)
 		typer.echo(json.dumps({k: manifest[k] for k in ("prompts", "filtered")}, indent="\t"))
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None
