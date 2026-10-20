@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from coding import DEFAULT_QUALIFICATION_WORKERS
+from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from coding.extract import extract_code
 from coding.sandbox import Limits
 from coding.scoring import CodingItem, Score, pass_at_1
@@ -229,8 +229,9 @@ def prepare_corpus(
 	input_sha256: str = "unrecorded",
 	progress: Callable[[dict[str, int]], None] | None = None,
 	workers: int = DEFAULT_QUALIFICATION_WORKERS,
+	eligible_limit: int | None = None,
 ) -> dict[str, Any]:
-	"""Consume ALL input rows, without sampling or a budget cap, and validate references.
+	"""Qualify input rows, optionally stopping at an explicit eligible-subset target.
 
 	Disk-backed exact deduplication keeps memory independent of pool size. The first
 	eligible occurrence in immutable source order survives. An interrupted output retains
@@ -240,6 +241,8 @@ def prepare_corpus(
 	"""
 	if workers < 1:
 		raise ValueError("workers must be at least 1")
+	if eligible_limit is not None and eligible_limit < 1:
+		raise ValueError("eligible_limit must be positive or None")
 	decontaminator = Decontaminator(evaluation)
 	output.mkdir(parents=True, exist_ok=False)
 	manifest: dict[str, Any] = {
@@ -252,17 +255,20 @@ def prepare_corpus(
 		"algorithm": ALGORITHM,
 		"ngram_width": 13,
 		"containment_threshold": 0.7,
-		"limit": None,
+		"limit": eligible_limit,
+		"scope": "full-source" if eligible_limit is None else "eligible-subset",
 		"counts": {},
 		"role_assignment": "pending",
 	}
 	manifest_path = output / "manifest.json"
 	manifest_path.write_text(json.dumps(manifest, indent=4) + "\n")
 	counts: Counter[str] = Counter()
+	decided_hash = hashlib.sha256()
 	with (
 		sqlite3.connect(output / "seen.sqlite") as seen,
 		(output / "eligible.jsonl").open("w") as eligible,
 		(output / "exclusions.jsonl").open("w") as exclusions,
+		(output / "source-ids.jsonl").open("w") as source_ids,
 	):
 		seen.execute("CREATE TABLE seen (kind TEXT, hash TEXT, PRIMARY KEY (kind, hash))")
 
@@ -294,6 +300,13 @@ def prepare_corpus(
 		def commit(pending: Pending) -> None:
 			"""Decides one row in source order, so the first eligible occurrence survives."""
 			counts["raw"] += 1
+			decided_hash.update(
+				json.dumps(
+					dict(pending.row), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+				).encode()
+				+ b"\n"
+			)
+			source_ids.write(json.dumps(str(pending.row.get("id"))) + "\n")
 			reason = ""
 			detail = ""
 			match = pending.match
@@ -350,19 +363,34 @@ def prepare_corpus(
 		# A window of runs ahead of the commit point keeps every worker busy.
 		executor = ThreadPoolExecutor(workers) if workers > 1 else None
 		window: deque[Pending] = deque()
+
+		def reached_target() -> bool:
+			return eligible_limit is not None and counts["eligible"] >= eligible_limit
+
 		try:
 			for row in rows:
 				window.append(admit(row))
 				if len(window) > (4 * workers if executor else 0):
 					commit(window.popleft())
-			while window:
+					if reached_target():
+						break
+			while window and not reached_target():
 				commit(window.popleft())
 		finally:
 			if executor:
 				executor.shutdown(cancel_futures=True)
-	manifest.update(complete=True, counts=dict(counts))
+	manifest.update(
+		complete=eligible_limit is None or counts["eligible"] >= eligible_limit,
+		counts=dict(counts),
+		source_rows_sha256=decided_hash.hexdigest(),
+		source_ids_sha256=file_hash(output / "source-ids.jsonl"),
+	)
 	manifest["eligible_sha256"] = file_hash(output / "eligible.jsonl")
 	manifest_path.write_text(json.dumps(manifest, indent=4) + "\n")
+	if not manifest["complete"]:
+		raise ValueError(
+			f"eligible target {eligible_limit} not reached: {counts['eligible']} qualified"
+		)
 	return manifest
 
 
@@ -388,6 +416,12 @@ def main() -> None:
 	)
 	parser.add_argument("--output", type=Path, default=Path("data/tasks/coding/qualified"))
 	parser.add_argument(
+		"--eligible-limit",
+		type=int,
+		default=DEFAULT_POOL_SIZE,
+		help="Eligible target; 0 scans all supplied rows. Declare input selection separately.",
+	)
+	parser.add_argument(
 		"--workers",
 		type=int,
 		default=DEFAULT_QUALIFICATION_WORKERS,
@@ -400,6 +434,7 @@ def main() -> None:
 		arguments.output,
 		input_sha256=file_hash(arguments.input),
 		workers=arguments.workers,
+		eligible_limit=arguments.eligible_limit or None,
 	)
 	print(json.dumps(manifest, indent=4))
 

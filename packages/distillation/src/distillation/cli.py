@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from coding import DEFAULT_QUALIFICATION_WORKERS
+from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from rich.markup import escape
 
 from distillation.collection import CollectionOptions, CollectionProgress, collect
@@ -211,21 +211,28 @@ def tasks_build_command(
 	qualification_workers: Annotated[
 		int, typer.Option(min=1, help="Coding sandbox workers; use 1 for sequential qualification.")
 	] = DEFAULT_QUALIFICATION_WORKERS,
+	coding_pool_size: Annotated[
+		int,
+		typer.Option(
+			min=0, help="Eligible coding examples across all roles; 0 qualifies the full source."
+		),
+	] = DEFAULT_POOL_SIZE,
 ) -> None:
 	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
 
 	Writes attacker.jsonl, gold-answers.jsonl, legitimate/*.jsonl, development-suite.json,
 	test-suite.json, and manifest.json into --output-dir, by default data/tasks/TASK.
 	"""
-	from distillation.tasks import build_task
+	from distillation.tasks import build_task, task_directory
 
-	directory = output_dir or Path("data/tasks") / task
+	directory = output_dir or task_directory(task, coding_pool_size=coding_pool_size, seed=seed)
 	manifest = build_task(
 		task=task,
 		output_dir=directory,
 		seed=seed,
 		development_limit=development_limit,
 		qualification_workers=qualification_workers,
+		coding_pool_size=coding_pool_size,
 		log=lambda message: console.print(f"[bold]tasks[/] {escape(message)}"),
 	)
 	summary = {

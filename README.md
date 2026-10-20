@@ -11,7 +11,7 @@ apps/teacher-api/         FastAPI gateway to an OpenAI-compatible teacher
 apps/harness-api/         Protected teacher API: the harness in front of the teacher gateway
 apps/dashboard/           Read-only task and traffic results with shadcn controls
 packages/distillation/    Task splits, collection, usability review, training, evaluation
-packages/coding/          Python sandbox, full-corpus qualification, and executable scoring
+packages/coding/          Python sandbox, reproducible corpus qualification, and executable scoring
 packages/harness/         Extraction detector, calibration, and graduated access policy
 configs/                  Task training recipe, per-task evaluation, traffic settings
 docs/                     Protocol, operations, metrics, and manuscript revisions
@@ -37,7 +37,7 @@ For collection and training without automatic benchmarks or the protected cycle:
 just distill
 ```
 
-Both launchers include all four domains, seeds 42/1/20, and full attacker inventories by default. `full` combines every domain's attacker pool under one campaign allowance and deadline. Numeric budgets are shared totals with balanced domain allocations. A5 uses six accounts under that same allowance. `distill` runs undefended A1 collection and shared training only; `start` also runs A2/A5 and all three defenses. GSM8K's 256-token and coding's 512-token caps remain provisional until their implemented pilots pass against the actual teacher. Use `--mode tasks` for the retained separate-task workflow. Completed campaign artifacts are verified on reuse; interrupted campaigns require a new directory to avoid replenishing spent resources.
+Both shared launchers include all four domains, seeds 42/1/20, and 6,000 total submissions by default, with 1,500 candidate prompts per domain. Coding defaults to a seeded 50,000-eligible-example subset across all study roles in `data/tasks/coding-subset-50000-s42`; `--coding-pool-size 0` selects the full-source extension. New shared runs use `artifacts/gateway-bounded-v1` or `artifacts/gateway-distill-bounded-v1`. `full` combines every domain's attacker pool under one campaign allowance and deadline. Numeric budgets are shared totals with balanced domain allocations. A5 uses six accounts under that same allowance. `distill` runs undefended A1 collection and shared training only; `start` also runs A2/A5/A7 and all three defenses. GSM8K's 256-token and coding's 512-token caps remain provisional until their implemented pilots pass against the actual teacher. Use `--mode tasks` for the retained separate-task workflow. Completed campaign artifacts are verified on reuse; interrupted campaigns require a new directory to avoid replenishing spent resources.
 
 For a smaller declared matrix or a remote teacher:
 

@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from coding import DEFAULT_QUALIFICATION_WORKERS
+from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from pydantic import BaseModel, ConfigDict, Field
 
 from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenSuite, save_json
@@ -303,6 +303,21 @@ def _suite(
 	return suite
 
 
+def task_directory(
+	task: str,
+	*,
+	coding_pool_size: int = DEFAULT_POOL_SIZE,
+	seed: int = 42,
+	root: Path = Path("data/tasks"),
+) -> Path:
+	name = (
+		f"coding-subset-{coding_pool_size}-s{seed}"
+		if task == "coding" and coding_pool_size
+		else task
+	)
+	return root / name
+
+
 def build_task(
 	*,
 	task: str,
@@ -312,6 +327,7 @@ def build_task(
 	rows: dict[str, list[dict[str, Any]]] | None = None,
 	log: Callable[[str], None] | None = None,
 	qualification_workers: int = DEFAULT_QUALIFICATION_WORKERS,
+	coding_pool_size: int = DEFAULT_POOL_SIZE,
 ) -> dict[str, Any]:
 	"""Write the task's prompt pools, gold answers, frozen suites, and manifest."""
 	if task == "coding":
@@ -324,6 +340,7 @@ def build_task(
 			rows=rows,
 			log=log,
 			qualification_workers=qualification_workers,
+			coding_pool_size=coding_pool_size,
 		)
 	if task not in TASKS:
 		raise ValueError(f"task must be one of {sorted(TASKS)}")

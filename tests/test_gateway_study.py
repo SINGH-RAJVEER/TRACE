@@ -108,6 +108,13 @@ def test_launchers_default_to_shared_students_with_math_and_coding(
 	seen = []
 
 	def run(self: GatewayStudy, *, collect_only: bool = False) -> None:
+		assert self.study.pipeline.coding_pool_size == 50000
+		assert self.study.pipeline.task_dir("coding") == Path("data/tasks/coding-subset-50000-s42")
+		assert self.study.root == Path(
+			"artifacts/gateway-distill-bounded-v1"
+			if command == "distill"
+			else "artifacts/gateway-bounded-v1"
+		)
 		assert self.study.pipeline.coding_workers == (
 			DEFAULT_CODING_WORKERS if workers is None else workers
 		)
@@ -123,7 +130,7 @@ def test_launchers_default_to_shared_students_with_math_and_coding(
 		(
 			["ag_news", "squad", "gsm8k", "coding"],
 			command == "distill",
-			None,
+			[6000],
 			("A1",) if command == "distill" else ("A1", "A2", "A5", "A7"),
 		)
 	]

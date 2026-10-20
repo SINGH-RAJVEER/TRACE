@@ -241,6 +241,115 @@ def test_full_corpus_exceeds_old_budget(monkeypatch: pytest.MonkeyPatch, tmp_pat
 	assert manifest["counts"] == {"raw": 8003, "eligible": 8003}
 
 
+@pytest.mark.parametrize("workers", [1, 4])
+def test_explicit_subset_stops_at_eligible_target_and_records_decided_rows(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, workers: int
+) -> None:
+	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	output = tmp_path / "subset"
+	manifest = prepare_corpus(
+		[row(0), row(0), *(row(i) for i in range(1, 30))],
+		[{"id": "heldout", "specification": "held out", "solution": "x = 0"}],
+		output,
+		workers=workers,
+		eligible_limit=5,
+	)
+	assert manifest["complete"] and manifest["limit"] == 5
+	assert manifest["scope"] == "eligible-subset"
+	assert manifest["counts"] == {"raw": 6, "eligible": 5, "duplicate": 1}
+	assert [
+		json.loads(line)["key"] for line in (output / "eligible.jsonl").read_text().splitlines()
+	] == [str(i) for i in range(5)]
+	assert [
+		json.loads(line) for line in (output / "source-ids.jsonl").read_text().splitlines()
+	] == ["0", "0", "1", "2", "3", "4"]
+
+
+def test_subset_with_too_few_eligible_rows_is_not_complete(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	output = tmp_path / "subset"
+	with pytest.raises(ValueError, match="eligible target"):
+		prepare_corpus(
+			[row(1)],
+			[{"id": "heldout", "specification": "held out", "solution": "x=0"}],
+			output,
+			eligible_limit=2,
+		)
+	assert json.loads((output / "manifest.json").read_text())["complete"] is False
+
+
+def test_global_source_permutation_is_seeded_and_not_a_prefix(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	datasets = pytest.importorskip("datasets")
+	from distillation.coding_task import training_source
+	from distillation.tasks import TASKS
+
+	rows = [row(i) for i in range(100)]
+	dataset = datasets.Dataset.from_list(rows)
+	monkeypatch.setattr(datasets, "load_dataset", lambda *args, **kwargs: dataset)
+	first, metadata = training_source(TASKS["coding"].dataset, 42, 5)
+	second, _ = training_source(TASKS["coding"].dataset, 42, 5)
+	other, _ = training_source(TASKS["coding"].dataset, 43, 5)
+	ids = [r["id"] for r in first]
+	assert ids == [r["id"] for r in second]
+	assert ids != [r["id"] for r in other]
+	assert sorted(ids) == list(range(100)) and ids[:5] != list(range(5))
+	assert metadata["source_rows"] == 100 and metadata["seed"] == 42
+	assert metadata["algorithm"] == "datasets-global-shuffle-v1"
+
+
+def test_subset_export_is_reproducible_disjoint_and_keeps_external_suite(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	from distillation.tasks import build_task
+
+	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	rows = {
+		"train": [row(i) for i in range(300)],
+		"test": [
+			{
+				"task_id": "Fixture/heldout",
+				"entry_point": "heldout",
+				"prompt": "def heldout(x):\n",
+				"canonical_solution": "\treturn x * 2\n",
+				"test": "def check(candidate):\n\tassert candidate(2) == 4\n",
+			}
+		],
+	}
+	manifests = [
+		build_task(
+			task="coding",
+			output_dir=tmp_path / str(workers),
+			rows=rows,
+			coding_pool_size=120,
+			qualification_workers=workers,
+		)
+		for workers in (1, 4)
+	]
+	assert manifests[0]["roles"] == manifests[1]["roles"]
+	assert sum(manifests[0]["roles"].values()) == 120
+	assert manifests[0]["corpus_limit"] == 120
+	assert manifests[0]["selection"]["source_rows"] == 300
+	for filename in ("eligible.jsonl", "exclusions.jsonl", "source-ids.jsonl"):
+		assert (tmp_path / "1/qualified" / filename).read_bytes() == (
+			tmp_path / "4/qualified" / filename
+		).read_bytes()
+	from distillation.benchmarks.models import load_suite
+
+	assert (
+		load_suite(tmp_path / "1/test-suite.json").sha256
+		== load_suite(tmp_path / "4/test-suite.json").sha256
+	)
+	groups: list[set[str]] = []
+	for path in [tmp_path / "1/attacker.jsonl", *(tmp_path / "1/legitimate").glob("*.jsonl")]:
+		current = {json.loads(line)["source"]["group_id"] for line in path.read_text().splitlines()}
+		assert not any(current & previous for previous in groups)
+		groups.append(current)
+
+
 @pytest.fixture(scope="module")
 def task_build(tmp_path_factory: pytest.TempPathFactory) -> Path:
 	from distillation.tasks import build_task
@@ -249,6 +358,7 @@ def task_build(tmp_path_factory: pytest.TempPathFactory) -> Path:
 	build_task(
 		task="coding",
 		output_dir=directory,
+		coding_pool_size=0,
 		development_limit=5,
 		rows={
 			"train": [row(i) for i in range(160)],
