@@ -25,7 +25,13 @@ from distillation.benchmarks.runner import run_evaluation
 from distillation.external_sources import EXTERNAL_SOURCES, build_external
 from distillation.gateway_study import GatewayStudy, benign_requests
 from distillation.io import read_jsonl, write_jsonl
-from distillation.launcher import Launcher, LaunchError, TaskPipeline, run_app
+from distillation.launcher import (
+	DEFAULT_CODING_WORKERS,
+	Launcher,
+	LaunchError,
+	TaskPipeline,
+	run_app,
+)
 from distillation.review import review_ledger
 from distillation.schemas import (
 	GatewayRequest,
@@ -95,18 +101,23 @@ class Inference:
 
 
 @pytest.mark.parametrize("command", ["start", "distill"])
+@pytest.mark.parametrize("workers", [None, 1, 3])
 def test_launchers_default_to_shared_students_with_math_and_coding(
-	command: str, monkeypatch: pytest.MonkeyPatch
+	command: str, workers: int | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	seen = []
 
 	def run(self: GatewayStudy, *, collect_only: bool = False) -> None:
+		assert self.study.pipeline.coding_workers == (
+			DEFAULT_CODING_WORKERS if workers is None else workers
+		)
 		seen.append(
 			(self.study.pipeline.tasks, collect_only, self.study.pipeline.budgets, self.attacks)
 		)
 
 	monkeypatch.setattr(GatewayStudy, "run", run)
-	result = CliRunner().invoke(run_app, [command])
+	args = [command] + (["--coding-workers", str(workers)] if workers is not None else [])
+	result = CliRunner().invoke(run_app, args)
 	assert result.exit_code == 0, result.exception
 	assert seen == [
 		(

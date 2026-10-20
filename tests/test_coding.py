@@ -178,6 +178,59 @@ def test_interrupted_scan_is_incomplete(monkeypatch: pytest.MonkeyPatch, tmp_pat
 	assert not json.loads((tmp_path / "corpus/manifest.json").read_text())["complete"]
 
 
+def test_parallel_qualification_matches_sequential_source_order(
+	sandbox: None, tmp_path: Path
+) -> None:
+	rows = [
+		{**row(1), "output": "def value(): return -1"},
+		row(1),
+		row(1),
+		row(2),
+		{**row(3), "unit_tests": "not a test list"},
+		row(4),
+		row(5),
+	]
+	evaluation = [{"id": "test", "specification": "held out", "solution": "def value(): return 4"}]
+	sequential = prepare_corpus(rows, evaluation, tmp_path / "sequential", workers=1)
+	parallel = prepare_corpus(iter(rows), evaluation, tmp_path / "parallel")
+	assert parallel == sequential
+	for name in ("eligible.jsonl", "exclusions.jsonl"):
+		assert (tmp_path / "sequential" / name).read_bytes() == (
+			tmp_path / "parallel" / name
+		).read_bytes()
+	assert parallel["counts"] == {
+		"raw": 7,
+		"reference_failed": 1,
+		"eligible": 3,
+		"duplicate": 1,
+		"malformed_or_unsupported": 1,
+		"test_overlap": 1,
+	}
+
+
+@pytest.mark.parametrize("workers", [None, 1])
+def test_task_build_cli_forwards_parallel_default_and_sequential_override(
+	workers: int | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from coding import DEFAULT_QUALIFICATION_WORKERS
+	from distillation.cli import app
+	from typer.testing import CliRunner
+
+	seen = []
+
+	def build(**kwargs: Any) -> dict[str, Any]:
+		seen.append(kwargs["qualification_workers"])
+		return {"roles": {}, "filtered": {}, "truncated": {}, "max_output_tokens": 512}
+
+	monkeypatch.setattr("distillation.tasks.build_task", build)
+	args = ["tasks", "build", "--task", "coding"]
+	if workers is not None:
+		args += ["--qualification-workers", str(workers)]
+	result = CliRunner().invoke(app, args)
+	assert result.exit_code == 0, result.output
+	assert seen == [DEFAULT_QUALIFICATION_WORKERS if workers is None else workers]
+
+
 def test_full_corpus_exceeds_old_budget(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
 	manifest = prepare_corpus(

@@ -12,8 +12,8 @@ Usage: python3 scripts/pipeline.py SCENARIO [options]   (py -3 on Windows)
 This file uses only the standard library, so any Python 3.9 or newer can start it. It loads
 .env, reports missing tools, installs the base Python 3.14 workspace environment, and hands
 the options to `distill run SCENARIO` inside that environment. Once the options are valid,
-`distill run` calls back with --prepare train or --prepare vllm to install the training stack
-and vLLM, so a mistyped option fails before a multi-gigabyte download. Runtime selection, in
+`distill run` calls back with --prepare eval, train, or vllm to install dataset dependencies,
+the training stack, or vLLM after options are validated. Runtime selection, in
 order:
   1. devenv  NixOS with devenv installed. The script re-runs itself inside `devenv shell`,
              which provides Python, uv, a compiler, and library paths.
@@ -214,8 +214,9 @@ def run(command: list[str]) -> None:
 		die(f"{command[0]} exited with code {result.returncode}")
 
 
-def prepare_app_env(runtime: str, train: bool) -> Path:
+def prepare_app_env(runtime: str, train: bool, *, evaluation: bool = False) -> Path:
 	"""Installs the workspace packages and returns the environment's Python."""
+	extra = "train" if train else "eval" if evaluation else ""
 	if runtime == "pip":
 		venv = REPO_ROOT / ".venv-pip"
 		python = venv_executable(venv, "python")
@@ -226,12 +227,12 @@ def prepare_app_env(runtime: str, train: bool) -> Path:
 			run([str(interpreter), "-m", "venv", str(venv)])
 		log("installing workspace packages with pip")
 		run([str(python), "-m", "pip", "install", "--quiet", "--upgrade", "pip"])
-		distillation = "./packages/distillation[train]" if train else "./packages/distillation"
+		distillation = "./packages/distillation" + (f"[{extra}]" if extra else "")
 		run([str(python), "-m", "pip", "install", "-e", distillation, "-e", "./apps/teacher-api"])
 	else:
 		venv = REPO_ROOT / ".venv"
 		log("installing workspace packages with uv")
-		run(["uv", "sync", "--all-packages", "--inexact", *(["--extra", "train"] if train else [])])
+		run(["uv", "sync", "--all-packages", "--inexact", *(["--extra", extra] if extra else [])])
 	return venv_executable(venv, "python")
 
 
@@ -269,10 +270,12 @@ def prepare(components: list[str]) -> int:
 	for component in components:
 		if component == "train":
 			prepare_app_env(runtime, train=True)
+		elif component == "eval":
+			prepare_app_env(runtime, train=False, evaluation=True)
 		elif component == "vllm":
 			prepare_vllm(runtime)
 		else:
-			die(f"unknown component '{component}'; use train or vllm")
+			die(f"unknown component '{component}'; use eval, train, or vllm")
 	return 0
 
 
@@ -302,13 +305,14 @@ def main(argv: list[str]) -> int:
 	load_dotenv()
 	enter_devenv_if_nixos(argv)
 	help_only = "-h" in options or "--help" in options
+	build_only = scenario == "start" and "--build-only" in options
 	if scenario == "start" and resolve_runtime() == "pip":
 		die("start requires uv to install the complete locked workspace; install uv and retry")
 	upstream = any(o == "--upstream-url" or o.startswith("--upstream-url=") for o in options)
 	# distill with --teacher-url collects from a teacher running elsewhere.
 	remote = any(o == "--teacher-url" or o.startswith("--teacher-url=") for o in options)
-	needs_vllm = not help_only and not upstream and not remote
-	needs_gpu = not help_only and (scenario != "teacher-host" or not upstream)
+	needs_vllm = not help_only and not build_only and not upstream and not remote
+	needs_gpu = not help_only and not build_only and (scenario != "teacher-host" or not upstream)
 	os.environ["DISTILL_RUNTIME"] = select_runtime(needs_gpu, needs_vllm)
 	python = prepare_app_env(os.environ["DISTILL_RUNTIME"], train=False)
 	# python -m rather than the distill executable, which Windows would lock against the

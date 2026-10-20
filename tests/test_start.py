@@ -53,6 +53,73 @@ class Teacher:
 		pass
 
 
+def test_build_only_bootstrap_needs_datasets_without_gpu_or_vllm(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import importlib.util
+
+	path = Path(__file__).resolve().parents[1] / "scripts/pipeline.py"
+	spec = importlib.util.spec_from_file_location("pipeline_bootstrap", path)
+	assert spec and spec.loader
+	bootstrap = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(bootstrap)
+	commands: list[list[str]] = []
+	monkeypatch.setattr(bootstrap, "run", commands.append)
+	monkeypatch.setattr(bootstrap, "resolve_runtime", lambda: "uv")
+	assert bootstrap.prepare(["eval"]) == 0
+	assert commands == [["uv", "sync", "--all-packages", "--inexact", "--extra", "eval"]]
+	monkeypatch.setattr(bootstrap, "load_dotenv", lambda: None)
+	monkeypatch.setattr(bootstrap, "enter_devenv_if_nixos", lambda argv: None)
+	monkeypatch.setenv("DISTILL_RUNTIME", "uv")
+	needs: list[tuple[bool, bool]] = []
+
+	def select(needs_gpu: bool, needs_vllm: bool) -> str:
+		needs.append((needs_gpu, needs_vllm))
+		return "uv"
+
+	monkeypatch.setattr(bootstrap, "select_runtime", select)
+	monkeypatch.setattr(bootstrap, "hand_off", lambda command: 0)
+	assert bootstrap.main(["start", "--build-only"]) == 0
+	assert needs == [(False, False)]
+
+
+def test_start_build_only_parallelizes_coding_without_starting_models(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import threading
+
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("TEACHER_TERMS_REVIEW_ID", "fixture")
+	Path("configs").mkdir()
+	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
+	installed: list[str] = []
+	builds: dict[str, tuple[str, ...]] = {}
+	barrier = threading.Barrier(2, timeout=5)
+	monkeypatch.setattr(Launcher, "install", lambda self, component: installed.append(component))
+	monkeypatch.setattr(TaskPipeline, "budget", lambda self, task, seed, budget: None)
+	monkeypatch.setattr(Study, "run", lambda self: pytest.fail("started study during build-only"))
+
+	def distill(self: Launcher, *args: str, env: dict[str, str] | None = None) -> None:
+		assert args[:2] == ("tasks", "build")
+		task = args[args.index("--task") + 1]
+		builds[task] = args
+		barrier.wait()
+		directory = Path(args[args.index("--output-dir") + 1])
+		directory.mkdir(parents=True)
+		(directory / "manifest.json").write_text(json.dumps({"roles": {"attacker": 10}}))
+
+	monkeypatch.setattr(Launcher, "distill", distill)
+	result = CliRunner().invoke(
+		run_app,
+		["start", "--build-only", "--tasks", "coding,gsm8k", "--coding-workers", "4"],
+	)
+	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+	assert installed == ["eval"]
+	assert builds["coding"][-2:] == ("--qualification-workers", "4")
+	assert "--qualification-workers" not in builds["gsm8k"]
+	assert "--coding-workers" in CliRunner().invoke(run_app, ["distill", "--help"]).output
+
+
 @pytest.mark.parametrize("scenario", ["start", "distill"])
 @pytest.mark.parametrize("tasks", [None, "ag_news,squad"])
 @pytest.mark.parametrize("budgets", [None, "full", "500,2000,8000"])

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from coding import DEFAULT_QUALIFICATION_WORKERS
 from rich.markup import escape
 
 from distillation.collection import CollectionOptions, CollectionProgress, collect
@@ -207,6 +208,9 @@ def tasks_build_command(
 	output_dir: Annotated[Path | None, typer.Option("--output-dir", file_okay=False)] = None,
 	seed: int = 42,
 	development_limit: Annotated[int, typer.Option(min=0)] = 1000,
+	qualification_workers: Annotated[
+		int, typer.Option(min=1, help="Coding sandbox workers; use 1 for sequential qualification.")
+	] = DEFAULT_QUALIFICATION_WORKERS,
 ) -> None:
 	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
 
@@ -221,6 +225,7 @@ def tasks_build_command(
 		output_dir=directory,
 		seed=seed,
 		development_limit=development_limit,
+		qualification_workers=qualification_workers,
 		log=lambda message: console.print(f"[bold]tasks[/] {escape(message)}"),
 	)
 	summary = {

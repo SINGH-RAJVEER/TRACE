@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from coding import DEFAULT_QUALIFICATION_WORKERS
 from pydantic import BaseModel, ConfigDict, Field
 
 from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenSuite, save_json
@@ -310,6 +311,7 @@ def build_task(
 	development_limit: int = 1000,
 	rows: dict[str, list[dict[str, Any]]] | None = None,
 	log: Callable[[str], None] | None = None,
+	qualification_workers: int = DEFAULT_QUALIFICATION_WORKERS,
 ) -> dict[str, Any]:
 	"""Write the task's prompt pools, gold answers, frozen suites, and manifest."""
 	if task == "coding":
@@ -321,6 +323,7 @@ def build_task(
 			development_limit=development_limit,
 			rows=rows,
 			log=log,
+			qualification_workers=qualification_workers,
 		)
 	if task not in TASKS:
 		raise ValueError(f"task must be one of {sorted(TASKS)}")
