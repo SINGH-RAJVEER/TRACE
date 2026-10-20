@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from coding import DEFAULT_QUALIFICATION_WORKERS
 from coding.dataset import PROMPT, CodingExample, file_hash, prepare_corpus, specification_hash
 from coding.sandbox import runtime_protocol
 from coding.scoring import CodingItem, ensure_runtime, pass_at_1
@@ -192,6 +193,7 @@ def build_coding_task(
 	development_limit: int = 1000,
 	rows: dict[str, list[dict[str, Any]]] | None = None,
 	log: Callable[[str], None] | None = None,
+	qualification_workers: int = DEFAULT_QUALIFICATION_WORKERS,
 ) -> dict[str, Any]:
 	"""Stream and qualify every source row. Only the development suite has a size limit.
 
@@ -202,9 +204,14 @@ def build_coding_task(
 		raise ValueError(f"{output_dir} already exists; choose a new coding build directory")
 	if development_limit < 0:
 		raise ValueError("development_limit must be nonnegative")
+	if qualification_workers < 1:
+		raise ValueError("qualification_workers must be positive")
 	ensure_runtime()
 	output_dir.mkdir(parents=True)
-	save_json(output_dir / "build-status.json", {"complete": False})
+	save_json(
+		output_dir / "build-status.json",
+		{"complete": False, "qualification_workers": qualification_workers},
+	)
 	if log:
 		log("coding: validating pinned external evaluation references in the sandbox")
 	tests = []
@@ -247,7 +254,10 @@ def build_coding_task(
 	save_json(output_dir / "evaluation-exclusions.json", {"exclusions": exclusions})
 	save_json(output_dir / "test-suite.json", test_suite)
 	if log:
-		log("coding: qualifying the complete OpenCodeInstruct stream; no row cap")
+		log(
+			"coding: qualifying the complete OpenCodeInstruct stream; no row cap; "
+			f"{qualification_workers} sandbox workers, decisions in source order"
+		)
 	digest = hashlib.sha256()
 
 	def source() -> Iterator[dict[str, Any]]:
@@ -264,6 +274,7 @@ def build_coding_task(
 		],
 		qualified,
 		progress=(lambda counts: log(f"coding qualification: {counts}")) if log else None,
+		workers=qualification_workers,
 	)
 	qualification.update(
 		input_sha256=digest.hexdigest(),
@@ -395,7 +406,10 @@ def build_coding_task(
 		},
 	}
 	save_json(output_dir / "manifest.json", manifest)
-	save_json(output_dir / "build-status.json", {"complete": True})
+	save_json(
+		output_dir / "build-status.json",
+		{"complete": True, "qualification_workers": qualification_workers},
+	)
 	if log:
 		log(
 			f"coding: {sum(counts.values())} qualified examples; "

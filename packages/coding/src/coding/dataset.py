@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from coding import DEFAULT_QUALIFICATION_WORKERS
 from coding.extract import extract_code
 from coding.sandbox import Limits
 from coding.scoring import CodingItem, Score, pass_at_1
@@ -227,7 +228,7 @@ def prepare_corpus(
 	limits: Limits | None = None,
 	input_sha256: str = "unrecorded",
 	progress: Callable[[dict[str, int]], None] | None = None,
-	workers: int = 1,
+	workers: int = DEFAULT_QUALIFICATION_WORKERS,
 ) -> dict[str, Any]:
 	"""Consume ALL input rows, without sampling or a budget cap, and validate references.
 
@@ -386,12 +387,19 @@ def main() -> None:
 		"--evaluation", required=True, type=Path, help="Frozen id/specification/solution JSONL"
 	)
 	parser.add_argument("--output", type=Path, default=Path("data/tasks/coding/qualified"))
+	parser.add_argument(
+		"--workers",
+		type=int,
+		default=DEFAULT_QUALIFICATION_WORKERS,
+		help="Parallel sandbox workers; use 1 for sequential qualification",
+	)
 	arguments = parser.parse_args()
 	manifest = prepare_corpus(
 		_rows(arguments.input),
 		_rows(arguments.evaluation),
 		arguments.output,
 		input_sha256=file_hash(arguments.input),
+		workers=arguments.workers,
 	)
 	print(json.dumps(manifest, indent=4))
 

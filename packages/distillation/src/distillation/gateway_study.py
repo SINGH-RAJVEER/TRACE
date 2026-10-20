@@ -110,12 +110,9 @@ class GatewayStudy:
 
 	def build(self, *, benign: bool = True) -> None:
 		pipeline = self.study.pipeline
+		pipeline.build_missing_tasks()
 		for domain in pipeline.tasks:
 			directory = pipeline.task_dir(domain)
-			if not (directory / "manifest.json").exists():
-				pipeline.launcher.distill(
-					"tasks", "build", "--task", domain, "--output-dir", str(directory)
-				)
 			self.pools[domain] = read_jsonl(directory / "attacker.jsonl", PromptRecord)
 			self.caps[domain] = int(pipeline.manifest(domain)["max_output_tokens"])
 			if set(self.attacks) & EXTERNAL_ATTACKS:

@@ -19,6 +19,7 @@ import sys
 import time
 import tomllib
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import typer
+from coding import DEFAULT_QUALIFICATION_WORKERS
 from rich.text import Text
 
 from distillation.progress import console
@@ -39,6 +41,7 @@ TASK_ARTIFACTS = Path("artifacts/tasks")
 # The keys of distillation.tasks.TASKS, which imports the dataset stack.
 TASK_NAMES = ("ag_news", "squad", "gsm8k", "coding")
 DEFAULT_TASKS = ",".join(TASK_NAMES)
+DEFAULT_CODING_WORKERS = DEFAULT_QUALIFICATION_WORKERS
 LOG_DIR = Path("artifacts/logs")
 PIPELINE_SCRIPT = Path("scripts/pipeline.py")
 STOP_SECONDS = 30
@@ -86,7 +89,7 @@ class Launcher:
 		self.run(f"distill {args[0]}", [sys.executable, "-m", "distillation.cli", *args], env)
 
 	def install(self, component: str) -> None:
-		"""Installs the training stack (train) or vLLM (vllm) with scripts/pipeline.py."""
+		"""Install datasets (eval), training (train), or vLLM with scripts/pipeline.py."""
 		if not PIPELINE_SCRIPT.is_file():
 			raise LaunchError(f"{PIPELINE_SCRIPT} not found; run from the repository root")
 		self.run(
@@ -338,12 +341,13 @@ class TaskPipeline:
 	# None pairs each training run with its query seed, so seed spread mixes query order and
 	# training randomness. A fixed value holds training randomness constant across seeds.
 	training_seed: int | None = None
+	coding_workers: int = DEFAULT_CODING_WORKERS
 
 	def training_seed_for(self, seed: int) -> int:
 		return seed if self.training_seed is None else self.training_seed
 
-	def validate(self) -> None:
-		if not self.terms_review_id:
+	def validate(self, *, require_terms: bool = True) -> None:
+		if require_terms and not self.terms_review_id:
 			raise LaunchError(
 				"set --terms-review-id or TEACHER_TERMS_REVIEW_ID "
 				"(see docs/distillation-pipeline.md)"
@@ -371,17 +375,36 @@ class TaskPipeline:
 	def run_dir(self, task: str, seed: int, budget: int) -> Path:
 		return self.task_dir(task) / "runs" / f"s{seed}-b{budget}"
 
-	def build_tasks(self) -> None:
-		"""Builds missing tasks and resolves full-pool or explicit query budgets."""
+	def build_missing_tasks(self) -> None:
+		"""Overlap missing corpus builds, with source-ordered coding qualification."""
+		missing = []
 		for task in self.tasks:
 			directory = self.task_dir(task)
 			if (directory / "manifest.json").is_file():
 				self.launcher.log(f"using the existing {task} build in {directory}")
 			else:
-				self.launcher.log(f"building {task} into {directory} (downloads the dataset)")
-				self.launcher.distill(
-					"tasks", "build", "--task", task, "--output-dir", str(directory)
-				)
+				missing.append(task)
+
+		def build(task: str) -> None:
+			directory = self.task_dir(task)
+			self.launcher.log(f"building {task} into {directory} (downloads the dataset)")
+			args = ["tasks", "build", "--task", task, "--output-dir", str(directory)]
+			if task == "coding":
+				args += ["--qualification-workers", str(self.coding_workers)]
+			self.launcher.distill(*args)
+
+		if len(missing) > 1 and self.coding_workers > 1:
+			# One long coding build and at most one other dataset build at a time.
+			with ThreadPoolExecutor(max_workers=2) as executor:
+				list(executor.map(build, sorted(missing, key=lambda task: task != "coding")))
+		else:
+			for task in missing:
+				build(task)
+
+	def build_tasks(self) -> None:
+		"""Builds missing tasks and resolves full-pool or explicit query budgets."""
+		self.build_missing_tasks()
+		for task in self.tasks:
 			pool = int(self.manifest(task)["roles"]["attacker"])
 			requested = {pool} if self.budgets is None else set(self.budgets)
 			budgets = sorted(budget for budget in requested if budget <= pool)
@@ -696,6 +719,10 @@ def teacher_host_command(
 
 @run_app.command("distill")
 def distill_command(
+	coding_workers: Annotated[
+		int,
+		typer.Option(min=1, help="Parallel coding qualification sandboxes; 1 runs sequentially."),
+	] = DEFAULT_CODING_WORKERS,
 	mode: Annotated[
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared student or legacy separate-task students."),
@@ -751,6 +778,7 @@ def distill_command(
 			launcher=launcher,
 			terms_review_id=terms_review_id,
 			tasks=[task.strip() for task in tasks.split(",") if task.strip()],
+			coding_workers=coding_workers,
 			seeds=_numbers(seeds, "--seeds"),
 			budgets=_budgets(budgets),
 			config=config,
@@ -815,6 +843,13 @@ def _gain_margins(values: list[str] | None) -> dict[str, float]:
 
 @run_app.command("start")
 def start_command(
+	coding_workers: Annotated[
+		int,
+		typer.Option(min=1, help="Parallel coding qualification sandboxes; 1 runs sequentially."),
+	] = DEFAULT_CODING_WORKERS,
+	build_only: Annotated[
+		bool, typer.Option(help="Build missing task pools and stop before model or study work.")
+	] = False,
 	mode: Annotated[
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared gateway is the default; tasks selects the legacy study."),
@@ -908,6 +943,12 @@ def start_command(
 			training_seed=training_seed,
 		)
 		root = run_dir or Path("artifacts/gateway" if mode == "gateway" else "artifacts/start")
+		pipeline.coding_workers = coding_workers
+		if build_only:
+			pipeline.validate(require_terms=False)
+			launcher.install("eval")
+			pipeline.build_missing_tasks()
+			return
 		pipeline.artifact_root = root / "baseline-adapters"
 		study = Study(
 			pipeline,
