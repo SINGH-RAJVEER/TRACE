@@ -13,7 +13,7 @@ import re
 import sqlite3
 from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -359,23 +359,50 @@ def prepare_corpus(
 				if progress:
 					progress(dict(counts))
 
-		# Each reference run is its own sandboxed process, so threads overlap their startup.
-		# A window of runs ahead of the commit point keeps every worker busy.
+		# Dispatch against unfinished runs, rather than distance from the commit point.
+		# Completed out-of-order rows have a separate bound to cap retained source data.
 		executor = ThreadPoolExecutor(workers) if workers > 1 else None
 		window: deque[Pending] = deque()
+		in_flight: set[Future[Score]] = set()
 
 		def reached_target() -> bool:
 			return eligible_limit is not None and counts["eligible"] >= eligible_limit
 
+		def decidable(pending: Pending) -> bool:
+			"""A row whose fingerprint was claimed after dispatch need not await its run."""
+			return pending.score is None or pending.score.done() or duplicate(pending.fingerprints)
+
 		try:
-			for row in rows:
-				window.append(admit(row))
-				if len(window) > (4 * workers if executor else 0):
+			source = iter(rows)
+			exhausted = False
+			while window or not exhausted:
+				while window and decidable(window[0]):
 					commit(window.popleft())
 					if reached_target():
 						break
-			while window and not reached_target():
-				commit(window.popleft())
+				if reached_target():
+					break
+				in_flight = {future for future in in_flight if not future.done()}
+				if not exhausted and len(window) < 32 * workers and len(in_flight) < 2 * workers:
+					try:
+						pending = admit(next(source))
+					except StopIteration:
+						exhausted = True
+					else:
+						window.append(pending)
+						if pending.score is not None:
+							in_flight.add(pending.score)
+					continue
+				if window:
+					# At the row bound only the oldest decision can release space.
+					oldest = window[0].score
+					waiting = (
+						{oldest}
+						if oldest is not None and (exhausted or len(window) >= 32 * workers)
+						else in_flight
+					)
+					if waiting:
+						wait(waiting, return_when=FIRST_COMPLETED)
 		finally:
 			if executor:
 				executor.shutdown(cancel_futures=True)

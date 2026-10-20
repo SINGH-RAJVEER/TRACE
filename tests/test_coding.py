@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
@@ -176,6 +177,30 @@ def test_interrupted_scan_is_incomplete(monkeypatch: pytest.MonkeyPatch, tmp_pat
 			[row()], [{"id": "t", "specification": "t", "solution": "x=0"}], tmp_path / "corpus"
 		)
 	assert not json.loads((tmp_path / "corpus/manifest.json").read_text())["complete"]
+
+
+def test_slow_first_reference_does_not_starve_other_workers(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	later_started = Event()
+	first_saw_later: list[bool] = []
+
+	def score(item: CodingItem, response: str, **kwargs: Any) -> Score:
+		if response == row(0)["output"]:
+			first_saw_later.append(later_started.wait(timeout=2))
+		if response == row(24)["output"]:
+			later_started.set()
+		return Score("ok", True)
+
+	monkeypatch.setattr("coding.dataset.pass_at_1", score)
+	manifest = prepare_corpus(
+		[row(index) for index in range(40)],
+		[{"id": "test", "specification": "held out", "solution": "pass"}],
+		tmp_path / "corpus",
+		workers=2,
+	)
+	assert first_saw_later == [True]
+	assert manifest["counts"] == {"raw": 40, "eligible": 40}
 
 
 def test_parallel_qualification_matches_sequential_source_order(
