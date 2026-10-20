@@ -115,7 +115,7 @@ def test_start_build_only_parallelizes_coding_without_starting_models(
 	)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
 	assert installed == ["eval"]
-	assert builds["coding"][-2:] == ("--qualification-workers", "4")
+	assert builds["coding"][builds["coding"].index("--qualification-workers") + 1] == "4"
 	assert "--qualification-workers" not in builds["gsm8k"]
 	assert "--coding-workers" in CliRunner().invoke(run_app, ["distill", "--help"]).output
 
@@ -135,9 +135,15 @@ def test_launchers_default_tasks_and_supported_budgets(
 	Path("configs").mkdir()
 	Path("configs/train.task.toml").write_text('base_model="fixture"\n')
 	for task, pool in (("ag_news", 53893), ("squad", 40356), ("gsm8k", 3389), ("coding", 12345)):
-		directory = Path("data/tasks") / task
+		from distillation.tasks import task_directory
+
+		directory = task_directory(task)
 		directory.mkdir(parents=True)
-		(directory / "manifest.json").write_text(json.dumps({"roles": {"attacker": pool}}))
+		(directory / "manifest.json").write_text(
+			json.dumps(
+				{"roles": {"attacker": pool}, "corpus_limit": 50000 if task == "coding" else None}
+			)
+		)
 	monkeypatch.setattr(Launcher, "install", lambda self, component: None)
 	monkeypatch.setattr(TaskPipeline, "budget", lambda self, task, seed, budget: None)
 	monkeypatch.setattr(TaskPipeline, "validate_ledgers", lambda self: None)

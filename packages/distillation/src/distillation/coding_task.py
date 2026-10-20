@@ -5,15 +5,16 @@ import copy
 import hashlib
 import heapq
 import json
+import random
 import re
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from coding import DEFAULT_QUALIFICATION_WORKERS
+from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from coding.dataset import PROMPT, CodingExample, file_hash, prepare_corpus, specification_hash
 from coding.sandbox import runtime_protocol
 from coding.scoring import CodingItem, ensure_runtime, pass_at_1
@@ -62,6 +63,48 @@ def _stream(spec: DatasetSpec, split: str) -> Iterable[dict[str, Any]]:
 		spec.repository, spec.configuration, split=split, revision=spec.revision, streaming=True
 	)
 	return (dict(row) for row in dataset)
+
+
+def training_source(
+	spec: DatasetSpec, seed: int, pool_size: int, rows: list[dict[str, Any]] | None = None
+) -> tuple[Iterable[dict[str, Any]], dict[str, Any]]:
+	"""Freeze a seeded global row permutation before reference qualification.
+
+	Hub subset builds use an Arrow-backed dataset and its cached shuffle indices, keeping
+	the full source off the Python heap. This samples source rows, not unique problems.
+	"""
+	if not pool_size:
+		return (rows if rows is not None else _stream(spec, "train")), {
+			"mode": "full-source",
+			"algorithm": "pinned-source-order-v1",
+			"eligible_target": None,
+		}
+	if rows is None:
+		from importlib.metadata import version
+
+		from datasets import load_dataset
+
+		dataset = load_dataset(
+			spec.repository, spec.configuration, split="train", revision=spec.revision
+		)
+		selected = dataset.shuffle(seed=seed)
+		return (dict(row) for row in selected), {
+			"mode": "eligible-subset",
+			"algorithm": "datasets-global-shuffle-v1",
+			"datasets_version": version("datasets"),
+			"source_rows": len(dataset),
+			"seed": seed,
+			"eligible_target": pool_size,
+		}
+	indices = list(range(len(rows)))
+	random.Random(seed).shuffle(indices)
+	return (rows[i] for i in indices), {
+		"mode": "eligible-subset",
+		"algorithm": "python-fixture-permutation-v1",
+		"source_rows": len(rows),
+		"seed": seed,
+		"eligible_target": pool_size,
+	}
 
 
 def _evaluation(row: dict[str, Any]) -> BenchmarkItem:
@@ -194,8 +237,9 @@ def build_coding_task(
 	rows: dict[str, list[dict[str, Any]]] | None = None,
 	log: Callable[[str], None] | None = None,
 	qualification_workers: int = DEFAULT_QUALIFICATION_WORKERS,
+	coding_pool_size: int = DEFAULT_POOL_SIZE,
 ) -> dict[str, Any]:
-	"""Stream and qualify every source row. Only the development suite has a size limit.
+	"""Qualify a declared random subset, or the explicit full-source extension.
 
 	An incomplete build is retained for inspection and never silently accepted as a task.
 	Reference solutions and assertion suites remain in preparation/scoring artifacts only.
@@ -206,11 +250,18 @@ def build_coding_task(
 		raise ValueError("development_limit must be nonnegative")
 	if qualification_workers < 1:
 		raise ValueError("qualification_workers must be positive")
+	if coding_pool_size < 0:
+		raise ValueError("coding_pool_size must be nonnegative; 0 selects the full source")
 	ensure_runtime()
 	output_dir.mkdir(parents=True)
 	save_json(
 		output_dir / "build-status.json",
-		{"complete": False, "qualification_workers": qualification_workers},
+		{
+			"complete": False,
+			"qualification_workers": qualification_workers,
+			"coding_pool_size": coding_pool_size,
+			"selection_seed": seed,
+		},
 	)
 	if log:
 		log("coding: validating pinned external evaluation references in the sandbox")
@@ -254,20 +305,19 @@ def build_coding_task(
 	save_json(output_dir / "evaluation-exclusions.json", {"exclusions": exclusions})
 	save_json(output_dir / "test-suite.json", test_suite)
 	if log:
+		scope = "a global seeded subset" if coding_pool_size else "the full source"
 		log(
-			"coding: qualifying the complete OpenCodeInstruct stream; no row cap; "
-			f"{qualification_workers} sandbox workers, decisions in source order"
+			f"coding: preparing {scope}; target {coding_pool_size or 'all'} eligible examples; "
+			f"{qualification_workers} sandbox workers"
 		)
-	digest = hashlib.sha256()
-
-	def source() -> Iterator[dict[str, Any]]:
-		for row in rows["train"] if rows is not None else _stream(TASKS["coding"].dataset, "train"):
-			digest.update(canonical_json(row).encode() + b"\n")
-			yield row
+	source, selection = training_source(
+		TASKS["coding"].dataset, seed, coding_pool_size, rows["train"] if rows is not None else None
+	)
+	save_json(output_dir / "selection.json", selection)
 
 	qualified = output_dir / "qualified"
 	qualification = prepare_corpus(
-		source(),
+		source,
 		[
 			{"id": item.id, "specification": item.question, "solution": item.answer}
 			for item in tests
@@ -275,11 +325,13 @@ def build_coding_task(
 		qualified,
 		progress=(lambda counts: log(f"coding qualification: {counts}")) if log else None,
 		workers=qualification_workers,
+		eligible_limit=coding_pool_size or None,
 	)
 	qualification.update(
-		input_sha256=digest.hexdigest(),
-		input_hash_format="canonical JSON rows in source order",
-		source_identity="supplied fixture" if rows is not None else "revision-pinned Hub stream",
+		input_sha256=qualification["source_rows_sha256"],
+		input_hash_format="canonical JSON decided rows in declared selection order",
+		source_identity="supplied fixture" if rows is not None else "revision-pinned Hub source",
+		selection=selection,
 	)
 	save_json(qualified / "manifest.json", qualification)
 	counts: Counter[str] = Counter()
@@ -384,9 +436,10 @@ def build_coding_task(
 		"evaluation_dataset": test_suite.sources[0].model_dump(),
 		"evaluation_datasets": [source.model_dump() for source in test_suite.sources],
 		"available": {
-			"train": qualification["counts"]["raw"],
+			"train": selection.get("source_rows", qualification["counts"]["raw"]),
 			"test": external_count + mbpp_count,
 		},
+		"qualification_rows": qualification["counts"]["raw"],
 		"roles": {role: counts[role] for role in ROLES},
 		"groups": {role: counts[role] for role in ROLES},
 		"filtered": {
@@ -398,7 +451,8 @@ def build_coding_task(
 		"development_suite_items": len(development_suite.items),
 		"test_suite_items": len(tests),
 		"qualification": "qualified/manifest.json",
-		"corpus_limit": None,
+		"corpus_limit": coding_pool_size or None,
+		"selection": selection,
 		"sha256": {
 			str(path.relative_to(output_dir)): file_hash(path)
 			for path in sorted(output_dir.rglob("*"))
@@ -408,7 +462,12 @@ def build_coding_task(
 	save_json(output_dir / "manifest.json", manifest)
 	save_json(
 		output_dir / "build-status.json",
-		{"complete": True, "qualification_workers": qualification_workers},
+		{
+			"complete": True,
+			"qualification_workers": qualification_workers,
+			"coding_pool_size": coding_pool_size,
+			"selection_seed": seed,
+		},
 	)
 	if log:
 		log(

@@ -28,7 +28,7 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import typer
-from coding import DEFAULT_QUALIFICATION_WORKERS
+from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from rich.text import Text
 
 from distillation.progress import console
@@ -342,6 +342,7 @@ class TaskPipeline:
 	# training randomness. A fixed value holds training randomness constant across seeds.
 	training_seed: int | None = None
 	coding_workers: int = DEFAULT_CODING_WORKERS
+	coding_pool_size: int = DEFAULT_POOL_SIZE
 
 	def training_seed_for(self, seed: int) -> int:
 		return seed if self.training_seed is None else self.training_seed
@@ -363,7 +364,9 @@ class TaskPipeline:
 			raise LaunchError(f"training config not found: {self.config}")
 
 	def task_dir(self, task: str) -> Path:
-		return TASK_ROOT / task
+		from distillation.tasks import task_directory
+
+		return task_directory(task, coding_pool_size=self.coding_pool_size, root=TASK_ROOT)
 
 	def manifest(self, task: str) -> dict[str, Any]:
 		path = self.task_dir(task) / "manifest.json"
@@ -381,6 +384,12 @@ class TaskPipeline:
 		for task in self.tasks:
 			directory = self.task_dir(task)
 			if (directory / "manifest.json").is_file():
+				if task == "coding" and self.manifest(task).get("corpus_limit") != (
+					self.coding_pool_size or None
+				):
+					raise LaunchError(
+						f"{directory}: coding selection differs; use a new build directory"
+					)
 				self.launcher.log(f"using the existing {task} build in {directory}")
 			else:
 				missing.append(task)
@@ -391,6 +400,7 @@ class TaskPipeline:
 			args = ["tasks", "build", "--task", task, "--output-dir", str(directory)]
 			if task == "coding":
 				args += ["--qualification-workers", str(self.coding_workers)]
+				args += ["--coding-pool-size", str(self.coding_pool_size)]
 			self.launcher.distill(*args)
 
 		if len(missing) > 1 and self.coding_workers > 1:
@@ -719,6 +729,13 @@ def teacher_host_command(
 
 @run_app.command("distill")
 def distill_command(
+	coding_pool_size: Annotated[
+		int,
+		typer.Option(
+			min=0,
+			help="Eligible coding subset across all roles; 0 enables full-source qualification.",
+		),
+	] = DEFAULT_POOL_SIZE,
 	coding_workers: Annotated[
 		int,
 		typer.Option(min=1, help="Parallel coding qualification sandboxes; 1 runs sequentially."),
@@ -727,7 +744,7 @@ def distill_command(
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared student or legacy separate-task students."),
 	] = "gateway",
-	run_dir: Path = Path("artifacts/gateway-distill"),
+	run_dir: Path = Path("artifacts/gateway-distill-bounded-v1"),
 	attacks: str = "A1",
 	tasks: Annotated[
 		str,
@@ -740,12 +757,12 @@ def distill_command(
 		str, typer.Option(help="Comma-separated seeds; each orders its own attacker queries.")
 	] = "42,1,20",
 	budgets: Annotated[
-		str,
+		str | None,
 		typer.Option(
 			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
-			"Legacy tasks mode applies budgets separately to each task."
+			"Default: 6000 for gateway, full for legacy per-task runs."
 		),
-	] = "full",
+	] = None,
 	gold: Annotated[
 		bool, typer.Option(help="Also train the gold-label reference student for every run.")
 	] = True,
@@ -779,8 +796,9 @@ def distill_command(
 			terms_review_id=terms_review_id,
 			tasks=[task.strip() for task in tasks.split(",") if task.strip()],
 			coding_workers=coding_workers,
+			coding_pool_size=coding_pool_size,
 			seeds=_numbers(seeds, "--seeds"),
-			budgets=_budgets(budgets),
+			budgets=_budgets(budgets or ("6000" if mode == "gateway" else "full")),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
@@ -843,6 +861,13 @@ def _gain_margins(values: list[str] | None) -> dict[str, float]:
 
 @run_app.command("start")
 def start_command(
+	coding_pool_size: Annotated[
+		int,
+		typer.Option(
+			min=0,
+			help="Eligible coding subset across all roles; 0 enables full-source qualification.",
+		),
+	] = DEFAULT_POOL_SIZE,
 	coding_workers: Annotated[
 		int,
 		typer.Option(min=1, help="Parallel coding qualification sandboxes; 1 runs sequentially."),
@@ -857,7 +882,7 @@ def start_command(
 	attacks: str = "A1,A2,A5,A7",
 	interval_seconds: Annotated[float, typer.Option(min=0)] = 1,
 	deadline_seconds: Annotated[float, typer.Option(min=0)] = 86400,
-	benign_accounts: Annotated[int, typer.Option(min=1)] = 20,
+	benign_accounts: Annotated[int, typer.Option(min=1)] = 125,
 	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
 	development_budget: Annotated[int, typer.Option(min=2)] = 2000,
 	minimum_gain: Annotated[
@@ -875,17 +900,17 @@ def start_command(
 	] = DEFAULT_TASKS,
 	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42,1,20",
 	budgets: Annotated[
-		str,
+		str | None,
 		typer.Option(
 			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
-			"Legacy tasks mode applies budgets separately to each task."
+			"Default: 6000 for gateway, full for legacy per-task runs."
 		),
-	] = "full",
+	] = None,
 	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
 	run_dir: Annotated[
 		Path | None,
 		typer.Option(
-			help="Run directory; defaults to artifacts/gateway or artifacts/start for tasks."
+			help="Run directory: artifacts/gateway-bounded-v1, or artifacts/start for tasks."
 		),
 	] = None,
 	calibration_root: Annotated[
@@ -936,14 +961,17 @@ def start_command(
 			terms_review_id=terms_review_id,
 			tasks=list(dict.fromkeys(t.strip() for t in tasks.split(",") if t.strip())),
 			seeds=list(dict.fromkeys(_numbers(seeds, "--seeds"))),
-			budgets=_budgets(budgets),
+			budgets=_budgets(budgets or ("6000" if mode == "gateway" else "full")),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
 			training_seed=training_seed,
 		)
-		root = run_dir or Path("artifacts/gateway" if mode == "gateway" else "artifacts/start")
+		root = run_dir or Path(
+			"artifacts/gateway-bounded-v1" if mode == "gateway" else "artifacts/start"
+		)
 		pipeline.coding_workers = coding_workers
+		pipeline.coding_pool_size = coding_pool_size
 		if build_only:
 			pipeline.validate(require_terms=False)
 			launcher.install("eval")

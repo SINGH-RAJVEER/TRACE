@@ -94,7 +94,7 @@ class GatewayStudy:
 	attacks: tuple[Attack, ...] = ("A1", "A2", "A5", "A7")
 	interval_seconds: float = 1
 	deadline_seconds: float = 86400
-	benign_accounts: int = 20
+	benign_accounts: int = 125
 	requests_per_account: int = 100
 	development_budget: int = 2000
 	pools: dict[str, list[PromptRecord]] = field(default_factory=dict)
@@ -676,13 +676,19 @@ class GatewayStudy:
 		freeze(
 			self.root / "protocol.json",
 			{
-				"version": "shared-gateway-v3",
+				"version": "shared-gateway-v4-bounded",
 				"calibration_gate": None if collect_only else "calibration-resolution-v1",
 				"transfer_analysis": analysis_protocol(self.study.minimum_gain, pipeline.tasks)
 				if not collect_only
 				else None,
 				"study_kind": "shared_gateway",
 				"domains": pipeline.tasks,
+				"coding_selection": {
+					"eligible_target": pipeline.coding_pool_size or None,
+					"source_seed": 42,
+				}
+				if "coding" in pipeline.tasks
+				else None,
 				"seeds": pipeline.seeds,
 				"budgets": pipeline.budgets or "full",
 				"attacks": list(self.attacks),
