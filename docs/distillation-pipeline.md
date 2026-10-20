@@ -116,24 +116,24 @@ The task launcher runs these steps for each seed and supported budget. To run th
 
 ```bash
 uv run --extra eval distill tasks build --task ag_news
-uv run distill tasks budget --task-dir data/tasks/ag_news --seed 42 --budget 2000
+uv run distill tasks budget --task-dir data/tasks/ag_news-split-v2-s42 --seed 42 --budget 2000
 uv run distill collect \
-	--input data/tasks/ag_news/runs/s42-b2000/prompts.jsonl \
-	--output data/tasks/ag_news/ledger.jsonl \
+	--input data/tasks/ag_news-split-v2-s42/runs/s42-b2000/prompts.jsonl \
+	--output data/tasks/ag_news-split-v2-s42/ledger.jsonl \
 	--teacher-url http://127.0.0.1:8000 \
 	--terms-review-id "$TEACHER_TERMS_REVIEW_ID" \
 	--max-output-tokens 16 --no-thinking
-uv run distill tasks budget --task-dir data/tasks/ag_news --seed 42 --budget 2000 \
-	--ledger data/tasks/ag_news/ledger.jsonl
+uv run distill tasks budget --task-dir data/tasks/ag_news-split-v2-s42 --seed 42 --budget 2000 \
+	--ledger data/tasks/ag_news-split-v2-s42/ledger.jsonl
 uv run --extra train distill review \
-	--ledger data/tasks/ag_news/runs/s42-b2000/ledger.jsonl \
-	--output data/tasks/ag_news/runs/s42-b2000/reviews.jsonl \
+	--ledger data/tasks/ag_news-split-v2-s42/runs/s42-b2000/ledger.jsonl \
+	--output data/tasks/ag_news-split-v2-s42/runs/s42-b2000/reviews.jsonl \
 	--config configs/train.task.toml
 uv run distill prepare \
-	--input data/tasks/ag_news/runs/s42-b2000/ledger.jsonl \
-	--output data/tasks/ag_news/runs/s42-b2000/train.jsonl \
-	--prompts data/tasks/ag_news/runs/s42-b2000/prompts.jsonl \
-	--reviews data/tasks/ag_news/runs/s42-b2000/reviews.jsonl
+	--input data/tasks/ag_news-split-v2-s42/runs/s42-b2000/ledger.jsonl \
+	--output data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.jsonl \
+	--prompts data/tasks/ag_news-split-v2-s42/runs/s42-b2000/prompts.jsonl \
+	--reviews data/tasks/ag_news-split-v2-s42/runs/s42-b2000/reviews.jsonl
 ```
 
 Use 64 output tokens for SQuAD and 256 for GSM8K, identically in collection and evaluation. Pilot GSM8K truncation before main collection. Budget extraction refuses ledger rows collected at another task output limit.
@@ -172,9 +172,9 @@ Select learning rate and epoch count on the frozen gold-scored development suite
 
 ```bash
 uv run --extra train distill train \
-	--config data/tasks/ag_news/runs/s42-b2000/train.attacker.toml --preflight-only
+	--config data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.attacker.toml --preflight-only
 uv run --extra train distill train \
-	--config data/tasks/ag_news/runs/s42-b2000/train.attacker.toml
+	--config data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.attacker.toml
 ```
 
 Training accepts only conversational `prompt` and `completion` columns with one assistant completion. It rejects empty datasets and unsupported per-row tokenization overrides. The shared trainer retains optional validation support, but the paper task recipe selects settings through development task scores rather than extra victim-response queries.

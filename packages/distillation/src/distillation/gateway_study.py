@@ -677,7 +677,7 @@ class GatewayStudy:
 			self.root / "protocol.json",
 			{
 				"version": "shared-gateway-v4-bounded",
-				"calibration_gate": None if collect_only else "calibration-resolution-v1",
+				"calibration_gate": None if collect_only else "calibration-resolution-v2",
 				"transfer_analysis": analysis_protocol(self.study.minimum_gain, pipeline.tasks)
 				if not collect_only
 				else None,

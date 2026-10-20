@@ -44,7 +44,13 @@ from distillation.schemas import (
 	TokenUsage,
 )
 from distillation.study import Study
-from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX, LEGITIMATE_ROLES, GoldRecord
+from distillation.tasks import (
+	AG_NEWS_PROMPT,
+	GSM8K_EVAL_SUFFIX,
+	LEGITIMATE_ROLES,
+	GoldRecord,
+	task_directory,
+)
 from distillation.teacher import TeacherAPIGateway
 from distillation.training import TrainingConfig
 from fastapi import FastAPI
@@ -149,7 +155,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	config = tmp_path / "train.toml"
 	config.write_text('base_model="fixture"\nbase_revision="' + "a" * 40 + '"\n')
 	for domain, cap in (("ag_news", 16), ("gsm8k", 256)):
-		directory = tmp_path / "data/tasks" / domain
+		directory = task_directory(domain, root=tmp_path / "data/tasks")
 		manifest = {"task": domain, "max_output_tokens": cap, "roles": {"attacker": 20}}
 		save_json(directory / "manifest.json", manifest)
 		references = {}
@@ -325,7 +331,7 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 			domain = option("--task")
 			build_external(
 				task=str(domain),
-				task_dir=option("--tasks-dir") / domain,
+				task_dir=task_directory(str(domain), root=option("--tasks-dir")),
 				rows={
 					"train": [
 						{"text": f"bbc ag_news story {i}"}

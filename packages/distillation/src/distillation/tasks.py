@@ -1,11 +1,10 @@
 """Paper task corpora: AG News, SQuAD 1.1, and GSM8K under the paper's split protocol.
 
-Each task gets its own directory. Source documents from the task's training split are
-assigned once, by a seeded hash of their group, to development (10%), the attacker-query pool
-(45%), or the legitimate-workload pool (45%), which is split 40/20/20/20 into fitting, score
-calibration, policy calibration, and final benign testing. The official evaluation split is
-used only for the final test suite. Gold answers never enter a file the attacker side reads:
-they stay in gold-answers.jsonl and the frozen suites.
+Each task gets its own directory. Seeded source-group hashes preserve 10% development
+and 9% benign-test assignments. AG News and SQuAD reserve more training data for benign
+calibration; GSM8K and coding retain their original allocations. The official evaluation
+split is used only for the final test suite. Gold answers stay in gold-answers.jsonl and
+the frozen suites; attacker-side files never include them.
 """
 
 import hashlib
@@ -172,22 +171,42 @@ def _digest(*parts: object) -> int:
 	return int(hashlib.sha256(":".join(map(str, parts)).encode()).hexdigest()[:16], 16)
 
 
+# Absolute training-source shares, in ROLES order. Boundaries at 10% and 91% retain
+# the old development and final benign-test groups. Attacker pools are nested subsets.
+TASK_SPLIT_VERSION = "task-source-split-v2"
+ROLE_SHARES: dict[str, tuple[float, ...]] = {
+	"ag_news": (0.10, 0.30, 0.05, 0.12, 0.34, 0.09),
+	"squad": (0.10, 0.10, 0.06, 0.15, 0.50, 0.09),
+	"gsm8k": (0.10, 0.45, 0.18, 0.09, 0.09, 0.09),
+	"coding": (0.10, 0.45, 0.18, 0.09, 0.09, 0.09),
+}
+
+
 def _role(seed: int, task: str, group: str) -> Role:
-	"""One hash per group: 10% development, then half attacker, half legitimate (40/20/20/20)."""
-	u = _digest(seed, "task-split", task, group) % 1_000_000 / 1_000_000
-	if u < 0.10:
-		return "development"
-	v = (u - 0.10) / 0.90
-	if v < 0.5:
-		return "attacker"
-	w = (v - 0.5) / 0.5
-	if w < 0.4:
-		return "fitting"
-	if w < 0.6:
-		return "score_calibration"
-	if w < 0.8:
-		return "policy_calibration"
-	return "benign_test"
+	"""Assign each complete source group once under the task's frozen role shares."""
+	value = _digest(seed, "task-split", task, group) % 1_000_000
+	if task in {"gsm8k", "coding"}:
+		# Preserve legacy floating-point boundary assignments in existing frozen builds.
+		u = value / 1_000_000
+		if u < 0.10:
+			return "development"
+		v = (u - 0.10) / 0.90
+		if v < 0.5:
+			return "attacker"
+		w = (v - 0.5) / 0.5
+		if w < 0.4:
+			return "fitting"
+		if w < 0.6:
+			return "score_calibration"
+		if w < 0.8:
+			return "policy_calibration"
+		return "benign_test"
+	boundary = 0
+	for role, share in zip(ROLES, ROLE_SHARES[task], strict=True):
+		boundary += round(share * 1_000_000)
+		if value < boundary:
+			return role
+	raise AssertionError("role shares must cover the hash range")
 
 
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -315,6 +334,8 @@ def task_directory(
 		if task == "coding" and coding_pool_size
 		else task
 	)
+	if task in {"ag_news", "squad"}:
+		name = f"{task}-split-v2-s{seed}"
 	return root / name
 
 
@@ -451,6 +472,10 @@ def build_task(
 	files = sorted(path for path in output_dir.rglob("*") if path.is_file())
 	manifest: dict[str, Any] = {
 		"task": task,
+		"source_split": {
+			"version": TASK_SPLIT_VERSION,
+			"shares": dict(zip(ROLES, ROLE_SHARES[task], strict=True)),
+		},
 		"seed": seed,
 		"max_output_tokens": spec.max_output_tokens,
 		"metric": spec.metric,

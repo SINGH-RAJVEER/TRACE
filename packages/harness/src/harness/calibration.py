@@ -119,27 +119,34 @@ class Calibration(BaseModel):
 	_aggregate_references: Array | None = PrivateAttr(default=None)
 
 	def adequacy(
-		self, *, accumulators: tuple[str, ...] = (), baselines: tuple[str, ...] = ()
+		self,
+		*,
+		accumulators: tuple[str, ...] = (),
+		baselines: tuple[str, ...] = (),
+		allow_resolution_limited: bool = False,
 	) -> dict[str, Any]:
 		"""Minimum resolution for selected study defenses, not a false-positive guarantee.
 
 		Overlapping score windows do not count toward the minimum null size. Scored policy
 		horizons must permit at least one exceedance at the smallest target, and selected MMD
-		levels must remain distinct. Legacy artifacts without scored counts fail closed.
+		levels must remain distinct. An explicit resolution exception turns sample-size limits
+		and small-sample level ties into warnings; invalid fits still fail closed. Legacy
+		artifacts without scored counts fail closed.
 		"""
 		target = min(self.config.level_targets)
 		minimum_policy = math.ceil(1 / target)
 		minimum_score = minimum_policy - 1
 		null_windows = self.counts.get("score_calibration_independent_windows", 0)
 		scored = self.counts.get("policy_calibration_scored_horizons", 0)
-		reasons = []
+		reasons: list[str] = []
+		resolution_reasons: list[str] = []
 		if accumulators:
 			if null_windows < minimum_score:
-				reasons.append(
+				resolution_reasons.append(
 					f"{null_windows} non-overlapping score windows; need {minimum_score}"
 				)
 			if scored < minimum_policy:
-				reasons.append(f"{scored} scored policy horizons; need {minimum_policy}")
+				resolution_reasons.append(f"{scored} scored policy horizons; need {minimum_policy}")
 			for name in accumulators:
 				fitted = self.thresholds.get(name)
 				if fitted is None or fitted.units != scored:
@@ -148,19 +155,36 @@ class Calibration(BaseModel):
 					len(fitted.thresholds) != LEVELS
 					or any(not math.isfinite(value) for value in fitted.thresholds)
 					or any(
-						a >= b
+						a > b
 						for a, b in zip(fitted.thresholds, fitted.thresholds[1:], strict=False)
 					)
 				):
 					reasons.append(f"{name}: level thresholds are collapsed or invalid")
+				elif len(set(fitted.thresholds)) != LEVELS:
+					if scored < minimum_policy or null_windows < minimum_score:
+						resolution_reasons.append(f"{name}: level thresholds are collapsed")
+					else:
+						reasons.append(f"{name}: level thresholds are collapsed or invalid")
 		for name in baselines:
 			fitted = self.baselines.get(name)
-			if fitted is None or fitted.units < minimum_policy:
-				reasons.append(f"{name}: need {minimum_policy} baseline policy horizons")
+			if fitted is None:
+				reasons.append(f"{name}: missing baseline thresholds")
 			elif fitted.units != scored:
 				reasons.append(f"{name}: baseline not fitted on the scored horizons")
+			elif fitted.units < minimum_policy:
+				resolution_reasons.append(f"{name}: need {minimum_policy} baseline policy horizons")
+		if (accumulators or baselines) and scored <= 0:
+			reasons.append("no scored policy horizons")
+		if accumulators and null_windows <= 0:
+			reasons.append("no non-overlapping score windows")
+		warnings = resolution_reasons if allow_resolution_limited else []
+		if not allow_resolution_limited:
+			reasons = resolution_reasons + reasons
 		return {
-			"rule": "calibration-resolution-v1",
+			"rule": "calibration-resolution-v2",
+			"status": "invalid" if reasons else "resolution-limited" if warnings else "adequate",
+			"warnings": warnings,
+			"allow_resolution_limited": allow_resolution_limited,
 			"passed": not reasons,
 			"reasons": reasons,
 			"accumulators": list(accumulators),

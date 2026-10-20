@@ -87,18 +87,20 @@ def study_power(
 	discordance: float = DEFAULT_DISCORDANCE,
 ) -> dict[str, Any]:
 	"""Per-domain resolution of the development and test suites of existing task builds."""
+	from distillation.tasks import task_directory
+
 	margins = minimum_gain_pp or {}
 	domains: dict[str, Any] = {}
 	for task in tasks:
 		domains[task] = {
 			name: suite_power(
-				tasks_dir / task / f"{name}-suite.json",
+				task_directory(task, root=tasks_dir) / f"{name}-suite.json",
 				minimum_gain_pp=margins.get(task, 2.0),
 				discordance=discordance,
 				clustered=task == "squad",
 			)
 			for name in ("development", "test")
-			if (tasks_dir / task / f"{name}-suite.json").exists()
+			if (task_directory(task, root=tasks_dir) / f"{name}-suite.json").exists()
 		}
 	return {
 		"version": POWER_VERSION,

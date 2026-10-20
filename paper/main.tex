@@ -139,7 +139,7 @@ This puzzle is an experimental intervention, not a reproduction of the privacy-c
 
 \subsection{Domains, splits, and shared student}
 \label{sec:eval-data}
-Table~\ref{tab:data} lists the gateway domains. Retain the existing source-group splits and frozen test suites. Reserve 10\% of training-source documents for development. Divide the remainder equally between attacker and legitimate pools, then divide legitimate data 40/20/20/20 across fitting, score calibration, policy calibration, and benign testing. Keep document derivatives and detected duplicates within one role. Pooling domains must preserve these assignments and source identities.
+Table~\ref{tab:data} lists the gateway domains. Reserve 10\% of training-source documents for development and 9\% for benign testing. The source-split-v2 allocation assigns the remaining attacker, fitting, score-calibration, and policy-calibration shares as 30/5/12/34\% for AG News and 10/6/15/50\% for SQuAD. GSM8K and coding retain 45/18/9/9\%. Separate-task GSM8K execution may continue with explicit calibration-resolution warnings; it cannot establish the nominal 1\% false-block target. The shared gateway retains its pooled minimum-resolution gate. The development and benign-test group assignments are unchanged; the smaller attacker pools are subsets of their predecessors. Freeze new source manifests and study directories for these allocations. Keep document derivatives and detected duplicates within one role. Pooling domains must preserve these assignments and source identities.
 
 \begin{table*}[!t]
 \centering\footnotesize

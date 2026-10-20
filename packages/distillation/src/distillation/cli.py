@@ -221,7 +221,8 @@ def tasks_build_command(
 	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
 
 	Writes attacker.jsonl, gold-answers.jsonl, legitimate/*.jsonl, development-suite.json,
-	test-suite.json, and manifest.json into --output-dir, by default data/tasks/TASK.
+	test-suite.json, and manifest.json into --output-dir. AG News and SQuAD default to
+	data/tasks/TASK-split-v2-s42; other tasks use their declared task directories.
 	"""
 	from distillation.tasks import build_task, task_directory
 

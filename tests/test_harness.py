@@ -154,13 +154,13 @@ def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
 	calibration.thresholds["paper"].thresholds = [1.0] * 4
 	path = tmp_path / "cached"
 	save_calibration(path, calibration, calibrated[1].references)
-	pipeline = TaskPipeline(Launcher("test"), "fixture", ["gsm8k"], [42], [1], tmp_path, 1, False)
+	pipeline = TaskPipeline(Launcher("test"), "fixture", ["ag_news"], [42], [1], tmp_path, 1, False)
 	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, path, "refuse")
 	study.allow_undetected = True
 	study.arms = ("full",)
-	with pytest.raises(LaunchError, match="gsm8k: inadequate calibration"):
-		study.require_calibration("gsm8k", path)
-	report = json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())
+	with pytest.raises(LaunchError, match="ag_news: inadequate calibration"):
+		study.require_calibration("ag_news", path)
+	report = json.loads((study.root / "ag_news/calibration-adequacy.json").read_text())
 	assert report["passed"] is False
 	assert report["nonoverlapping_score_windows"] == 5
 	assert (
@@ -168,8 +168,27 @@ def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
 	)
 	# The same cached artifact has enough quota horizons; a thin MMD null is arm-specific.
 	study.arms = ("quota",)
+	study.require_calibration("ag_news", path)
+	assert json.loads((study.root / "ag_news/calibration-adequacy.json").read_text())["passed"]
+
+	# GSM8K may proceed with sample-resolution warnings, including collapsed levels.
+	study.arms = ("full",)
 	study.require_calibration("gsm8k", path)
-	assert json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())["passed"]
+	report = json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())
+	assert report["passed"] is True
+	assert report["status"] == "resolution-limited"
+	assert report["warnings"]
+	# The exception does not admit absent counts, missing fits, or invalid thresholds.
+	for values in ([float("nan")] * 4, [4.0, 3.0, 2.0, 1.0]):
+		calibration.thresholds["paper"].thresholds = values
+		assert not calibration.adequacy(accumulators=("paper",), allow_resolution_limited=True)[
+			"passed"
+		]
+	calibration.thresholds["paper"].thresholds = [1.0] * 4
+	calibration.counts.pop("policy_calibration_scored_horizons")
+	assert not calibration.adequacy(accumulators=("paper",), allow_resolution_limited=True)[
+		"passed"
+	]
 
 
 def test_pooled_accounts_break_up_source_ordered_groups() -> None:

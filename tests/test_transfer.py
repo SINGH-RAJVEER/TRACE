@@ -187,18 +187,18 @@ def test_task_selection_cannot_promote_selection_gain_into_qualification(
 	from distillation.launcher import Launcher, TaskPipeline
 	from distillation.study import Study
 	from distillation.study_training import select_recipe
-	from distillation.tasks import build_task
+	from distillation.tasks import build_task, task_directory
 
 	monkeypatch.chdir(tmp_path)
 	build_task(
 		task="ag_news",
-		output_dir=Path("data/tasks/ag_news"),
+		output_dir=task_directory("ag_news"),
 		rows={
 			"train": [{"text": f"Article {i}", "label": i % 4} for i in range(500)],
 			"test": [{"text": "Final article", "label": 0}],
 		},
 	)
-	manifest_path = Path("data/tasks/ag_news/manifest.json")
+	manifest_path = task_directory("ag_news") / "manifest.json"
 	manifest = json.loads(manifest_path.read_text())
 	manifest["roles"]["attacker"] = 2000
 	save_json(manifest_path, manifest)
