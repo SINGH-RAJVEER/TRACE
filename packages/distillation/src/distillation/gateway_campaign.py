@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from anyio import Path as AsyncPath
+from harness.calibration import HORIZON_POLICY
 
 from distillation.benchmarks.models import save_json
 from distillation.campaign import (
@@ -25,6 +26,7 @@ from distillation.campaign import (
 )
 from distillation.collection import CollectionOptions, _collect_one
 from distillation.io import append_jsonl, read_jsonl
+from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver
 from distillation.schemas import GatewayRequest, LedgerRecord
 
 
@@ -41,6 +43,7 @@ async def collect_gateway(
 	options: CollectionOptions,
 	attempt_budget: int,
 	deadline_seconds: float = 86400,
+	solver_workers: int = 4,
 	decision_log: Path | None = None,
 	transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
@@ -49,6 +52,8 @@ async def collect_gateway(
 	Completed artifacts are verified before reuse. An interrupted campaign cannot restart
 	with fresh policy state or replenish its spent allowance in the same output directory.
 	"""
+	if solver_workers < 1:
+		raise ValueError("solver workers must be positive")
 	rows = read_jsonl(schedule, GatewayRequest)
 	if not rows or attempt_budget < 1 or not 0 < deadline_seconds < float("inf"):
 		raise ValueError("a gateway campaign needs requests and finite positive budgets")
@@ -61,7 +66,13 @@ async def collect_gateway(
 	if any(r.account not in keys and "default" not in keys for r in rows):
 		raise ValueError("missing account credentials")
 	contract = {
-		"version": "gateway-execution-v1",
+		"version": "gateway-execution-v2",
+		"horizon_policy": HORIZON_POLICY,
+		"solver": {
+			"version": SOLVER_VERSION,
+			"workers": solver_workers,
+			"chunk_hashes": CHUNK_HASHES,
+		},
 		"schedule_sha256": digest(schedule),
 		"options": asdict(options),
 		"attempt_budget": attempt_budget,
@@ -89,6 +100,12 @@ async def collect_gateway(
 	ledger.touch()
 	events_path.touch()
 	allowance = CampaignAllowance(attempt_budget, exhausted=asyncio.Event())
+	solver = ProofSolver(solver_workers)
+	try:
+		await solver.warmup()
+	except BaseException:
+		await solver.close()
+		raise
 	started = time.monotonic()
 	events: list[dict[str, Any]] = []
 	clients: list[ProtectedTeacher] = []
@@ -100,7 +117,7 @@ async def collect_gateway(
 
 	async def worker(account: str, requests: list[GatewayRequest]) -> None:
 		teacher = ProtectedTeacher(
-			url, keys.get(account, keys.get("default", "")), transport=transport
+			url, keys.get(account, keys.get("default", "")), transport=transport, solver=solver
 		)
 		clients.append(teacher)
 		teacher.account = account
@@ -153,12 +170,16 @@ async def collect_gateway(
 	tasks = [asyncio.create_task(worker(account, requests)) for account, requests in groups.items()]
 	try:
 		await asyncio.gather(*tasks)
+		elapsed = time.monotonic() - started
 	finally:
 		for task in tasks:
 			if not task.done():
 				task.cancel()
 		await asyncio.gather(*tasks, return_exceptions=True)
-		await asyncio.gather(*(client.close() for client in clients))
+		try:
+			await asyncio.gather(*(client.close() for client in clients))
+		finally:
+			await solver.close()
 	if decision_log:
 		attempts = {e["policy_request_id"]: e for e in events if e["event"] == "attempt"}
 		for line in (await AsyncPath(decision_log).read_text()).splitlines():
@@ -177,9 +198,11 @@ async def collect_gateway(
 	records = read_jsonl(ledger, LedgerRecord)
 	summary = {
 		"contract": contract_hash,
+		"horizon_policy": HORIZON_POLICY,
+		"solver": contract["solver"],
 		"attempt_budget": attempt_budget,
 		"deadline_seconds": deadline_seconds,
-		"elapsed_seconds": time.monotonic() - started,
+		"elapsed_seconds": elapsed,
 		"termination_by_account": terminations,
 		**event_summary(events),
 		"index_unit": "global campaign HTTP submissions",

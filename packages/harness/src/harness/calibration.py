@@ -23,6 +23,7 @@ from harness.mmd import SCALES, Array, WindowScorer, median_bandwidth
 from harness.serialization import SERIALIZATION, Task, detector_text
 
 LEVELS = 4
+HORIZON_POLICY = "time-reset-attempt-cap-v1"
 
 
 class HarnessConfig(BaseModel):
@@ -101,6 +102,8 @@ class Calibration(BaseModel):
 	encoder: dict[str, Any]
 	# Detector serialization version; None in artifacts from before it was recorded.
 	serialization: str | None = None
+	# Missing in legacy artifacts, which must not be reused under new reset semantics.
+	horizon_policy: str | None = None
 	sigma: float
 	calibration_scores: list[float]
 	thresholds: dict[str, LevelThresholds]
@@ -171,6 +174,13 @@ class Calibration(BaseModel):
 			"interpretation": "minimum resolution only; not evidence of population error control",
 		}
 
+	def require_current_policy(self) -> None:
+		if self.horizon_policy != HORIZON_POLICY:
+			raise ValueError(
+				f"calibration uses horizon policy {self.horizon_policy}, not {HORIZON_POLICY}; "
+				"recalibrate in a new directory"
+			)
+
 	def p_value(self, score: float) -> float:
 		"""Paper Eq. 3: the upper-tail rank of a score among benign calibration scores."""
 		m = len(self.calibration_scores)
@@ -205,21 +215,21 @@ def pooled_accounts(
 
 def account_streams(requests: Iterable[BenignRequest]) -> dict[str, list[BenignRequest]]:
 	streams: dict[str, list[BenignRequest]] = {}
-	for request in requests:
+	for index, request in enumerate(requests):
+		# Replay uses the input row index as time when no timestamp is supplied.
+		if request.time is None:
+			request = request.model_copy(update={"time": float(index)})
 		streams.setdefault(request.account, []).append(request)
 	return streams
 
 
-def horizons(
-	stream: list[BenignRequest], seconds: float, attempts: int
-) -> list[list[BenignRequest]]:
-	"""Split one account's requests into policy horizons by elapsed time or attempt count."""
+def horizons(stream: list[BenignRequest], seconds: float) -> list[list[BenignRequest]]:
+	"""Split by elapsed time only; exceeding the attempt cap never starts a fresh horizon."""
 	parts: list[list[BenignRequest]] = []
 	start: float | None = None
 	for request in stream:
 		expired = bool(parts) and (
-			len(parts[-1]) >= attempts
-			or (request.time is not None and start is not None and request.time - start >= seconds)
+			request.time is not None and start is not None and request.time - start >= seconds
 		)
 		if not parts or expired:
 			parts.append([])
@@ -296,12 +306,25 @@ def fit_threshold(values: list[float], target: float) -> tuple[float, float]:
 	return threshold, sum(value > threshold for value in ordered) / len(ordered)
 
 
-def nested_thresholds(values: list[float], targets: Iterable[float]) -> LevelThresholds:
+def nested_thresholds(
+	values: list[float], targets: Iterable[float], forced: list[bool] | None = None
+) -> LevelThresholds:
+	"""Fit the remaining escalation allowance after mandatory attempt-cap refusals."""
+	if not values:
+		raise ValueError("threshold calibration needs at least one benign unit")
+	forced = [False] * len(values) if forced is None else forced
+	if len(forced) != len(values):
+		raise ValueError("forced refusals must match calibration units")
+	ordered = sorted((v for v, cap in zip(values, forced, strict=True) if not cap), reverse=True)
 	thresholds: list[float] = []
 	for target in targets:
-		threshold, _ = fit_threshold(values, target)
+		allowed = max(0, math.floor(target * len(values) + 1e-9) - sum(forced))
+		threshold = ordered[min(allowed, len(ordered) - 1)] if ordered else max(values)
 		thresholds.append(max([threshold, *thresholds[-1:]]))
-	exceeded = [sum(value > threshold for value in values) for threshold in thresholds]
+	exceeded = [
+		sum(cap or value > threshold for value, cap in zip(values, forced, strict=True))
+		for threshold in thresholds
+	]
 	return LevelThresholds(
 		thresholds=thresholds,
 		achieved=[count / len(values) for count in exceeded],
@@ -400,8 +423,10 @@ def calibrate(
 		for account, stream in streams.items():
 			indices = iter(rows[account])
 			per_horizon: list[list[float]] = []
-			for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts):
+			for horizon in horizons(stream, config.horizon_seconds):
 				members = [next(indices) for _ in horizon]
+				# Later requests are hard refusals, so they cannot form detector windows.
+				members = members[: config.horizon_attempts]
 				per_horizon.append(
 					[
 						scorer.score(
@@ -422,17 +447,17 @@ def calibrate(
 		score for account in null_streams for horizon in account for score in horizon
 	)
 	independent_null = sum(
-		len(horizon) // size
+		min(len(horizon), config.horizon_attempts) // size
 		for stream in account_streams(score_calibration).values()
-		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts)
+		for horizon in horizons(stream, config.horizon_seconds)
 	)
 	# Null windows by client type, so the benign mix behind the null can be disclosed.
 	null_by_type: dict[str, int] = {}
 	for stream in account_streams(score_calibration).values():
-		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts):
+		for horizon in horizons(stream, config.horizon_seconds):
 			key = f"score_calibration_windows_{horizon[0].client_type or 'unknown'}"
 			null_by_type[key] = null_by_type.get(key, 0) + len(
-				complete_windows(len(horizon), size, stride)
+				complete_windows(min(len(horizon), config.horizon_attempts), size, stride)
 			)
 	if not null_scores:
 		raise ValueError("score calibration produced no complete windows")
@@ -440,6 +465,7 @@ def calibrate(
 		config=config,
 		encoder=encoder.identity(),
 		serialization=SERIALIZATION,
+		horizon_policy=HORIZON_POLICY,
 		sigma=sigma,
 		calibration_scores=null_scores,
 		thresholds={},
@@ -466,8 +492,16 @@ def calibrate(
 				state = spec.update(state, p)
 				peak = max(peak, state)
 			maxima[name].append(peak)
+	policy_horizons = [
+		horizon
+		for stream in account_streams(policy_calibration).values()
+		for horizon in horizons(stream, config.horizon_seconds)
+	]
+	capped = [len(horizon) > config.horizon_attempts for horizon in policy_horizons]
+	scored_capped = [cap for cap, scores in zip(capped, units, strict=True) if scores]
 	calibration.thresholds = {
-		name: nested_thresholds(values, config.level_targets) for name, values in maxima.items()
+		name: nested_thresholds(values, config.level_targets, scored_capped)
+		for name, values in maxima.items()
 	}
 	calibration.counts = {
 		"fitting_requests": len(fitting),
@@ -481,19 +515,15 @@ def calibrate(
 		"policy_calibration_horizons": len(units),
 		"policy_calibration_scored_horizons": len(scored_units),
 		"policy_calibration_unscored_horizons": len(units) - len(scored_units),
+		"policy_calibration_capped_horizons": sum(capped),
 		**truncated,
 	}
 	# Baselines are fitted on the same scored horizons as the accumulators, so every defense
 	# is held to its target among the accounts long enough to be scored.
-	policy_horizons = [
-		horizon
-		for stream in account_streams(policy_calibration).values()
-		for horizon in horizons(stream, config.horizon_seconds, config.horizon_attempts)
-		if len(horizon) >= size
-	]
+	policy_horizons = [horizon for horizon in policy_horizons if len(horizon) >= size]
 	block_target = [config.level_targets[-1]]
 	calibration.baselines["quota"] = nested_thresholds(
-		[float(len(horizon)) for horizon in policy_horizons], block_target
+		[float(len(horizon)) for horizon in policy_horizons], block_target, scored_capped
 	)
 	if all(request.time is not None for request in policy_calibration):
 		calibration.baselines["rate_per_minute"] = nested_thresholds(
@@ -502,6 +532,7 @@ def calibrate(
 				for horizon in policy_horizons
 			],
 			block_target,
+			scored_capped,
 		)
 	_calibrate_aggregate(calibration, fitted, sigma, score_calibration, null_embedded, report)
 	calibration.encoder = encoder.identity()
@@ -582,6 +613,7 @@ def load_calibration(directory: Path) -> tuple[Calibration, WindowScorer]:
 	# Older artifacts scored every request in a window; keep that for their frozen null.
 	raw["config"].setdefault("distinct_prompts", False)
 	calibration = Calibration.model_validate(raw)
+	calibration.require_current_policy()
 	if calibration.config.task != "text" and calibration.serialization != SERIALIZATION:
 		raise ValueError(
 			f"calibration uses detector serialization {calibration.serialization}, "
