@@ -33,6 +33,14 @@ dashboard *args:
 benchmark-demo:
 	uv run distill benchmark demo
 
+# Evaluate one task config: stage is before, after, or all.
+benchmark config stage="before" *args:
+	uv run --extra train distill benchmark run --config {{quote(config)}} --stage {{stage}} {{args}}
+
+# Export a benchmark report as JSON.
+benchmark-report *args:
+	uv run distill benchmark report {{args}}
+
 # Run dashboard data tests and type checking.
 dashboard-check:
 	bun test --cwd apps/dashboard src
@@ -88,3 +96,7 @@ start *args:
 # Collect across AG News, SQuAD, GSM8K, and coding, then train a shared student.
 distill *args:
 	{{python}} scripts/pipeline.py distill {{args}}
+
+# Compile the manuscript to paper/main.pdf.
+paper:
+	tectonic --outdir paper paper/main.tex
