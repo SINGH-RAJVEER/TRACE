@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import json
+import os
+import time
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +21,7 @@ from distillation.cli import app
 from distillation.collection import CollectionOptions, collect
 from distillation.io import read_jsonl
 from distillation.launcher import Launcher, LaunchError, TaskPipeline, run_app
+from distillation.proof import ProofSolver, SolveMetrics
 from distillation.schemas import (
 	Message,
 	PromptRecord,
@@ -755,7 +758,10 @@ def test_study_report_uses_only_budgets_that_fit_each_task(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: Path) -> None:
+@pytest.mark.parametrize("time_reset", [False, True])
+async def test_refusals_and_time_resets_preserve_campaign_attempt_budget(
+	tmp_path: Path, time_reset: bool
+) -> None:
 	from distillation.io import write_jsonl
 	from distillation.schemas import PromptSource
 	from harness.policy import QuotaPolicy
@@ -778,7 +784,8 @@ async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: 
 
 	async def response(request: httpx.Request) -> httpx.Response:
 		payload = TeacherGenerationRequest.model_validate_json(request.content)
-		decision = policy.admit("extractor", payload.messages[-1].content, 0)
+		now = (int(payload.messages[-1].content) // 3) * 86400 if time_reset else 0
+		decision = policy.admit("extractor", payload.messages[-1].content, now)
 		if decision.action == "refuse":
 			return httpx.Response(403, headers={"X-Harness-Decision": "block"})
 		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
@@ -796,8 +803,8 @@ async def test_policy_resets_do_not_replenish_campaign_attempt_budget(tmp_path: 
 		max_requests=7,
 	)
 	assert result["queries"] == result["attempt_budget"] == 7
-	assert result["received"] == 3
-	assert result["blocked"] == 4
+	assert result["received"] == (3 if time_reset else 1)
+	assert result["blocked"] == (4 if time_reset else 6)
 	assert result["termination"] == "attempt_budget"
 	events = [
 		json.loads(line) for line in (tmp_path / "campaign.events.jsonl").read_text().splitlines()
@@ -937,3 +944,198 @@ def test_full_pool_report_joins_numeric_dimensions_and_reports_horizons(
 	assert report["study_kind"] == "separate_task"
 	assert report["policy_horizons"] == horizons
 	assert json.loads((tmp_path / "study-manifest.json").read_text())["complete"]
+
+
+async def test_concurrent_proofs_use_processes_and_preserve_http_responsiveness() -> None:
+	from harness.pow import leading_zero_bits
+
+	solver = ProofSolver(2)
+	clients: list[ProtectedTeacher] = []
+	request = TeacherGenerationRequest(messages=[Message(role="user", content="proof")])
+	proofs: list[int] = []
+
+	async def response(http_request: httpx.Request) -> httpx.Response:
+		proof = http_request.headers.get("X-Harness-Proof")
+		if not proof:
+			return httpx.Response(
+				428,
+				json={
+					"challenge": {
+						"prefix": "measurement-probe-",
+						"nonce": "probe",
+						"difficulty": 16,
+						"expires_at": time.time() + 30,
+					}
+				},
+			)
+		counter = int(proof.split(":")[1])
+		assert (
+			leading_zero_bits(hashlib.sha256(f"measurement-probe-{counter}".encode()).digest())
+			>= 16
+		)
+		proofs.append(counter)
+		return httpx.Response(200, json=(await Teacher().generate(request)).model_dump(mode="json"))
+
+	try:
+		await solver.warmup()
+		for _ in range(32):
+			clients.append(
+				ProtectedTeacher(
+					"http://fixture", "", solver=solver, transport=httpx.MockTransport(response)
+				)
+			)
+		tasks = [asyncio.create_task(client.generate(request)) for client in clients]
+		await asyncio.sleep(0)
+		# An unrelated HTTP client must remain runnable while proofs are outstanding.
+		ordinary = ProtectedTeacher(
+			"http://fixture",
+			"",
+			solver=solver,
+			transport=httpx.MockTransport(
+				lambda _: httpx.Response(403, headers={"X-Harness-Decision": "block"})
+			),
+		)
+		try:
+			from distillation.campaign import PolicyRefusal
+
+			with pytest.raises(PolicyRefusal):
+				await ordinary.generate(request)
+			assert not all(task.done() for task in tasks)
+		finally:
+			await ordinary.close()
+		await asyncio.gather(*tasks)
+		assert len(proofs) == 32
+		assert all(client.hashes == proofs[index] + 1 for index, client in enumerate(clients))
+		for client in clients:
+			event = next(e for e in client.events if e["event"] == "solve")
+			assert event["status"] == "solved"
+			assert event["queue_seconds"] >= 0
+			assert event["cpu_seconds"] > 0
+			assert event["worker_pids"] and os.getpid() not in event["worker_pids"]
+	finally:
+		await asyncio.gather(*(client.close() for client in clients))
+		await solver.close()
+
+
+async def test_proof_cancellation_drains_only_current_chunk_and_pool_remains_usable() -> None:
+	solver = ProofSolver(1)
+	try:
+		await solver.warmup()
+		metrics = SolveMetrics()
+		task = asyncio.create_task(solver.solve("cancel", 256, time.monotonic() + 30, metrics))
+		for _ in range(1000):
+			if metrics.hashes:
+				break
+			await asyncio.sleep(0.001)
+		assert metrics.hashes
+		before = metrics.hashes
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		from distillation.proof import CHUNK_HASHES
+
+		assert before <= metrics.hashes <= before + CHUNK_HASHES
+		assert metrics.status == "cancelled"
+		assert await solver.solve("next", 0, time.monotonic() + 5, SolveMetrics()) == 0
+	finally:
+		await solver.close()
+
+
+@pytest.mark.parametrize("expiry", [True, False])
+async def test_proof_stops_at_challenge_expiry_or_request_deadline(expiry: bool) -> None:
+	from distillation.campaign import AttemptFailed, BudgetExhausted
+
+	attempts = 0
+
+	async def response(request: httpx.Request) -> httpx.Response:
+		nonlocal attempts
+		attempts += 1
+		assert "X-Harness-Proof" not in request.headers
+		return httpx.Response(
+			428,
+			json={
+				"challenge": {
+					"prefix": "expires",
+					"nonce": "probe",
+					"difficulty": 256,
+					"expires_at": time.time() + (0.05 if expiry else 30),
+				}
+			},
+		)
+
+	teacher = ProtectedTeacher("http://fixture", "", transport=httpx.MockTransport(response))
+	try:
+		await teacher.solver.warmup()
+		teacher.deadline = time.monotonic() + (30 if expiry else 0.05)
+		with pytest.raises(AttemptFailed if expiry else BudgetExhausted):
+			await teacher.generate(
+				TeacherGenerationRequest(messages=[Message(role="user", content="x")])
+			)
+		assert attempts == 1
+		event = next(e for e in teacher.events if e["event"] == "solve")
+		assert event["status"] == "expired"
+		assert event["hashes"] == teacher.hashes > 0
+	finally:
+		await teacher.close()
+
+
+async def test_utility_scores_after_replay_and_freezes_solver_capacity(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import distillation.utility as utility
+	from distillation.benchmarks.models import BenchmarkItem
+	from distillation.utility import measure_utility
+	from harness.calibration import BenignRequest
+
+	item = BenchmarkItem(
+		id="one",
+		benchmark="ag_news",
+		category="World",
+		question="q",
+		messages=[Message(role="user", content="q")],
+		metric="label_accuracy",
+		answer="World",
+		choices=["World", "Sports", "Business", "Sci/Tech"],
+	)
+	calls = 0
+	from distillation.benchmarks.scoring import evaluate_answer as original_score
+
+	async def response(request: httpx.Request) -> httpx.Response:
+		nonlocal calls
+		calls += 1
+		payload = TeacherGenerationRequest.model_validate_json(request.content)
+		return httpx.Response(200, json=(await Teacher().generate(payload)).model_dump(mode="json"))
+
+	async def score_after_replay(item: BenchmarkItem, text: str, finish: str | None) -> Any:
+		assert calls == 7  # Five warmup requests and both timed requests finish before scoring.
+		await asyncio.sleep(0.01)
+		return await original_score(item, text, finish)
+
+	monkeypatch.setattr(utility, "evaluate_answer", score_after_replay)
+	kwargs: dict[str, Any] = dict(
+		requests=[
+			BenignRequest(account="a", text="q", time=0, example_id="one"),
+			BenignRequest(account="a", text="q", time=0, example_id="one"),
+		],
+		references={"one": item},
+		url="http://fixture",
+		keys={},
+		max_output_tokens=16,
+		output=tmp_path / "utility.json",
+		solver_workers=1,
+		transport=httpx.MockTransport(response),
+	)
+	result = await measure_utility(**kwargs)
+	assert result["served"] == 2
+	assert result["unconditional_utility"] == 1
+	assert result["solver"]["workers"] == 1
+	assert result["scoring_seconds"] >= 0.02
+	for row in result["results"]:
+		assert row["latency_seconds"] == pytest.approx(
+			row["arrival_delay_seconds"] + row["service_and_queue_seconds"]
+		)
+		assert row["proof_seconds"] == row["proof_queue_seconds"] == row["hashes"] == 0
+	assert await measure_utility(**kwargs) == result
+	kwargs["solver_workers"] = 2
+	with pytest.raises(ValueError, match="configuration changed"):
+		await measure_utility(**kwargs)

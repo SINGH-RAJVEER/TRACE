@@ -569,6 +569,7 @@ class Study:
 			{
 				"calibration": str(path),
 				"serialization": calibration.serialization,
+				"horizon_policy": calibration.horizon_policy,
 				"window_size": calibration.config.window_size,
 				"distinct_prompts": calibration.config.distinct_prompts,
 				"reference_windows": calibration.config.reference_windows,
@@ -944,7 +945,7 @@ class Study:
 		calibrations = {task: self.calibrate(task) for task in self.pipeline.tasks}
 		for task, path in calibrations.items():
 			self.require_calibration(task, path)
-		from harness.calibration import load_calibration
+		from harness.calibration import HORIZON_POLICY, load_calibration
 
 		freeze(
 			self.root / "policy-horizons.json",
@@ -953,6 +954,10 @@ class Study:
 					"attempts": calibration.config.horizon_attempts,
 					"seconds": calibration.config.horizon_seconds,
 					"campaign_budget_replenished_on_reset": False,
+					"horizon_policy": HORIZON_POLICY,
+					"reset": "elapsed_time",
+					"attempt_limit_action": "refuse_until_time_reset",
+					"allow_policy_capped": False,
 				}
 				for task, path in calibrations.items()
 				for calibration, _ in [load_calibration(path)]
