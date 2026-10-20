@@ -10,6 +10,8 @@
 		python312
 		uv
 		bun
+		# Manuscript compiler for just paper.
+		tectonic
 		# Native compilation for Python extensions and Triton training kernels.
 		stdenv.cc
 		zlib

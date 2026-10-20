@@ -44,9 +44,9 @@ The harness requires `HARNESS_TASK=gateway`, `HARNESS_GATEWAY_CAPS` as a JSON do
 
 ## What the paper can claim
 
-The [manuscript](../paper/main.tex) includes coding as the fourth shared-gateway domain and describes the implemented collection, calibration, shared-training, controls, and reporting paths. It distinguishes the launchers' full-pool defaults from the proposed balanced 6,000-submission matrix, which allocates 1,500 candidate prompts per domain. The corpus and cap measurements, GPU training, final target thresholds, clustered analysis, and effectiveness results remain pending. Local HTTP and artifact tests are identified as implementation checks.
+The [manuscript](../paper/main.tex) includes coding as the fourth shared-gateway domain and describes the implemented collection, calibration, shared-training, controls, and reporting paths. It distinguishes the launchers' full-pool defaults from the proposed balanced 6,000-submission matrix, which allocates 1,500 candidate prompts per domain. The corpus and cap measurements, GPU training, final target thresholds, clustered analysis, and effectiveness results remain pending. Local HTTP and artifact tests are identified as implementation checks. A measured-inputs section reports the split-v2 role sizes, the three-domain `gateway-clients-v3` policy-calibration workload audit, independent prompt-pool sizes, the suite-resolution table, and the AG News development detector replay, labelled as below the calibration resolution gate. Citations use peer-reviewed venues where one exists; the bibliography marks the remaining preprints.
 
-The local compiled copy is `paper/main.pdf`, which is gitignored. Regenerate it from the repository root with `tectonic --outdir paper paper/main.tex`; auxiliary files stay temporary under Tectonic's default output settings.
+The local compiled copy is `paper/main.pdf`, which is gitignored. Regenerate it with `just paper`; auxiliary files stay temporary under Tectonic's default output settings.
 
 The manuscript asks:
 
@@ -214,7 +214,7 @@ Each command creates `requests.jsonl` and `manifest.json` in a new directory and
 
 The shared lifecycle test uses actual localhost teacher and harness HTTP servers, real calibration/policy logic with a small deterministic encoder, combined preparation, adapter provenance checks, and real benchmark scoring. It substitutes model generation and optimizer work. It covers A1, six-account A5, and A7 from fixture external pools without a gold reference, gold references for the task-pool strategies, development selection, controls, per-domain evaluation of the same adapter, report joins, and stopping managed inference before student work. Additional HTTP tests cover cross-domain quotas, global multi-account budgets, proof spending, domain-bound continuation, and immutable campaign reuse. Full model collection, cap pilots, and GPU training remain unmeasured.
 
-Validation on 2026-10-20: `uv run pytest -q` completed with 222 passed and four opt-in training-stack tests skipped. Ruff and mypy pass for apps, packages, and tests. Earlier validation also passed Ruff and mypy for apps, packages, tests, and the bootstrap scripts. These checks establish local integration behavior, not measured model effectiveness.
+Validation on 2026-10-20: `uv run pytest -q` completed with 240 passed and five skipped: four opt-in training-stack tests and one that needs the optional `datasets` loader. Ruff and mypy pass for apps, packages, and tests. Earlier validation also passed Ruff and mypy for apps, packages, tests, and the bootstrap scripts. These checks establish local integration behavior, not measured model effectiveness.
 
 ## Historical phase 1 validation
 
