@@ -81,7 +81,7 @@ Before final collection, pin `VLLM_SPEC`, set the teacher review reference and a
 | Ten consecutive service failures for an account | That account stops with `service_failures`, but a completed `campaign.json` is still written and the study does not reject it | This is an unresolved readiness issue. Inspect every campaign summary before interpreting results, including undefended baselines. Fix the service and use a fresh run directory; changing machines alone does not fix this handling. |
 | Interrupted shared campaign or protected utility after collection | Shared campaigns cannot resume with fresh policy state; completed campaigns are verified before reuse, and missing protected utility forces a fresh run | Preserve all artifacts and use a new `--run-dir`. Do not delete spent campaign evidence to restart in place. Collection by example ID belongs to legacy tasks mode. |
 | Training interruption after all required collections and protected utility completed | The trainer can save a checkpoint; completed adapter reuse checks the training fingerprint and dataset hash | Rerun the identical command and configuration to reuse verified completed campaigns and resume training. Keep endpoints and credentials stable because collection contracts bind them. SIGKILL, power loss, or disk exhaustion can prevent the latest checkpoint from being saved. |
-| GPU memory or unsupported precision error | The foreground subprocess fails; there is no automatic recipe adjustment | Measure capacity on the target host. Adjust serving or training settings deliberately, maintain the paired evaluation configuration, and start a new study if frozen settings change. Externally managed teacher processes must be stopped or isolated by their operator during student work. |
+| GPU memory or unsupported precision error | With `activation_offloading="auto"`, the trainer retries a CUDA out-of-memory error once with activation offloading, resuming the last checkpoint when available. Unsupported precision and OOM after offloading stop the subprocess | Measure capacity on the target host. Adjust serving or training settings deliberately, maintain the paired evaluation configuration, and start a new study if frozen settings change. Offloading does not reduce evaluation memory. Externally managed teacher processes must be stopped or isolated by their operator during student work. |
 | Nondefault coding pool with A7 and no prebuilt external pool | The external CLI resolves the default 50,000-example coding directory, while the study expects its configured coding directory | This is an unresolved path mismatch for `--coding-pool-size 0` and other nondefault sizes. Repair the external builder's directory selection before running that extension. The default 50,000 path agrees. |
 
 `status.json` records running, failed, interrupted, or complete, but `complete` currently does not certify healthy infrastructure in every campaign. Calibration gate details remain in the adequacy report even when the outer shared runner replaces the status with generic `failed`. Treat `results.json` as evidence only after checking the per-campaign failure, deadline, response, and termination fields as well as qualification and calibration reports.
@@ -199,16 +199,3 @@ The script reads `.env` from the repository root. Variables already set in the s
 - vLLM does not run natively on Windows. On Windows, start an OpenAI-compatible server separately, for example vLLM under WSL2, and pass `--upstream-url`. The script stops with this message instead of trying to install vLLM.
 - QLoRA needs bitsandbytes, which the training extra installs only on Linux. The example configs train without it; on Windows, keep `qlora = false` or train under WSL2.
 - On Windows, the `just` recipes run through PowerShell 7 (`pwsh`), as the justfile's `windows-shell` sets. Running `py -3 scripts\pipeline.py` directly needs only Python.
-
-## Existing Colab task session
-
-The local task session uses the Colab `Qwen3.5-9B-Q8_0` teacher through the authenticated API at `http://127.0.0.1:18010`. This is a quantized deployment with a different identity from the default vLLM config; retain its actual model/provider metadata in all results.
-
-The task collector is `artifacts/paper-tasks-colab/collect.py`; task ledgers remain under `data/tasks/`. The existing `artifacts/colab-teacher/q8/` directory holds shared teacher deployment and SSH connection state. Keep that state while the teacher is in use. Task collection resumes by example ID and exports each seed/budget subset after collection.
-
-```bash
-cat artifacts/paper-tasks-colab/progress.json
-tail -n 10 artifacts/paper-tasks-colab/collection.log
-```
-
-Check the actual process and exit artifact before starting a second collector. The task session's concurrency and selected tasks are recorded in its plan; these are collection settings, not evidence of completed training or evaluation.

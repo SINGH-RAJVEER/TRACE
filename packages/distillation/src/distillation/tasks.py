@@ -62,7 +62,6 @@ def _select(items: list[BenchmarkItem], limit: int, seed: int) -> list[Benchmark
 GSM8K_EVAL_SUFFIX = "\nSolve step by step. End with #### followed by the final numeric answer."
 
 
-TaskName = Literal["ag_news", "squad", "gsm8k", "coding"]
 Role = Literal[
 	"development",
 	"attacker",

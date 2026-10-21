@@ -1,7 +1,7 @@
 # Paper task: ag_news. Build it with `distill tasks build --task ag_news`. See docs/paper-tasks.md.
 # The output limit is part of the task contract and matches the collection limit.
 experiment = "paper-ag_news-v1"
-suite_path = "data/tasks/ag_news/test-suite.json"
+suite_path = "data/tasks/ag_news-split-v2-s42/test-suite.json"
 output_dir = "outputs/tasks/ag_news"
 # Adapter evaluation adds its own training files; list any other transfer data here.
 training_paths = []

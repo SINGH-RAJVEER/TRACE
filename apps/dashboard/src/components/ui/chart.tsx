@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "../../lib";
 
 export type ChartConfig = Record<string, { label: string; color: string }>;
@@ -8,7 +8,6 @@ export function ChartContainer({ config, children, className }: { config: ChartC
 	return <div data-slot="chart" style={style} className={cn("h-80 min-w-0 w-full text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line]:stroke-border [&_.recharts-cartesian-axis-line]:stroke-input [&_.recharts-label]:fill-muted-foreground [&_.recharts-surface]:outline-none", className)}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div>;
 }
 export const ChartTooltip = Tooltip;
-export const ChartLegend = Legend;
 
 type TooltipEntry = { name?: string | number; value?: unknown; color?: string; dataKey?: unknown; payload?: Record<string, unknown> };
 export function ChartTooltipContent({ active, payload, label, heading, value, swatch }: {

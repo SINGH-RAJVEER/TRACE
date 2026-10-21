@@ -5,7 +5,7 @@ base_model = "Qwen/Qwen3.5-2B-Base"
 base_revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 # Victim responses for one budget, prepared from TASK_DIR/runs/sSEED-bBUDGET/ledger.jsonl.
 # Use gold-train.jsonl in the same directory for the gold-label reference student.
-dataset_path = "data/tasks/ag_news/runs/s42-b2000/train.jsonl"
+dataset_path = "data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.jsonl"
 # No validation set: victim responses for it would spend attacker budget. The epoch count is
 # chosen on the gold-scored development suite instead.
 output_dir = "artifacts/tasks/ag_news/s42-b2000/attacker"

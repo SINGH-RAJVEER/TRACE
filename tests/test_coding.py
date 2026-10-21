@@ -135,11 +135,8 @@ def reference_only(item: CodingItem, response: str, **kwargs: Any) -> Score:
 def test_conversion_and_decontamination() -> None:
 	assert ast_hash("def f(a, b): return a + b") == ast_hash("def g(x, y): return x + y")
 	assert ast_hash("def f(a, b): return a + b") != ast_hash("def f(a, b): return a + a")
-	assert ast_hash("def f(a, b): return a + b") == ast_hash("def g(x, y): return x + y")
-	assert ast_hash("def f(a, b): return a + b") != ast_hash("def f(a, b): return a + a")
 	example = convert(row())
 	assert "assert" not in example.user and "return 1" not in example.user
-	assert example.to_task_example().gold_completion.startswith("```python")
 	evaluation = [
 		{"id": "external", "specification": "Other wording", "solution": "def renamed(): return 1"}
 	]

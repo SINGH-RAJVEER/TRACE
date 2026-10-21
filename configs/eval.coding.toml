@@ -2,7 +2,7 @@
 # Paper task: coding. Build it with `distill tasks build --task coding`. See docs/paper-tasks.md.
 # The output limit is part of the task contract and matches the collection limit.
 experiment = "paper-coding-v1"
-suite_path = "data/tasks/coding/test-suite.json"
+suite_path = "data/tasks/coding-subset-50000-s42/test-suite.json"
 output_dir = "outputs/tasks/coding"
 # Adapter evaluation adds its own training files; list any other transfer data here.
 training_paths = []

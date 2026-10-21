@@ -16,15 +16,12 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from coding.extract import extract_code
 from coding.sandbox import Limits
 from coding.scoring import CodingItem, pass_at_1
-
-if TYPE_CHECKING:
-	from distillation.tasks import TaskExample
 
 SOURCE = "nvidia/OpenCodeInstruct"
 REVISION = "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d"
@@ -54,20 +51,6 @@ class CodingExample:
 	@property
 	def user(self) -> str:
 		return PROMPT.format(specification=self.specification, signature=self.signature)
-
-	def to_task_example(self) -> TaskExample:
-		"""Lazy core import keeps the coding distribution independently installable."""
-		from distillation.tasks import TaskExample
-
-		return TaskExample(
-			key=self.key,
-			group=specification_hash(self.specification),
-			user=self.user,
-			answer=self.solution,
-			category=self.category,
-			question=self.specification,
-			gold_completion=f"```python\n{self.solution}\n```",
-		)
 
 
 def specification_hash(text: str) -> str:

@@ -8,7 +8,7 @@ export const labels: Record<Slot, string> = {
 // Hue identifies the model. The student's phase is a second channel (faded outline = before,
 // solid = after), so before/after never depends on telling two shades apart.
 export const modelColors = { teacher: "#3987e5", student: "#d95926" } as const;
-export const modelOf = (slot: Slot) => slot.startsWith("teacher") ? "teacher" : "student";
+const modelOf = (slot: Slot) => slot.startsWith("teacher") ? "teacher" : "student";
 export const isBefore = (slot: Slot) => slot === "student_before" || slot === "teacher";
 export const colors: Record<Slot, string> = Object.fromEntries(slots.map(slot => [slot, modelColors[modelOf(slot)]])) as Record<Slot, string>;
 export const benchmarkLabels: Record<string, string> = {
@@ -29,11 +29,11 @@ export type Paired = {
 	f1_delta_pp?: number; f1_ci95?: [number, number];
 	both_correct: number; both_wrong: number; answer_agreement: number | null; agreement_n: number;
 };
-export type Result = {
+type Result = {
 	item_id: string; benchmark: string; category: string; response: string; prediction: string | null;
 	correct: boolean; status: string; latency_seconds: number;
 };
-export type Example = {
+type Example = {
 	item: { id: string; benchmark: string; question: string; category: string; answer: string; choices: string[]; metric: string };
 	results: Partial<Record<Slot, Result>>;
 };
