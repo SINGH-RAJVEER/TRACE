@@ -1,7 +1,7 @@
 # Paper task: squad. Build it with `distill tasks build --task squad`. See docs/paper-tasks.md.
 # The output limit is part of the task contract and matches the collection limit.
 experiment = "paper-squad-v1"
-suite_path = "data/tasks/squad/test-suite.json"
+suite_path = "data/tasks/squad-split-v2-s42/test-suite.json"
 output_dir = "outputs/tasks/squad"
 # Adapter evaluation adds its own training files; list any other transfer data here.
 training_paths = []

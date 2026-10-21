@@ -4,7 +4,7 @@ import { Switch } from "./ui/switch";
 import { linearTicks, logDomain, logTicks } from "../data";
 import { colors, isBefore, labels, slots, type Slot } from "../types";
 
-export const chartConfig: ChartConfig = Object.fromEntries(slots.map(slot => [slot, { label: labels[slot], color: colors[slot] }]));
+const chartConfig: ChartConfig = Object.fromEntries(slots.map(slot => [slot, { label: labels[slot], color: colors[slot] }]));
 export const tick = { fontSize: 11 };
 export const barCursor = { fill: "rgba(255, 255, 255, 0.04)" };
 export const lineCursor = { stroke: "#383835" };
@@ -22,12 +22,12 @@ export function Swatch({ color, faded = false, line = false, dashed = false }: {
 export const SlotSwatch = ({ slot, line = false }: { slot: Slot; line?: boolean }) => <Swatch color={colors[slot]} faded={isBefore(slot)} line={line} dashed={line && isBefore(slot)} />;
 
 export type LegendItem = { key: string; label: string; swatch: ReactNode };
-export function Legend({ items }: { items: LegendItem[] }) {
+function Legend({ items }: { items: LegendItem[] }) {
 	return <ul className="legend" aria-label="Legend">{items.map(item => <li key={item.key}>{item.swatch}{item.label}</li>)}</ul>;
 }
 export const runLegend = (runs: Slot[], line = false): LegendItem[] => runs.map(slot => ({ key: slot, label: labels[slot], swatch: <SlotSwatch slot={slot} line={line} /> }));
 
-export function ScaleSwitch({ log, onChange }: { log: boolean; onChange: (log: boolean) => void }) {
+function ScaleSwitch({ log, onChange }: { log: boolean; onChange: (log: boolean) => void }) {
 	const id = useId();
 	return <div className="scale-switch"><Switch id={id} checked={log} onCheckedChange={onChange} /><label htmlFor={id}>Log scale</label></div>;
 }

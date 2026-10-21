@@ -165,20 +165,6 @@ Select the learning rate from {1e-4, 2e-4} and the epoch count from {1, 2, 3} on
 
 For the gold-label reference student, train the same recipe on `gold-train.jsonl` from the same run directory. It uses the same prompts as the attack and is reported separately from it. Treat it as a supervision control; whether it outperforms the attacker is an empirical result.
 
-### Colab collection session on 2026-10-16
-
-The task collector holds `artifacts/paper-tasks-colab/collection.lock` to prevent duplicate collection. It depends only on task inputs and shared teacher deployment state.
-
-The same Colab T4 continues serving `Qwen3.5-9B-Q8_0` through the authenticated teacher API at `http://127.0.0.1:18010`. This session collects AG News and SQuAD with seeds 42, 1, and 20 and budgets 500, 2,000, and 8,000. Combining the largest budgets across seeds gives 20,585 unique AG News queries and 19,509 unique SQuAD queries, for 40,094 total. The union inputs are `data/tasks/TASK/collection-prompts.jsonl`; responses and attempt histories go to `data/tasks/TASK/ledger.jsonl` and `ledger.attempts.jsonl`. Each task has two workers, for four concurrent requests overall, with temperature 0, thinking disabled, and the task's 16- or 64-token output limit.
-
-Ignored `artifacts/paper-tasks-colab/` holds the deployment plan, progress, process ID, validation results, and collection log. The local job runs in a separate uv environment, `artifacts/paper-task-venv`, and keeps responses on the local machine. Its connection guard waits for the upstream health check before making generation requests and reconnects SSH if the tunnel process exits. Model outputs retain the actual quantized model and provider identity. Collection finishes by exporting each seed/budget ledger subset; student training is a subsequent step.
-
-```bash
-cat artifacts/paper-tasks-colab/progress.json
-tail -n 10 artifacts/paper-tasks-colab/collection.log
-```
-
-
 ## Evaluate
 
 `configs/eval.ag_news.toml`, `configs/eval.squad.toml`, and `configs/eval.gsm8k.toml` point at each task's test suite with the task's output limit. Run them as described in [benchmarks.md](benchmarks.md):
