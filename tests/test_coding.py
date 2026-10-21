@@ -127,6 +127,11 @@ def row(identifier: int = 1) -> dict[str, Any]:
 	}
 
 
+def reference_only(item: CodingItem, response: str, **kwargs: Any) -> Score:
+	"""Passes every reference and fails every null stub, without a sandbox."""
+	return Score("ok", "return None" not in response)
+
+
 def test_conversion_and_decontamination() -> None:
 	assert ast_hash("def f(a, b): return a + b") == ast_hash("def g(x, y): return x + y")
 	assert ast_hash("def f(a, b): return a + b") != ast_hash("def f(a, b): return a + a")
@@ -149,19 +154,30 @@ def test_conversion_and_decontamination() -> None:
 def test_prepare_all_rows_and_audit(sandbox: None, tmp_path: Path) -> None:
 	output = tmp_path / "corpus"
 	manifest = prepare_corpus(
-		[row(), row(), row(2), {**row(3), "output": "def value(): return -1"}],
+		[
+			row(),
+			row(),
+			row(2),
+			{**row(3), "output": "def value(): return -1"},
+			{
+				**row(4),
+				"output": "def value(): print(4)",
+				"unit_tests": "['assert value() is None']",
+			},
+		],
 		[{"id": "test", "specification": "held out", "solution": "def value(): return 2"}],
 		output,
 	)
 	assert manifest["complete"] and manifest["limit"] is None
 	assert manifest["counts"] == {
-		"raw": 4,
+		"raw": 5,
 		"eligible": 1,
 		"duplicate": 1,
 		"test_overlap": 1,
 		"reference_failed": 1,
+		"tests_accept_null_stub": 1,
 	}
-	assert len((output / "exclusions.jsonl").read_text().splitlines()) == 3
+	assert len((output / "exclusions.jsonl").read_text().splitlines()) == 4
 	assert json.loads((output / "manifest.json").read_text())["eligible_sha256"]
 	with pytest.raises(FileExistsError):
 		prepare_corpus([], [{"id": "t", "specification": "t", "solution": "x=0"}], output)
@@ -190,7 +206,7 @@ def test_slow_first_reference_does_not_starve_other_workers(
 			first_saw_later.append(later_started.wait(timeout=2))
 		if response == row(24)["output"]:
 			later_started.set()
-		return Score("ok", True)
+		return reference_only(item, response)
 
 	monkeypatch.setattr("coding.dataset.pass_at_1", score)
 	manifest = prepare_corpus(
@@ -257,7 +273,7 @@ def test_task_build_cli_forwards_parallel_default_and_sequential_override(
 
 
 def test_full_corpus_exceeds_old_budget(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	monkeypatch.setattr("coding.dataset.pass_at_1", reference_only)
 	manifest = prepare_corpus(
 		(row(index) for index in range(8003)),
 		[{"id": "t", "specification": "held out", "solution": "x = 0"}],
@@ -270,7 +286,7 @@ def test_full_corpus_exceeds_old_budget(monkeypatch: pytest.MonkeyPatch, tmp_pat
 def test_explicit_subset_stops_at_eligible_target_and_records_decided_rows(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, workers: int
 ) -> None:
-	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	monkeypatch.setattr("coding.dataset.pass_at_1", reference_only)
 	output = tmp_path / "subset"
 	manifest = prepare_corpus(
 		[row(0), row(0), *(row(i) for i in range(1, 30))],
@@ -293,7 +309,7 @@ def test_explicit_subset_stops_at_eligible_target_and_records_decided_rows(
 def test_subset_with_too_few_eligible_rows_is_not_complete(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	monkeypatch.setattr("coding.dataset.pass_at_1", reference_only)
 	output = tmp_path / "subset"
 	with pytest.raises(ValueError, match="eligible target"):
 		prepare_corpus(
@@ -331,7 +347,7 @@ def test_subset_export_is_reproducible_disjoint_and_keeps_external_suite(
 ) -> None:
 	from distillation.tasks import build_task
 
-	monkeypatch.setattr("coding.dataset.pass_at_1", lambda *args, **kwargs: Score("ok", True))
+	monkeypatch.setattr("coding.dataset.pass_at_1", reference_only)
 	rows = {
 		"train": [row(i) for i in range(300)],
 		"test": [

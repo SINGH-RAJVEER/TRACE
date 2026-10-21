@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from coding.extract import extract_code
 from coding.sandbox import Limits
-from coding.scoring import CodingItem, Score, pass_at_1
+from coding.scoring import CodingItem, pass_at_1
 
 if TYPE_CHECKING:
 	from distillation.tasks import TaskExample
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 SOURCE = "nvidia/OpenCodeInstruct"
 REVISION = "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d"
 ALGORITHM = "coding-decontamination-v1"
+QUALIFICATION = "reference-passes-null-stub-fails-v1"
 PROMPT = (
 	"Implement the Python function described below. Return only a Python code block."
 	"\n\nSpecification: {specification}\n\nSignature: {signature}"
@@ -208,15 +209,39 @@ def convert(row: Mapping[str, Any]) -> CodingExample:
 	)
 
 
+def null_stub(example: CodingExample) -> str:
+	"""The reference with only its tested function's body replaced by `return None`."""
+	tree = ast.parse(example.solution)
+	for node in tree.body:
+		if isinstance(node, ast.FunctionDef) and node.name == example.entry_point:
+			node.body = [ast.Return(ast.Constant(None))]
+	return ast.unparse(tree)
+
+
+def qualify(example: CodingExample, limits: Limits | None = None) -> str:
+	"""Returns the exclusion reason, or "" when the reference passes and a null stub fails.
+
+	Tests that a function returning None also passes, such as `assert f() is None` for a
+	side-effect function, would score an empty implementation as correct.
+	"""
+	item = CodingItem(example.tests)
+	score = pass_at_1(item, example.solution, limits=limits)
+	if not score.correct:
+		return "reference_" + (score.status if score.status != "ok" else "failed")
+	if pass_at_1(item, null_stub(example), limits=limits).correct:
+		return "tests_accept_null_stub"
+	return ""
+
+
 @dataclass
 class Pending:
-	"""A row read ahead of its in-order decision, with its reference run if one started."""
+	"""A row read ahead of its in-order decision, with its qualification if one started."""
 
 	row: Mapping[str, Any]
 	example: CodingExample | None = None
 	fingerprints: list[tuple[str, str]] = field(default_factory=list)
 	match: str | None = None
-	score: Future[Score] | None = None
+	verdict: Future[str] | None = None
 	error: Ineligible | None = None
 
 
@@ -253,6 +278,7 @@ def prepare_corpus(
 		"input_sha256": input_sha256,
 		"evaluation_sha256": decontaminator.sha256.hexdigest(),
 		"algorithm": ALGORITHM,
+		"qualification": QUALIFICATION,
 		"ngram_width": 13,
 		"containment_threshold": 0.7,
 		"limit": eligible_limit,
@@ -290,12 +316,10 @@ def prepare_corpus(
 				("ast", ast_hash(example.solution)),
 			]
 			match = decontaminator.overlap(example)
-			score = None
+			verdict = None
 			if executor and not match and not duplicate(fingerprints):
-				score = executor.submit(
-					pass_at_1, CodingItem(example.tests), example.solution, limits=limits
-				)
-			return Pending(row, example, fingerprints, match, score)
+				verdict = executor.submit(qualify, example, limits)
+			return Pending(row, example, fingerprints, match, verdict)
 
 		def commit(pending: Pending) -> None:
 			"""Decides one row in source order, so the first eligible occurrence survives."""
@@ -318,21 +342,15 @@ def prepare_corpus(
 					reason = "test_overlap"
 				elif duplicate(pending.fingerprints):
 					reason = "duplicate"
-					if pending.score:
-						pending.score.cancel()
+					if pending.verdict:
+						pending.verdict.cancel()
 				else:
-					score = (
-						pending.score.result()
-						if pending.score
-						else pass_at_1(
-							CodingItem(pending.example.tests),
-							pending.example.solution,
-							limits=limits,
-						)
+					reason = (
+						pending.verdict.result()
+						if pending.verdict
+						else qualify(pending.example, limits)
 					)
-					if not score.correct:
-						reason = "reference_" + (score.status if score.status != "ok" else "failed")
-					else:
+					if not reason:
 						seen.executemany("INSERT INTO seen VALUES (?, ?)", pending.fingerprints)
 						eligible.write(json.dumps(asdict(pending.example), sort_keys=True) + "\n")
 						counts["eligible"] += 1
@@ -363,14 +381,16 @@ def prepare_corpus(
 		# Completed out-of-order rows have a separate bound to cap retained source data.
 		executor = ThreadPoolExecutor(workers) if workers > 1 else None
 		window: deque[Pending] = deque()
-		in_flight: set[Future[Score]] = set()
+		in_flight: set[Future[str]] = set()
 
 		def reached_target() -> bool:
 			return eligible_limit is not None and counts["eligible"] >= eligible_limit
 
 		def decidable(pending: Pending) -> bool:
 			"""A row whose fingerprint was claimed after dispatch need not await its run."""
-			return pending.score is None or pending.score.done() or duplicate(pending.fingerprints)
+			return (
+				pending.verdict is None or pending.verdict.done() or duplicate(pending.fingerprints)
+			)
 
 		try:
 			source = iter(rows)
@@ -390,12 +410,12 @@ def prepare_corpus(
 						exhausted = True
 					else:
 						window.append(pending)
-						if pending.score is not None:
-							in_flight.add(pending.score)
+						if pending.verdict is not None:
+							in_flight.add(pending.verdict)
 					continue
 				if window:
 					# At the row bound only the oldest decision can release space.
-					oldest = window[0].score
+					oldest = window[0].verdict
 					waiting = (
 						{oldest}
 						if oldest is not None and (exhausted or len(window) >= 32 * workers)
