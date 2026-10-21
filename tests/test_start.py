@@ -536,6 +536,7 @@ def test_undefended_baseline_stops_when_any_prompt_lacks_a_response(
 	from distillation.io import write_jsonl
 	from distillation.schemas import PromptSource
 
+	monkeypatch.chdir(tmp_path)
 	pipeline = TaskPipeline(Launcher("test"), "fixture", ["ag_news"], [42], [2], tmp_path, 1, False)
 	pipeline.plan = {"ag_news": [2]}
 	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, None, "refuse")
