@@ -46,6 +46,25 @@ def test_sandbox_required(monkeypatch: pytest.MonkeyPatch) -> None:
 		run_python("raise AssertionError('must not run')")
 
 
+def test_relocated_interpreter_prefix_is_mounted(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	from coding.sandbox import _command
+
+	monkeypatch.setattr("coding.sandbox.shutil.which", lambda name: "/usr/bin/bwrap")
+	monkeypatch.setattr("coding.sandbox.sys.base_prefix", str(tmp_path))
+	command = _command(tmp_path / "work", 3, unsafe_local_exec=False)
+	assert any(
+		command[i : i + 3] == ["--ro-bind", str(tmp_path), str(tmp_path)]
+		for i in range(len(command))
+	)
+	monkeypatch.setattr("coding.sandbox.sys.base_prefix", "/usr")
+	assert (
+		"/usr/usr" not in command
+		and _command(tmp_path, 3, unsafe_local_exec=False).count("/usr") == 2
+	)
+
+
 def test_correct_incorrect_and_early_exit(sandbox: None) -> None:
 	item = CodingItem("assert add(2, 3) == 5\nassert add(-1, 1) == 0")
 	assert pass_at_1(item, "def add(a, b): return a + b").correct
