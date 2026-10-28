@@ -47,11 +47,16 @@ def summarize_traffic(samples: list[TrafficSample], seconds: float) -> dict[str,
 	# Noise is known only when the harness log covered every successful response.
 	noise_known = all(s.noised is not None for s in successes)
 	noised = sum(bool(s.noised) for s in successes)
+	level_known = sum(s.level is not None for s in samples)
+	l4 = sum(s.level is not None and s.level >= 4 for s in samples)
 	return {
 		"n": n,
 		"succeeded": len(successes),
 		"success_percent": 100 * len(successes) / n if n else None,
 		"success_ci95": wilson(len(successes), n) if n else None,
+		"l4_requests": l4,
+		"l4_percent": 100 * l4 / n if n and level_known == n else None,
+		"level_coverage": level_known / n if n else None,
 		# Successful responses that were keyed noise rather than the teacher's answer. For
 		# genuine users these are silent corruptions; for extraction, worthless supervision.
 		"noised": noised if noise_known else None,
@@ -179,9 +184,16 @@ def build_traffic_report(directory: Path, key: str) -> dict[str, Any]:
 		actors = {}
 		for actor in suite.actors:
 			samples = [s for s in run.samples if expected[s.request_id].actor_id == actor.id]
+			first_l4 = min(
+				(s for s in samples if s.level is not None and s.level >= 4),
+				key=lambda s: s.started_seconds,
+				default=None,
+			)
 			actors[actor.id] = {
 				**actor.model_dump(),
 				**summarize_traffic(samples, seconds),
+				"first_l4_request_id": first_l4.request_id if first_l4 else None,
+				"first_l4_started_seconds": first_l4.started_seconds if first_l4 else None,
 				**(_progression(samples) if actor.label == "distillation" else {}),
 			}
 		windows = []

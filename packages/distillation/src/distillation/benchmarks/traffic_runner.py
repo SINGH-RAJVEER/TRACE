@@ -57,20 +57,25 @@ def solve_challenge(prefix: str, difficulty: int) -> int:
 		counter += 1
 
 
-def _noised_requests(log: Path, run_id: str) -> set[str]:
-	"""Request IDs of this run that the harness answered with noise, from its decision log."""
+def _harness_events(log: Path, run_id: str) -> tuple[set[str], dict[str, int]]:
+	"""Correlate noise and detector levels with this run's requests."""
 	if not log.is_file():
 		raise ValueError(f"harness log not found: {log}")
 	prefix = f"{run_id}:"
 	noised: set[str] = set()
+	levels: dict[str, int] = {}
 	for line in log.read_text(encoding="utf-8").split("\n"):
 		if not line.strip():
 			continue
 		event = json.loads(line)
 		correlation = event.get("benchmark_request") or ""
-		if event.get("event") == "noise" and correlation.startswith(prefix):
-			noised.add(correlation.removeprefix(prefix))
-	return noised
+		if correlation.startswith(prefix):
+			request_id = correlation.removeprefix(prefix)
+			if event.get("event") == "noise":
+				noised.add(request_id)
+			elif event.get("event") == "decision" and isinstance(event.get("level"), int):
+				levels[request_id] = event["level"]
+	return noised, levels
 
 
 def _completion(response: httpx.Response, backend: str) -> tuple[bool, int | None, str]:
@@ -213,9 +218,11 @@ async def run_traffic(
 		finally:
 			pool.shutdown(cancel_futures=True)
 	if target.harness_log is not None:
-		noised = _noised_requests(target.harness_log, run_id)
+		noised, levels = _harness_events(target.harness_log, run_id)
 		for sample in samples:
-			sample.noised = sample.request_id in noised
+			sample.level = levels.get(sample.request_id)
+			if sample.level is not None:
+				sample.noised = sample.request_id in noised
 	run = TrafficRun(
 		id=run_id,
 		phase=phase,
