@@ -110,9 +110,17 @@ def _command(directory: Path, filter_fd: int, unsafe_local_exec: bool) -> list[s
 		"/tmp",
 	]
 	# Nix interpreters need their store closure. FHS interpreters need stdlib and loaders.
-	for runtime in ("/nix/store", "/usr", "/lib", "/lib64", "/bin"):
-		if Path(runtime).exists():
-			command += ["--ro-bind", runtime, runtime]
+	runtimes = [
+		runtime
+		for runtime in ("/nix/store", "/usr", "/lib", "/lib64", "/bin")
+		if Path(runtime).exists()
+	]
+	# uv-managed and other relocated interpreters keep their stdlib under their own prefix.
+	prefix = Path(sys.base_prefix).resolve()
+	if not any(prefix.is_relative_to(runtime) for runtime in runtimes):
+		runtimes.append(str(prefix))
+	for runtime in runtimes:
+		command += ["--ro-bind", runtime, runtime]
 	command += ["--ro-bind", sysconfig.get_path("purelib"), "/runtime"]
 	command += ["--setenv", "OPENBLAS_NUM_THREADS", "1", "--setenv", "OMP_NUM_THREADS", "1"]
 	# Nix binary wheels need the compiler runtime. Only mounted immutable store paths

@@ -43,6 +43,7 @@ benchmark-report *args:
 
 # Run dashboard data tests and type checking.
 dashboard-check:
+	bun install --cwd apps/dashboard --frozen-lockfile
 	bun test --cwd apps/dashboard src
 	bun run --cwd apps/dashboard check
 
