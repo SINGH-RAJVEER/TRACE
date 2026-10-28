@@ -27,6 +27,7 @@ from harness.serialization import gateway_turn
 
 from distillation.benchmarks.models import Slot, load_config, load_suite, save_json
 from distillation.benchmarks.reporting import discover_runs
+from distillation.campaign import service_failures
 from distillation.collection import CollectionOptions
 from distillation.gateway_campaign import collect_gateway, digest
 from distillation.gateway_reporting import campaign_results, profile_rates, supervision
@@ -245,7 +246,7 @@ class GatewayStudy:
 		keys: dict[str, str] | None = None,
 		decisions: Path | None = None,
 	) -> dict[str, Any]:
-		return asyncio.run(
+		summary = asyncio.run(
 			collect_gateway(
 				schedule=schedule,
 				output=directory,
@@ -262,6 +263,12 @@ class GatewayStudy:
 				decision_log=decisions,
 			)
 		)
+		if failed := service_failures(summary):
+			raise LaunchError(
+				f"{directory}: teacher service failed for {', '.join(failed)}; a transport "
+				"failure is not a harness refusal. Fix the service and use a fresh --run-dir"
+			)
+		return summary
 
 	def start_harness(
 		self, directory: Path, schedule: Path, calibration: Path, arm: str

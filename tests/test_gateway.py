@@ -478,6 +478,36 @@ async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path:
 	assert set(result["termination_by_account"].values()) == {"deadline"}
 
 
+@pytest.mark.asyncio
+async def test_all_http_failures_are_reported_as_service_failures_not_refusals(
+	tmp_path: Path,
+) -> None:
+	import httpx
+	from distillation.campaign import MAX_CONSECUTIVE_FAILURES, service_failures
+	from distillation.collection import CollectionOptions
+	from distillation.gateway_campaign import collect_gateway
+
+	rows, _ = campaign_schedule(
+		pools=_pools(), caps=CAPS, attack="A1", budget=12, interval_seconds=0
+	)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	result = await collect_gateway(
+		schedule=schedule,
+		output=tmp_path / "campaign",
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=12,
+		transport=httpx.MockTransport(lambda request: httpx.Response(500)),
+	)
+	assert result["failed"] == MAX_CONSECUTIVE_FAILURES
+	assert result["received"] == result["blocked"] == result["ledger_records"] == 0
+	assert service_failures(result) == sorted(result["termination_by_account"])
+	assert service_failures({"termination": "service_failures"}) == ["campaign"]
+	assert service_failures({"termination_by_account": {"a": "attempt_budget"}}) == []
+
+
 def _external(pools: dict[str, list[PromptRecord]]) -> dict[str, list[PromptRecord]]:
 	return {
 		domain: [
