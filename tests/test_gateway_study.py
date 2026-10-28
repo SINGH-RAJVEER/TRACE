@@ -482,6 +482,26 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	)
 
 
+def test_shared_study_rejects_campaigns_stopped_by_service_failures(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from types import SimpleNamespace
+
+	async def collect(**kwargs: Any) -> dict[str, Any]:
+		return {"termination_by_account": {"a": "prompts_exhausted", "b": "service_failures"}}
+
+	monkeypatch.setattr("distillation.gateway_study.collect_gateway", collect)
+	study = SimpleNamespace(
+		protected_url="http://harness",
+		url="http://teacher",
+		token="fixture",
+		pipeline=SimpleNamespace(terms_review_id="fixture", concurrency=1),
+	)
+	owner = cast(GatewayStudy, SimpleNamespace(study=study, deadline_seconds=1.0))
+	with pytest.raises(LaunchError, match="teacher service failed for b"):
+		GatewayStudy.collect(owner, tmp_path / "requests.jsonl", tmp_path / "campaign", 1, 42)
+
+
 def test_recipe_selection_ranks_domains_instead_of_averaging_raw_scores() -> None:
 	from distillation.gateway_study import rank_trials
 

@@ -805,6 +805,14 @@ class Study:
 			*(["--block-only"] if arm == "quota" else []),
 			env={"TEACHER_API_TOKEN": token},
 		)
+		from distillation.campaign import service_failures
+
+		if service_failures(json.loads((directory / "campaign.json").read_text())):
+			raise LaunchError(
+				f"{task} seed {seed} {arm}: the protected teacher service failed repeatedly; "
+				"a transport failure is not a harness refusal. Fix the service and use a "
+				"fresh --run-dir"
+			)
 
 	def train_protected(
 		self, task: str, seed: int, budget: int, largest: int, arm: str = "full"

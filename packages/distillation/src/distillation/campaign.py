@@ -40,6 +40,15 @@ class BudgetExhausted(Exception):
 MAX_CONSECUTIVE_FAILURES = 10
 
 
+def service_failures(summary: dict[str, Any]) -> list[str]:
+	"""Accounts a campaign stopped after consecutive transport failures.
+
+	Policy refusals reset the failure count, so these stops measure the service, not a defense.
+	"""
+	reasons = summary.get("termination_by_account") or {"campaign": summary.get("termination")}
+	return sorted(account for account, reason in reasons.items() if reason == "service_failures")
+
+
 @dataclass
 class CampaignAllowance:
 	"""One HTTP allowance, shared even when policy accounts or horizons change."""
