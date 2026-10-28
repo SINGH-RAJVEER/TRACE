@@ -22,6 +22,7 @@ data/tasks/
 data/traffic/
 *.tsbuildinfo
 /paper/main.pdf
+/scripts/kaggle_gpu.py
 
 # Environment files
 .env
