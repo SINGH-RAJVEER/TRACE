@@ -8,7 +8,12 @@ from typing import Any
 import httpx
 import numpy as np
 import pytest
-from distillation.benchmarks.traffic import TrafficConfig, TrafficTarget, freeze_traffic
+from distillation.benchmarks.traffic import (
+	TrafficConfig,
+	TrafficSample,
+	TrafficTarget,
+	freeze_traffic,
+)
 from distillation.benchmarks.traffic_reporting import summarize_traffic
 from distillation.benchmarks.traffic_runner import run_traffic, solve_challenge
 from distillation.schemas import (
@@ -23,6 +28,37 @@ from harness_api.app import create_app
 from harness_api.settings import Settings
 
 KEY = "00112233445566778899aabbccddeeff"
+
+
+def test_l4_defaults_and_unsupported_tasks() -> None:
+	assert Settings(_env_file=None).l4_action == "deceive"  # type: ignore[call-arg]
+	assert Settings(_env_file=None, HARNESS_TASK="coding").l4_action == "refuse"  # type: ignore[call-arg]
+	with pytest.raises(ValueError, match="refusal only"):
+		Settings(_env_file=None, HARNESS_TASK="coding", HARNESS_L4_ACTION="deceive")  # type: ignore[call-arg]
+
+
+def test_partial_level_coverage_is_not_a_detection_rate() -> None:
+	samples = [
+		TrafficSample(
+			request_id="a",
+			scheduled_seconds=0,
+			started_seconds=0,
+			completed_seconds=0,
+			status="ok",
+			level=4,
+		),
+		TrafficSample(
+			request_id="b",
+			scheduled_seconds=0,
+			started_seconds=0,
+			completed_seconds=0,
+			status="error",
+		),
+	]
+	summary = summarize_traffic(samples, 1.0)
+	assert summary["l4_requests"] == 1
+	assert summary["level_coverage"] == 0.5
+	assert summary["l4_percent"] is None
 
 
 class Encoder:
@@ -363,8 +399,12 @@ async def test_traffic_benchmark_separates_noise_from_useful_responses(
 	assert len(with_log.samples) == len(suite.requests)
 	assert all(sample.noised is not None for sample in with_log.samples)
 	assert all(sample.noised is None for sample in without_log.samples)
+	assert all(sample.level is not None for sample in with_log.samples)
+	assert all(sample.level is None for sample in without_log.samples)
 	summary = summarize_traffic(with_log.samples, 1.0)
 	assert summary["noised"] > 0
+	assert summary["l4_requests"] > 0 and summary["level_coverage"] == 1
+	assert summarize_traffic(without_log.samples, 1.0)["l4_percent"] is None
 	assert summary["useful_succeeded"] == summary["succeeded"] - summary["noised"]
 	assert summarize_traffic(without_log.samples, 1.0)["noised"] is None
 	noise_events = [json.loads(line) for line in log.read_text().splitlines() if '"noise"' in line]

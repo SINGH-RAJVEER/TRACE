@@ -21,8 +21,7 @@ class Settings(BaseSettings):
 	)
 	# "direct" replaces the graduated actions with blocking at the L4 threshold (an ablation).
 	actions: Literal["graduated", "direct"] = Field(default="graduated", alias="HARNESS_ACTIONS")
-	# L4 refuses by default, as in the paper; "deceive" answers with keyed noise instead.
-	l4_action: Literal["refuse", "deceive"] = Field(default="refuse", alias="HARNESS_L4_ACTION")
+	l4_action: Literal["refuse", "deceive"] = Field(default="deceive", alias="HARNESS_L4_ACTION")
 	deception_rate: float = Field(default=1.0, ge=0, le=1, alias="HARNESS_DECEPTION_RATE")
 	# Hex secret, at least 16 bytes. Without it, the key file is read, or created on first start.
 	deception_key: str = Field(default="", alias="HARNESS_DECEPTION_KEY")
@@ -65,6 +64,8 @@ class Settings(BaseSettings):
 
 	@model_validator(mode="after")
 	def coding_l4(self) -> Settings:
+		if self.task in {"coding", "gateway"} and "l4_action" not in self.model_fields_set:
+			self.l4_action = "refuse"
 		if self.task in {"coding", "gateway"} and self.l4_action != "refuse":
 			raise ValueError("coding and gateway modes support L4 refusal only")
 		if self.task == "gateway" and (

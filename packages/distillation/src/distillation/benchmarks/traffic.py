@@ -125,6 +125,7 @@ class TrafficSample(StrictModel):
 	# Whether the harness served keyed noise instead of the teacher's answer, from its
 	# experimenter-only decision log. None when no harness log was attached.
 	noised: bool | None = None
+	level: int | None = Field(default=None, ge=0, le=4)
 
 
 class TrafficRun(StrictModel):

@@ -65,7 +65,7 @@ Defended task and shared-gateway studies enforce `calibration-resolution-v2` bef
 | L1 | Serve; the decision record carries the level as an alert |
 | L2 | Serve no sooner than 1 second after the account's previous admitted request; excess requests queue |
 | L3 | L2 spacing plus a proof-of-work challenge per response: 20 leading zero bits, bound to the account, a SHA-256 digest of the whole request, and a 5-minute expiry. Each challenge is accepted once |
-| L4 | Refuse for the rest of the horizon, including the request that triggers L4. With `HARNESS_L4_ACTION=deceive`, L3's spacing and challenge with keyed noise in place of the answer, built without a teacher call (see below) |
+| L4 | By default, retain L3 spacing and challenges and replace answers with keyed noise. `HARNESS_L4_ACTION=refuse` instead refuses requests, including the triggering request. Coding and gateway support refusal only. |
 
 Each `Decision` carries the action, the earliest release time, any challenge, and telemetry: the level, whether a window completed, its p-value, the statistic, the deception flag, and witness attribution. `client_view()` returns only what a client should see: the action, release time, and challenge. Risk values stay hidden from the attacker, as the threat model requires.
 
@@ -75,7 +75,7 @@ Each `Decision` carries the action, the earliest release time, any challenge, an
 
 ## Noise at L4
 
-With `HARNESS_L4_ACTION=deceive`, the protected API does not refuse an account at L4. It keeps answering, with noise in the task's output format, and never calls the teacher for those answers. Each noise response costs about 7 to 25 microseconds of CPU, measured on 5,000 task prompts per format. A flagged extractor keeps spending its budget on data with no value for training, and the service spends nothing to serve it. The default, `refuse`, is the paper's policy; noise is an unreported option.
+The protected API defaults to `HARNESS_L4_ACTION=deceive` for supported tasks. At L4 it keeps answering with noise in the task's output format. An initial teacher call may be needed to establish response metadata; subsequent noise responses use the recorded shape. Coding and gateway modes default to refusal when no action is specified and reject explicit deception. The paper's refusal policy remains available with `HARNESS_L4_ACTION=refuse`.
 
 The approach adapts adaptive misinformation (Kariyappa and Qureshi, CVPR 2020) and keyed response changes with watermarking (DAWN, Szyller et al., ACM MM 2021) to a text API. Probability-perturbation defenses such as prediction poisoning do not apply, because the service returns text rather than class probabilities. The paper's main policy refuses and leaves served answers unchanged, so report noise as a separate arm.
 

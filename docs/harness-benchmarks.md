@@ -62,7 +62,7 @@ service_revision = "harness-v1"
 harness_log = "outputs/harness/decisions.jsonl"
 ```
 
-After the replay, the runner reads the log and marks each sample's `noised` field. A missing log file stops the run rather than reporting unknown noise as none. Without `harness_log`, `noised` stays empty and the noise fields below are unavailable. The log must be readable from the machine running the benchmark; copy it over first when the harness runs elsewhere.
+After the replay, the runner reads the log and records each sample's detector `level` and `noised` status. Reports include L4 request counts, level coverage, an L4 percentage only with complete coverage, and each actor's first observed L4 request and start time. Class labels come from the frozen benchmark, not the detector: L4 is a threshold crossing, not certain proof of an attack, and genuine actors can reach it too. Request start time is a proxy, not the exact decision time. Missing decision records remain unknown; without `harness_log`, level and noise attribution are unavailable. A missing log file stops the run. The log must be readable from the machine running the benchmark; copy it over first when the harness runs elsewhere.
 
 The protected endpoint must return `X-Harness-Decision` on every response, including rejected requests. Accepted values are `allow`, `throttle`, and `block`.
 
