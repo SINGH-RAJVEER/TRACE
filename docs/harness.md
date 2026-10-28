@@ -1,4 +1,4 @@
-# Extraction harness
+# TRACE harness
 
 The [coding task](coding-task.md) has its own detector serialization, calibration pools, and sandboxed legitimate-utility scoring. Its fixed service instruction is removed before embedding; the specification remains, while the signature wrapper is excluded. Coding uses L4 refusal. Coding deception is rejected explicitly, and another task's calibration must not be reused. Existing non-coding serialization is unchanged.
 

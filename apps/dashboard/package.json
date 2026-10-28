@@ -1,5 +1,5 @@
 {
-	"name": "distillation-dashboard",
+	"name": "model-distillation-study-dashboard",
 	"private": true,
 	"version": "0.1.0",
 	"type": "module",

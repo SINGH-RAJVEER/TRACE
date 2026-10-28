@@ -1,7 +1,7 @@
 [project]
-name = "distillation-lab"
+name = "evaluating-an-account-level-harness-against-multi-domain-model-distillation"
 version = "0.1.0"
-description = "Hosted-teacher sequence distillation research environment"
+description = "Evaluating an account-level harness against multi-domain model distillation"
 requires-python = ">=3.14,<3.15"
 dependencies = [
 	"distillation-core",

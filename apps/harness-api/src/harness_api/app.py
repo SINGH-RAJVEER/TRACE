@@ -217,7 +217,7 @@ def create_app(
 			await asyncio.gather(*background, return_exceptions=True)
 		await upstream.close()
 
-	app = FastAPI(title="Protected teacher API", version="0.1.0", lifespan=lifespan)
+	app = FastAPI(title="TRACE protected teacher API", version="0.1.0", lifespan=lifespan)
 
 	def now_from(header: str | None) -> float:
 		if config.test_clock and header is not None:
