@@ -1,4 +1,4 @@
-# Multi-domain harness effectiveness study
+# TRACE multi-domain harness effectiveness study
 
 The study asks which distillation campaigns an account-level harness restricts, whether those restrictions prevent useful capability transfer within a declared resource envelope, and what legitimate users lose. One gateway serves AG News, SQuAD, GSM8K, and coding. Each campaign trains one student on all the responses it actually receives. The same strategy runs without a defense, with instantaneous MMD, with the full policy, and with a simple query quota. The attempted-request and time limits define a fair comparison; budget curves are secondary.
 

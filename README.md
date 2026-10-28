@@ -1,6 +1,6 @@
-# Task extraction study
+# Evaluating an account-level harness against multi-domain model distillation
 
-Tests whether an account-level harness stops useful distillation from a language-model API without blocking legitimate users. One gateway serves AG News, SQuAD 1.1, GSM8K, and Python coding through a single teacher. Each attack campaign trains one student on every response it receives, and the student is scored on all four domains.
+This project studies whether TRACE (Traffic-based Response Access Control for Extraction), an account-level harness, stops useful distillation from a language-model API without blocking legitimate users. One gateway serves AG News, SQuAD 1.1, GSM8K, and Python coding through a single teacher. Each attack campaign trains one student on every response it receives, and the student is scored on all four domains.
 
 ## Setup
 

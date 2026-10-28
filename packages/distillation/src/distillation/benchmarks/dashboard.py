@@ -18,7 +18,7 @@ def create_app(
 	*,
 	traffic_results_dir: Path = Path("outputs/traffic-benchmarks"),
 ) -> FastAPI:
-	app = FastAPI(title="Task extraction study")
+	app = FastAPI(title="Evaluating an account-level harness against multi-domain model distillation")
 
 	@app.get("/api/traffic/experiments")
 	def list_traffic() -> dict[str, Any]:

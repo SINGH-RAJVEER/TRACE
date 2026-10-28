@@ -64,7 +64,7 @@ export default function App() {
 	const available = active.filter(slot => report?.runs[slot]);
 	return <div className="app-shell">
 		<header className="topbar">
-			<div><h1>Task extraction study</h1><p>Task capability, legitimate access, and resistance to extraction.</p></div>
+			<div><h1>Evaluating an account-level harness against multi-domain model distillation</h1><p>Task capability, legitimate access, and resistance to extraction.</p></div>
 			<div className="actions">
 				<Button variant={view === "quality" ? "outline" : "ghost"} aria-pressed={view === "quality"} onClick={() => setView("quality")}>Task capability</Button>
 				<Button variant={view === "traffic" ? "outline" : "ghost"} aria-pressed={view === "traffic"} onClick={() => setView("traffic")}>Harness traffic</Button>
