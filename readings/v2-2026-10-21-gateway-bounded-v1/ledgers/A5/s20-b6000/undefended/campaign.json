@@ -1,0 +1,239 @@
+{
+	"contract": "fa32217c0d89386078fd40127c33f4161059db5443264aaa9eeb85f5f786ee8e",
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"solver": {
+		"version": "process-sha256-v1",
+		"workers": 4,
+		"chunk_hashes": 4096
+	},
+	"attempt_budget": 6000,
+	"deadline_seconds": 86400.0,
+	"elapsed_seconds": 12572.92923650099,
+	"termination_by_account": {
+		"A5-s20-b6000-squad-000": "prompts_exhausted",
+		"A5-s20-b6000-gsm8k-000": "prompts_exhausted",
+		"A5-s20-b6000-ag_news-000": "prompts_exhausted",
+		"A5-s20-b6000-ag_news-001": "prompts_exhausted",
+		"A5-s20-b6000-coding-000": "prompts_exhausted",
+		"A5-s20-b6000-coding-001": "prompts_exhausted"
+	},
+	"queries": 6000,
+	"received": 6000,
+	"blocked": 0,
+	"failed": 0,
+	"deadline": 0,
+	"challenge": 0,
+	"pending": 0,
+	"released_output_tokens": 595051,
+	"levels": {
+		"L1": {
+			"J": 6000,
+			"Q": 6000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L2": {
+			"J": 6000,
+			"Q": 6000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L3": {
+			"J": 6000,
+			"Q": 6000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L4": {
+			"J": 6000,
+			"Q": 6000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		}
+	},
+	"proof_requests": 0,
+	"index_unit": "global campaign HTTP submissions",
+	"domains": {
+		"ag_news": {
+			"queries": 1500,
+			"received": 1500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 3550,
+			"levels": {
+				"L1": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"coding": {
+			"queries": 1500,
+			"received": 1500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 210165,
+			"levels": {
+				"L1": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"gsm8k": {
+			"queries": 1500,
+			"received": 1500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 370200,
+			"levels": {
+				"L1": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"squad": {
+			"queries": 1500,
+			"received": 1500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 11136,
+			"levels": {
+				"L1": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 1500,
+					"Q": 1500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		}
+	},
+	"ledger_records": 6000,
+	"ledger_records_by_domain": {
+		"ag_news": 1500,
+		"coding": 1500,
+		"gsm8k": 1500,
+		"squad": 1500
+	},
+	"hashes": 0,
+	"challenge_seconds": 0.0,
+	"sha256": {
+		"ledger": "7c38442578ed50bb08e152484f61e0fd560730830fcd99567321d36c3beb2f10",
+		"events": "12c2fcd246c0157c78b63fef43fbda9cb4dbf4d8f9860dfa978f85493d315f95"
+	}
+}
