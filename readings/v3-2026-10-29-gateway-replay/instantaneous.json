@@ -1,0 +1,72 @@
+{
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"policy": "mmd",
+	"accumulator": "instantaneous",
+	"actions": "graduated",
+	"thresholds": "calibrated",
+	"requests": 24047,
+	"horizons": 125,
+	"unscored_horizons": 25,
+	"windows": 198,
+	"l4_action": "refuse",
+	"deceived": 0,
+	"implemented_levels": [
+		1,
+		2,
+		3,
+		4
+	],
+	"reached": {
+		"L1": 12,
+		"L2": 8,
+		"L3": 2,
+		"L4": 2
+	},
+	"reached_rate": {
+		"L1": 0.096,
+		"L2": 0.064,
+		"L3": 0.016,
+		"L4": 0.016
+	},
+	"reached_rate_scored": {
+		"L1": 0.12,
+		"L2": 0.08,
+		"L3": 0.02,
+		"L4": 0.02
+	},
+	"output": "artifacts/gateway-bounded-v1/benign-test/instantaneous.jsonl",
+	"profiles": {
+		"generalist": {
+			"horizons": 13,
+			"scored_horizons": 9,
+			"reached_rate": {
+				"L1": 0.0,
+				"L2": 0.0,
+				"L3": 0.0,
+				"L4": 0.0
+			},
+			"reached_rate_scored": {
+				"L1": 0.0,
+				"L2": 0.0,
+				"L3": 0.0,
+				"L4": 0.0
+			}
+		},
+		"specialist": {
+			"horizons": 112,
+			"scored_horizons": 91,
+			"reached_rate": {
+				"L1": 0.10714285714285714,
+				"L2": 0.07142857142857142,
+				"L3": 0.017857142857142856,
+				"L4": 0.017857142857142856
+			},
+			"reached_rate_scored": {
+				"L1": 0.13186813186813187,
+				"L2": 0.08791208791208792,
+				"L3": 0.02197802197802198,
+				"L4": 0.02197802197802198
+			}
+		}
+	}
+}

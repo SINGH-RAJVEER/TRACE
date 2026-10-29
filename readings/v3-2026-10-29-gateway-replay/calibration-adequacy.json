@@ -1,0 +1,22 @@
+{
+	"rule": "calibration-resolution-v2",
+	"status": "adequate",
+	"warnings": [],
+	"allow_resolution_limited": false,
+	"passed": true,
+	"reasons": [],
+	"accumulators": [
+		"paper",
+		"instantaneous"
+	],
+	"baselines": [
+		"quota"
+	],
+	"minimum_score_windows": 99,
+	"minimum_policy_horizons": 100,
+	"nonoverlapping_score_windows": 199,
+	"empirical_p_value_floor": 0.001669449081803005,
+	"scored_policy_horizons": 100,
+	"policy_horizons": 125,
+	"interpretation": "minimum resolution only; not evidence of population error control"
+}

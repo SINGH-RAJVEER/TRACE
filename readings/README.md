@@ -12,6 +12,7 @@ Large per-request files stay on the run machine. Each README lists them.
 | [v0](v0-2026-10-16-start/) | 2026-10-16 | `artifacts/start` | not recorded | pre-`task-study-v2` (AG News, SQuAD, GSM8K) | after the harness traffic `before` phase | undefended teacher collection, teacher test-suite benchmarks, unprotected harness traffic |
 | [v1](v1-2026-10-17-start-v2/) | 2026-10-17 | `artifacts/start-v2` | `866ade6` | `task-study-v2` (AG News, SQuAD) | undefended collection: `collect-protected` rejected `--teacher-url` | MMD detector calibration, benign holdout replay of three defenses, single-account attacker detectability |
 | [v2](v2-2026-10-21-gateway-bounded-v1/) | 2026-10-21 → (running) | `artifacts/gateway-bounded-v1` | `4bb6381`, resumed on `3a50a1a` | gateway study (AG News, SQuAD, GSM8K, coding; A1, A2, A5, A7; 3 seeds) | interim: all 12 undefended campaigns and the development sweep done; protected campaigns pending | undefended ledgers (74,000 responses, committed), development transfer gate |
+| [v3](v3-2026-10-29-gateway-replay/) | 2026-10-29 | `artifacts/gateway-bounded-v1` | `3599d6e` plus local collection-order change | continuation of v2 | interim: protected campaigns pending | held-out synthetic benign policy replay |
 
 ## Results so far
 
