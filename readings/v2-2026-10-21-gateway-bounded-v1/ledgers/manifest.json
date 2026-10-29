@@ -1,0 +1,422 @@
+{
+	"run_dir": "artifacts/gateway-bounded-v1",
+	"protocol_code": "4bb6381 (resumed on 3a50a1a)",
+	"teacher": "Qwen/Qwen3.5-9B @ c202236235762e1c871ad0ccb60c8ee5ba337b9a, vLLM 0.31.0 fp8, non-thinking",
+	"endpoint": "teacher API at http://127.0.0.1:8000 (vLLM :8001); no harness",
+	"ledgers": [
+		{
+			"path": "ledgers/A1/s1-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12644718,
+			"sha256": "071f530cc3ca751d6aacf9dd5416349b8763276fc631b5a3fea00ddd4d9e8779",
+			"output_tokens": 589192,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-22T12:36:43.017991Z",
+			"last_generated_at": "2026-10-22T18:00:44.977591Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 19446.217600536067,
+				"released_output_tokens": 589192
+			}
+		},
+		{
+			"path": "ledgers/A1/s20-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12692211,
+			"sha256": "8ce20397624872411181896af31057ebfe2ec9a8407488391029e3b8637cf966",
+			"output_tokens": 596545,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-23T08:38:23.093698Z",
+			"last_generated_at": "2026-10-23T14:05:25.399977Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 19622.438743068953,
+				"released_output_tokens": 596545
+			}
+		},
+		{
+			"path": "ledgers/A1/s42-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12660100,
+			"sha256": "5661b50f2bf2787798057b57217e59bdcac578dae3cedaf8fe70f427042d1174",
+			"output_tokens": 588239,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-21T16:05:28.445438Z",
+			"last_generated_at": "2026-10-21T21:28:39.673750Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 19405.888441002986,
+				"released_output_tokens": 588239
+			}
+		},
+		{
+			"path": "ledgers/A2/s1-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12644718,
+			"sha256": "e2cbc64385291a0b4e64fa0d69c77ed63dc780ccdc38c6a51d5e977889fb209e",
+			"output_tokens": 589192,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-22T18:00:48.653480Z",
+			"last_generated_at": "2026-10-22T23:23:32.139718Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 19366.66968545702,
+				"released_output_tokens": 589192
+			}
+		},
+		{
+			"path": "ledgers/A2/s20-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12692211,
+			"sha256": "0129d5c2a346f1e37f60d2d6687389b585c5ed71582109bc4c60eb8e2d28e30a",
+			"output_tokens": 596545,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-23T14:05:42.586026Z",
+			"last_generated_at": "2026-10-23T19:32:37.429648Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 19631.52768946695,
+				"released_output_tokens": 596545
+			}
+		},
+		{
+			"path": "ledgers/A2/s42-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12660445,
+			"sha256": "55a778db0121e830aa8114f59b613464c573368073d27b421988ce03cdef9a18",
+			"output_tokens": 588309,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-21T21:28:40.254075Z",
+			"last_generated_at": "2026-10-22T03:12:52.482535Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 20652.319754952972,
+				"released_output_tokens": 588309
+			}
+		},
+		{
+			"path": "ledgers/A5/s1-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12650011,
+			"sha256": "8cfd47a246ae461b19fab014064c659d970be6374fb06bd444eba9bf60440722",
+			"output_tokens": 590433,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-22T23:23:38.033650Z",
+			"last_generated_at": "2026-10-23T02:47:24.032739Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 12230.337777378969,
+				"released_output_tokens": 590433
+			}
+		},
+		{
+			"path": "ledgers/A5/s20-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12687215,
+			"sha256": "7c38442578ed50bb08e152484f61e0fd560730830fcd99567321d36c3beb2f10",
+			"output_tokens": 595051,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-23T19:32:39.280871Z",
+			"last_generated_at": "2026-10-23T23:02:12.063142Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 12572.92923650099,
+				"released_output_tokens": 595051
+			}
+		},
+		{
+			"path": "ledgers/A5/s42-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 12654126,
+			"sha256": "4f03e7228c8da209fadcc5dce141af8ad2db98589499c8e054ff9123d65ef515",
+			"output_tokens": 587246,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-22T03:12:56.156731Z",
+			"last_generated_at": "2026-10-22T06:40:18.314508Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 12444.381328029966,
+				"released_output_tokens": 587246
+			}
+		},
+		{
+			"path": "ledgers/A7/s1-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 18760813,
+			"sha256": "3855627a53b18e6e06783eb69f81169795d05a16a7f131f6512629b0e0104b8c",
+			"output_tokens": 635518,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-23T02:47:41.208627Z",
+			"last_generated_at": "2026-10-23T08:38:22.426418Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 21057.887306727935,
+				"released_output_tokens": 635518
+			}
+		},
+		{
+			"path": "ledgers/A7/s20-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 18738150,
+			"sha256": "fd41f0d763fe79f7f895604e795789b11afc202574eead97f4a4c7fec8f7bb04",
+			"output_tokens": 633631,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-23T23:02:13.102881Z",
+			"last_generated_at": "2026-10-24T04:52:40.528563Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 21027.94753490598,
+				"released_output_tokens": 633631
+			}
+		},
+		{
+			"path": "ledgers/A7/s42-b6000/undefended/ledger.jsonl",
+			"records": 6000,
+			"bytes": 18680340,
+			"sha256": "975e4a3d08509f7c61544c120cdadbe5dbfdee3aada52e12fc2a0084814ee009",
+			"output_tokens": 632739,
+			"records_by_task": {
+				"ag_news": 1500,
+				"coding": 1500,
+				"gsm8k": 1500,
+				"squad": 1500
+			},
+			"first_generated_at": "2026-10-22T06:40:23.259197Z",
+			"last_generated_at": "2026-10-22T12:36:38.230188Z",
+			"campaign": {
+				"attempt_budget": 6000,
+				"queries": 6000,
+				"received": 6000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 21379.059516103996,
+				"released_output_tokens": 632739
+			}
+		},
+		{
+			"path": "ledgers/development/campaign/ledger.jsonl",
+			"records": 2000,
+			"bytes": 4218994,
+			"sha256": "7cdf77bbb61d7438abe6353dd9cb8e28d64e3ac2b85efacd1eed4adad500cd52",
+			"output_tokens": 196300,
+			"records_by_task": {
+				"ag_news": 500,
+				"coding": 500,
+				"gsm8k": 500,
+				"squad": 500
+			},
+			"first_generated_at": "2026-10-24T04:52:49.353503Z",
+			"last_generated_at": "2026-10-24T06:40:14.140913Z",
+			"campaign": {
+				"attempt_budget": 2000,
+				"queries": 2000,
+				"received": 2000,
+				"failed": 0,
+				"blocked": 0,
+				"challenge": 0,
+				"deadline": 0,
+				"pending": 0,
+				"elapsed_seconds": 6453.1366863859585,
+				"released_output_tokens": 196300
+			}
+		}
+	],
+	"totals": {
+		"records": 74000,
+		"bytes": 174384052,
+		"output_tokens": 7418940,
+		"records_by_task": {
+			"ag_news": 18500,
+			"coding": 18500,
+			"gsm8k": 18500,
+			"squad": 18500
+		},
+		"output_tokens_by_task": {
+			"ag_news": 43453,
+			"coding": 2631988,
+			"gsm8k": 4598378,
+			"squad": 145121
+		},
+		"finish_reason": {
+			"stop": 58296,
+			"length": 15704
+		}
+	},
+	"sources": [
+		{
+			"corpus": "nvidia/OpenCodeInstruct",
+			"license": "cc-by-4.0",
+			"records": 14000
+		},
+		{
+			"corpus": "openai/gsm8k",
+			"license": "mit",
+			"records": 14000
+		},
+		{
+			"corpus": "fancyzhx/ag_news",
+			"license": "unknown",
+			"records": 14000
+		},
+		{
+			"corpus": "rajpurkar/squad",
+			"license": "cc-by-sa-4.0",
+			"records": 14000
+		},
+		{
+			"corpus": "bigcode/self-oss-instruct-sc2-exec-filter-50k",
+			"license": "odc-by",
+			"records": 4500
+		},
+		{
+			"corpus": "MU-NLPC/Calc-math_qa",
+			"license": "apache-2.0",
+			"records": 4500
+		},
+		{
+			"corpus": "SetFit/bbc-news",
+			"license": "unknown",
+			"records": 4500
+		},
+		{
+			"corpus": "lucadiliello/newsqa",
+			"license": "unknown",
+			"records": 4500
+		}
+	]
+}
