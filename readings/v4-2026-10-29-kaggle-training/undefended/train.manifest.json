@@ -1,0 +1,24 @@
+{
+	"accept_pending": false,
+	"corpora": {
+		"fancyzhx/ag_news": 2000,
+		"openai/gsm8k": 450,
+		"rajpurkar/squad": 1998
+	},
+	"sha256": {
+		"dataset": "e90810fc40d07f5cc2ded31e2924385c6f3f198d3dde6492218259a2885d476d",
+		"ledger": "dca745459e864178c30f7399bc27db6a0629d3b617558cc45cac51af3d6de6fa",
+		"prompts": "6ba5597982b92c66a713f225c2595b11174a53e965f9825c322994d39047c07a",
+		"reviews": "7175a03c834b3e1e523eb4ca9600e8c8ef0d5f0f9ce9696894d1cfbbbc779692"
+	},
+	"skipped": {
+		"quality_or_review": 1552
+	},
+	"split": "train",
+	"tasks": {
+		"ag_news": 2000,
+		"gsm8k": 450,
+		"squad": 1998
+	},
+	"written": 4448
+}

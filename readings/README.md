@@ -11,6 +11,7 @@ Large per-request files stay on the run machine. Each README lists them.
 |---|---|---|---|---|---|---|
 | [v0](v0-2026-10-16-start/) | 2026-10-16 | `artifacts/start` | not recorded | pre-`task-study-v2` (AG News, SQuAD, GSM8K) | after the harness traffic `before` phase | undefended teacher collection, teacher test-suite benchmarks, unprotected harness traffic |
 | [v1](v1-2026-10-17-start-v2/) | 2026-10-17 | `artifacts/start-v2` | `866ade6` | `task-study-v2` (AG News, SQuAD) | undefended collection: `collect-protected` rejected `--teacher-url` | MMD detector calibration, benign holdout replay of three defenses, single-account attacker detectability |
+| [v4](v4-2026-10-29-kaggle-training/) | 2026-10-29 | Kaggle `trace-training/undefended` | `1e5b3d8` (notebook) | LoRA student training, FP16, three epochs | training completed | 4,448 training examples, 834 optimizer steps; no validation |
 
 ## Results so far
 
@@ -24,7 +25,7 @@ Large per-request files stay on the run machine. Each README lists them.
 | Benign specialist accounts escalated under `full` | 11 of 11 | 7 of 7 | — | v1 |
 | Benign accounts blocked by `quota` | 0 | 0 | — | v1 |
 
-No run has trained a student yet, so there are no distillation-gain, defense-effect, or utility results.
+The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured distillation-gain, defense-effect, or student utility results.
 
 ## Adding a run
 
