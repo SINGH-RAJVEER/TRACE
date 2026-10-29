@@ -11,6 +11,8 @@ Large per-request files stay on the run machine. Each README lists them.
 |---|---|---|---|---|---|---|
 | [v0](v0-2026-10-16-start/) | 2026-10-16 | `artifacts/start` | not recorded | pre-`task-study-v2` (AG News, SQuAD, GSM8K) | after the harness traffic `before` phase | undefended teacher collection, teacher test-suite benchmarks, unprotected harness traffic |
 | [v1](v1-2026-10-17-start-v2/) | 2026-10-17 | `artifacts/start-v2` | `866ade6` | `task-study-v2` (AG News, SQuAD) | undefended collection: `collect-protected` rejected `--teacher-url` | MMD detector calibration, benign holdout replay of three defenses, single-account attacker detectability |
+| [v2](v2-2026-10-21-gateway-bounded-v1/) | 2026-10-21 → (running) | `artifacts/gateway-bounded-v1` | `4bb6381`, resumed on `3a50a1a` | gateway study (AG News, SQuAD, GSM8K, coding; A1, A2, A5, A7; 3 seeds) | interim: all 12 undefended campaigns and the development sweep done; protected campaigns pending | undefended ledgers (74,000 responses, committed), development transfer gate |
+| [v3](v3-2026-10-29-gateway-replay/) | 2026-10-29 | `artifacts/gateway-bounded-v1` | `3599d6e` plus local collection-order change | continuation of v2 | interim: protected campaigns pending | held-out synthetic benign policy replay |
 | [v4](v4-2026-10-29-kaggle-training/) | 2026-10-29 | Kaggle `trace-training/undefended` | `1e5b3d8` (notebook) | LoRA student training, FP16, three epochs | training completed | 4,448 training examples, 834 optimizer steps; no validation |
 
 ## Results so far
@@ -25,7 +27,9 @@ Large per-request files stay on the run machine. Each README lists them.
 | Benign specialist accounts escalated under `full` | 11 of 11 | 7 of 7 | — | v1 |
 | Benign accounts blocked by `quota` | 0 | 0 | — | v1 |
 
-The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured distillation-gain, defense-effect, or student utility results.
+v2's development sweep trained six shared students. AG News is the only domain with qualified transfer: +20.0 pp, from 66.6 to 86.6, 95% CI 16.4–23.8. SQuAD gained +2.8 pp, coding +0.2 pp, and GSM8K −14.5 pp. There are no defense-effect or utility results yet.
+
+The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured v4 distillation-gain, defense-effect, or student utility results.
 
 ## Adding a run
 
