@@ -798,7 +798,6 @@ class GatewayStudy:
 		self.select_recipe(devschedule, development / "campaign")
 		self.study.ensure_teacher()
 		for directory, schedule, seed, budget in jobs:
-			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
 			for arm in self.study.arms:
 				defended = directory / arm
 				# A completed collection is reused without restarting a previously spent policy.
@@ -835,6 +834,7 @@ class GatewayStudy:
 				finally:
 					launcher.stop_background(keep=keep)
 		for directory, _, seed, budget in jobs:
+			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
 			self.evaluate(
 				directory / "teacher", None, seed, budget, teacher=True, teacher_after=True
 			)
