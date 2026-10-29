@@ -233,6 +233,8 @@ class Launcher:
 			revision = os.environ.get("TEACHER_MODEL_REVISION") or DEFAULT_TEACHER_REVISION
 			if Path(model).exists() or os.environ.get("HF_HUB_OFFLINE", "") in {"1", "true"}:
 				self.log(f"using {model} without downloading")
+			elif _cached_snapshot(model, revision):
+				self.log(f"using the cached {model} snapshot at {revision[:12]}")
 			else:
 				self.log(f"downloading {model} at {revision[:12]} into the Hugging Face cache")
 				self.distill("download-model", model, "--revision", revision)
@@ -276,7 +278,9 @@ class Launcher:
 					*shlex.split(os.environ.get("VLLM_EXTRA_ARGS", "")),
 				],
 				vllm_log,
-				_vllm_env(),
+				# The pinned snapshot is local by now. Offline serving keeps vLLM's startup file
+				# listing off the network, so a proxy or outage cannot stop a restart mid-study.
+				_vllm_env() | {"HF_HUB_OFFLINE": "1"},
 			)
 			self.log(f"vLLM log: {vllm_log}")
 			self.wait_for_http(
@@ -1025,6 +1029,24 @@ def _find_vllm() -> str:
 		)
 	venv = Path(".venv-vllm/bin/vllm")
 	return str(venv) if venv.is_file() else ""
+
+
+# Safetensors weights plus configuration and tokenizer files, never duplicate formats.
+MODEL_FILE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"]
+
+
+def _cached_snapshot(model: str, revision: str) -> bool:
+	"""Whether download-model's files for the pinned revision are cached, checked offline."""
+	from huggingface_hub import snapshot_download
+	from huggingface_hub.errors import LocalEntryNotFoundError
+
+	try:
+		snapshot_download(
+			model, revision=revision, allow_patterns=MODEL_FILE_PATTERNS, local_files_only=True
+		)
+	except LocalEntryNotFoundError:
+		return False
+	return True
 
 
 def _vllm_env() -> dict[str, str]:
