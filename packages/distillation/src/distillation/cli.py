@@ -310,12 +310,9 @@ def download_model_command(
 	"""
 	from huggingface_hub import snapshot_download
 
-	path = snapshot_download(
-		model,
-		revision=revision,
-		# Safetensors weights plus configuration and tokenizer files, never duplicate formats.
-		allow_patterns=["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"],
-	)
+	from distillation.launcher import MODEL_FILE_PATTERNS
+
+	path = snapshot_download(model, revision=revision, allow_patterns=MODEL_FILE_PATTERNS)
 	if console.is_terminal:
 		# The last download bar leaves the cursor at the end of its line.
 		console.line()
