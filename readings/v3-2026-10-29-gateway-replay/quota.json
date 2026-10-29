@@ -1,0 +1,69 @@
+{
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"policy": "quota",
+	"accumulator": null,
+	"actions": null,
+	"thresholds": null,
+	"requests": 24047,
+	"horizons": 125,
+	"unscored_horizons": 25,
+	"windows": 0,
+	"l4_action": null,
+	"deceived": 0,
+	"implemented_levels": [
+		4
+	],
+	"reached": {
+		"L1": null,
+		"L2": null,
+		"L3": null,
+		"L4": 1
+	},
+	"reached_rate": {
+		"L1": null,
+		"L2": null,
+		"L3": null,
+		"L4": 0.008
+	},
+	"reached_rate_scored": {
+		"L1": null,
+		"L2": null,
+		"L3": null,
+		"L4": 0.01
+	},
+	"output": "artifacts/gateway-bounded-v1/benign-test/quota.jsonl",
+	"profiles": {
+		"generalist": {
+			"horizons": 13,
+			"scored_horizons": 0,
+			"reached_rate": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": 0.0
+			},
+			"reached_rate_scored": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": null
+			}
+		},
+		"specialist": {
+			"horizons": 112,
+			"scored_horizons": 0,
+			"reached_rate": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": 0.008928571428571428
+			},
+			"reached_rate_scored": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": null
+			}
+		}
+	}
+}
