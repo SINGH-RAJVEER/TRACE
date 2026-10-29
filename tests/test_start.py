@@ -1209,3 +1209,27 @@ async def test_utility_scores_after_replay_and_freezes_solver_capacity(
 	kwargs["solver_workers"] = 2
 	with pytest.raises(ValueError, match="configuration changed"):
 		await measure_utility(**kwargs)
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_vllm_serves_the_pinned_snapshot_offline(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cached: bool
+) -> None:
+	import distillation.launcher as launcher
+
+	monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+	monkeypatch.setattr(launcher, "_find_vllm", lambda: "vllm")
+	monkeypatch.setattr(launcher, "_cached_snapshot", lambda model, revision: cached)
+	downloads: list[tuple[str, ...]] = []
+	monkeypatch.setattr(Launcher, "distill", lambda self, *args, **kwargs: downloads.append(args))
+	started: dict[str, dict[str, str]] = {}
+	monkeypatch.setattr(
+		Launcher, "start", lambda self, name, command, log, env: started.setdefault(name, env)
+	)
+	monkeypatch.setattr(Launcher, "wait_for_http", lambda *args: None)
+	monkeypatch.setattr(Launcher, "smoke_test", lambda *args: None)
+	Launcher("test").start_teacher_stack("127.0.0.1", 8000, "", tmp_path / "api.log")
+	# vLLM's startup file listing must not need the network once the snapshot is local.
+	assert started["vllm"]["HF_HUB_OFFLINE"] == "1"
+	assert "HF_HUB_OFFLINE" not in started["teacher-api"]
+	assert [args[0] for args in downloads] == ([] if cached else ["download-model"])
