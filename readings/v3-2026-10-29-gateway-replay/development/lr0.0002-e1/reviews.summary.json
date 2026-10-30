@@ -1,0 +1,18 @@
+{
+	"accepted_by_task": {
+		"ag_news": 500,
+		"coding": 484,
+		"gsm8k": 124,
+		"squad": 499
+	},
+	"length_checked": true,
+	"records": 2000,
+	"rejection_reasons": {
+		"collector: finish_reason:length": 393
+	},
+	"reviewer": "task-usability-v1",
+	"status": {
+		"accepted": 1607,
+		"rejected": 393
+	}
+}

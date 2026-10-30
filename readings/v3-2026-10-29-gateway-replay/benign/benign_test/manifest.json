@@ -1,0 +1,800 @@
+{
+	"version": "gateway-clients-v3",
+	"role": "benign_test",
+	"seed": 42,
+	"accounts": 125,
+	"concentrated_share": 0.1,
+	"client_shares": {
+		"specialist": 0.05,
+		"repetitive": 0.05,
+		"batch": 0.35000000000000003,
+		"bursty": 0.35000000000000003,
+		"short": 0.2
+	},
+	"generalist_share_requested": 0.1,
+	"generalist_share_achieved": 0.104,
+	"generalist_accounts": 13,
+	"requests_per_account_requested": 100,
+	"specialist_domain_rule": "weighted round-robin by role pool size",
+	"length_distribution": {
+		"minimum": 100,
+		"pareto_shape": 1.5,
+		"maximum": 2000,
+		"short_accounts": "capped at 20"
+	},
+	"account_lengths_requested": {
+		"benign_test-gateway-00000": 1832,
+		"benign_test-gateway-00001": 150,
+		"benign_test-gateway-00002": 20,
+		"benign_test-gateway-00003": 388,
+		"benign_test-gateway-00004": 164,
+		"benign_test-gateway-00005": 249,
+		"benign_test-gateway-00006": 324,
+		"benign_test-gateway-00007": 174,
+		"benign_test-gateway-00008": 20,
+		"benign_test-gateway-00009": 103,
+		"benign_test-gateway-00010": 145,
+		"benign_test-gateway-00011": 156,
+		"benign_test-gateway-00012": 20,
+		"benign_test-gateway-00013": 105,
+		"benign_test-gateway-00014": 113,
+		"benign_test-gateway-00015": 114,
+		"benign_test-gateway-00016": 182,
+		"benign_test-gateway-00017": 20,
+		"benign_test-gateway-00018": 120,
+		"benign_test-gateway-00019": 211,
+		"benign_test-gateway-00020": 117,
+		"benign_test-gateway-00021": 182,
+		"benign_test-gateway-00022": 20,
+		"benign_test-gateway-00023": 297,
+		"benign_test-gateway-00024": 272,
+		"benign_test-gateway-00025": 215,
+		"benign_test-gateway-00026": 218,
+		"benign_test-gateway-00027": 131,
+		"benign_test-gateway-00028": 20,
+		"benign_test-gateway-00029": 121,
+		"benign_test-gateway-00030": 113,
+		"benign_test-gateway-00031": 486,
+		"benign_test-gateway-00032": 20,
+		"benign_test-gateway-00033": 109,
+		"benign_test-gateway-00034": 128,
+		"benign_test-gateway-00035": 119,
+		"benign_test-gateway-00036": 272,
+		"benign_test-gateway-00037": 20,
+		"benign_test-gateway-00038": 865,
+		"benign_test-gateway-00039": 108,
+		"benign_test-gateway-00040": 139,
+		"benign_test-gateway-00041": 160,
+		"benign_test-gateway-00042": 20,
+		"benign_test-gateway-00043": 131,
+		"benign_test-gateway-00044": 166,
+		"benign_test-gateway-00045": 104,
+		"benign_test-gateway-00046": 319,
+		"benign_test-gateway-00047": 108,
+		"benign_test-gateway-00048": 20,
+		"benign_test-gateway-00049": 135,
+		"benign_test-gateway-00050": 101,
+		"benign_test-gateway-00051": 236,
+		"benign_test-gateway-00052": 20,
+		"benign_test-gateway-00053": 309,
+		"benign_test-gateway-00054": 118,
+		"benign_test-gateway-00055": 185,
+		"benign_test-gateway-00056": 123,
+		"benign_test-gateway-00057": 20,
+		"benign_test-gateway-00058": 495,
+		"benign_test-gateway-00059": 176,
+		"benign_test-gateway-00060": 243,
+		"benign_test-gateway-00061": 388,
+		"benign_test-gateway-00062": 20,
+		"benign_test-gateway-00063": 128,
+		"benign_test-gateway-00064": 1071,
+		"benign_test-gateway-00065": 127,
+		"benign_test-gateway-00066": 111,
+		"benign_test-gateway-00067": 135,
+		"benign_test-gateway-00068": 20,
+		"benign_test-gateway-00069": 102,
+		"benign_test-gateway-00070": 123,
+		"benign_test-gateway-00071": 510,
+		"benign_test-gateway-00072": 20,
+		"benign_test-gateway-00073": 897,
+		"benign_test-gateway-00074": 1215,
+		"benign_test-gateway-00075": 143,
+		"benign_test-gateway-00076": 160,
+		"benign_test-gateway-00077": 20,
+		"benign_test-gateway-00078": 102,
+		"benign_test-gateway-00079": 425,
+		"benign_test-gateway-00080": 123,
+		"benign_test-gateway-00081": 217,
+		"benign_test-gateway-00082": 20,
+		"benign_test-gateway-00083": 140,
+		"benign_test-gateway-00084": 169,
+		"benign_test-gateway-00085": 127,
+		"benign_test-gateway-00086": 196,
+		"benign_test-gateway-00087": 114,
+		"benign_test-gateway-00088": 20,
+		"benign_test-gateway-00089": 177,
+		"benign_test-gateway-00090": 111,
+		"benign_test-gateway-00091": 207,
+		"benign_test-gateway-00092": 20,
+		"benign_test-gateway-00093": 267,
+		"benign_test-gateway-00094": 139,
+		"benign_test-gateway-00095": 179,
+		"benign_test-gateway-00096": 217,
+		"benign_test-gateway-00097": 20,
+		"benign_test-gateway-00098": 331,
+		"benign_test-gateway-00099": 109,
+		"benign_test-gateway-00100": 101,
+		"benign_test-gateway-00101": 119,
+		"benign_test-gateway-00102": 20,
+		"benign_test-gateway-00103": 182,
+		"benign_test-gateway-00104": 101,
+		"benign_test-gateway-00105": 235,
+		"benign_test-gateway-00106": 101,
+		"benign_test-gateway-00107": 151,
+		"benign_test-gateway-00108": 20,
+		"benign_test-gateway-00109": 211,
+		"benign_test-gateway-00110": 191,
+		"benign_test-gateway-00111": 105,
+		"benign_test-gateway-00112": 20,
+		"benign_test-gateway-00113": 507,
+		"benign_test-gateway-00114": 258,
+		"benign_test-gateway-00115": 104,
+		"benign_test-gateway-00116": 136,
+		"benign_test-gateway-00117": 20,
+		"benign_test-gateway-00118": 106,
+		"benign_test-gateway-00119": 131,
+		"benign_test-gateway-00120": 120,
+		"benign_test-gateway-00121": 153,
+		"benign_test-gateway-00122": 20,
+		"benign_test-gateway-00123": 371,
+		"benign_test-gateway-00124": 229
+	},
+	"capacity_limited_accounts": [
+		"benign_test-gateway-00053",
+		"benign_test-gateway-00094"
+	],
+	"requests": 24047,
+	"domain_requests": {
+		"ag_news": 10939,
+		"coding": 4665,
+		"gsm8k": 675,
+		"squad": 7768
+	},
+	"domain_unique_prompts": {
+		"ag_news": 10829,
+		"squad": 7072,
+		"coding": 4421,
+		"gsm8k": 659
+	},
+	"account_domains": {
+		"benign_test-gateway-00000": [
+			"ag_news"
+		],
+		"benign_test-gateway-00001": [
+			"squad"
+		],
+		"benign_test-gateway-00002": [
+			"coding"
+		],
+		"benign_test-gateway-00003": [
+			"ag_news"
+		],
+		"benign_test-gateway-00004": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00005": [
+			"ag_news"
+		],
+		"benign_test-gateway-00006": [
+			"squad"
+		],
+		"benign_test-gateway-00007": [
+			"coding"
+		],
+		"benign_test-gateway-00008": [
+			"ag_news"
+		],
+		"benign_test-gateway-00009": [
+			"squad"
+		],
+		"benign_test-gateway-00010": [
+			"ag_news"
+		],
+		"benign_test-gateway-00011": [
+			"squad"
+		],
+		"benign_test-gateway-00012": [
+			"ag_news",
+			"coding",
+			"squad"
+		],
+		"benign_test-gateway-00013": [
+			"squad"
+		],
+		"benign_test-gateway-00014": [
+			"coding"
+		],
+		"benign_test-gateway-00015": [
+			"ag_news"
+		],
+		"benign_test-gateway-00016": [
+			"squad"
+		],
+		"benign_test-gateway-00017": [
+			"gsm8k"
+		],
+		"benign_test-gateway-00018": [
+			"ag_news"
+		],
+		"benign_test-gateway-00019": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00020": [
+			"ag_news"
+		],
+		"benign_test-gateway-00021": [
+			"coding"
+		],
+		"benign_test-gateway-00022": [
+			"squad"
+		],
+		"benign_test-gateway-00023": [
+			"ag_news"
+		],
+		"benign_test-gateway-00024": [
+			"squad"
+		],
+		"benign_test-gateway-00025": [
+			"ag_news"
+		],
+		"benign_test-gateway-00026": [
+			"squad"
+		],
+		"benign_test-gateway-00027": [
+			"coding"
+		],
+		"benign_test-gateway-00028": [
+			"ag_news"
+		],
+		"benign_test-gateway-00029": [
+			"squad"
+		],
+		"benign_test-gateway-00030": [
+			"ag_news"
+		],
+		"benign_test-gateway-00031": [
+			"squad"
+		],
+		"benign_test-gateway-00032": [
+			"coding"
+		],
+		"benign_test-gateway-00033": [
+			"ag_news"
+		],
+		"benign_test-gateway-00034": [
+			"squad"
+		],
+		"benign_test-gateway-00035": [
+			"ag_news"
+		],
+		"benign_test-gateway-00036": [
+			"squad"
+		],
+		"benign_test-gateway-00037": [
+			"ag_news"
+		],
+		"benign_test-gateway-00038": [
+			"coding"
+		],
+		"benign_test-gateway-00039": [
+			"squad"
+		],
+		"benign_test-gateway-00040": [
+			"ag_news"
+		],
+		"benign_test-gateway-00041": [
+			"squad"
+		],
+		"benign_test-gateway-00042": [
+			"ag_news"
+		],
+		"benign_test-gateway-00043": [
+			"coding"
+		],
+		"benign_test-gateway-00044": [
+			"squad"
+		],
+		"benign_test-gateway-00045": [
+			"ag_news"
+		],
+		"benign_test-gateway-00046": [
+			"squad"
+		],
+		"benign_test-gateway-00047": [
+			"ag_news"
+		],
+		"benign_test-gateway-00048": [
+			"coding"
+		],
+		"benign_test-gateway-00049": [
+			"squad"
+		],
+		"benign_test-gateway-00050": [
+			"ag_news"
+		],
+		"benign_test-gateway-00051": [
+			"ag_news"
+		],
+		"benign_test-gateway-00052": [
+			"squad"
+		],
+		"benign_test-gateway-00053": [
+			"gsm8k"
+		],
+		"benign_test-gateway-00054": [
+			"coding",
+			"squad"
+		],
+		"benign_test-gateway-00055": [
+			"squad"
+		],
+		"benign_test-gateway-00056": [
+			"coding"
+		],
+		"benign_test-gateway-00057": [
+			"ag_news"
+		],
+		"benign_test-gateway-00058": [
+			"squad"
+		],
+		"benign_test-gateway-00059": [
+			"ag_news"
+		],
+		"benign_test-gateway-00060": [
+			"squad"
+		],
+		"benign_test-gateway-00061": [
+			"ag_news"
+		],
+		"benign_test-gateway-00062": [
+			"squad"
+		],
+		"benign_test-gateway-00063": [
+			"ag_news",
+			"coding"
+		],
+		"benign_test-gateway-00064": [
+			"ag_news"
+		],
+		"benign_test-gateway-00065": [
+			"squad"
+		],
+		"benign_test-gateway-00066": [
+			"ag_news"
+		],
+		"benign_test-gateway-00067": [
+			"squad"
+		],
+		"benign_test-gateway-00068": [
+			"coding"
+		],
+		"benign_test-gateway-00069": [
+			"ag_news"
+		],
+		"benign_test-gateway-00070": [
+			"squad"
+		],
+		"benign_test-gateway-00071": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00072": [
+			"squad"
+		],
+		"benign_test-gateway-00073": [
+			"coding"
+		],
+		"benign_test-gateway-00074": [
+			"ag_news"
+		],
+		"benign_test-gateway-00075": [
+			"squad"
+		],
+		"benign_test-gateway-00076": [
+			"ag_news",
+			"gsm8k"
+		],
+		"benign_test-gateway-00077": [
+			"squad"
+		],
+		"benign_test-gateway-00078": [
+			"ag_news"
+		],
+		"benign_test-gateway-00079": [
+			"coding"
+		],
+		"benign_test-gateway-00080": [
+			"squad"
+		],
+		"benign_test-gateway-00081": [
+			"ag_news"
+		],
+		"benign_test-gateway-00082": [
+			"squad"
+		],
+		"benign_test-gateway-00083": [
+			"ag_news"
+		],
+		"benign_test-gateway-00084": [
+			"coding"
+		],
+		"benign_test-gateway-00085": [
+			"squad"
+		],
+		"benign_test-gateway-00086": [
+			"ag_news"
+		],
+		"benign_test-gateway-00087": [
+			"squad"
+		],
+		"benign_test-gateway-00088": [
+			"ag_news"
+		],
+		"benign_test-gateway-00089": [
+			"squad"
+		],
+		"benign_test-gateway-00090": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00091": [
+			"coding"
+		],
+		"benign_test-gateway-00092": [
+			"squad"
+		],
+		"benign_test-gateway-00093": [
+			"ag_news"
+		],
+		"benign_test-gateway-00094": [
+			"gsm8k"
+		],
+		"benign_test-gateway-00095": [
+			"squad"
+		],
+		"benign_test-gateway-00096": [
+			"ag_news"
+		],
+		"benign_test-gateway-00097": [
+			"coding"
+		],
+		"benign_test-gateway-00098": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00099": [
+			"ag_news"
+		],
+		"benign_test-gateway-00100": [
+			"ag_news",
+			"coding",
+			"gsm8k"
+		],
+		"benign_test-gateway-00101": [
+			"ag_news"
+		],
+		"benign_test-gateway-00102": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00103": [
+			"ag_news"
+		],
+		"benign_test-gateway-00104": [
+			"squad"
+		],
+		"benign_test-gateway-00105": [
+			"ag_news"
+		],
+		"benign_test-gateway-00106": [
+			"squad"
+		],
+		"benign_test-gateway-00107": [
+			"ag_news"
+		],
+		"benign_test-gateway-00108": [
+			"ag_news",
+			"squad"
+		],
+		"benign_test-gateway-00109": [
+			"coding"
+		],
+		"benign_test-gateway-00110": [
+			"ag_news"
+		],
+		"benign_test-gateway-00111": [
+			"squad"
+		],
+		"benign_test-gateway-00112": [
+			"ag_news"
+		],
+		"benign_test-gateway-00113": [
+			"squad"
+		],
+		"benign_test-gateway-00114": [
+			"coding"
+		],
+		"benign_test-gateway-00115": [
+			"ag_news"
+		],
+		"benign_test-gateway-00116": [
+			"squad"
+		],
+		"benign_test-gateway-00117": [
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"benign_test-gateway-00118": [
+			"squad"
+		],
+		"benign_test-gateway-00119": [
+			"ag_news"
+		],
+		"benign_test-gateway-00120": [
+			"coding"
+		],
+		"benign_test-gateway-00121": [
+			"squad"
+		],
+		"benign_test-gateway-00122": [
+			"ag_news"
+		],
+		"benign_test-gateway-00123": [
+			"squad"
+		],
+		"benign_test-gateway-00124": [
+			"ag_news"
+		]
+	},
+	"account_lengths": {
+		"benign_test-gateway-00000": 1832,
+		"benign_test-gateway-00001": 150,
+		"benign_test-gateway-00002": 20,
+		"benign_test-gateway-00003": 388,
+		"benign_test-gateway-00004": 164,
+		"benign_test-gateway-00005": 249,
+		"benign_test-gateway-00006": 324,
+		"benign_test-gateway-00007": 174,
+		"benign_test-gateway-00008": 20,
+		"benign_test-gateway-00009": 103,
+		"benign_test-gateway-00010": 145,
+		"benign_test-gateway-00011": 156,
+		"benign_test-gateway-00012": 20,
+		"benign_test-gateway-00013": 105,
+		"benign_test-gateway-00014": 113,
+		"benign_test-gateway-00015": 114,
+		"benign_test-gateway-00016": 182,
+		"benign_test-gateway-00017": 20,
+		"benign_test-gateway-00018": 120,
+		"benign_test-gateway-00019": 211,
+		"benign_test-gateway-00020": 117,
+		"benign_test-gateway-00021": 182,
+		"benign_test-gateway-00022": 20,
+		"benign_test-gateway-00023": 297,
+		"benign_test-gateway-00024": 272,
+		"benign_test-gateway-00025": 215,
+		"benign_test-gateway-00026": 218,
+		"benign_test-gateway-00027": 131,
+		"benign_test-gateway-00028": 20,
+		"benign_test-gateway-00029": 121,
+		"benign_test-gateway-00030": 113,
+		"benign_test-gateway-00031": 486,
+		"benign_test-gateway-00032": 20,
+		"benign_test-gateway-00033": 109,
+		"benign_test-gateway-00034": 128,
+		"benign_test-gateway-00035": 119,
+		"benign_test-gateway-00036": 272,
+		"benign_test-gateway-00037": 20,
+		"benign_test-gateway-00038": 865,
+		"benign_test-gateway-00039": 108,
+		"benign_test-gateway-00040": 139,
+		"benign_test-gateway-00041": 160,
+		"benign_test-gateway-00042": 20,
+		"benign_test-gateway-00043": 131,
+		"benign_test-gateway-00044": 166,
+		"benign_test-gateway-00045": 104,
+		"benign_test-gateway-00046": 319,
+		"benign_test-gateway-00047": 108,
+		"benign_test-gateway-00048": 20,
+		"benign_test-gateway-00049": 135,
+		"benign_test-gateway-00050": 101,
+		"benign_test-gateway-00051": 236,
+		"benign_test-gateway-00052": 20,
+		"benign_test-gateway-00053": 292,
+		"benign_test-gateway-00054": 118,
+		"benign_test-gateway-00055": 185,
+		"benign_test-gateway-00056": 123,
+		"benign_test-gateway-00057": 20,
+		"benign_test-gateway-00058": 495,
+		"benign_test-gateway-00059": 176,
+		"benign_test-gateway-00060": 243,
+		"benign_test-gateway-00061": 388,
+		"benign_test-gateway-00062": 20,
+		"benign_test-gateway-00063": 128,
+		"benign_test-gateway-00064": 1071,
+		"benign_test-gateway-00065": 127,
+		"benign_test-gateway-00066": 111,
+		"benign_test-gateway-00067": 135,
+		"benign_test-gateway-00068": 20,
+		"benign_test-gateway-00069": 102,
+		"benign_test-gateway-00070": 123,
+		"benign_test-gateway-00071": 510,
+		"benign_test-gateway-00072": 20,
+		"benign_test-gateway-00073": 897,
+		"benign_test-gateway-00074": 1215,
+		"benign_test-gateway-00075": 143,
+		"benign_test-gateway-00076": 160,
+		"benign_test-gateway-00077": 20,
+		"benign_test-gateway-00078": 102,
+		"benign_test-gateway-00079": 425,
+		"benign_test-gateway-00080": 123,
+		"benign_test-gateway-00081": 217,
+		"benign_test-gateway-00082": 20,
+		"benign_test-gateway-00083": 140,
+		"benign_test-gateway-00084": 169,
+		"benign_test-gateway-00085": 127,
+		"benign_test-gateway-00086": 196,
+		"benign_test-gateway-00087": 114,
+		"benign_test-gateway-00088": 20,
+		"benign_test-gateway-00089": 177,
+		"benign_test-gateway-00090": 111,
+		"benign_test-gateway-00091": 207,
+		"benign_test-gateway-00092": 20,
+		"benign_test-gateway-00093": 267,
+		"benign_test-gateway-00094": 100,
+		"benign_test-gateway-00095": 179,
+		"benign_test-gateway-00096": 217,
+		"benign_test-gateway-00097": 20,
+		"benign_test-gateway-00098": 331,
+		"benign_test-gateway-00099": 109,
+		"benign_test-gateway-00100": 101,
+		"benign_test-gateway-00101": 119,
+		"benign_test-gateway-00102": 20,
+		"benign_test-gateway-00103": 182,
+		"benign_test-gateway-00104": 101,
+		"benign_test-gateway-00105": 235,
+		"benign_test-gateway-00106": 101,
+		"benign_test-gateway-00107": 151,
+		"benign_test-gateway-00108": 20,
+		"benign_test-gateway-00109": 211,
+		"benign_test-gateway-00110": 191,
+		"benign_test-gateway-00111": 105,
+		"benign_test-gateway-00112": 20,
+		"benign_test-gateway-00113": 507,
+		"benign_test-gateway-00114": 258,
+		"benign_test-gateway-00115": 104,
+		"benign_test-gateway-00116": 136,
+		"benign_test-gateway-00117": 20,
+		"benign_test-gateway-00118": 106,
+		"benign_test-gateway-00119": 131,
+		"benign_test-gateway-00120": 120,
+		"benign_test-gateway-00121": 153,
+		"benign_test-gateway-00122": 20,
+		"benign_test-gateway-00123": 371,
+		"benign_test-gateway-00124": 229
+	},
+	"client_types": {
+		"batch": 44,
+		"bursty": 44,
+		"short": 25,
+		"specialist": 6,
+		"repetitive": 6
+	},
+	"scored_accounts": 100,
+	"complete_100_request_windows": 198,
+	"multi_window_accounts": 34,
+	"source_documents": 15941,
+	"topic_order": "category",
+	"domain_topic_categories": {
+		"ag_news": [
+			"Business",
+			"Sci/Tech",
+			"Sports",
+			"World"
+		],
+		"coding": [
+			"algorithmic",
+			"generic"
+		],
+		"gsm8k": [
+			"math"
+		],
+		"squad": [
+			"2008_Sichuan_earthquake",
+			"A_cappella",
+			"Alaska",
+			"American_Idol",
+			"Animal",
+			"Apollo",
+			"Asphalt",
+			"Beer",
+			"Biodiversity",
+			"Cardinal_(Catholicism)",
+			"Crimean_War",
+			"Database",
+			"Diarrhea",
+			"Elevator",
+			"Emotion",
+			"FC_Barcelona",
+			"Frédéric_Chopin",
+			"General_Electric",
+			"Glass",
+			"Guam",
+			"Hard_rock",
+			"Hellenistic_period",
+			"Human_Development_Index",
+			"Humanism",
+			"Infrared",
+			"John,_King_of_England",
+			"Kanye_West",
+			"Liberia",
+			"Marvel_Comics",
+			"Materialism",
+			"Modern_history",
+			"Molotov%E2%80%93Ribbentrop_Pact",
+			"National_Archives_and_Records_Administration",
+			"Neoclassical_architecture",
+			"Plymouth",
+			"Printed_circuit_board",
+			"Quran",
+			"Race_(human_categorization)",
+			"Religion_in_ancient_Rome",
+			"Richmond,_Virginia",
+			"Saint_Helena",
+			"Sony_Music_Entertainment",
+			"Symbiosis",
+			"To_Kill_a_Mockingbird",
+			"United_Nations_Population_Fund",
+			"United_States_Army",
+			"Utrecht",
+			"Warsaw_Pact",
+			"Wayback_Machine",
+			"Zhejiang"
+		]
+	},
+	"specialist_scope": {
+		"ag_news": "topic ordered",
+		"coding": "topic ordered",
+		"gsm8k": "domain only",
+		"squad": "topic ordered"
+	},
+	"arrival_times": "synthetic, accounts start together",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"squad": 64,
+		"gsm8k": 256,
+		"coding": 512
+	},
+	"pool_sha256": {
+		"ag_news": "970b58510333ff249853460b4e40ef994b3410428dbcaf47fde6b12c52a59ada",
+		"coding": "3a2eb9c253d108275c20e474b30213010651a35d17485ed8fae033bdcf60d231",
+		"gsm8k": "8ea64555bdaebbeddc3f956abe44cca42591858099b783e00ff12d90385b7228",
+		"squad": "377ab78f543c9a764c8fea3811ade2e45037ae7b26735a23256a602e313184a0"
+	},
+	"execution_status": "not_run"
+}

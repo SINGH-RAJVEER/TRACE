@@ -1,0 +1,95 @@
+{
+	"version": "gateway-schedules-v2",
+	"campaign_id": "A6-s42-b6000",
+	"attack": "A6",
+	"seed": 42,
+	"attempt_budget": 6000,
+	"budget_unit": "campaign-wide HTTP submissions, including proof redemption and failures",
+	"deadline_seconds": 86400.0,
+	"planned_queries": 6000,
+	"domain_allocation": {
+		"ag_news": 1500,
+		"coding": 1500,
+		"gsm8k": 1500,
+		"squad": 1500
+	},
+	"prompt_sources": "task pools",
+	"source_corpora": {
+		"ag_news": [
+			"fancyzhx/ag_news"
+		],
+		"coding": [
+			"nvidia/OpenCodeInstruct"
+		],
+		"gsm8k": [
+			"openai/gsm8k"
+		],
+		"squad": [
+			"rajpurkar/squad"
+		]
+	},
+	"cover_share": null,
+	"cover_allocation": {},
+	"accounts": [
+		"A6-s42-b6000-sybil-000",
+		"A6-s42-b6000-sybil-001",
+		"A6-s42-b6000-sybil-002",
+		"A6-s42-b6000-sybil-003",
+		"A6-s42-b6000-sybil-004",
+		"A6-s42-b6000-sybil-005"
+	],
+	"account_domains": {
+		"A6-s42-b6000-sybil-000": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"A6-s42-b6000-sybil-001": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"A6-s42-b6000-sybil-002": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"A6-s42-b6000-sybil-003": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"A6-s42-b6000-sybil-004": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"A6-s42-b6000-sybil-005": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		]
+	},
+	"interval_seconds": 1.0,
+	"arrival_times": "synthetic, global campaign schedule",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"squad": 64,
+		"gsm8k": 256,
+		"coding": 512
+	},
+	"pool_sha256": {
+		"ag_news": "660b70662f9c7661ea0a8a0435c1f1d5abc50e2ee2e00687f7263f1c002633f4",
+		"coding": "e2c40b8c2182331407733e7b6f7cf017ed008bdf6cdd93a472e4031684eaaf1b",
+		"gsm8k": "5f58cc47a5531e752b0087765870a31e50ed557f8ff3623266564b8e5c86955d",
+		"squad": "1e1de016c529d90da1eea87d8298e10699149b48fa2d4c776166a789e53a3644"
+	},
+	"cover_pool_sha256": null,
+	"execution_status": "not_run"
+}
