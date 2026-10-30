@@ -440,8 +440,11 @@ class GatewayStudy:
 			if teacher
 			else ("student_before", "student_after")
 		)
+		# The untrained student is the same model for every final-test condition, so it is
+		# benchmarked once per seed and budget. Development trials keep their own baselines.
+		base = self.root / "base-student" / f"s{seed}-b{budget}"
 		for domain in self.study.pipeline.tasks:
-			config_path = self.study.evaluation(
+			source = self.study.evaluation(
 				domain,
 				seed,
 				budget,
@@ -451,24 +454,29 @@ class GatewayStudy:
 				development_split=development_split,
 				untrained=adapter is None,
 			)
-			config = load_config(config_path)
-			config.output_dir = directory / "benchmarks" / domain
-			config.experiment = str(directory)
-			config.dimensions |= {
-				"study_kind": "shared_gateway",
-				"condition": str(directory),
-				"schedule": "mixed_domain",
-			}
-			config_path = directory / f"eval.{domain}.toml"
-			config_path.parent.mkdir(parents=True, exist_ok=True)
-			config_path.write_text(_toml(config.model_dump(mode="json")))
+			latest = {}
 			for slot in slots:
+				target = (
+					base
+					if slot == "student_before" and not development and adapter is not None
+					else directory
+				)
+				config = load_config(source)
+				config.output_dir = target / "benchmarks" / domain
+				config.experiment = str(target)
+				config.dimensions |= {
+					"study_kind": "shared_gateway",
+					"condition": str(target),
+					"schedule": "mixed_domain",
+				}
+				config_path = target / f"eval.{domain}.toml"
+				config_path.parent.mkdir(parents=True, exist_ok=True)
+				config_path.write_text(_toml(config.model_dump(mode="json")))
 				self.study.benchmark(config_path, slot)
-			runs, errors = discover_runs(config.output_dir)
-			if errors:
-				raise LaunchError("invalid shared student evaluation artifacts")
-			latest = {
-				slot: max(
+				runs, errors = discover_runs(config.output_dir)
+				if errors:
+					raise LaunchError("invalid shared student evaluation artifacts")
+				latest[slot] = max(
 					(
 						r
 						for r in runs
@@ -480,8 +488,6 @@ class GatewayStudy:
 					),
 					key=lambda r: r.completed_at,
 				)
-				for slot in slots
-			}
 			results[domain] = {
 				slot: primary_score(run.samples, domain) for slot, run in latest.items()
 			}
