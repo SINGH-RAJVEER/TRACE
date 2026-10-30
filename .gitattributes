@@ -10,3 +10,7 @@ readings/v4-2026-10-29-kaggle-training/**/*.jsonl filter=lfs diff=lfs merge=lfs 
 readings/v4-2026-10-29-kaggle-training/**/*.log filter=lfs diff=lfs merge=lfs -text
 readings/v4-2026-10-29-kaggle-training/**/*.tar filter=lfs diff=lfs merge=lfs -text
 readings/v3-2026-10-29-gateway-replay/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+readings/v5-2026-10-30-undefended-a2-student/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
+readings/v5-2026-10-30-undefended-a2-student/**/*.bin filter=lfs diff=lfs merge=lfs -text
+readings/v5-2026-10-30-undefended-a2-student/**/tokenizer.json filter=lfs diff=lfs merge=lfs -text
+readings/v5-2026-10-30-undefended-a2-student/**/*.log filter=lfs diff=lfs merge=lfs -text

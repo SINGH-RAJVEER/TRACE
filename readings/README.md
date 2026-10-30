@@ -14,6 +14,7 @@ Large per-request files stay on the run machine. Each README lists them.
 | [v2](v2-2026-10-21-gateway-bounded-v1/) | 2026-10-21 → (running) | `artifacts/gateway-bounded-v1` | `4bb6381`, resumed on `3a50a1a` | gateway study (AG News, SQuAD, GSM8K, coding; A1, A2, A5, A7; 3 seeds) | interim: all 12 undefended campaigns and the development sweep done; protected campaigns pending | undefended ledgers (74,000 responses, committed), development transfer gate |
 | [v3](v3-2026-10-29-gateway-replay/) | 2026-10-29 → (running) | `artifacts/gateway-bounded-v1` | `3599d6e` plus collection-order change; resumed on `93c9f1a` | continuation of v2, narrowed on 2026-10-30 to seed 42, `full` harness, A1/A2/A5/A6/A7 | interim: A1 protected campaigns done (`full`, `instantaneous`, `quota`); A2/A5/A6/A7 pending | benign policy replay, A1 protected ledgers and decisions, live benign utility per defense, development recipe selection with adapters (LFS), calibration, workloads, schedules, evaluation-method checks |
 | [v4](v4-2026-10-29-kaggle-training/) | 2026-10-29 | Kaggle `trace-training/undefended` | `1e5b3d8` (notebook) | LoRA student training, FP16, three epochs | training completed | 4,448 training examples, 834 optimizer steps; no validation |
+| [v5](v5-2026-10-30-undefended-a2-student/) | 2026-10-30 | `artifacts/undefended-a2-benchmark` | `e53503f` | pre-defense shared student on v2's A2/s42 undefended ledger; development-selected recipe (1e-4, three epochs), BF16 LoRA | training completed; held-out evaluation pending | 4,816 accepted training examples (GSM8K 367 of 1,500), 903 optimizer steps; adapter in LFS |
 
 ## Results so far
 
@@ -31,7 +32,7 @@ Shared gateway, A1 seed 42, 6,000 submissions across four domains (v3): the atta
 
 v2's development sweep trained six shared students. AG News is the only domain with qualified transfer: +20.0 pp, from 66.6 to 86.6, 95% CI 16.4–23.8. SQuAD gained +2.8 pp, coding +0.2 pp, and GSM8K −14.5 pp. There are no defense-effect or utility results yet.
 
-The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured v4 distillation-gain, defense-effect, or student utility results.
+The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured v4 distillation-gain, defense-effect, or student utility results. The same holds for v5 until its held-out evaluation finishes.
 
 ## Adding a run
 
