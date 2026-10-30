@@ -45,11 +45,23 @@ class LocalModel:
 			quantization_config=quantization,
 			trust_remote_code=False,
 		)
+		# Merging folds the LoRA update into the weights once instead of on every forward pass.
+		# A 4-bit base cannot absorb it exactly, so QLoRA adapters stay attached.
+		merged = bool(config.adapter_path) and not config.load_in_4bit
 		if config.adapter_path:
 			from peft import PeftModel
 
 			self._model = PeftModel.from_pretrained(self._model, str(config.adapter_path))
+			if merged:
+				self._model = self._model.merge_and_unload()
 		self._model.eval()
+		self.batch_size = max(1, int(os.environ.get("DISTILL_EVAL_BATCH_SIZE", "16")))
+		self.execution: dict[str, str | int | bool] = {
+			"backend": "transformers",
+			"batch_size": self.batch_size,
+			"padding": "left",
+			"adapter_merged": merged,
+		}
 		self._tokenizer = AutoTokenizer.from_pretrained(
 			config.tokenizer_model or config.model,
 			revision=config.tokenizer_revision or config.revision,
@@ -77,36 +89,59 @@ class LocalModel:
 					)
 
 	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
-		return await asyncio.to_thread(self._generate, request)
+		return (await self.generate_batch([request]))[0]
 
-	def _generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
-		self._torch.manual_seed(request.seed or 0)
-		prompt = self._tokenizer.apply_chat_template(
-			[message.model_dump() for message in request.messages],
-			tokenize=False,
-			add_generation_prompt=True,
-			enable_thinking=False,
-		)
-		encoded = self._tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(
-			self._model.device
-		)
-		input_count = encoded.input_ids.shape[1]
+	async def generate_batch(
+		self, requests: list[TeacherGenerationRequest]
+	) -> list[TeacherGeneration]:
+		"""Greedy-decodes several requests together, left-padded so every prompt ends aligned."""
+		return await asyncio.to_thread(self._generate_batch, requests)
+
+	def _generate_batch(self, requests: list[TeacherGenerationRequest]) -> list[TeacherGeneration]:
+		if len({request.max_output_tokens for request in requests}) != 1:
+			raise ValueError("a generation batch needs one output budget")
+		self._torch.manual_seed(requests[0].seed or 0)
+		prompts = [
+			self._tokenizer.apply_chat_template(
+				[message.model_dump() for message in request.messages],
+				tokenize=False,
+				add_generation_prompt=True,
+				enable_thinking=False,
+			)
+			for request in requests
+		]
+		self._tokenizer.padding_side = "left"
+		encoded = self._tokenizer(
+			prompts, return_tensors="pt", add_special_tokens=False, padding=True
+		).to(self._model.device)
+		budget = requests[0].max_output_tokens
+		width = encoded.input_ids.shape[1]
 		context = getattr(self._model.config, "max_position_embeddings", None)
-		if context and input_count + request.max_output_tokens > context:
+		if context and width + budget > context:
 			raise ValueError("evaluation prompt plus output budget exceeds model context")
+		pad = self._tokenizer.pad_token_id
 		with self._torch.inference_mode():
 			output = self._model.generate(
 				**encoded,
 				do_sample=False,
-				max_new_tokens=request.max_output_tokens,
-				pad_token_id=self._eos_id,
+				max_new_tokens=budget,
+				pad_token_id=self._eos_id if pad is None else pad,
 				eos_token_id=self._eos_id,
 			)
-		tokens = output[0, input_count:]
-		eos_ids = self._eos_id
-		if not isinstance(eos_ids, list):
-			eos_ids = [eos_ids]
-		stopped = bool(len(tokens) and int(tokens[-1]) in eos_ids)
+		eos_ids = self._eos_id if isinstance(self._eos_id, list) else [self._eos_id]
+		return [
+			self._result(
+				output[row, width:].tolist(), int(encoded.attention_mask[row].sum()), eos_ids
+			)
+			for row in range(len(requests))
+		]
+
+	def _result(self, tokens: list[int], input_count: int, eos_ids: list[int]) -> TeacherGeneration:
+		# Finished rows keep emitting padding until the batch ends; cut them at their first EOS.
+		stop = next((index for index, token in enumerate(tokens) if token in eos_ids), None)
+		stopped = stop is not None
+		if stop is not None:
+			tokens = tokens[: stop + 1]
 		return TeacherGeneration(
 			id=uuid.uuid4().hex,
 			provider="local",

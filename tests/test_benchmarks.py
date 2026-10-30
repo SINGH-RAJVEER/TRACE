@@ -227,6 +227,50 @@ async def test_runner_saves_all_attempts_and_never_scores_truncated_answers(tmp_
 	)
 
 
+class BatchedModel(FakeModel):
+	batch_size = 2
+	execution = {"backend": "transformers", "batch_size": 2, "adapter_merged": True}
+
+	def __init__(self) -> None:
+		self.batches: list[int] = []
+
+	async def generate_batch(
+		self, requests: list[TeacherGenerationRequest]
+	) -> list[TeacherGeneration]:
+		self.batches.append(len(requests))
+		if any(r.messages[0].content.endswith("1") for r in requests):
+			raise RuntimeError("secret provider response")
+		return [await self.generate(r) for r in requests]
+
+
+@pytest.mark.asyncio
+async def test_batched_runner_keeps_item_order_and_records_its_execution(tmp_path: Path) -> None:
+	config = EvaluationConfig(
+		experiment="test",
+		suite_path=suite_path(tmp_path),
+		output_dir=tmp_path / "results",
+		models={
+			"student_before": ModelConfig(
+				backend="openai",
+				model="fixture-model",
+				revision="fixture-v1",
+				base_url="https://example.invalid",
+			)
+		},
+	)
+	single = await run_evaluation(config, "student_before", factory=lambda _: FakeModel())
+	batched_model = BatchedModel()
+	batched = await run_evaluation(config, "student_before", factory=lambda _: batched_model)
+	assert batched_model.batches == [2, 2, 1]
+	# The batch holding the failing item retries singly, so only that item is an error.
+	assert [(s.item_id, s.status, s.correct) for s in batched.samples] == [
+		(s.item_id, s.status, s.correct) for s in single.samples
+	]
+	assert batched.execution == BatchedModel.execution
+	assert single.execution == {}
+	assert "secret" not in (config.output_dir / f"{batched.id}.json").read_text()
+
+
 def test_adapter_identity_and_data_integrity(tmp_path: Path) -> None:
 	data = tmp_path / "train.jsonl"
 	data.write_text("original")
