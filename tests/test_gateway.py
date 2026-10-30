@@ -642,3 +642,26 @@ def test_detector_input_preserves_gateway_serialization_and_checks_hash(tmp_path
 		).exit_code
 		!= 0
 	)
+
+
+def test_gateway_schedule_defaults_to_12000_attempts(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	from distillation import gateway_cli
+
+	pools = _pools(4_000)
+	captured: dict[str, object] = {}
+	monkeypatch.setattr(gateway_cli, "_pools", lambda *args, **kwargs: (pools, CAPS, {}))
+
+	def capture(output: Path, rows: list[GatewayRequest], manifest: dict[str, object]) -> None:
+		captured.update(manifest)
+		captured["request_count"] = len(rows)
+
+	monkeypatch.setattr(gateway_cli, "_write", capture)
+	result = CliRunner().invoke(
+		app, ["schedule", "--attack", "A1", "--output", str(tmp_path / "campaign")]
+	)
+	assert result.exit_code == 0, result.output
+	assert captured["attempt_budget"] == 12_000
+	assert captured["request_count"] == 12_000
+	assert captured["domain_allocation"] == {domain: 4_000 for domain in CAPS}
