@@ -1,57 +1,15 @@
-# Evaluating an account-level harness against multi-domain model distillation
+# Evaluating TRACE against extraction campaigns
 
-This project studies whether TRACE (Traffic-based Response Access Control for Extraction), an account-level harness, stops useful distillation from a language-model API without blocking legitimate users. One gateway serves AG News, SQuAD 1.1, GSM8K, and Python coding through a single teacher. Each attack campaign trains one student on every response it receives, and the student is scored on all four domains.
+This workspace evaluates how an account-level harness restricts access to a teacher model across extraction strategies and corpora, and how it affects legitimate clients. It measures requests, released responses and tokens, escalation, and service costs.
+
+The supported domains are AG News, SQuAD, GSM8K, and coding. Campaign schedules cover multiplexing, sequential domains, cover traffic, slow collection, account splitting, and independent sources.
 
 ## Setup
 
-Enter `devenv shell`, which provides Python 3.14, uv, Bun, just, Tectonic, and the Linux coding sandbox. Then:
-
-```bash
-cp .env.example .env    # set TEACHER_TERMS_REVIEW_ID
-just setup
-```
+Enter `devenv shell`, copy `.env.example` to `.env`, set the teacher settings and review identifier, and run `uv sync --all-packages --extra eval --extra embed`. A vLLM installation and GPU are needed to serve the teacher. Encoder dependencies are needed for MMD calibration and replay.
 
 ## Run
 
-```bash
-just start      # full study: calibration, defended and undefended campaigns, training, evaluation
-just distill    # undefended collection and shared student training only
-just diagnose   # replay one extractor against benign calibrations
-```
+See [the evaluation workflow](docs/evaluation.md) for deployment, corpus preparation, calibration, protected campaign collection, and interpretation of results. Inspect available options with `uv run distill --help`, `uv run distill gateway --help`, and `uv run harness --help`.
 
-Both launchers default to four domains, seeds 42/1/20, and 6,000 submissions per campaign. Outputs go to `artifacts/`. For a teacher on another machine:
-
-```bash
-just teacher-host                                  # on the teacher machine
-just distill --teacher-url http://TEACHER_IP:8000  # on the student machine
-```
-
-## Evaluate
-
-```bash
-just benchmark configs/eval.ag_news.toml before
-just benchmark configs/eval.ag_news.toml after
-just dashboard-build
-just dashboard --results-dir outputs/tasks/ag_news   # http://127.0.0.1:8002
-just benchmark-demo                                  # simulated preview, no models
-```
-
-## Develop
-
-```bash
-just test
-just check
-just format
-just paper      # compile paper/main.pdf
-```
-
-## Documentation
-
-- [Shared study protocol](docs/multi-domain-study.md)
-- [Launcher options](docs/run-scripts.md)
-- [Metrics and denominators](docs/benchmarks.md)
-- [Harness](docs/harness.md)
-- [Coding task](docs/coding-task.md)
-- [Manuscript](paper/main.tex)
-
-Passing tests and configured experiments do not establish defense effectiveness. No teacher-student result has been measured yet.
+Existing observations and their limitations are in [readings](readings/README.md).

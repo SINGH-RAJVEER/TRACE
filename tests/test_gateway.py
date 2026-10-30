@@ -596,3 +596,49 @@ def test_full_cover_traffic_mirrors_the_extraction_allocation() -> None:
 			cover_pools=pools,
 			cover_allocation={**allocation, "squad": 5},
 		)
+
+
+def test_detector_input_preserves_gateway_serialization_and_checks_hash(tmp_path: Path) -> None:
+	from harness.calibration import BenignRequest
+	from harness.serialization import gateway_turn
+
+	rows, manifest = campaign_schedule(pools=_pools(), caps=CAPS, attack="A1", budget=6)
+	directory = tmp_path / "schedule"
+	directory.mkdir()
+	path = directory / "requests.jsonl"
+	write_jsonl(path, rows)
+	manifest["sha256"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()}
+	(directory / "manifest.json").write_text(json.dumps(manifest))
+	output = tmp_path / "detector.jsonl"
+	runner = CliRunner()
+	result = runner.invoke(
+		app, ["detector-input", "--input-dir", str(directory), "--output", str(output)]
+	)
+	assert result.exit_code == 0, result.output
+	converted = read_jsonl(output, BenignRequest)
+	assert len(converted) == len(rows)
+	for original, detector in zip(rows, converted, strict=True):
+		assert detector.account == original.account
+		assert detector.example_id == original.prompt.example_id
+		assert detector.source_group == f"{original.domain}:{original.prompt.source.group_id}"
+		assert detector.text == gateway_turn(original.domain, original.prompt.prompt[-1].content)
+	assert (
+		runner.invoke(
+			app, ["detector-input", "--input-dir", str(directory), "--output", str(output)]
+		).exit_code
+		!= 0
+	)
+	path.write_text(path.read_text() + "\n")
+	assert (
+		runner.invoke(
+			app,
+			[
+				"detector-input",
+				"--input-dir",
+				str(directory),
+				"--output",
+				str(tmp_path / "other.jsonl"),
+			],
+		).exit_code
+		!= 0
+	)

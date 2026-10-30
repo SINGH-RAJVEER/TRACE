@@ -196,35 +196,6 @@ def external_command(
 		raise typer.BadParameter(str(error)) from None
 
 
-@app.command("power")
-def power_command(
-	tasks_dir: Path = Path("data/tasks"),
-	domains: str = "ag_news,squad,gsm8k,coding",
-	discordance: Annotated[
-		float, typer.Option(min=0.001, max=1, help="Assumed share of discordant paired items.")
-	] = 0.2,
-	minimum_gain: Annotated[
-		list[str] | None, typer.Option(help="TASK=PP; defaults to 2 points per domain.")
-	] = None,
-	output: Path | None = None,
-) -> None:
-	"""Report the smallest paired gain each frozen suite can resolve, before any model runs."""
-	from distillation.power import study_power
-
-	try:
-		margins = {
-			task: float(value)
-			for task, value in (item.split("=", 1) for item in minimum_gain or [])
-		}
-		names = [name.strip() for name in domains.split(",") if name.strip()]
-		result = study_power(tasks_dir, names, minimum_gain_pp=margins, discordance=discordance)
-		if output:
-			save_json(output, result)
-		typer.echo(json.dumps(result, indent="\t"))
-	except (ValueError, OSError, KeyError) as error:
-		raise typer.BadParameter(str(error)) from None
-
-
 @app.command("collect")
 def collect_command(
 	input_dir: Annotated[Path, typer.Option(help="Immutable gateway schedule directory.")],
@@ -267,4 +238,44 @@ def collect_command(
 		save_json(output / "campaign-timing.json", campaign_timing(output, schedule=schedule))
 		typer.echo(json.dumps(result, indent="\t"))
 	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("detector-input")
+def detector_input_command(
+	input_dir: Annotated[Path, typer.Option(help="Frozen gateway schedule directory.")],
+	output: Annotated[Path, typer.Option(help="Output JSONL; must not already exist.")],
+) -> None:
+	"""Convert a gateway schedule into the domain-tagged input used by calibration and replay."""
+	from harness.calibration import BenignRequest
+	from harness.serialization import gateway_turn
+
+	from distillation.gateway_campaign import digest
+
+	try:
+		manifest = json.loads((input_dir / "manifest.json").read_text())
+		path = input_dir / "requests.jsonl"
+		if digest(path) != manifest["sha256"][path.name]:
+			raise ValueError("gateway schedule hash does not match its manifest")
+		rows = read_jsonl(path, GatewayRequest)
+		converted = [
+			BenignRequest(
+				account=row.account,
+				text=gateway_turn(
+					row.domain,
+					next(m.content for m in reversed(row.prompt.prompt) if m.role == "user"),
+				),
+				time=row.time,
+				example_id=row.prompt.example_id,
+				source_group=f"{row.domain}:{row.prompt.source.group_id}",
+				client_type=row.client_type,
+			)
+			for row in rows
+		]
+		output.parent.mkdir(parents=True, exist_ok=True)
+		with output.open("x") as target:
+			for row in converted:
+				target.write(row.model_dump_json() + "\n")
+		typer.echo(f"requests={len(converted)} output={output}")
+	except (ValueError, OSError, KeyError, StopIteration) as error:
 		raise typer.BadParameter(str(error)) from None
