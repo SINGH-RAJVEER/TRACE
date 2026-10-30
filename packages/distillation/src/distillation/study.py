@@ -150,7 +150,7 @@ class Study:
 	calibration_root: Path | None
 	l4_action: Literal["refuse", "deceive"]
 	references: dict[str, EvaluationRun] = field(default_factory=dict)
-	arms: tuple[str, ...] = tuple(DEFENSES)
+	arms: tuple[str, ...] = ("full",)
 	# Share of benign source groups sent by specialist and repetitive clients; see workloads.
 	concentrated_share: float = DEFAULT_CONCENTRATED_SHARE
 	# Continue when no MMD defense separates the extractor from benign accounts, reporting
