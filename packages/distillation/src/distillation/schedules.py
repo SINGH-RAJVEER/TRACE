@@ -13,8 +13,8 @@ from distillation.schemas import GatewayRequest, PromptRecord
 from distillation.tasks import TASKS
 
 SCHEDULE_VERSION = "gateway-schedules-v2"
-Attack = Literal["A1", "A2", "A3", "A5", "A6", "A7"]
-ATTACKS: tuple[Attack, ...] = ("A1", "A2", "A3", "A5", "A6", "A7")
+Attack = Literal["A1", "A2", "A3", "A4", "A5", "A6", "A7"]
+ATTACKS: tuple[Attack, ...] = ("A1", "A2", "A3", "A4", "A5", "A6", "A7")
 # Strategies whose extraction prompts must come from independently pinned sources.
 EXTERNAL_ATTACKS = frozenset({"A3", "A7"})
 
@@ -66,6 +66,7 @@ def campaign_schedule(
 	deadline_seconds: float = 86400,
 	cover_pools: Mapping[str, Sequence[PromptRecord]] | None = None,
 	cover_share: float = 0.5,
+	cover_allocation: Mapping[str, int] | None = None,
 ) -> tuple[list[GatewayRequest], dict[str, Any]]:
 	"""Pair prompt selection across strategies, changing order and account assignment only.
 
@@ -75,8 +76,10 @@ def campaign_schedule(
 	across k accounts, neither multiplying this budget. A7 multiplexes prompts from
 	independently pinned sources in one account. A3 interleaves A7 extraction with
 	`cover_share` of the budget drawn from in-distribution `cover_pools`; every received
-	response, cover included, may train the student. A1, A2, A5, and A6 select identical
-	prompts for a matched seed, pools, and allocation.
+	response, cover included, may train the student; `cover_allocation` overrides its
+	balanced split. A4 is A1's schedule; the caller declares its slower synthetic
+	`interval_seconds`. A1, A2, A4, A5, and A6 select identical prompts for a matched seed,
+	pools, and allocation.
 	"""
 	validate_pools(pools, caps)
 	domains = sorted(pools)
@@ -127,7 +130,16 @@ def campaign_schedule(
 	):
 		raise ValueError("domain allocation must be positive and sum to the campaign budget")
 	selected = _select(pools, allocation, seed, "prompts")
-	cover_allocation = _balanced(cover_budget, domains) if cover_pools is not None else {}
+	if cover_pools is None:
+		cover_allocation = {}
+	elif cover_allocation is None:
+		cover_allocation = _balanced(cover_budget, domains)
+	elif (
+		set(cover_allocation) != set(domains)
+		or any(type(count) is not int or count < 1 for count in cover_allocation.values())
+		or sum(cover_allocation.values()) != cover_budget
+	):
+		raise ValueError("cover allocation must be positive and sum to the cover budget")
 	cover = _select(cover_pools, cover_allocation, seed, "cover") if cover_pools is not None else {}
 	k = (6 if attack in {"A5", "A6"} else 1) if accounts is None else accounts
 	if type(k) is not int or (attack not in {"A5", "A6"} and k != 1):

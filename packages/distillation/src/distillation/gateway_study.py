@@ -92,8 +92,10 @@ def rank_trials(trials: list[dict[str, Any]], domains: list[str]) -> dict[str, A
 class GatewayStudy:
 	study: Study
 	# A7 uses independently pinned prompts, the positive control for a distribution shift.
-	attacks: tuple[Attack, ...] = ("A1", "A2", "A5", "A7")
+	attacks: tuple[Attack, ...] = ("A1", "A2", "A5", "A6", "A7")
 	interval_seconds: float = 1
+	# A4's declared synthetic spacing; the datasets carry no natural request timing.
+	slow_interval_seconds: float | None = None
 	deadline_seconds: float = 86400
 	benign_accounts: int = 125
 	requests_per_account: int = 100
@@ -210,15 +212,14 @@ class GatewayStudy:
 	) -> Path:
 		external = attack in EXTERNAL_ATTACKS
 		pools = self.external_pools if external else self.pools
-		if full and attack == "A3":
-			raise LaunchError("A3 splits a numeric budget between cover and extraction")
 		# Full external inventories match the task pools wherever the source is large enough,
-		# and the campaign allowance is that inventory's own total.
+		# and the campaign allowance is that inventory's own total. Full A3 adds an equal
+		# number of cover prompts per domain, which the task pools always hold.
 		allocation = (
 			{d: min(len(p), len(pools[d])) for d, p in self.pools.items()} if full else None
 		)
 		if allocation is not None:
-			budget = sum(allocation.values())
+			budget = sum(allocation.values()) * (2 if attack == "A3" else 1)
 		rows, manifest = campaign_schedule(
 			pools=pools,
 			caps=self.caps,
@@ -226,10 +227,15 @@ class GatewayStudy:
 			seed=seed,
 			budget=budget,
 			campaign_id=f"{attack}-s{seed}-b{budget}",
-			interval_seconds=self.interval_seconds,
+			interval_seconds=(
+				self.slow_interval_seconds
+				if attack == "A4" and self.slow_interval_seconds is not None
+				else self.interval_seconds
+			),
 			deadline_seconds=self.deadline_seconds,
 			allocation=allocation,
 			cover_pools=self.pools if attack == "A3" else None,
+			cover_allocation=allocation if attack == "A3" else None,
 		)
 		freeze(directory / "inventory.json", manifest)
 		path = directory / "requests.jsonl"
@@ -674,6 +680,14 @@ class GatewayStudy:
 			or set(self.study.arms) - DEFENSES.keys()
 		):
 			raise LaunchError("unknown gateway attack or defense")
+		if "A4" in self.attacks and (
+			self.slow_interval_seconds is None
+			or self.slow_interval_seconds <= self.interval_seconds
+		):
+			raise LaunchError(
+				"A4 needs --slow-interval-seconds above --interval-seconds: the datasets have "
+				"no natural request timing, so declare the synthetic slow rate"
+			)
 		if self.study.harness_port in {self.study.port, int(os.environ.get("VLLM_PORT") or 8001)}:
 			raise LaunchError("harness port must differ from teacher ports")
 		if self.study.teacher_url and self.study.upstream_url:
@@ -713,6 +727,11 @@ class GatewayStudy:
 				**(
 					{"training_seed": pipeline.training_seed}
 					if pipeline.training_seed is not None
+					else {}
+				),
+				**(
+					{"slow_interval_seconds": self.slow_interval_seconds}
+					if self.slow_interval_seconds is not None
 					else {}
 				),
 				"resource_unit": "all HTTP submissions including proofs",
@@ -798,7 +817,6 @@ class GatewayStudy:
 		self.select_recipe(devschedule, development / "campaign")
 		self.study.ensure_teacher()
 		for directory, schedule, seed, budget in jobs:
-			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
 			for arm in self.study.arms:
 				defended = directory / arm
 				# A completed collection is reused without restarting a previously spent policy.
@@ -835,6 +853,7 @@ class GatewayStudy:
 				finally:
 					launcher.stop_background(keep=keep)
 		for directory, _, seed, budget in jobs:
+			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
 			self.evaluate(
 				directory / "teacher", None, seed, budget, teacher=True, teacher_after=True
 			)
