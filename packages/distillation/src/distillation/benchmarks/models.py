@@ -191,6 +191,8 @@ class EvaluationRun(StrictModel):
 	samples: list[SampleResult]
 	dimensions: dict[str, str | int] = Field(default_factory=dict)
 	coding_runtime: dict[str, str | int | float] = Field(default_factory=dict)
+	# How a local model ran: generation batch size and whether its adapter was merged.
+	execution: dict[str, str | int | bool] = Field(default_factory=dict)
 
 	def comparison_key(self) -> str:
 		payload = [

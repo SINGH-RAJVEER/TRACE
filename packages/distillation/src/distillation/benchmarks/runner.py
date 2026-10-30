@@ -16,6 +16,7 @@ from pathlib import Path
 
 from distillation.benchmarks.inference import make_model, validate_adapter
 from distillation.benchmarks.models import (
+	BenchmarkItem,
 	EvaluationConfig,
 	EvaluationRun,
 	SampleResult,
@@ -25,7 +26,7 @@ from distillation.benchmarks.models import (
 )
 from distillation.benchmarks.scoring import evaluate_answer
 from distillation.io import append_jsonl
-from distillation.schemas import TeacherGenerationRequest
+from distillation.schemas import TeacherGeneration, TeacherGenerationRequest
 from distillation.teacher import Teacher
 from distillation.training import _sha256
 
@@ -96,56 +97,72 @@ async def run_evaluation(
 	run_id = uuid.uuid4().hex
 	model = factory(model_config)
 	samples: list[SampleResult] = []
+	# Local models generate several items per forward pass; served models stay one at a time.
+	batch_size = getattr(model, "batch_size", 1)
+
+	def request(item: BenchmarkItem) -> TeacherGenerationRequest:
+		return TeacherGenerationRequest(
+			messages=item.messages,
+			max_output_tokens=config.generation.max_output_tokens,
+			temperature=0,
+			seed=config.generation.seed,
+			enable_thinking=False,
+		)
+
 	try:
-		for item in suite.items:
+		for offset in range(0, len(suite.items), batch_size):
+			batch = suite.items[offset : offset + batch_size]
 			start = time.perf_counter()
-			try:
-				generation = await model.generate(
-					TeacherGenerationRequest(
-						messages=item.messages,
-						max_output_tokens=config.generation.max_output_tokens,
-						temperature=0,
-						seed=config.generation.seed,
-						enable_thinking=False,
+			generations: list[TeacherGeneration | BaseException] = []
+			if batch_size > 1:
+				with contextlib.suppress(Exception):
+					generations = list(await model.generate_batch([request(i) for i in batch]))
+			# A failed batch retries its items singly, so one bad item fails only itself.
+			if not generations:
+				for item in batch:
+					try:
+						generations.append(await model.generate(request(item)))
+					except Exception as error:
+						generations.append(error)
+			# Every item in a batch waits for the whole batch, so each records its wall time.
+			latency = time.perf_counter() - start  # Excludes scoring.
+			for item, generation in zip(batch, generations, strict=True):
+				if isinstance(generation, BaseException):
+					# No provider bodies or keys go into result artifacts.
+					result = SampleResult(
+						item_id=item.id,
+						benchmark=item.benchmark,
+						category=item.category,
+						response="",
+						prediction=None,
+						correct=False,
+						f1=0.0 if item.metric == "squad" else None,
+						status="error",
+						latency_seconds=latency,
 					)
-				)
-			except Exception:
-				# No provider bodies or keys go into result artifacts.
-				result = SampleResult(
-					item_id=item.id,
-					benchmark=item.benchmark,
-					category=item.category,
-					response="",
-					prediction=None,
-					correct=False,
-					f1=0.0 if item.metric == "squad" else None,
-					status="error",
-					latency_seconds=time.perf_counter() - start,
-				)
-			else:
-				latency = time.perf_counter() - start  # Excludes scoring.
-				text = generation.message.content
-				score = await evaluate_answer(item, text, generation.finish_reason)
-				result = SampleResult(
-					item_id=item.id,
-					benchmark=item.benchmark,
-					category=item.category,
-					response=text,
-					prediction=score.prediction,
-					correct=score.correct,
-					f1=score.f1,
-					status=score.status,
-					latency_seconds=latency,
-					usage=generation.usage,
-					finish_reason=generation.finish_reason,
-					request_id=generation.request_id,
-					served_model=generation.model,
-					functional_trace=score.functional_trace,
-				)
-			samples.append(result)
-			append_jsonl(config.output_dir / f"{run_id}.samples.jsonl", [result])
-			if progress:
-				progress(len(samples), len(suite.items))
+				else:
+					text = generation.message.content
+					score = await evaluate_answer(item, text, generation.finish_reason)
+					result = SampleResult(
+						item_id=item.id,
+						benchmark=item.benchmark,
+						category=item.category,
+						response=text,
+						prediction=score.prediction,
+						correct=score.correct,
+						f1=score.f1,
+						status=score.status,
+						latency_seconds=latency,
+						usage=generation.usage,
+						finish_reason=generation.finish_reason,
+						request_id=generation.request_id,
+						served_model=generation.model,
+						functional_trace=score.functional_trace,
+					)
+				samples.append(result)
+				append_jsonl(config.output_dir / f"{run_id}.samples.jsonl", [result])
+				if progress:
+					progress(len(samples), len(suite.items))
 	finally:
 		await model.close()
 	packages = {}
@@ -187,6 +204,7 @@ async def run_evaluation(
 		platform=platform.platform(),
 		code_revision=code_revision,
 		coding_runtime=coding_runtime,
+		execution=getattr(model, "execution", {}),
 		samples=samples,
 	)
 	config.output_dir.mkdir(parents=True, exist_ok=True)
