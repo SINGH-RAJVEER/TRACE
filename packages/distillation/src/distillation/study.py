@@ -553,6 +553,8 @@ class Study:
 			self.pipeline.launcher.log(
 				f"{task}: resolution-limited calibration: {'; '.join(report['warnings'])}"
 			)
+		for warning in report["detectability_warnings"]:
+			self.pipeline.launcher.log(f"{task}: detectability: {warning}")
 		if not report["passed"]:
 			save_json(
 				self.root / "status.json",

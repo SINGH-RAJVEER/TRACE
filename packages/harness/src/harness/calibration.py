@@ -24,6 +24,10 @@ from harness.serialization import SERIALIZATION, Task, detector_text
 
 LEVELS = 4
 HORIZON_POLICY = "time-reset-attempt-cap-v1"
+# Pooled-mixture windows ranking below the per-account null median at this share or more mean
+# the upper-tail score cannot flag traffic that resembles the benign mixture.
+MIXTURE_WARNING_SHARE = 0.9
+MIXTURE_WINDOWS = 50
 
 
 class HarnessConfig(BaseModel):
@@ -95,6 +99,21 @@ class AggregateCalibration(BaseModel):
 	interleaving: Literal["time", "round_robin"]
 
 
+class MixtureControl(BaseModel):
+	"""Score-calibration requests shuffled across accounts, scored as one broad client.
+
+	`share_below_null_median` is the share of these pooled windows whose upper-tail p-value
+	exceeds 0.5, so they score below the median benign account window. Exchangeable benign
+	accounts give about half; a share near one means a broad client looks more ordinary than
+	ordinary users, and the upper-tail test cannot flag same-distribution extraction.
+	"""
+
+	windows: int
+	median_p_value: float
+	min_p_value: float
+	share_below_null_median: float
+
+
 class Calibration(BaseModel):
 	"""The frozen calibration artifact. Reference embeddings are saved beside it."""
 
@@ -116,6 +135,8 @@ class Calibration(BaseModel):
 	sha256: dict[str, str] = Field(default_factory=dict)
 	aggregate: AggregateCalibration | None = None
 	aggregate_skipped: str | None = None
+	# Missing in artifacts calibrated before the control existed; they report no warning.
+	mixture_control: MixtureControl | None = None
 	_aggregate_references: Array | None = PrivateAttr(default=None)
 
 	def adequacy(
@@ -180,6 +201,17 @@ class Calibration(BaseModel):
 		warnings = resolution_reasons if allow_resolution_limited else []
 		if not allow_resolution_limited:
 			reasons = resolution_reasons + reasons
+		# Detectability is reported, never enforced: it limits what the study can show, not
+		# whether the calibration is valid.
+		detectability: list[str] = []
+		control = self.mixture_control
+		if accumulators and control and control.share_below_null_median >= MIXTURE_WARNING_SHARE:
+			detectability.append(
+				f"{control.share_below_null_median:.0%} of {control.windows} pooled benign-mixture "
+				f"windows score below the median benign account window (median p "
+				f"{control.median_p_value:.3f}); the upper-tail score cannot flag traffic that "
+				"resembles the benign mixture"
+			)
 		return {
 			"rule": "calibration-resolution-v2",
 			"status": "invalid" if reasons else "resolution-limited" if warnings else "adequate",
@@ -192,6 +224,7 @@ class Calibration(BaseModel):
 			"minimum_score_windows": minimum_score,
 			"minimum_policy_horizons": minimum_policy,
 			"nonoverlapping_score_windows": null_windows,
+			"detectability_warnings": detectability,
 			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
 			"scored_policy_horizons": scored,
 			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
@@ -354,6 +387,43 @@ def nested_thresholds(
 		achieved=[count / len(values) for count in exceeded],
 		units=len(values),
 		upper95=[binomial_upper(count, len(values)) for count in exceeded],
+	)
+
+
+def mixture_control(
+	calibration: Calibration,
+	scorer: WindowScorer,
+	requests: list[BenignRequest],
+	embedded: Array,
+	windows: int = MIXTURE_WINDOWS,
+) -> MixtureControl | None:
+	"""Rank pooled-mixture windows of benign requests in the per-account null.
+
+	A seeded shuffle across accounts stands for a client that samples the whole benign task
+	mixture, as multiplexed extraction does. `embedded` holds one row per request, in order.
+	None when the requests cannot fill one window.
+	"""
+	size = calibration.config.window_size
+	order = random.Random(calibration.config.seed + 2).sample(range(len(requests)), len(requests))
+	spans = complete_windows(len(order), size)[:windows]
+	if not spans:
+		return None
+	p_values = sorted(
+		calibration.p_value(
+			scorer.score(
+				embedded[[order[i] for i in span]],
+				[requests[order[i]].text for i in span]
+				if calibration.config.distinct_prompts
+				else None,
+			)
+		)
+		for span in spans
+	)
+	return MixtureControl(
+		windows=len(p_values),
+		median_p_value=float(np.median(p_values)),
+		min_p_value=p_values[0],
+		share_below_null_median=sum(p > 0.5 for p in p_values) / len(p_values),
 	)
 
 
@@ -558,6 +628,9 @@ def calibrate(
 			block_target,
 			scored_capped,
 		)
+	calibration.mixture_control = mixture_control(
+		calibration, scorer, score_calibration, null_embedded
+	)
 	_calibrate_aggregate(calibration, fitted, sigma, score_calibration, null_embedded, report)
 	calibration.encoder = encoder.identity()
 	calibration.sha256 = {

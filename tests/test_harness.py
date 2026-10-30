@@ -120,6 +120,60 @@ def test_calibration_adequacy_rejects_small_pools_and_overlapping_window_inflati
 	assert len(report["reasons"]) == 3
 
 
+class ClusteredEncoder:
+	"""Each benign account asks about one of eight topics, as a specialist does."""
+
+	def encode(self, texts: list[str]) -> Array:
+		centers = np.random.default_rng(0).normal(size=(8, DIMENSION)) * 3
+		rows = []
+		for text in texts:
+			seed = int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+			vector = centers[int(text.split()[1]) % 8] + np.random.default_rng(seed).normal(
+				size=DIMENSION
+			)
+			rows.append(vector / np.linalg.norm(vector))
+		return np.array(rows)
+
+	def identity(self) -> dict[str, Any]:
+		return {"model": "clustered"}
+
+
+def test_mixture_control_warns_when_broad_traffic_scores_below_benign_accounts(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	# Exchangeable benign accounts: a pooled mixture ranks like any account, so no warning.
+	control = calibrated[0].mixture_control
+	assert control is not None and control.share_below_null_median < 0.9
+	assert calibrated[0].adequacy(accumulators=("paper",))["detectability_warnings"] == []
+	# Topic-concentrated accounts: every pooled window sits below the account null.
+	specialists, _ = calibrate(
+		config=HarnessConfig(window_size=10, reference_windows=3, bandwidth_sample=60),
+		encoder=ClusteredEncoder(),
+		fitting=_benign("fit", 16, 30),
+		score_calibration=_benign("score", 40, 50),
+		policy_calibration=_benign("policy", 200, 20),
+	)
+	assert specialists.mixture_control is not None
+	assert specialists.mixture_control.share_below_null_median >= 0.9
+	report = specialists.adequacy(accumulators=("paper",))
+	assert len(report["detectability_warnings"]) == 1
+	# A warning describes what the study can show; it never changes the gate's verdict.
+	unchecked = specialists.model_copy(update={"mixture_control": None})
+	plain = unchecked.adequacy(accumulators=("paper",))
+	assert (report["passed"], report["status"]) == (plain["passed"], plain["status"])
+	assert specialists.adequacy()["detectability_warnings"] == []
+
+
+def test_calibrations_without_a_mixture_control_load_and_report_no_warning(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	raw = calibrated[0].model_dump(mode="json")
+	raw.pop("mixture_control")
+	legacy = Calibration.model_validate(raw)
+	assert legacy.mixture_control is None
+	assert legacy.adequacy(accumulators=("paper",))["detectability_warnings"] == []
+
+
 def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
 	calibrated: tuple[Calibration, WindowScorer],
 ) -> None:
