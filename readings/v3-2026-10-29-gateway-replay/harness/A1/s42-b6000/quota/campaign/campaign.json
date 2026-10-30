@@ -1,0 +1,234 @@
+{
+	"contract": "8e62c5293ce94632ed9cdca9b0ba741c25c94ecc6c83fe56640eae88482ff681",
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"solver": {
+		"version": "process-sha256-v1",
+		"workers": 4,
+		"chunk_hashes": 4096
+	},
+	"attempt_budget": 6000,
+	"deadline_seconds": 86400.0,
+	"elapsed_seconds": 5999.007678566966,
+	"termination_by_account": {
+		"A1-s42-b6000-account": "prompts_exhausted"
+	},
+	"queries": 6000,
+	"received": 1215,
+	"blocked": 4785,
+	"failed": 0,
+	"deadline": 0,
+	"challenge": 0,
+	"pending": 0,
+	"released_output_tokens": 118872,
+	"levels": {
+		"L1": {
+			"J": 1216,
+			"Q": 1215,
+			"reached": true,
+			"censored": false,
+			"attribution_complete": true
+		},
+		"L2": {
+			"J": 1216,
+			"Q": 1215,
+			"reached": true,
+			"censored": false,
+			"attribution_complete": true
+		},
+		"L3": {
+			"J": 1216,
+			"Q": 1215,
+			"reached": true,
+			"censored": false,
+			"attribution_complete": true
+		},
+		"L4": {
+			"J": 1216,
+			"Q": 1215,
+			"reached": true,
+			"censored": false,
+			"attribution_complete": true
+		}
+	},
+	"proof_requests": 0,
+	"index_unit": "global campaign HTTP submissions",
+	"domains": {
+		"ag_news": {
+			"queries": 1500,
+			"received": 312,
+			"blocked": 1188,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 748,
+			"levels": {
+				"L1": {
+					"J": 1222,
+					"Q": 312,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L2": {
+					"J": 1222,
+					"Q": 312,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L3": {
+					"J": 1222,
+					"Q": 312,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L4": {
+					"J": 1222,
+					"Q": 312,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				}
+			},
+			"proof_requests": 0
+		},
+		"coding": {
+			"queries": 1500,
+			"received": 294,
+			"blocked": 1206,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 41308,
+			"levels": {
+				"L1": {
+					"J": 1219,
+					"Q": 294,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L2": {
+					"J": 1219,
+					"Q": 294,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L3": {
+					"J": 1219,
+					"Q": 294,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L4": {
+					"J": 1219,
+					"Q": 294,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				}
+			},
+			"proof_requests": 0
+		},
+		"gsm8k": {
+			"queries": 1500,
+			"received": 303,
+			"blocked": 1197,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 74384,
+			"levels": {
+				"L1": {
+					"J": 1218,
+					"Q": 303,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L2": {
+					"J": 1218,
+					"Q": 303,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L3": {
+					"J": 1218,
+					"Q": 303,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L4": {
+					"J": 1218,
+					"Q": 303,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				}
+			},
+			"proof_requests": 0
+		},
+		"squad": {
+			"queries": 1500,
+			"received": 306,
+			"blocked": 1194,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 2432,
+			"levels": {
+				"L1": {
+					"J": 1216,
+					"Q": 306,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L2": {
+					"J": 1216,
+					"Q": 306,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L3": {
+					"J": 1216,
+					"Q": 306,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				},
+				"L4": {
+					"J": 1216,
+					"Q": 306,
+					"reached": true,
+					"censored": false,
+					"attribution_complete": true
+				}
+			},
+			"proof_requests": 0
+		}
+	},
+	"ledger_records": 1215,
+	"ledger_records_by_domain": {
+		"ag_news": 312,
+		"coding": 294,
+		"gsm8k": 303,
+		"squad": 306
+	},
+	"hashes": 0,
+	"challenge_seconds": 0.0,
+	"sha256": {
+		"ledger": "7265145e7e30dfdd43f0b13ff59285d14aafc2c81f9093d75421b43cc838270b",
+		"events": "06b7fae57b290e5fe9cce08682d32eea0ca2bdd7fe7004d4acf3c87df2ad2b44"
+	}
+}
