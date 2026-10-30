@@ -1,0 +1,60 @@
+{
+	"version": "gateway-schedules-v2",
+	"campaign_id": "A7-s42-b6000",
+	"attack": "A7",
+	"seed": 42,
+	"attempt_budget": 6000,
+	"budget_unit": "campaign-wide HTTP submissions, including proof redemption and failures",
+	"deadline_seconds": 86400.0,
+	"planned_queries": 6000,
+	"domain_allocation": {
+		"ag_news": 1500,
+		"coding": 1500,
+		"gsm8k": 1500,
+		"squad": 1500
+	},
+	"prompt_sources": "independent external",
+	"source_corpora": {
+		"ag_news": [
+			"SetFit/bbc-news"
+		],
+		"coding": [
+			"bigcode/self-oss-instruct-sc2-exec-filter-50k"
+		],
+		"gsm8k": [
+			"MU-NLPC/Calc-math_qa"
+		],
+		"squad": [
+			"lucadiliello/newsqa"
+		]
+	},
+	"cover_share": null,
+	"cover_allocation": {},
+	"accounts": [
+		"A7-s42-b6000-account"
+	],
+	"account_domains": {
+		"A7-s42-b6000-account": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		]
+	},
+	"interval_seconds": 1.0,
+	"arrival_times": "synthetic, global campaign schedule",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"squad": 64,
+		"gsm8k": 256,
+		"coding": 512
+	},
+	"pool_sha256": {
+		"ag_news": "10dfec831cc3f2b860caea82300a3f29fe41951f337856bf8d63c4789d0666a9",
+		"coding": "de1f612b89ed2d5ba237bc8b779e2e9093ba4ca616258f284744499c7a060dc0",
+		"gsm8k": "f255e82d611fd3118005b672c4974026585c94d4af893cc6a97ece4114320f14",
+		"squad": "5b1a0129d806c093264b4a0c5e0d2e5e29f1a6fa235be2980ef3f32f32a2ff24"
+	},
+	"cover_pool_sha256": null,
+	"execution_status": "not_run"
+}

@@ -1,0 +1,325 @@
+{
+	"ag_news": {
+		"available": {
+			"test": 7600,
+			"train": 120000
+		},
+		"dataset": {
+			"configuration": null,
+			"license": "unknown",
+			"pool_split": "train",
+			"repository": "fancyzhx/ag_news",
+			"revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+			"test_split": "test"
+		},
+		"development_suite_items": 1000,
+		"filtered": {
+			"duplicate_prompt": 151,
+			"test_overlap": 10
+		},
+		"groups": {
+			"attacker": 35944,
+			"benign_test": 10950,
+			"development": 11848,
+			"fitting": 6012,
+			"policy_calibration": 40748,
+			"score_calibration": 14337
+		},
+		"max_output_tokens": 16,
+		"metric": "label_accuracy",
+		"roles": {
+			"attacker": 35944,
+			"benign_test": 10950,
+			"development": 11848,
+			"fitting": 6012,
+			"policy_calibration": 40748,
+			"score_calibration": 14337
+		},
+		"seed": 42,
+		"sha256": {
+			"attacker.jsonl": "474a30091e242830296bdca22f89866b4d31b10fe0930dd17a08f872a43fbe5e",
+			"development-suite.json": "3ad745d7042c20ad67904a1688f3fff6b2758a8917e6ab17438b7be85806f3af",
+			"gold-answers.jsonl": "aa3436fa09698475843750518a70d52404e66cfefe0494df1a635831677ff12e",
+			"legitimate-references.json": "630be20a7506a041b9cc99498c16e8158c18af3047e71f6a72a176b55af0953b",
+			"legitimate/benign_test.jsonl": "a2345d93d5f4620058a7f90f31ee7799cfd8cabfcf4f3ae75297955e6f858f70",
+			"legitimate/fitting.jsonl": "9e540c6333d8641504ad3bbc5e6ae10c2324d09b2c39fde318406b110251d6c6",
+			"legitimate/policy_calibration.jsonl": "a074b67d762991942651315a4d2648fbc2e25645faec3a094d8def42dd1cd8fd",
+			"legitimate/score_calibration.jsonl": "d73debaf1fadbc2244eb5964ae857c4f890789437ee3e2e541be9b4885cec09b",
+			"test-suite.json": "c386670e8bf199921d5dcf24af439eac108aec8a5b85c7ea7d58f414951af298"
+		},
+		"source_split": {
+			"shares": {
+				"attacker": 0.3,
+				"benign_test": 0.09,
+				"development": 0.1,
+				"fitting": 0.05,
+				"policy_calibration": 0.34,
+				"score_calibration": 0.12
+			},
+			"version": "task-source-split-v2"
+		},
+		"task": "ag_news",
+		"test_suite_items": 7600,
+		"truncated": {
+			"test": 0,
+			"train": 0
+		}
+	},
+	"squad": {
+		"available": {
+			"train": 87599,
+			"validation": 10570
+		},
+		"dataset": {
+			"configuration": "plain_text",
+			"license": "cc-by-sa-4.0",
+			"pool_split": "train",
+			"repository": "rajpurkar/squad",
+			"revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+			"test_split": "validation"
+		},
+		"development_suite_items": 1000,
+		"filtered": {
+			"duplicate_prompt": 193
+		},
+		"groups": {
+			"attacker": 51,
+			"benign_test": 50,
+			"development": 35,
+			"fitting": 23,
+			"policy_calibration": 215,
+			"score_calibration": 68
+		},
+		"max_output_tokens": 64,
+		"metric": "squad",
+		"roles": {
+			"attacker": 10353,
+			"benign_test": 10431,
+			"development": 7141,
+			"fitting": 4110,
+			"policy_calibration": 42145,
+			"score_calibration": 13226
+		},
+		"seed": 42,
+		"sha256": {
+			"attacker.jsonl": "18035f0b104d64eadb8b72ef6b1de35cf01a53561dfbf67ae12190eccae6885d",
+			"development-suite.json": "f9833b49e6d37372cccd21f9b292b9bd16a4715f5d5eb844dc257ab3cd6956d9",
+			"gold-answers.jsonl": "9f786be46e2a3d9daa0aac9b4735c82f30ed3a6b74349909045688cde0a18f7f",
+			"legitimate-references.json": "924f6b9b52fa4853b0aea22cb7dd82064fce044a11574ebbab90fc8e93fa5262",
+			"legitimate/benign_test.jsonl": "257ae867a160282b0063ed3f581a31b402f2f25e3b9af2b93d6a369e11b3b734",
+			"legitimate/fitting.jsonl": "678f3f97e41e4b6e400adac8f264cc36218536fb90ab4dde47e1202ff83efff3",
+			"legitimate/policy_calibration.jsonl": "1a31f182ab4137b1204df864f6ef13aa132d64c58634969e91b0200cc5b27fd1",
+			"legitimate/score_calibration.jsonl": "b0aa99546e94067ffd0ac846980dff057cc7299988967873c2109834c49a58e1",
+			"test-suite.json": "9fcc6d7044b938c906c44a884cc21ec66910305df03112e519dfc2148b8d2fff"
+		},
+		"source_split": {
+			"shares": {
+				"attacker": 0.1,
+				"benign_test": 0.09,
+				"development": 0.1,
+				"fitting": 0.06,
+				"policy_calibration": 0.5,
+				"score_calibration": 0.15
+			},
+			"version": "task-source-split-v2"
+		},
+		"task": "squad",
+		"test_suite_items": 10570,
+		"truncated": {
+			"train": 0,
+			"validation": 0
+		}
+	},
+	"gsm8k": {
+		"available": {
+			"test": 1319,
+			"train": 7473
+		},
+		"dataset": {
+			"configuration": "main",
+			"license": "mit",
+			"pool_split": "train",
+			"repository": "openai/gsm8k",
+			"revision": "740312add88f781978c0658806c59bc2815b9866",
+			"test_split": "test"
+		},
+		"development_suite_items": 746,
+		"filtered": {},
+		"groups": {
+			"attacker": 3389,
+			"benign_test": 659,
+			"development": 746,
+			"fitting": 1328,
+			"policy_calibration": 669,
+			"score_calibration": 682
+		},
+		"max_output_tokens": 256,
+		"metric": "numeric_exact_match",
+		"roles": {
+			"attacker": 3389,
+			"benign_test": 659,
+			"development": 746,
+			"fitting": 1328,
+			"policy_calibration": 669,
+			"score_calibration": 682
+		},
+		"seed": 42,
+		"sha256": {
+			"attacker.jsonl": "10ebc24501d3dde2f28112dcb01cc053cd57727563024d42f606da53944be3c8",
+			"development-suite.json": "095a2114822a5406d7065e6957ae384027de232e97af22e0eeff02986b1db9a6",
+			"gold-answers.jsonl": "3c0d77465e7d53264e81e552787bfecef453cd5466bdd4fd2e9afdb579d1581d",
+			"legitimate/benign_test.jsonl": "f81c49e4d25e82b6cf88d9d04d5433f3a6605c5800f71d98c8ef0c925f934c54",
+			"legitimate/fitting.jsonl": "ef03c4f55f23552c423c435f185a2ada54af3f15f969d592f1018ce4483b2a1e",
+			"legitimate/policy_calibration.jsonl": "1de96535045a004251d3c4e880464976101a54a0bc5ba46cf9bbe0843964c184",
+			"legitimate/score_calibration.jsonl": "8604ca798badba127ebcf1629caddbd3ca956412e9da975da9cd5d23adc688e6",
+			"test-suite.json": "4daae27bce6a72ef922d4d21a8305b81176932b01b3df357be9bfc5f4e22c868"
+		},
+		"task": "gsm8k",
+		"test_suite_items": 1319,
+		"truncated": {
+			"test": 0,
+			"train": 0
+		}
+	},
+	"coding": {
+		"task": "coding",
+		"seed": 42,
+		"complete": true,
+		"max_output_tokens": 512,
+		"output_cap_status": "provisional",
+		"metric": "pass_at_1",
+		"scorer": "sandboxed-pinned-assertions-qualified-v2",
+		"evaluation_exclusions": [
+			{
+				"id": "HumanEval/32",
+				"reason": "pinned export calls _poly(*candidate(*inp), inp), expanding a float",
+				"source_sha256": "ae4345058d7320d0fed9898462722b7980fe44a0757e5621911c9ef41bb433e7"
+			},
+			{
+				"id": "Mbpp/255",
+				"reason": "reference exhausts the sandbox memory limit on the pinned plus inputs",
+				"source_sha256": "64c059e6af78b12ac5a2be9013b65b964f7e12eda88c8eee917003273c177fe0"
+			},
+			{
+				"id": "Mbpp/596",
+				"reason": "expected sys.getsizeof values depend on the interpreter version",
+				"source_sha256": "28a3c6c8cd6ab2af7b5d24a0f5d4f5283a2acfac7286a84923f516ee6c4cd456"
+			}
+		],
+		"coding_runtime": {
+			"version": "bubblewrap-assertions-v2",
+			"trace": "reference-covered-calls-v2",
+			"architecture": "x86_64",
+			"python": "3.14.8",
+			"wall_seconds": 20.0,
+			"cpu_seconds": 15,
+			"memory_bytes": 268435456,
+			"file_bytes": 1048576
+		},
+		"dataset": {
+			"repository": "nvidia/OpenCodeInstruct",
+			"revision": "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+			"configuration": "train",
+			"license": "cc-by-4.0",
+			"pool_split": "train",
+			"test_split": "test"
+		},
+		"evaluation_dataset": {
+			"benchmark": "coding",
+			"repository": "evalplus/humanevalplus",
+			"revision": "d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+			"configuration": "default",
+			"split": "test",
+			"license": "apache-2.0",
+			"url": "https://huggingface.co/datasets/evalplus/humanevalplus/tree/d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+			"available": 164,
+			"selected": 163
+		},
+		"evaluation_datasets": [
+			{
+				"benchmark": "coding",
+				"repository": "evalplus/humanevalplus",
+				"revision": "d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+				"configuration": "default",
+				"split": "test",
+				"license": "apache-2.0",
+				"url": "https://huggingface.co/datasets/evalplus/humanevalplus/tree/d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+				"available": 164,
+				"selected": 163
+			},
+			{
+				"benchmark": "coding",
+				"repository": "evalplus/mbppplus",
+				"revision": "b2d74c91837c3f2a20c1299ae98133cbe7cfa077",
+				"configuration": "default",
+				"split": "test",
+				"license": "apache-2.0",
+				"url": "https://huggingface.co/datasets/evalplus/mbppplus/tree/b2d74c91837c3f2a20c1299ae98133cbe7cfa077",
+				"available": 378,
+				"selected": 376
+			}
+		],
+		"available": {
+			"train": 5000000,
+			"test": 542
+		},
+		"qualification_rows": 235024,
+		"roles": {
+			"development": 4904,
+			"attacker": 22368,
+			"fitting": 9186,
+			"score_calibration": 4522,
+			"policy_calibration": 4500,
+			"benign_test": 4520
+		},
+		"groups": {
+			"development": 4904,
+			"attacker": 22368,
+			"fitting": 9186,
+			"score_calibration": 4522,
+			"policy_calibration": 4500,
+			"benign_test": 4520
+		},
+		"filtered": {
+			"reference_failed": 130665,
+			"malformed_or_unsupported": 30615,
+			"tests_accept_null_stub": 2043,
+			"reference_timeout": 782,
+			"duplicate": 20426,
+			"test_overlap": 493
+		},
+		"truncated": {
+			"train": 0,
+			"test": 0
+		},
+		"development_suite_items": 1000,
+		"test_suite_items": 539,
+		"qualification": "qualified/manifest.json",
+		"corpus_limit": 50000,
+		"selection": {
+			"mode": "eligible-subset",
+			"algorithm": "datasets-global-shuffle-v1",
+			"datasets_version": "5.0.1",
+			"source_rows": 5000000,
+			"seed": 42,
+			"eligible_target": 50000
+		},
+		"sha256": {
+			"attacker.jsonl": "e34b9209a0c64a6fc3d51931c0dd0eb7bb541b620cfa558d159bdb5ef29bf24f",
+			"development-suite.json": "7c688462483c4d5d66cf0b0aa543462e406e5ec5746e7a8592afc667776bf67a",
+			"evaluation-exclusions.json": "6588964150d55eade4fcf56c84bd1b2bce3e010fec9e36bfbf70f282f6613170",
+			"gold-answers.jsonl": "29f3c86b9e53dffa89b6bd9b78da9bd4908b9c6e15fb794966fc245fee22fe30",
+			"legitimate/benign_test.jsonl": "51778762b1c15194282591c8ea5b0a4857b2ee5cb3e226ee1d6c4614e63898f3",
+			"legitimate/fitting.jsonl": "0aecdf6790b38ce5ec1179757ad788c32b21af167ebacce682335f3a906c0208",
+			"legitimate/policy_calibration.jsonl": "4c35592075b722205de8d7827841aee710af05c249166046ae5b918defb4ea06",
+			"legitimate/score_calibration.jsonl": "66da9afddb4e999d49fefa6241b8ec9525a43dab19367becaff3ff1dbb5b2a16",
+			"legitimate-references.json": "1a26f81c85c85e19ef711e4f9c94fd33dc505ea22528b10d083a7c67e9ea5194",
+			"qualified/eligible.jsonl": "b4554bc384f120cf81bedc61f3232d5921cf7edf5fd92adc7a28f6b447057b65",
+			"qualified/exclusions.jsonl": "877857cd17c9b891dd4999a76d59e3e6240830cdfc106df9ccc989edca9487d9",
+			"qualified/manifest.json": "b45dfc173dc796b8c7e67c9125635a9a76f7f71c9c33e1aeb9cb5b6d1e5d50e0",
+			"qualified/source-ids.jsonl": "2ee9902309d9b580ab64973086356d999a783266a5f87f4fe9862d36c4131d30",
+			"selection.json": "56d47f607de83e54bcb7bb88f7572dfaa958d34ac157d829cf202542368486e0",
+			"test-suite.json": "95a486b081bcd7468238eed0e442d8c95925a076fa7d633522991210f91317d8"
+		}
+	}
+}

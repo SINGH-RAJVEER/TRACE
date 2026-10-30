@@ -1,0 +1,108 @@
+{
+	"ag_news": {
+		"available": {
+			"test": 1000,
+			"train": 1225
+		},
+		"dataset": {
+			"configuration": null,
+			"license": "unknown",
+			"repository": "SetFit/bbc-news",
+			"revision": "9c31f7087a8c225be8b4c420d70216ef1f121eb0",
+			"splits": [
+				"train",
+				"test"
+			]
+		},
+		"description": "BBC News articles, lower-cased, with five BBC categories rather than AG News topics",
+		"filtered": {
+			"duplicate_prompt": 101
+		},
+		"groups": 2124,
+		"overlap_check": "exact normalized match against development and test suites",
+		"prompts": 2124,
+		"sha256": {
+			"attacker.jsonl": "8847e7e133ec667a4d70601104fde18c288c7cfd53975dd53c60cae198968374"
+		},
+		"task": "ag_news",
+		"version": "external-sources-v1"
+	},
+	"squad": {
+		"available": {
+			"train": 74160
+		},
+		"dataset": {
+			"configuration": null,
+			"license": "unknown",
+			"repository": "lucadiliello/newsqa",
+			"revision": "728e52920b8e4ffcfaad93fa47556f26a1d82546",
+			"splits": [
+				"train"
+			]
+		},
+		"description": "NewsQA questions over CNN articles rather than Wikipedia passages",
+		"filtered": {
+			"duplicate_prompt": 269
+		},
+		"groups": 10670,
+		"overlap_check": "exact normalized match against development and test suites",
+		"prompts": 73891,
+		"sha256": {
+			"attacker.jsonl": "f3e369d2465428b80ec15f916b60795cd613a84597ca0f9e39d05498d41ac10e"
+		},
+		"task": "squad",
+		"version": "external-sources-v1"
+	},
+	"gsm8k": {
+		"available": {
+			"train": 20868
+		},
+		"dataset": {
+			"configuration": null,
+			"license": "apache-2.0",
+			"repository": "MU-NLPC/Calc-math_qa",
+			"revision": "102358bfc5de2bf527778bee2f875538c977872a",
+			"splits": [
+				"train"
+			]
+		},
+		"description": "MathQA GRE/GMAT-style problems with answer options removed",
+		"filtered": {
+			"duplicate_prompt": 25
+		},
+		"groups": 20843,
+		"overlap_check": "exact normalized match against development and test suites",
+		"prompts": 20843,
+		"sha256": {
+			"attacker.jsonl": "74df3585d83c554a6e54fac46172beecd75f0c7deb1818c86f237b503ba69b7c"
+		},
+		"task": "gsm8k",
+		"version": "external-sources-v1"
+	},
+	"coding": {
+		"available": {
+			"train": 50661
+		},
+		"dataset": {
+			"configuration": null,
+			"license": "odc-by",
+			"repository": "bigcode/self-oss-instruct-sc2-exec-filter-50k",
+			"revision": "356bb069eee815daa6e23e9a282eeefe1490ad44",
+			"splits": [
+				"train"
+			]
+		},
+		"description": "StarCoder2 self-generated function instructions with one top-level function response",
+		"filtered": {
+			"ineligible": 3681
+		},
+		"groups": 46980,
+		"overlap_check": "exact normalized match against development and test suites",
+		"prompts": 46980,
+		"sha256": {
+			"attacker.jsonl": "9470a17678ce815bca814959fd78cd192ad86395b3a05fe479a5e52daa45d224"
+		},
+		"task": "coding",
+		"version": "external-sources-v1"
+	}
+}

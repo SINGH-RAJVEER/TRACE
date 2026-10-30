@@ -1,0 +1,44 @@
+{
+	"activation_offloading": false,
+	"fingerprint": {
+		"chat_template_sha256": "273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80",
+		"config": {
+			"base_model": "Qwen/Qwen3.5-2B-Base",
+			"base_revision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+			"chat_template_kwargs": {
+				"enable_thinking": false
+			},
+			"eos_token": "<|im_end|>",
+			"epochs": 3.0,
+			"eval_steps": 100,
+			"eval_strategy": "epoch",
+			"gradient_accumulation_steps": 4,
+			"learning_rate": 0.0001,
+			"lora_alpha": 32,
+			"lora_dropout": 0.05,
+			"lora_rank": 16,
+			"loss_type": "nll",
+			"max_length": 2048,
+			"optimizer": "auto",
+			"per_device_batch_size": 4,
+			"precision": "bf16",
+			"qlora": false,
+			"save_steps": 100,
+			"seed": 42,
+			"select_best_checkpoint": false,
+			"target_modules": "all-linear",
+			"warmup_ratio": 0.03
+		},
+		"dataset_sha256": {
+			"training": "359e8dd10603e5cead0eb87f7f4f8fd4c016fd0549dda9779f452d6d02ac1942"
+		},
+		"serialization": "task-response-only-v1",
+		"tokenizer": {
+			"backend_sha256": "4d765ac5a92a75f240af39f9358a09a140216dce113e57754c91042ef8b9e4e8",
+			"eos_token": "<|im_end|>",
+			"eos_token_id": 248046,
+			"model": "Qwen/Qwen3.5-2B-Base",
+			"revision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+		}
+	}
+}
