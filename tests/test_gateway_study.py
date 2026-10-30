@@ -21,6 +21,7 @@ from distillation.benchmarks.models import (
 	load_config,
 	save_json,
 )
+from distillation.benchmarks.reporting import discover_runs
 from distillation.benchmarks.runner import run_evaluation
 from distillation.external_sources import EXTERNAL_SOURCES, build_external
 from distillation.gateway_study import GatewayStudy, benign_requests
@@ -464,6 +465,19 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	timing = json.loads(Path(results[0]["timing"]).read_text())
 	assert timing["latency_seconds"]["received"]["n"] >= 1
 	assert {r["domain"] for r in results} == {"ag_news", "gsm8k"}
+	# The untrained student is benchmarked once per seed and budget for every final condition.
+	for domain in pipeline.tasks:
+		before = [
+			r
+			for r in discover_runs(gateway.root / "base-student/s42-b8/benchmarks" / domain)[0]
+			if r.slot == "student_before"
+		]
+		assert len(before) == 1
+		ids = {
+			json.loads((d / "scores.json").read_text())[domain]["evaluation_ids"]["student_before"]
+			for d in (gateway.root / "A1/s42-b8/undefended", gateway.root / "A5/s42-b8/gold")
+		}
+		assert ids == {before[0].id}
 	# The bare teacher is benchmarked once and its scores are shared by every campaign.
 	assert not (gateway.root / "A5/s42-b8/teacher/benchmarks").exists()
 	for attack in ("A5", "A7"):
