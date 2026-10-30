@@ -7,7 +7,7 @@ output_dir = "outputs/tasks/gsm8k"
 training_paths = []
 
 [generation]
-max_output_tokens = 256
+max_output_tokens = 1024
 seed = 42
 temperature = 0
 enable_thinking = false

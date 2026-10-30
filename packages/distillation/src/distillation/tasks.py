@@ -124,7 +124,7 @@ TASKS: dict[str, TaskSpec] = {
 		DatasetSpec("openai/gsm8k", "740312add88f781978c0658806c59bc2815b9866", "mit", "main"),
 		"train",
 		"test",
-		256,
+		1024,
 		"numeric_exact_match",
 	),
 	"coding": TaskSpec(
