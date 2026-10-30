@@ -18,7 +18,7 @@ Build once; existing builds are immutable. Use `development-suite.json` under a 
 | --- | --- | --- | --- |
 | AG News | Official test | 16 tokens | `configs/eval.ag_news.toml` |
 | SQuAD 1.1 | Official validation | 64 tokens | `configs/eval.squad.toml` |
-| GSM8K | Official test | 256 tokens | `configs/eval.gsm8k.toml` |
+| GSM8K | Official test | 1,024 tokens | `configs/eval.gsm8k.toml` |
 
 Each config defines `teacher`, `student_before`, `teacher_after`, and `student_after`. `--stage before` runs the initial victim and unmodified student; `after` reevaluates the victim and scores the adapted student; `all` runs all four. Victim reevaluation measures serving drift. It is never a trained teacher checkpoint.
 

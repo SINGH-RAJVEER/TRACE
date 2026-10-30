@@ -136,7 +136,7 @@ uv run distill prepare \
 	--reviews data/tasks/ag_news-split-v2-s42/runs/s42-b2000/reviews.jsonl
 ```
 
-Use 64 output tokens for SQuAD and 256 for GSM8K, identically in collection and evaluation. Pilot GSM8K truncation before main collection. Budget extraction refuses ledger rows collected at another task output limit.
+Use 64 output tokens for SQuAD and 1,024 for GSM8K, identically in collection and evaluation. Pilot GSM8K truncation before main collection. Budget extraction refuses ledger rows collected at another task output limit.
 
 Collection resumes by `example_id`, rejects duplicate input IDs, and verifies prompt, split, task, source metadata, parameters, and approval identity before appending. Each finished response persists immediately. A sibling attempts ledger records successful and failed calls. The raw ledger retains the actual served model, provider, endpoint, generation settings, request IDs, usage, finish reasons, and collection checks. Resume cannot detect a provider replacing weights behind an unchanged endpoint, so archive deployment identity separately.
 
