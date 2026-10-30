@@ -133,7 +133,7 @@ def schedule_command(
 			"given interval), A5 Sybil per domain, A6 Sybil random, A7 independent sources."
 		),
 	],
-	budget: Annotated[int, typer.Option(min=1)],
+	budget: Annotated[int, typer.Option(min=1, help="Campaign-wide HTTP attempt limit.")] = 12_000,
 	tasks_dir: Path = Path("data/tasks"),
 	domains: str = "ag_news,squad,gsm8k,coding",
 	campaign_id: str = "campaign",
