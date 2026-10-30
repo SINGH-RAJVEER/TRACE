@@ -1,0 +1,794 @@
+{
+	"version": "gateway-clients-v3",
+	"role": "fitting",
+	"seed": 42,
+	"accounts": 125,
+	"concentrated_share": 0.1,
+	"client_shares": {
+		"specialist": 0.05,
+		"repetitive": 0.05,
+		"batch": 0.35000000000000003,
+		"bursty": 0.35000000000000003,
+		"short": 0.2
+	},
+	"generalist_share_requested": 0.1,
+	"generalist_share_achieved": 0.104,
+	"generalist_accounts": 13,
+	"requests_per_account_requested": 100,
+	"specialist_domain_rule": "weighted round-robin by role pool size",
+	"length_distribution": {
+		"minimum": 100,
+		"pareto_shape": 1.5,
+		"maximum": 2000,
+		"short_accounts": "capped at 20"
+	},
+	"account_lengths_requested": {
+		"fitting-gateway-00000": 1832,
+		"fitting-gateway-00001": 150,
+		"fitting-gateway-00002": 20,
+		"fitting-gateway-00003": 388,
+		"fitting-gateway-00004": 164,
+		"fitting-gateway-00005": 249,
+		"fitting-gateway-00006": 324,
+		"fitting-gateway-00007": 174,
+		"fitting-gateway-00008": 20,
+		"fitting-gateway-00009": 103,
+		"fitting-gateway-00010": 145,
+		"fitting-gateway-00011": 156,
+		"fitting-gateway-00012": 20,
+		"fitting-gateway-00013": 105,
+		"fitting-gateway-00014": 113,
+		"fitting-gateway-00015": 114,
+		"fitting-gateway-00016": 182,
+		"fitting-gateway-00017": 20,
+		"fitting-gateway-00018": 120,
+		"fitting-gateway-00019": 211,
+		"fitting-gateway-00020": 117,
+		"fitting-gateway-00021": 182,
+		"fitting-gateway-00022": 20,
+		"fitting-gateway-00023": 297,
+		"fitting-gateway-00024": 272,
+		"fitting-gateway-00025": 215,
+		"fitting-gateway-00026": 218,
+		"fitting-gateway-00027": 131,
+		"fitting-gateway-00028": 20,
+		"fitting-gateway-00029": 121,
+		"fitting-gateway-00030": 113,
+		"fitting-gateway-00031": 486,
+		"fitting-gateway-00032": 20,
+		"fitting-gateway-00033": 109,
+		"fitting-gateway-00034": 128,
+		"fitting-gateway-00035": 119,
+		"fitting-gateway-00036": 272,
+		"fitting-gateway-00037": 20,
+		"fitting-gateway-00038": 865,
+		"fitting-gateway-00039": 108,
+		"fitting-gateway-00040": 139,
+		"fitting-gateway-00041": 160,
+		"fitting-gateway-00042": 20,
+		"fitting-gateway-00043": 131,
+		"fitting-gateway-00044": 166,
+		"fitting-gateway-00045": 104,
+		"fitting-gateway-00046": 319,
+		"fitting-gateway-00047": 108,
+		"fitting-gateway-00048": 20,
+		"fitting-gateway-00049": 135,
+		"fitting-gateway-00050": 101,
+		"fitting-gateway-00051": 236,
+		"fitting-gateway-00052": 20,
+		"fitting-gateway-00053": 309,
+		"fitting-gateway-00054": 118,
+		"fitting-gateway-00055": 185,
+		"fitting-gateway-00056": 123,
+		"fitting-gateway-00057": 20,
+		"fitting-gateway-00058": 495,
+		"fitting-gateway-00059": 176,
+		"fitting-gateway-00060": 243,
+		"fitting-gateway-00061": 388,
+		"fitting-gateway-00062": 20,
+		"fitting-gateway-00063": 128,
+		"fitting-gateway-00064": 1071,
+		"fitting-gateway-00065": 127,
+		"fitting-gateway-00066": 111,
+		"fitting-gateway-00067": 135,
+		"fitting-gateway-00068": 20,
+		"fitting-gateway-00069": 102,
+		"fitting-gateway-00070": 123,
+		"fitting-gateway-00071": 510,
+		"fitting-gateway-00072": 20,
+		"fitting-gateway-00073": 897,
+		"fitting-gateway-00074": 1215,
+		"fitting-gateway-00075": 143,
+		"fitting-gateway-00076": 160,
+		"fitting-gateway-00077": 20,
+		"fitting-gateway-00078": 102,
+		"fitting-gateway-00079": 425,
+		"fitting-gateway-00080": 123,
+		"fitting-gateway-00081": 217,
+		"fitting-gateway-00082": 20,
+		"fitting-gateway-00083": 140,
+		"fitting-gateway-00084": 169,
+		"fitting-gateway-00085": 127,
+		"fitting-gateway-00086": 196,
+		"fitting-gateway-00087": 114,
+		"fitting-gateway-00088": 20,
+		"fitting-gateway-00089": 177,
+		"fitting-gateway-00090": 111,
+		"fitting-gateway-00091": 207,
+		"fitting-gateway-00092": 20,
+		"fitting-gateway-00093": 267,
+		"fitting-gateway-00094": 139,
+		"fitting-gateway-00095": 179,
+		"fitting-gateway-00096": 217,
+		"fitting-gateway-00097": 20,
+		"fitting-gateway-00098": 331,
+		"fitting-gateway-00099": 109,
+		"fitting-gateway-00100": 101,
+		"fitting-gateway-00101": 119,
+		"fitting-gateway-00102": 20,
+		"fitting-gateway-00103": 182,
+		"fitting-gateway-00104": 101,
+		"fitting-gateway-00105": 235,
+		"fitting-gateway-00106": 101,
+		"fitting-gateway-00107": 151,
+		"fitting-gateway-00108": 20,
+		"fitting-gateway-00109": 211,
+		"fitting-gateway-00110": 191,
+		"fitting-gateway-00111": 105,
+		"fitting-gateway-00112": 20,
+		"fitting-gateway-00113": 507,
+		"fitting-gateway-00114": 258,
+		"fitting-gateway-00115": 104,
+		"fitting-gateway-00116": 136,
+		"fitting-gateway-00117": 20,
+		"fitting-gateway-00118": 106,
+		"fitting-gateway-00119": 131,
+		"fitting-gateway-00120": 120,
+		"fitting-gateway-00121": 153,
+		"fitting-gateway-00122": 20,
+		"fitting-gateway-00123": 371,
+		"fitting-gateway-00124": 229
+	},
+	"capacity_limited_accounts": [
+		"fitting-gateway-00038",
+		"fitting-gateway-00069",
+		"fitting-gateway-00073",
+		"fitting-gateway-00075",
+		"fitting-gateway-00079",
+		"fitting-gateway-00081",
+		"fitting-gateway-00084",
+		"fitting-gateway-00085",
+		"fitting-gateway-00086",
+		"fitting-gateway-00089",
+		"fitting-gateway-00091",
+		"fitting-gateway-00093",
+		"fitting-gateway-00095",
+		"fitting-gateway-00099",
+		"fitting-gateway-00104",
+		"fitting-gateway-00106",
+		"fitting-gateway-00109",
+		"fitting-gateway-00110",
+		"fitting-gateway-00113",
+		"fitting-gateway-00115",
+		"fitting-gateway-00116",
+		"fitting-gateway-00120",
+		"fitting-gateway-00124"
+	],
+	"requests": 20965,
+	"domain_requests": {
+		"ag_news": 6251,
+		"coding": 9360,
+		"gsm8k": 1344,
+		"squad": 4010
+	},
+	"domain_unique_prompts": {
+		"coding": 9186,
+		"ag_news": 5877,
+		"squad": 3578,
+		"gsm8k": 1328
+	},
+	"account_domains": {
+		"fitting-gateway-00000": [
+			"coding"
+		],
+		"fitting-gateway-00001": [
+			"ag_news"
+		],
+		"fitting-gateway-00002": [
+			"squad"
+		],
+		"fitting-gateway-00003": [
+			"coding"
+		],
+		"fitting-gateway-00004": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00005": [
+			"coding"
+		],
+		"fitting-gateway-00006": [
+			"gsm8k"
+		],
+		"fitting-gateway-00007": [
+			"squad"
+		],
+		"fitting-gateway-00008": [
+			"coding"
+		],
+		"fitting-gateway-00009": [
+			"ag_news"
+		],
+		"fitting-gateway-00010": [
+			"coding"
+		],
+		"fitting-gateway-00011": [
+			"ag_news"
+		],
+		"fitting-gateway-00012": [
+			"ag_news",
+			"coding",
+			"squad"
+		],
+		"fitting-gateway-00013": [
+			"squad"
+		],
+		"fitting-gateway-00014": [
+			"coding"
+		],
+		"fitting-gateway-00015": [
+			"ag_news"
+		],
+		"fitting-gateway-00016": [
+			"coding"
+		],
+		"fitting-gateway-00017": [
+			"squad"
+		],
+		"fitting-gateway-00018": [
+			"ag_news"
+		],
+		"fitting-gateway-00019": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00020": [
+			"gsm8k"
+		],
+		"fitting-gateway-00021": [
+			"coding"
+		],
+		"fitting-gateway-00022": [
+			"ag_news"
+		],
+		"fitting-gateway-00023": [
+			"squad"
+		],
+		"fitting-gateway-00024": [
+			"coding"
+		],
+		"fitting-gateway-00025": [
+			"ag_news"
+		],
+		"fitting-gateway-00026": [
+			"coding"
+		],
+		"fitting-gateway-00027": [
+			"squad"
+		],
+		"fitting-gateway-00028": [
+			"coding"
+		],
+		"fitting-gateway-00029": [
+			"ag_news"
+		],
+		"fitting-gateway-00030": [
+			"coding"
+		],
+		"fitting-gateway-00031": [
+			"squad"
+		],
+		"fitting-gateway-00032": [
+			"coding"
+		],
+		"fitting-gateway-00033": [
+			"ag_news"
+		],
+		"fitting-gateway-00034": [
+			"coding"
+		],
+		"fitting-gateway-00035": [
+			"ag_news"
+		],
+		"fitting-gateway-00036": [
+			"coding"
+		],
+		"fitting-gateway-00037": [
+			"squad"
+		],
+		"fitting-gateway-00038": [
+			"gsm8k"
+		],
+		"fitting-gateway-00039": [
+			"coding"
+		],
+		"fitting-gateway-00040": [
+			"ag_news"
+		],
+		"fitting-gateway-00041": [
+			"coding"
+		],
+		"fitting-gateway-00042": [
+			"squad"
+		],
+		"fitting-gateway-00043": [
+			"ag_news"
+		],
+		"fitting-gateway-00044": [
+			"coding"
+		],
+		"fitting-gateway-00045": [
+			"coding"
+		],
+		"fitting-gateway-00046": [
+			"ag_news"
+		],
+		"fitting-gateway-00047": [
+			"squad"
+		],
+		"fitting-gateway-00048": [
+			"coding"
+		],
+		"fitting-gateway-00049": [
+			"ag_news"
+		],
+		"fitting-gateway-00050": [
+			"coding"
+		],
+		"fitting-gateway-00051": [
+			"squad"
+		],
+		"fitting-gateway-00052": [
+			"coding"
+		],
+		"fitting-gateway-00053": [
+			"ag_news"
+		],
+		"fitting-gateway-00054": [
+			"coding",
+			"squad"
+		],
+		"fitting-gateway-00055": [
+			"coding"
+		],
+		"fitting-gateway-00056": [
+			"ag_news"
+		],
+		"fitting-gateway-00057": [
+			"coding"
+		],
+		"fitting-gateway-00058": [
+			"squad"
+		],
+		"fitting-gateway-00059": [
+			"coding"
+		],
+		"fitting-gateway-00060": [
+			"ag_news"
+		],
+		"fitting-gateway-00061": [
+			"coding"
+		],
+		"fitting-gateway-00062": [
+			"squad"
+		],
+		"fitting-gateway-00063": [
+			"ag_news",
+			"coding"
+		],
+		"fitting-gateway-00064": [
+			"coding"
+		],
+		"fitting-gateway-00065": [
+			"coding"
+		],
+		"fitting-gateway-00066": [
+			"ag_news"
+		],
+		"fitting-gateway-00067": [
+			"squad"
+		],
+		"fitting-gateway-00068": [
+			"coding"
+		],
+		"fitting-gateway-00069": [
+			"gsm8k"
+		],
+		"fitting-gateway-00070": [
+			"ag_news"
+		],
+		"fitting-gateway-00071": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00072": [
+			"squad"
+		],
+		"fitting-gateway-00073": [
+			"coding"
+		],
+		"fitting-gateway-00074": [
+			"ag_news"
+		],
+		"fitting-gateway-00075": [
+			"coding"
+		],
+		"fitting-gateway-00076": [
+			"ag_news",
+			"gsm8k"
+		],
+		"fitting-gateway-00077": [
+			"coding"
+		],
+		"fitting-gateway-00078": [
+			"squad"
+		],
+		"fitting-gateway-00079": [
+			"coding"
+		],
+		"fitting-gateway-00080": [
+			"ag_news"
+		],
+		"fitting-gateway-00081": [
+			"coding"
+		],
+		"fitting-gateway-00082": [
+			"squad"
+		],
+		"fitting-gateway-00083": [
+			"ag_news"
+		],
+		"fitting-gateway-00084": [
+			"coding"
+		],
+		"fitting-gateway-00085": [
+			"gsm8k"
+		],
+		"fitting-gateway-00086": [
+			"coding"
+		],
+		"fitting-gateway-00087": [
+			"ag_news"
+		],
+		"fitting-gateway-00088": [
+			"squad"
+		],
+		"fitting-gateway-00089": [
+			"coding"
+		],
+		"fitting-gateway-00090": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00091": [
+			"coding"
+		],
+		"fitting-gateway-00092": [
+			"squad"
+		],
+		"fitting-gateway-00093": [
+			"coding"
+		],
+		"fitting-gateway-00094": [
+			"ag_news"
+		],
+		"fitting-gateway-00095": [
+			"coding"
+		],
+		"fitting-gateway-00096": [
+			"squad"
+		],
+		"fitting-gateway-00097": [
+			"coding"
+		],
+		"fitting-gateway-00098": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00099": [
+			"coding"
+		],
+		"fitting-gateway-00100": [
+			"ag_news",
+			"coding",
+			"gsm8k"
+		],
+		"fitting-gateway-00101": [
+			"ag_news"
+		],
+		"fitting-gateway-00102": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00103": [
+			"squad"
+		],
+		"fitting-gateway-00104": [
+			"coding"
+		],
+		"fitting-gateway-00105": [
+			"ag_news"
+		],
+		"fitting-gateway-00106": [
+			"coding"
+		],
+		"fitting-gateway-00107": [
+			"squad"
+		],
+		"fitting-gateway-00108": [
+			"ag_news",
+			"squad"
+		],
+		"fitting-gateway-00109": [
+			"coding"
+		],
+		"fitting-gateway-00110": [
+			"coding"
+		],
+		"fitting-gateway-00111": [
+			"ag_news"
+		],
+		"fitting-gateway-00112": [
+			"squad"
+		],
+		"fitting-gateway-00113": [
+			"coding"
+		],
+		"fitting-gateway-00114": [
+			"ag_news"
+		],
+		"fitting-gateway-00115": [
+			"coding"
+		],
+		"fitting-gateway-00116": [
+			"gsm8k"
+		],
+		"fitting-gateway-00117": [
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"fitting-gateway-00118": [
+			"squad"
+		],
+		"fitting-gateway-00119": [
+			"ag_news"
+		],
+		"fitting-gateway-00120": [
+			"coding"
+		],
+		"fitting-gateway-00121": [
+			"ag_news"
+		],
+		"fitting-gateway-00122": [
+			"coding"
+		],
+		"fitting-gateway-00123": [
+			"squad"
+		],
+		"fitting-gateway-00124": [
+			"coding"
+		]
+	},
+	"account_lengths": {
+		"fitting-gateway-00000": 1832,
+		"fitting-gateway-00001": 150,
+		"fitting-gateway-00002": 20,
+		"fitting-gateway-00003": 388,
+		"fitting-gateway-00004": 164,
+		"fitting-gateway-00005": 249,
+		"fitting-gateway-00006": 324,
+		"fitting-gateway-00007": 174,
+		"fitting-gateway-00008": 20,
+		"fitting-gateway-00009": 103,
+		"fitting-gateway-00010": 145,
+		"fitting-gateway-00011": 156,
+		"fitting-gateway-00012": 20,
+		"fitting-gateway-00013": 105,
+		"fitting-gateway-00014": 113,
+		"fitting-gateway-00015": 114,
+		"fitting-gateway-00016": 182,
+		"fitting-gateway-00017": 20,
+		"fitting-gateway-00018": 120,
+		"fitting-gateway-00019": 211,
+		"fitting-gateway-00020": 117,
+		"fitting-gateway-00021": 182,
+		"fitting-gateway-00022": 20,
+		"fitting-gateway-00023": 297,
+		"fitting-gateway-00024": 272,
+		"fitting-gateway-00025": 215,
+		"fitting-gateway-00026": 218,
+		"fitting-gateway-00027": 131,
+		"fitting-gateway-00028": 20,
+		"fitting-gateway-00029": 121,
+		"fitting-gateway-00030": 113,
+		"fitting-gateway-00031": 486,
+		"fitting-gateway-00032": 20,
+		"fitting-gateway-00033": 109,
+		"fitting-gateway-00034": 128,
+		"fitting-gateway-00035": 119,
+		"fitting-gateway-00036": 272,
+		"fitting-gateway-00037": 20,
+		"fitting-gateway-00038": 340,
+		"fitting-gateway-00039": 108,
+		"fitting-gateway-00040": 139,
+		"fitting-gateway-00041": 160,
+		"fitting-gateway-00042": 20,
+		"fitting-gateway-00043": 131,
+		"fitting-gateway-00044": 166,
+		"fitting-gateway-00045": 104,
+		"fitting-gateway-00046": 319,
+		"fitting-gateway-00047": 108,
+		"fitting-gateway-00048": 20,
+		"fitting-gateway-00049": 135,
+		"fitting-gateway-00050": 101,
+		"fitting-gateway-00051": 236,
+		"fitting-gateway-00052": 20,
+		"fitting-gateway-00053": 309,
+		"fitting-gateway-00054": 118,
+		"fitting-gateway-00055": 185,
+		"fitting-gateway-00056": 123,
+		"fitting-gateway-00057": 20,
+		"fitting-gateway-00058": 495,
+		"fitting-gateway-00059": 176,
+		"fitting-gateway-00060": 243,
+		"fitting-gateway-00061": 388,
+		"fitting-gateway-00062": 20,
+		"fitting-gateway-00063": 128,
+		"fitting-gateway-00064": 1071,
+		"fitting-gateway-00065": 127,
+		"fitting-gateway-00066": 111,
+		"fitting-gateway-00067": 135,
+		"fitting-gateway-00068": 20,
+		"fitting-gateway-00069": 100,
+		"fitting-gateway-00070": 123,
+		"fitting-gateway-00071": 510,
+		"fitting-gateway-00072": 20,
+		"fitting-gateway-00073": 200,
+		"fitting-gateway-00074": 1215,
+		"fitting-gateway-00075": 100,
+		"fitting-gateway-00076": 160,
+		"fitting-gateway-00077": 20,
+		"fitting-gateway-00078": 102,
+		"fitting-gateway-00079": 100,
+		"fitting-gateway-00080": 123,
+		"fitting-gateway-00081": 100,
+		"fitting-gateway-00082": 20,
+		"fitting-gateway-00083": 140,
+		"fitting-gateway-00084": 100,
+		"fitting-gateway-00085": 100,
+		"fitting-gateway-00086": 100,
+		"fitting-gateway-00087": 114,
+		"fitting-gateway-00088": 20,
+		"fitting-gateway-00089": 100,
+		"fitting-gateway-00090": 111,
+		"fitting-gateway-00091": 102,
+		"fitting-gateway-00092": 20,
+		"fitting-gateway-00093": 100,
+		"fitting-gateway-00094": 139,
+		"fitting-gateway-00095": 100,
+		"fitting-gateway-00096": 217,
+		"fitting-gateway-00097": 20,
+		"fitting-gateway-00098": 331,
+		"fitting-gateway-00099": 100,
+		"fitting-gateway-00100": 101,
+		"fitting-gateway-00101": 119,
+		"fitting-gateway-00102": 20,
+		"fitting-gateway-00103": 182,
+		"fitting-gateway-00104": 100,
+		"fitting-gateway-00105": 235,
+		"fitting-gateway-00106": 100,
+		"fitting-gateway-00107": 151,
+		"fitting-gateway-00108": 20,
+		"fitting-gateway-00109": 100,
+		"fitting-gateway-00110": 100,
+		"fitting-gateway-00111": 105,
+		"fitting-gateway-00112": 20,
+		"fitting-gateway-00113": 100,
+		"fitting-gateway-00114": 258,
+		"fitting-gateway-00115": 100,
+		"fitting-gateway-00116": 100,
+		"fitting-gateway-00117": 20,
+		"fitting-gateway-00118": 106,
+		"fitting-gateway-00119": 131,
+		"fitting-gateway-00120": 100,
+		"fitting-gateway-00121": 153,
+		"fitting-gateway-00122": 20,
+		"fitting-gateway-00123": 371,
+		"fitting-gateway-00124": 100
+	},
+	"client_types": {
+		"batch": 44,
+		"bursty": 44,
+		"short": 25,
+		"specialist": 6,
+		"repetitive": 6
+	},
+	"scored_accounts": 100,
+	"complete_100_request_windows": 176,
+	"multi_window_accounts": 27,
+	"source_documents": 16411,
+	"topic_order": "category",
+	"domain_topic_categories": {
+		"ag_news": [
+			"Business",
+			"Sci/Tech",
+			"Sports",
+			"World"
+		],
+		"coding": [
+			"algorithmic",
+			"generic"
+		],
+		"gsm8k": [
+			"math"
+		],
+		"squad": [
+			"Canadian_football",
+			"Clothing",
+			"Exhibition_game",
+			"Franco-Prussian_War",
+			"Friedrich_Hayek",
+			"Geography_of_the_United_States",
+			"Glacier",
+			"Guinea-Bissau",
+			"Jehovah%27s_Witnesses",
+			"LaserDisc",
+			"Montevideo",
+			"Neptune",
+			"Nintendo_Entertainment_System",
+			"Old_English",
+			"Party_leaders_of_the_United_States_House_of_Representatives",
+			"Poultry",
+			"Roman_Republic",
+			"Separation_of_church_and_state_in_the_United_States",
+			"Sichuan",
+			"The_Bronx",
+			"Transistor",
+			"United_States_Air_Force",
+			"Washington_University_in_St._Louis"
+		]
+	},
+	"specialist_scope": {
+		"ag_news": "topic ordered",
+		"coding": "topic ordered",
+		"gsm8k": "domain only",
+		"squad": "topic ordered"
+	},
+	"arrival_times": "synthetic, accounts start together",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"squad": 64,
+		"gsm8k": 256,
+		"coding": 512
+	},
+	"pool_sha256": {
+		"ag_news": "b17856da2429f6da3637ae3c6d833acfc183fa0002f1a3025cda5eb29c788e80",
+		"coding": "32a75f8ee3a793f15dbfb866e4f0674a6c8d6ad4f0fd2c2acd0e80c4eca2c7f9",
+		"gsm8k": "3bb88bb7b5dab713c3fd9db30d7c7c2a0979296a196a633787b0941780ee18cf",
+		"squad": "d9b859f2339ee5af832b833fdaf426c33b6075b809022a44a183acc7cd564a91"
+	},
+	"execution_status": "not_run"
+}

@@ -1,0 +1,815 @@
+{
+	"version": "gateway-clients-v3",
+	"role": "score_calibration",
+	"seed": 42,
+	"accounts": 125,
+	"concentrated_share": 0.1,
+	"client_shares": {
+		"specialist": 0.05,
+		"repetitive": 0.05,
+		"batch": 0.35000000000000003,
+		"bursty": 0.35000000000000003,
+		"short": 0.2
+	},
+	"generalist_share_requested": 0.1,
+	"generalist_share_achieved": 0.104,
+	"generalist_accounts": 13,
+	"requests_per_account_requested": 100,
+	"specialist_domain_rule": "weighted round-robin by role pool size",
+	"length_distribution": {
+		"minimum": 100,
+		"pareto_shape": 1.5,
+		"maximum": 2000,
+		"short_accounts": "capped at 20"
+	},
+	"account_lengths_requested": {
+		"score_calibration-gateway-00000": 1832,
+		"score_calibration-gateway-00001": 150,
+		"score_calibration-gateway-00002": 20,
+		"score_calibration-gateway-00003": 388,
+		"score_calibration-gateway-00004": 164,
+		"score_calibration-gateway-00005": 249,
+		"score_calibration-gateway-00006": 324,
+		"score_calibration-gateway-00007": 174,
+		"score_calibration-gateway-00008": 20,
+		"score_calibration-gateway-00009": 103,
+		"score_calibration-gateway-00010": 145,
+		"score_calibration-gateway-00011": 156,
+		"score_calibration-gateway-00012": 20,
+		"score_calibration-gateway-00013": 105,
+		"score_calibration-gateway-00014": 113,
+		"score_calibration-gateway-00015": 114,
+		"score_calibration-gateway-00016": 182,
+		"score_calibration-gateway-00017": 20,
+		"score_calibration-gateway-00018": 120,
+		"score_calibration-gateway-00019": 211,
+		"score_calibration-gateway-00020": 117,
+		"score_calibration-gateway-00021": 182,
+		"score_calibration-gateway-00022": 20,
+		"score_calibration-gateway-00023": 297,
+		"score_calibration-gateway-00024": 272,
+		"score_calibration-gateway-00025": 215,
+		"score_calibration-gateway-00026": 218,
+		"score_calibration-gateway-00027": 131,
+		"score_calibration-gateway-00028": 20,
+		"score_calibration-gateway-00029": 121,
+		"score_calibration-gateway-00030": 113,
+		"score_calibration-gateway-00031": 486,
+		"score_calibration-gateway-00032": 20,
+		"score_calibration-gateway-00033": 109,
+		"score_calibration-gateway-00034": 128,
+		"score_calibration-gateway-00035": 119,
+		"score_calibration-gateway-00036": 272,
+		"score_calibration-gateway-00037": 20,
+		"score_calibration-gateway-00038": 865,
+		"score_calibration-gateway-00039": 108,
+		"score_calibration-gateway-00040": 139,
+		"score_calibration-gateway-00041": 160,
+		"score_calibration-gateway-00042": 20,
+		"score_calibration-gateway-00043": 131,
+		"score_calibration-gateway-00044": 166,
+		"score_calibration-gateway-00045": 104,
+		"score_calibration-gateway-00046": 319,
+		"score_calibration-gateway-00047": 108,
+		"score_calibration-gateway-00048": 20,
+		"score_calibration-gateway-00049": 135,
+		"score_calibration-gateway-00050": 101,
+		"score_calibration-gateway-00051": 236,
+		"score_calibration-gateway-00052": 20,
+		"score_calibration-gateway-00053": 309,
+		"score_calibration-gateway-00054": 118,
+		"score_calibration-gateway-00055": 185,
+		"score_calibration-gateway-00056": 123,
+		"score_calibration-gateway-00057": 20,
+		"score_calibration-gateway-00058": 495,
+		"score_calibration-gateway-00059": 176,
+		"score_calibration-gateway-00060": 243,
+		"score_calibration-gateway-00061": 388,
+		"score_calibration-gateway-00062": 20,
+		"score_calibration-gateway-00063": 128,
+		"score_calibration-gateway-00064": 1071,
+		"score_calibration-gateway-00065": 127,
+		"score_calibration-gateway-00066": 111,
+		"score_calibration-gateway-00067": 135,
+		"score_calibration-gateway-00068": 20,
+		"score_calibration-gateway-00069": 102,
+		"score_calibration-gateway-00070": 123,
+		"score_calibration-gateway-00071": 510,
+		"score_calibration-gateway-00072": 20,
+		"score_calibration-gateway-00073": 897,
+		"score_calibration-gateway-00074": 1215,
+		"score_calibration-gateway-00075": 143,
+		"score_calibration-gateway-00076": 160,
+		"score_calibration-gateway-00077": 20,
+		"score_calibration-gateway-00078": 102,
+		"score_calibration-gateway-00079": 425,
+		"score_calibration-gateway-00080": 123,
+		"score_calibration-gateway-00081": 217,
+		"score_calibration-gateway-00082": 20,
+		"score_calibration-gateway-00083": 140,
+		"score_calibration-gateway-00084": 169,
+		"score_calibration-gateway-00085": 127,
+		"score_calibration-gateway-00086": 196,
+		"score_calibration-gateway-00087": 114,
+		"score_calibration-gateway-00088": 20,
+		"score_calibration-gateway-00089": 177,
+		"score_calibration-gateway-00090": 111,
+		"score_calibration-gateway-00091": 207,
+		"score_calibration-gateway-00092": 20,
+		"score_calibration-gateway-00093": 267,
+		"score_calibration-gateway-00094": 139,
+		"score_calibration-gateway-00095": 179,
+		"score_calibration-gateway-00096": 217,
+		"score_calibration-gateway-00097": 20,
+		"score_calibration-gateway-00098": 331,
+		"score_calibration-gateway-00099": 109,
+		"score_calibration-gateway-00100": 101,
+		"score_calibration-gateway-00101": 119,
+		"score_calibration-gateway-00102": 20,
+		"score_calibration-gateway-00103": 182,
+		"score_calibration-gateway-00104": 101,
+		"score_calibration-gateway-00105": 235,
+		"score_calibration-gateway-00106": 101,
+		"score_calibration-gateway-00107": 151,
+		"score_calibration-gateway-00108": 20,
+		"score_calibration-gateway-00109": 211,
+		"score_calibration-gateway-00110": 191,
+		"score_calibration-gateway-00111": 105,
+		"score_calibration-gateway-00112": 20,
+		"score_calibration-gateway-00113": 507,
+		"score_calibration-gateway-00114": 258,
+		"score_calibration-gateway-00115": 104,
+		"score_calibration-gateway-00116": 136,
+		"score_calibration-gateway-00117": 20,
+		"score_calibration-gateway-00118": 106,
+		"score_calibration-gateway-00119": 131,
+		"score_calibration-gateway-00120": 120,
+		"score_calibration-gateway-00121": 153,
+		"score_calibration-gateway-00122": 20,
+		"score_calibration-gateway-00123": 371,
+		"score_calibration-gateway-00124": 229
+	},
+	"capacity_limited_accounts": [],
+	"requests": 24103,
+	"domain_requests": {
+		"ag_news": 12507,
+		"coding": 2081,
+		"gsm8k": 723,
+		"squad": 8792
+	},
+	"domain_unique_prompts": {
+		"ag_news": 12331,
+		"squad": 8140,
+		"coding": 1927,
+		"gsm8k": 639
+	},
+	"account_domains": {
+		"score_calibration-gateway-00000": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00001": [
+			"squad"
+		],
+		"score_calibration-gateway-00002": [
+			"coding"
+		],
+		"score_calibration-gateway-00003": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00004": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00005": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00006": [
+			"squad"
+		],
+		"score_calibration-gateway-00007": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00008": [
+			"squad"
+		],
+		"score_calibration-gateway-00009": [
+			"coding"
+		],
+		"score_calibration-gateway-00010": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00011": [
+			"squad"
+		],
+		"score_calibration-gateway-00012": [
+			"ag_news",
+			"coding",
+			"squad"
+		],
+		"score_calibration-gateway-00013": [
+			"squad"
+		],
+		"score_calibration-gateway-00014": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00015": [
+			"squad"
+		],
+		"score_calibration-gateway-00016": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00017": [
+			"coding"
+		],
+		"score_calibration-gateway-00018": [
+			"squad"
+		],
+		"score_calibration-gateway-00019": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00020": [
+			"squad"
+		],
+		"score_calibration-gateway-00021": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00022": [
+			"gsm8k"
+		],
+		"score_calibration-gateway-00023": [
+			"squad"
+		],
+		"score_calibration-gateway-00024": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00025": [
+			"coding"
+		],
+		"score_calibration-gateway-00026": [
+			"squad"
+		],
+		"score_calibration-gateway-00027": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00028": [
+			"squad"
+		],
+		"score_calibration-gateway-00029": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00030": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00031": [
+			"squad"
+		],
+		"score_calibration-gateway-00032": [
+			"coding"
+		],
+		"score_calibration-gateway-00033": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00034": [
+			"squad"
+		],
+		"score_calibration-gateway-00035": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00036": [
+			"squad"
+		],
+		"score_calibration-gateway-00037": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00038": [
+			"squad"
+		],
+		"score_calibration-gateway-00039": [
+			"coding"
+		],
+		"score_calibration-gateway-00040": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00041": [
+			"squad"
+		],
+		"score_calibration-gateway-00042": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00043": [
+			"squad"
+		],
+		"score_calibration-gateway-00044": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00045": [
+			"squad"
+		],
+		"score_calibration-gateway-00046": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00047": [
+			"coding"
+		],
+		"score_calibration-gateway-00048": [
+			"squad"
+		],
+		"score_calibration-gateway-00049": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00050": [
+			"squad"
+		],
+		"score_calibration-gateway-00051": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00052": [
+			"squad"
+		],
+		"score_calibration-gateway-00053": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00054": [
+			"coding",
+			"squad"
+		],
+		"score_calibration-gateway-00055": [
+			"squad"
+		],
+		"score_calibration-gateway-00056": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00057": [
+			"squad"
+		],
+		"score_calibration-gateway-00058": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00059": [
+			"coding"
+		],
+		"score_calibration-gateway-00060": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00061": [
+			"squad"
+		],
+		"score_calibration-gateway-00062": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00063": [
+			"ag_news",
+			"coding"
+		],
+		"score_calibration-gateway-00064": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00065": [
+			"squad"
+		],
+		"score_calibration-gateway-00066": [
+			"gsm8k"
+		],
+		"score_calibration-gateway-00067": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00068": [
+			"squad"
+		],
+		"score_calibration-gateway-00069": [
+			"coding"
+		],
+		"score_calibration-gateway-00070": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00071": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00072": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00073": [
+			"squad"
+		],
+		"score_calibration-gateway-00074": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00075": [
+			"squad"
+		],
+		"score_calibration-gateway-00076": [
+			"ag_news",
+			"gsm8k"
+		],
+		"score_calibration-gateway-00077": [
+			"coding"
+		],
+		"score_calibration-gateway-00078": [
+			"squad"
+		],
+		"score_calibration-gateway-00079": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00080": [
+			"squad"
+		],
+		"score_calibration-gateway-00081": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00082": [
+			"squad"
+		],
+		"score_calibration-gateway-00083": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00084": [
+			"coding"
+		],
+		"score_calibration-gateway-00085": [
+			"squad"
+		],
+		"score_calibration-gateway-00086": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00087": [
+			"squad"
+		],
+		"score_calibration-gateway-00088": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00089": [
+			"coding"
+		],
+		"score_calibration-gateway-00090": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00091": [
+			"squad"
+		],
+		"score_calibration-gateway-00092": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00093": [
+			"squad"
+		],
+		"score_calibration-gateway-00094": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00095": [
+			"squad"
+		],
+		"score_calibration-gateway-00096": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00097": [
+			"squad"
+		],
+		"score_calibration-gateway-00098": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00099": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00100": [
+			"ag_news",
+			"coding",
+			"gsm8k"
+		],
+		"score_calibration-gateway-00101": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00102": [
+			"ag_news",
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00103": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00104": [
+			"coding"
+		],
+		"score_calibration-gateway-00105": [
+			"squad"
+		],
+		"score_calibration-gateway-00106": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00107": [
+			"squad"
+		],
+		"score_calibration-gateway-00108": [
+			"ag_news",
+			"squad"
+		],
+		"score_calibration-gateway-00109": [
+			"squad"
+		],
+		"score_calibration-gateway-00110": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00111": [
+			"coding"
+		],
+		"score_calibration-gateway-00112": [
+			"squad"
+		],
+		"score_calibration-gateway-00113": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00114": [
+			"squad"
+		],
+		"score_calibration-gateway-00115": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00116": [
+			"gsm8k"
+		],
+		"score_calibration-gateway-00117": [
+			"coding",
+			"gsm8k",
+			"squad"
+		],
+		"score_calibration-gateway-00118": [
+			"squad"
+		],
+		"score_calibration-gateway-00119": [
+			"coding"
+		],
+		"score_calibration-gateway-00120": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00121": [
+			"squad"
+		],
+		"score_calibration-gateway-00122": [
+			"ag_news"
+		],
+		"score_calibration-gateway-00123": [
+			"squad"
+		],
+		"score_calibration-gateway-00124": [
+			"ag_news"
+		]
+	},
+	"account_lengths": {
+		"score_calibration-gateway-00000": 1832,
+		"score_calibration-gateway-00001": 150,
+		"score_calibration-gateway-00002": 20,
+		"score_calibration-gateway-00003": 388,
+		"score_calibration-gateway-00004": 164,
+		"score_calibration-gateway-00005": 249,
+		"score_calibration-gateway-00006": 324,
+		"score_calibration-gateway-00007": 174,
+		"score_calibration-gateway-00008": 20,
+		"score_calibration-gateway-00009": 103,
+		"score_calibration-gateway-00010": 145,
+		"score_calibration-gateway-00011": 156,
+		"score_calibration-gateway-00012": 20,
+		"score_calibration-gateway-00013": 105,
+		"score_calibration-gateway-00014": 113,
+		"score_calibration-gateway-00015": 114,
+		"score_calibration-gateway-00016": 182,
+		"score_calibration-gateway-00017": 20,
+		"score_calibration-gateway-00018": 120,
+		"score_calibration-gateway-00019": 211,
+		"score_calibration-gateway-00020": 117,
+		"score_calibration-gateway-00021": 182,
+		"score_calibration-gateway-00022": 20,
+		"score_calibration-gateway-00023": 297,
+		"score_calibration-gateway-00024": 272,
+		"score_calibration-gateway-00025": 215,
+		"score_calibration-gateway-00026": 218,
+		"score_calibration-gateway-00027": 131,
+		"score_calibration-gateway-00028": 20,
+		"score_calibration-gateway-00029": 121,
+		"score_calibration-gateway-00030": 113,
+		"score_calibration-gateway-00031": 486,
+		"score_calibration-gateway-00032": 20,
+		"score_calibration-gateway-00033": 109,
+		"score_calibration-gateway-00034": 128,
+		"score_calibration-gateway-00035": 119,
+		"score_calibration-gateway-00036": 272,
+		"score_calibration-gateway-00037": 20,
+		"score_calibration-gateway-00038": 865,
+		"score_calibration-gateway-00039": 108,
+		"score_calibration-gateway-00040": 139,
+		"score_calibration-gateway-00041": 160,
+		"score_calibration-gateway-00042": 20,
+		"score_calibration-gateway-00043": 131,
+		"score_calibration-gateway-00044": 166,
+		"score_calibration-gateway-00045": 104,
+		"score_calibration-gateway-00046": 319,
+		"score_calibration-gateway-00047": 108,
+		"score_calibration-gateway-00048": 20,
+		"score_calibration-gateway-00049": 135,
+		"score_calibration-gateway-00050": 101,
+		"score_calibration-gateway-00051": 236,
+		"score_calibration-gateway-00052": 20,
+		"score_calibration-gateway-00053": 309,
+		"score_calibration-gateway-00054": 118,
+		"score_calibration-gateway-00055": 185,
+		"score_calibration-gateway-00056": 123,
+		"score_calibration-gateway-00057": 20,
+		"score_calibration-gateway-00058": 495,
+		"score_calibration-gateway-00059": 176,
+		"score_calibration-gateway-00060": 243,
+		"score_calibration-gateway-00061": 388,
+		"score_calibration-gateway-00062": 20,
+		"score_calibration-gateway-00063": 128,
+		"score_calibration-gateway-00064": 1071,
+		"score_calibration-gateway-00065": 127,
+		"score_calibration-gateway-00066": 111,
+		"score_calibration-gateway-00067": 135,
+		"score_calibration-gateway-00068": 20,
+		"score_calibration-gateway-00069": 102,
+		"score_calibration-gateway-00070": 123,
+		"score_calibration-gateway-00071": 510,
+		"score_calibration-gateway-00072": 20,
+		"score_calibration-gateway-00073": 897,
+		"score_calibration-gateway-00074": 1215,
+		"score_calibration-gateway-00075": 143,
+		"score_calibration-gateway-00076": 160,
+		"score_calibration-gateway-00077": 20,
+		"score_calibration-gateway-00078": 102,
+		"score_calibration-gateway-00079": 425,
+		"score_calibration-gateway-00080": 123,
+		"score_calibration-gateway-00081": 217,
+		"score_calibration-gateway-00082": 20,
+		"score_calibration-gateway-00083": 140,
+		"score_calibration-gateway-00084": 169,
+		"score_calibration-gateway-00085": 127,
+		"score_calibration-gateway-00086": 196,
+		"score_calibration-gateway-00087": 114,
+		"score_calibration-gateway-00088": 20,
+		"score_calibration-gateway-00089": 177,
+		"score_calibration-gateway-00090": 111,
+		"score_calibration-gateway-00091": 207,
+		"score_calibration-gateway-00092": 20,
+		"score_calibration-gateway-00093": 267,
+		"score_calibration-gateway-00094": 139,
+		"score_calibration-gateway-00095": 179,
+		"score_calibration-gateway-00096": 217,
+		"score_calibration-gateway-00097": 20,
+		"score_calibration-gateway-00098": 331,
+		"score_calibration-gateway-00099": 109,
+		"score_calibration-gateway-00100": 101,
+		"score_calibration-gateway-00101": 119,
+		"score_calibration-gateway-00102": 20,
+		"score_calibration-gateway-00103": 182,
+		"score_calibration-gateway-00104": 101,
+		"score_calibration-gateway-00105": 235,
+		"score_calibration-gateway-00106": 101,
+		"score_calibration-gateway-00107": 151,
+		"score_calibration-gateway-00108": 20,
+		"score_calibration-gateway-00109": 211,
+		"score_calibration-gateway-00110": 191,
+		"score_calibration-gateway-00111": 105,
+		"score_calibration-gateway-00112": 20,
+		"score_calibration-gateway-00113": 507,
+		"score_calibration-gateway-00114": 258,
+		"score_calibration-gateway-00115": 104,
+		"score_calibration-gateway-00116": 136,
+		"score_calibration-gateway-00117": 20,
+		"score_calibration-gateway-00118": 106,
+		"score_calibration-gateway-00119": 131,
+		"score_calibration-gateway-00120": 120,
+		"score_calibration-gateway-00121": 153,
+		"score_calibration-gateway-00122": 20,
+		"score_calibration-gateway-00123": 371,
+		"score_calibration-gateway-00124": 229
+	},
+	"client_types": {
+		"batch": 44,
+		"bursty": 44,
+		"short": 25,
+		"specialist": 6,
+		"repetitive": 6
+	},
+	"scored_accounts": 100,
+	"complete_100_request_windows": 199,
+	"multi_window_accounts": 34,
+	"source_documents": 14940,
+	"topic_order": "category",
+	"domain_topic_categories": {
+		"ag_news": [
+			"Business",
+			"Sci/Tech",
+			"Sports",
+			"World"
+		],
+		"coding": [
+			"algorithmic",
+			"generic"
+		],
+		"gsm8k": [
+			"math"
+		],
+		"squad": [
+			"ASCII",
+			"Antenna_(radio)",
+			"Appalachian_Mountains",
+			"Atlantic_City,_New_Jersey",
+			"Bermuda",
+			"Beyoncé",
+			"Buckingham_Palace",
+			"CBC_Television",
+			"Capacitor",
+			"Child_labour",
+			"Comcast",
+			"Comprehensive_school",
+			"Computer",
+			"Cork_(city)",
+			"Cotton",
+			"Culture",
+			"Department_store",
+			"Dialect",
+			"Dutch_Republic",
+			"Dutch_language",
+			"East_Prussia",
+			"Electric_motor",
+			"Endangered_Species_Act",
+			"Everton_F.C.",
+			"Flowering_plant",
+			"Freemasonry",
+			"Great_power",
+			"Group_(mathematics)",
+			"Gymnastics",
+			"Han_dynasty",
+			"History_of_India",
+			"History_of_science",
+			"Hyderabad",
+			"Imamah_(Shia_doctrine)",
+			"Immunology",
+			"Incandescent_light_bulb",
+			"Infection",
+			"Internet_service_provider",
+			"Iranian_languages",
+			"John_Kerry",
+			"Josip_Broz_Tito",
+			"Late_Middle_Ages",
+			"Mexico_City",
+			"Middle_Ages",
+			"Military_history_of_the_United_States",
+			"Muammar_Gaddafi",
+			"Near_East",
+			"North_Carolina",
+			"Northwestern_University",
+			"Oklahoma_City",
+			"On_the_Origin_of_Species",
+			"Ottoman_Empire",
+			"Pesticide",
+			"Philosophy_of_space_and_time",
+			"Planck_constant",
+			"Pope_John_XXIII",
+			"Presbyterianism",
+			"Royal_Dutch_Shell",
+			"Rule_of_law",
+			"Separation_of_powers_under_the_United_States_Constitution",
+			"Sino-Tibetan_relations_during_the_Ming_dynasty",
+			"Southern_Europe",
+			"States_of_Germany",
+			"Swaziland",
+			"The_Legend_of_Zelda:_Twilight_Princess",
+			"Westminster_Abbey",
+			"Windows_8",
+			"Xbox_360"
+		]
+	},
+	"specialist_scope": {
+		"ag_news": "topic ordered",
+		"coding": "topic ordered",
+		"gsm8k": "domain only",
+		"squad": "topic ordered"
+	},
+	"arrival_times": "synthetic, accounts start together",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"squad": 64,
+		"gsm8k": 256,
+		"coding": 512
+	},
+	"pool_sha256": {
+		"ag_news": "297af6e75f639ddea63589803636531935d8ca37099a25a2ecc5ba364020cd02",
+		"coding": "ba8c1f94bc4c606d3bf4b44225a59afe78c31da7059e7ea8646643358f0a5286",
+		"gsm8k": "a836c425c1c75d738267aec35661ff36ee824ddf0cd7a9ba0e08f807e3c15615",
+		"squad": "de3b4d2e4028c553343a4b8088d8036100056b6e926de1cf6569e903955fade1"
+	},
+	"execution_status": "not_run"
+}
