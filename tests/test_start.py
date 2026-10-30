@@ -431,6 +431,8 @@ def test_start_runs_both_students_and_reports_with_services_stopped_before_train
 		"--budgets",
 		"4",
 		"--no-gold",
+		"--arms",
+		"full,instantaneous,quota",
 	]
 	result = CliRunner().invoke(run_app, command)
 	assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"

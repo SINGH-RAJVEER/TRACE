@@ -748,7 +748,7 @@ def distill_command(
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared student or legacy separate-task students."),
 	] = "gateway",
-	run_dir: Path = Path("artifacts/gateway-distill-bounded-v1"),
+	run_dir: Path = Path("artifacts/gateway-distill-full-v1"),
 	attacks: str = "A1",
 	tasks: Annotated[
 		str,
@@ -759,12 +759,12 @@ def distill_command(
 	] = DEFAULT_TASKS,
 	seeds: Annotated[
 		str, typer.Option(help="Comma-separated seeds; each orders its own attacker queries.")
-	] = "42,1,20",
+	] = "42",
 	budgets: Annotated[
 		str | None,
 		typer.Option(
 			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
-			"Default: 6000 for gateway, full for legacy per-task runs."
+			"Default: full, matching the whole-pool undefended collection."
 		),
 	] = None,
 	gold: Annotated[
@@ -802,7 +802,7 @@ def distill_command(
 			coding_workers=coding_workers,
 			coding_pool_size=coding_pool_size,
 			seeds=_numbers(seeds, "--seeds"),
-			budgets=_budgets(budgets or ("6000" if mode == "gateway" else "full")),
+			budgets=_budgets(budgets or "full"),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
@@ -883,8 +883,18 @@ def start_command(
 		Literal["gateway", "tasks"],
 		typer.Option(help="Shared gateway is the default; tasks selects the legacy study."),
 	] = "gateway",
-	attacks: str = "A1,A2,A5,A7",
+	attacks: Annotated[
+		str,
+		typer.Option(
+			help="Default: A1, A2, A5, A6, and A7. Add A3 cover traffic, or A4 slow collection "
+			"with --slow-interval-seconds."
+		),
+	] = "A1,A2,A5,A6,A7",
 	interval_seconds: Annotated[float, typer.Option(min=0)] = 1,
+	slow_interval_seconds: Annotated[
+		float | None,
+		typer.Option(min=0, help="Declared synthetic request spacing for A4, in seconds."),
+	] = None,
 	deadline_seconds: Annotated[float, typer.Option(min=0)] = 86400,
 	benign_accounts: Annotated[int, typer.Option(min=1)] = 125,
 	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
@@ -902,19 +912,19 @@ def start_command(
 			"GSM8K supplies the math distillation corpus; its output cap is provisional."
 		),
 	] = DEFAULT_TASKS,
-	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42,1,20",
+	seeds: Annotated[str, typer.Option(help="Comma-separated campaign seeds.")] = "42",
 	budgets: Annotated[
 		str | None,
 		typer.Option(
 			help="'full' uses all attacker pools. Gateway numeric budgets are shared totals. "
-			"Default: 6000 for gateway, full for legacy per-task runs."
+			"Default: full, matching the whole-pool undefended collection."
 		),
 	] = None,
 	config: Annotated[Path, typer.Option(help="Student training recipe.")] = TASK_CONFIG,
 	run_dir: Annotated[
 		Path | None,
 		typer.Option(
-			help="Run directory: artifacts/gateway-bounded-v1, or artifacts/start for tasks."
+			help="Run directory: artifacts/gateway-full-v1, or artifacts/start for tasks."
 		),
 	] = None,
 	calibration_root: Annotated[
@@ -923,8 +933,11 @@ def start_command(
 	] = None,
 	l4_action: Annotated[Literal["refuse", "deceive"], typer.Option()] = "refuse",
 	arms: Annotated[
-		str, typer.Option(help="Comma-separated defenses: full, instantaneous, and quota.")
-	] = "full,instantaneous,quota",
+		str,
+		typer.Option(
+			help="Comma-separated defenses: full, instantaneous, or quota. Default: full."
+		),
+	] = "full",
 	gold: Annotated[
 		bool, typer.Option(help="Also train and benchmark gold reference adapters.")
 	] = True,
@@ -965,14 +978,14 @@ def start_command(
 			terms_review_id=terms_review_id,
 			tasks=list(dict.fromkeys(t.strip() for t in tasks.split(",") if t.strip())),
 			seeds=list(dict.fromkeys(_numbers(seeds, "--seeds"))),
-			budgets=_budgets(budgets or ("6000" if mode == "gateway" else "full")),
+			budgets=_budgets(budgets or "full"),
 			config=config,
 			concurrency=concurrency,
 			gold=gold,
 			training_seed=training_seed,
 		)
 		root = run_dir or Path(
-			"artifacts/gateway-bounded-v1" if mode == "gateway" else "artifacts/start"
+			"artifacts/gateway-full-v1" if mode == "gateway" else "artifacts/start"
 		)
 		pipeline.coding_workers = coding_workers
 		pipeline.coding_pool_size = coding_pool_size
@@ -1007,6 +1020,7 @@ def start_command(
 				study,
 				attacks=tuple(cast(Attack, a.strip()) for a in attacks.split(",")),
 				interval_seconds=interval_seconds,
+				slow_interval_seconds=slow_interval_seconds,
 				deadline_seconds=deadline_seconds,
 				benign_accounts=benign_accounts,
 				requests_per_account=requests_per_account,

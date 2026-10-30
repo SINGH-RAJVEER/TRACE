@@ -129,8 +129,8 @@ def schedule_command(
 	attack: Annotated[
 		str,
 		typer.Option(
-			help="A1 multiplexed, A2 domain-sequential, A3 cover traffic, A5 Sybil per "
-			"domain, A6 Sybil random, A7 independent sources."
+			help="A1 multiplexed, A2 domain-sequential, A3 cover traffic, A4 slow (A1 at the "
+			"given interval), A5 Sybil per domain, A6 Sybil random, A7 independent sources."
 		),
 	],
 	budget: Annotated[int, typer.Option(min=1)],
