@@ -1,0 +1,9 @@
+{
+	"attempts": 10000,
+	"seconds": 86400.0,
+	"campaign_budget_replenished_on_reset": false,
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"reset": "elapsed_time",
+	"attempt_limit_action": "refuse_until_time_reset",
+	"allow_policy_capped": false
+}

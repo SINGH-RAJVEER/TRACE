@@ -37,6 +37,43 @@ Benign utility on the held-out benign workload (24,047 requests), measured live 
 
 Bare-teacher test scores from the first teacher slot (`Qwen3.5-9B`, fp8, non-thinking): AG News 85.38% accuracy on 7,600 items, SQuAD 88.82 F1 on 10,570 items. GSM8K and coding were interrupted and rerun in the resumed study.
 
+## Development recipe selection
+
+Before any protected collection, the run trained six shared students (Qwen3.5-2B-Base, LoRA) on the 2,000-submission development campaign (1,607 usable responses) and scored each on source-disjoint development suites. Scores are percentages; GSM8K and coding use the selection suite.
+
+| Recipe | AG News | SQuAD | GSM8K | Coding | Mean rank |
+|---|---|---|---|---|---:|
+| Base student | 66.0 | 77.0 | 39.1 | 56.2 | — |
+| lr 1e-4, 1 epoch | 78.8 | 78.7 | 29.8 | 58.2 | 5.0 |
+| lr 1e-4, 2 epochs | 84.4 | 80.5 | 26.3 | 59.8 | 3.25 |
+| **lr 1e-4, 3 epochs (selected)** | 84.2 | 80.4 | 27.9 | 63.6 | **2.625** |
+| lr 2e-4, 1 epoch | 78.6 | 79.3 | 33.0 | 59.0 | 4.25 |
+| lr 2e-4, 2 epochs | 85.0 | 80.1 | 27.9 | 63.2 | 3.125 |
+| lr 2e-4, 3 epochs | 83.2 | 80.2 | 32.2 | 63.4 | 2.75 |
+
+On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/development/).
+
+## Calibration, workloads and schedules
+
+- `calibration/`: the frozen harness calibration (`calibration.json`, reference embeddings `references.npy`) used by every protected campaign; its adequacy check is [calibration-adequacy.json](calibration-adequacy.json).
+- `benign/`: the four synthetic benign workloads (fitting, score calibration, policy calibration, held-out test), with manifests.
+- `schedules/`: the frozen seed-42 inventories and request schedules for A1, A2, A5, A6 and A7.
+- `run/`: `recipe.json`, `policy-horizons.json`, `tasks.json` and `external.json`.
+
+## Evaluation method checks (2026-10-30)
+
+Final evaluations in this run use two speed-ups merged on 2026-10-30, checked first on real test items. Scripts and raw outputs are under `method-checks/`.
+
+Local students (PR #15) merge the LoRA adapter into the weights and greedy-decode batches of 16. Hugging Face generation of this hybrid model was CPU-bound (one core at 100%, GPU at 5–30%). On 32 test items per domain:
+
+| Comparison | AG News | SQuAD | GSM8K |
+|---|---|---|---|
+| Base student, batch 1 vs 16: identical text / correct | 32/32, 15 vs 15 | 31/32, 27 vs 28 | 17/32, 10 vs 10 |
+| Selected adapter, attached batch 1 vs merged batch 16 | 32/32, 26 vs 26 | 32/32, 22 vs 22 | 22/32, 6 vs 6 |
+| Speed-up (base / adapter) | 4.8× / 9× | 4.7× / 8× | 11× / 23× |
+
+The served teacher (PR #16) receives 16 concurrent requests. Against 48 stored one-at-a-time outputs per domain: AG News 48/48 identical (37 → 37 correct), SQuAD 46/48 (41 → 40), GSM8K 5/48 (9 → 12), with GSM8K 23× faster. The GSM8K differences are not caused by concurrency: the same four GSM8K requests sent twice one at a time gave 0/4 identical outputs while a collection shared the server, because vLLM batches each request with whatever else is in flight. Teacher GSM8K scores therefore carry run-to-run variance of a few points.
+
 ## Held-out benign policy replay
 
 The replay ran on 2026-10-29 after the 13:11 UTC restart of `just start --concurrency 8`, using the existing frozen calibration and workload under `artifacts/gateway-bounded-v1`. The checkout was based on commit `3599d6e`, with an uncommitted change to run protected collection before teacher evaluations; that change does not alter the replay. The [protocol](protocol.json) identifies the study as `shared-gateway-v4-bounded`. The [calibration adequacy check](calibration-adequacy.json) passed its minimum resolution gate: 199 non-overlapping score windows and 100 scored policy-calibration horizons. This does not establish population error control.
