@@ -97,7 +97,8 @@ async def run_evaluation(
 	run_id = uuid.uuid4().hex
 	model = factory(model_config)
 	samples: list[SampleResult] = []
-	# Local models generate several items per forward pass; served models stay one at a time.
+	# Local models generate several items per forward pass; served models keep several
+	# requests in flight. Either may return per-item errors inside a batch.
 	batch_size = getattr(model, "batch_size", 1)
 
 	def request(item: BenchmarkItem) -> TeacherGenerationRequest:

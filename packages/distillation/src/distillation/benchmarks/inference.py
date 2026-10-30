@@ -161,23 +161,55 @@ class LocalModel:
 			self._torch.cuda.empty_cache()
 
 
+class ConcurrentServed:
+	"""Keeps several requests in flight to a served model, which batches them itself."""
+
+	def __init__(self, model: Teacher, backend: str, concurrency: int) -> None:
+		self._model = model
+		self.batch_size = concurrency
+		self.execution: dict[str, str | int | bool] = {
+			"backend": backend,
+			"concurrency": concurrency,
+		}
+
+	async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+		return await self._model.generate(request)
+
+	async def generate_batch(
+		self, requests: list[TeacherGenerationRequest]
+	) -> list[TeacherGeneration | BaseException]:
+		# A failed request stays an item error; the others in flight still count.
+		return list(
+			await asyncio.gather(
+				*(self._model.generate(request) for request in requests), return_exceptions=True
+			)
+		)
+
+	async def close(self) -> None:
+		await self._model.close()
+
+
 def make_model(config: ModelConfig) -> Teacher:
 	key = os.environ.get(config.api_key_env, "") if config.api_key_env else ""
 	if config.api_key_env and not key:
 		raise ValueError(f"missing environment variable {config.api_key_env}")
+	served: Teacher
 	if config.backend == "teacher_api":
-		return TeacherAPIGateway(
+		served = TeacherAPIGateway(
 			base_url=config.base_url, token=key, timeout_seconds=config.timeout_seconds
 		)
-	if config.backend == "openai":
-		return OpenAICompatibleTeacher(
+	elif config.backend == "openai":
+		served = OpenAICompatibleTeacher(
 			base_url=config.base_url,
 			api_key=key,
 			model=config.model,
 			provider="evaluation",
 			timeout_seconds=config.timeout_seconds,
 		)
-	return LocalModel(config)
+	else:
+		return LocalModel(config)
+	concurrency = max(1, int(os.environ.get("DISTILL_EVAL_CONCURRENCY", "16")))
+	return ConcurrentServed(served, config.backend, concurrency) if concurrency > 1 else served
 
 
 def validate_adapter(config: ModelConfig) -> list[Path]:
