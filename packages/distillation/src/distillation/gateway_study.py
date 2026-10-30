@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -852,11 +853,18 @@ class GatewayStudy:
 					self.utility(defended, keys=keys)
 				finally:
 					launcher.stop_background(keep=keep)
+		# The bare teacher is the same model for every attack, so each seed and budget is
+		# benchmarked once and its scores are copied to the other campaigns.
+		measured: dict[tuple[int, int], Path] = {}
 		for directory, _, seed, budget in jobs:
-			self.evaluate(directory / "teacher", None, seed, budget, teacher=True)
-			self.evaluate(
-				directory / "teacher", None, seed, budget, teacher=True, teacher_after=True
-			)
+			source = measured.setdefault((seed, budget), directory / "teacher")
+			if source == directory / "teacher":
+				self.evaluate(source, None, seed, budget, teacher=True)
+				self.evaluate(source, None, seed, budget, teacher=True, teacher_after=True)
+				continue
+			for name in ("teacher-scores.json", "teacher-after-scores.json"):
+				(directory / "teacher").mkdir(parents=True, exist_ok=True)
+				shutil.copyfile(source / name, directory / "teacher" / name)
 		launcher.stop_background()
 		results = []
 		for directory, schedule, seed, budget in jobs:

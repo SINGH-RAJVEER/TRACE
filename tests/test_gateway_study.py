@@ -464,6 +464,13 @@ def test_shared_study_runs_http_campaigns_and_trains_one_adapter_for_every_domai
 	timing = json.loads(Path(results[0]["timing"]).read_text())
 	assert timing["latency_seconds"]["received"]["n"] >= 1
 	assert {r["domain"] for r in results} == {"ag_news", "gsm8k"}
+	# The bare teacher is benchmarked once and its scores are shared by every campaign.
+	assert not (gateway.root / "A5/s42-b8/teacher/benchmarks").exists()
+	for attack in ("A5", "A7"):
+		for name in ("teacher-scores.json", "teacher-after-scores.json"):
+			assert (gateway.root / attack / "s42-b8/teacher" / name).read_bytes() == (
+				gateway.root / "A1/s42-b8/teacher" / name
+			).read_bytes()
 	for attack in ("A1", "A5"):
 		directory = gateway.root / attack / "s42-b8"
 		assert len(read_jsonl(directory / "undefended/train.jsonl", SFTRecord)) == 8
