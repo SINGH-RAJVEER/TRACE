@@ -8,7 +8,7 @@ import httpx
 import pytest
 from distillation.benchmarks.dashboard import create_app
 from distillation.benchmarks.demo import create_demo
-from distillation.benchmarks.inference import validate_adapter
+from distillation.benchmarks.inference import ConcurrentServed, make_model, validate_adapter
 from distillation.benchmarks.models import (
 	BenchmarkItem,
 	DatasetSource,
@@ -269,6 +269,39 @@ async def test_batched_runner_keeps_item_order_and_records_its_execution(tmp_pat
 	assert batched.execution == BatchedModel.execution
 	assert single.execution == {}
 	assert "secret" not in (config.output_dir / f"{batched.id}.json").read_text()
+
+
+@pytest.mark.asyncio
+async def test_served_models_keep_requests_in_flight_without_changing_results(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	config = EvaluationConfig(
+		experiment="test",
+		suite_path=suite_path(tmp_path),
+		output_dir=tmp_path / "results",
+		models={
+			"teacher": ModelConfig(
+				backend="teacher_api",
+				model="fixture-model",
+				revision="fixture-v1",
+				base_url="https://example.invalid",
+			)
+		},
+	)
+	single = await run_evaluation(config, "teacher", factory=lambda _: FakeModel())
+	served = ConcurrentServed(FakeModel(), "teacher_api", 3)
+	concurrent = await run_evaluation(config, "teacher", factory=lambda _: served)
+	# The failing request is an item error while the rest of its batch still scores.
+	assert [(s.item_id, s.status, s.correct) for s in concurrent.samples] == [
+		(s.item_id, s.status, s.correct) for s in single.samples
+	]
+	assert concurrent.execution == {"backend": "teacher_api", "concurrency": 3}
+	assert served._model.closed
+	assert "secret" not in (config.output_dir / f"{concurrent.id}.json").read_text()
+	model = make_model(config.models["teacher"])
+	assert isinstance(model, ConcurrentServed) and model.batch_size == 16
+	monkeypatch.setenv("DISTILL_EVAL_CONCURRENCY", "1")
+	assert not isinstance(make_model(config.models["teacher"]), ConcurrentServed)
 
 
 def test_adapter_identity_and_data_integrity(tmp_path: Path) -> None:
