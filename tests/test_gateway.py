@@ -557,3 +557,42 @@ def test_extended_strategies_share_one_budget_and_disclose_their_sources() -> No
 		campaign_schedule(pools=external, caps=CAPS, attack="A3", budget=60, cover_pools=external)
 	with pytest.raises(ValueError, match="at least two accounts"):
 		campaign_schedule(pools=pools, caps=CAPS, attack="A6", budget=60, accounts=1)
+
+
+def test_slow_collection_replays_a1_at_the_declared_interval() -> None:
+	pools = _pools()
+	baseline, _ = campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=60)
+	slow, manifest = campaign_schedule(
+		pools=pools, caps=CAPS, attack="A4", budget=60, interval_seconds=30
+	)
+	assert [r.prompt for r in slow] == [r.prompt for r in baseline]
+	assert len({r.account for r in slow}) == 1
+	assert [r.time for r in slow] == [index * 30 for index in range(60)]
+	assert manifest["interval_seconds"] == 30
+
+
+def test_full_cover_traffic_mirrors_the_extraction_allocation() -> None:
+	pools = _pools()
+	allocation = {"ag_news": 10, "gsm8k": 8, "squad": 6}
+	covered, manifest = campaign_schedule(
+		pools=_external(pools),
+		caps=CAPS,
+		attack="A3",
+		budget=48,
+		allocation=allocation,
+		cover_pools=pools,
+		cover_allocation=allocation,
+	)
+	assert manifest["cover_allocation"] == manifest["domain_allocation"] == allocation
+	for kind in ("cover", "extraction"):
+		assert Counter(r.domain for r in covered if r.client_type == kind) == allocation
+	with pytest.raises(ValueError, match="cover allocation"):
+		campaign_schedule(
+			pools=_external(pools),
+			caps=CAPS,
+			attack="A3",
+			budget=48,
+			allocation=allocation,
+			cover_pools=pools,
+			cover_allocation={**allocation, "squad": 5},
+		)
