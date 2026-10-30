@@ -10,9 +10,7 @@
 		python312
 		uv
 		bun
-		# Manuscript compiler for just paper.
-		tectonic
-		# Native compilation for Python extensions and Triton training kernels.
+		# Native compilation for Python extensions.
 		stdenv.cc
 		zlib
 	] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.bubblewrap pkgs.util-linux ];
@@ -34,9 +32,6 @@
 	# pytest, pytest-asyncio, and Ruff.
 	# Optional evaluation: uv sync --all-packages --extra eval
 	# Coding sandbox dependencies are installed by the default workspace sync.
-	# Optional training: uv sync --all-packages --extra train
-	# Training includes torch, transformers, datasets, accelerate, peft, TRL,
-	# and bitsandbytes on Linux. Evaluation includes datasets and huggingface-hub.
 	enterShell = ''
 		uv sync
 	'';

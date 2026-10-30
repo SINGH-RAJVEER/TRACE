@@ -1,4 +1,4 @@
-# This comparison is before/after harness deployment, independent of student training.
+# Protected-only traffic evaluation.
 experiment = "qwen3.5-teacher-harness-v1"
 suite_path = "data/traffic/suite.json"
 output_dir = "outputs/traffic-benchmarks"
@@ -14,16 +14,10 @@ seed = 42
 temperature = 0
 enable_thinking = false
 
-[targets.before]
-backend = "teacher_api"
-base_url = "http://127.0.0.1:8000"
-service_revision = "unprotected-baseline-v1"
-# api_key_env = "TEACHER_API_TOKEN"
-
 [targets.after]
 backend = "teacher_api"
-# Point this at the future protected API. Keep model and hardware fixed.
-base_url = "http://127.0.0.1:8001"
+# Protected teacher endpoint.
+base_url = "http://127.0.0.1:8003"
 service_revision = "replace-with-harness-revision"
 # api_key_env = "TEACHER_API_TOKEN"
 

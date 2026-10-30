@@ -14,9 +14,6 @@ dependencies = [
 coding = [
 	"distillation-core[coding]"
 ]
-train = [
-	"distillation-core[train]"
-]
 eval = [
 	"distillation-core[eval]"
 ]
