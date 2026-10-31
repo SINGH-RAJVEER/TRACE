@@ -64,6 +64,16 @@ class Settings(BaseSettings):
 	reservation_lease_seconds: float = Field(
 		default=600, gt=0, alias="HARNESS_RESERVATION_LEASE_SECONDS"
 	)
+	# Per-principal limits over a rolling window, which a policy horizon does not renew.
+	rolling_window_seconds: float = Field(
+		default=604_800, gt=0, alias="HARNESS_ROLLING_WINDOW_SECONDS"
+	)
+	rolling_request_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ROLLING_REQUEST_BUDGET"
+	)
+	rolling_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ROLLING_TOKEN_BUDGET"
+	)
 
 	decision_log: Path = Field(
 		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"

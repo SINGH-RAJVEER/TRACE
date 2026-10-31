@@ -12,4 +12,4 @@ Enter `devenv shell`, copy `.env.example` to `.env`, set the teacher settings an
 
 See [the evaluation workflow](docs/evaluation.md) for deployment, corpus preparation, calibration, protected campaign collection, and interpretation of results. Inspect available options with `uv run distill --help`, `uv run distill gateway --help`, and `uv run harness --help`.
 
-Existing observations and their limitations are in [readings](readings/README.md).
+Existing observations and their limitations are in [readings](readings/v4/README.md). The harness limits what an account can receive; that is not evidence that it prevents distillation. See [what budgets establish](docs/harness.md#what-budgets-establish).
