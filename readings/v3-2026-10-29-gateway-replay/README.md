@@ -9,7 +9,7 @@ The run started with v2's frozen protocol: seeds 42, 1 and 20, the `full`, `inst
 - seed 42 only, 6,000 submissions per campaign, the `full` harness only;
 - attacks A1, A2, A5, A6 and A7. A6 had no v2 undefended ledger, so the run collects one.
 
-Everything else is unchanged: the calibration, benign workloads, development campaign, selected recipe (learning rate 1e-4, three epochs) and undefended ledgers are reused after their contract and hash checks. The A1 `instantaneous` and `quota` campaigns finished before the change and are recorded below as extra results. The A2 `full` campaign was interrupted at 1,536 responses when the old runner was stopped; an interrupted protected campaign cannot resume without resetting harness state, so it is archived under `harness/A2/s42-b6000/full.interrupted-2026-10-30/` and A2 is collected again. The resumed run uses code from PR #11 and PR #12 (`93c9f1a`), which only change launcher defaults and share the bare-teacher benchmark across campaigns.
+Everything else is unchanged: the calibration, benign workloads, development campaign, selected recipe (learning rate 1e-4, three epochs) and undefended ledgers are reused after their contract and hash checks. The A1 `instantaneous` and `quota` campaigns finished before the change and are recorded below as extra results. The A2 `full` campaign was interrupted at 1,536 responses when the old runner was stopped; an interrupted protected campaign cannot resume without resetting harness state, so it is archived under `harness/A2/s42-b6000/full.interrupted-2026-10-30/` and A2 is collected again. Two later A2 attempts were also interrupted; see [A2 protected attempts](#a2-protected-attempts). The resumed run uses code from PR #11 and PR #12 (`93c9f1a`), which only change launcher defaults and share the bare-teacher benchmark across campaigns.
 
 A full-attacker-pool variant was started on 2026-10-30 in `artifacts/gateway-full-s42-v1` and abandoned after 559 A1 undefended responses, because no full-pool undefended baseline exists. Its protocol and partial ledger are archived under `archive/gateway-full-s42-v1/`.
 
@@ -36,6 +36,22 @@ Benign utility on the held-out benign workload (24,047 requests), measured live 
 | `quota` | 6,589 | 0.274 | 0.240 | 0.877 | 0 |
 
 Bare-teacher test scores from the first teacher slot (`Qwen3.5-9B`, fp8, non-thinking): AG News 85.38% accuracy on 7,600 items, SQuAD 88.82 F1 on 10,570 items. GSM8K and coding were interrupted and rerun in the resumed study.
+
+## A2 protected attempts
+
+A protected campaign cannot resume after an interruption, because its harness state would restart. Every interrupted A2 `full` attempt is therefore archived and A2 starts again from submission 1. All three archived attempts ran on the same frozen schedule, so their decisions agree on the shared prefix. None escalated the attacker beyond L0.
+
+| Attempt | Directory | UTC window | Submissions decided | Responses released | GSM8K responses at 256-token cap | Scored windows (min p) | Stop cause |
+|---|---|---|---:|---:|---:|---:|---|
+| 1 | `full.interrupted-2026-10-30` | 10-30 05:02–05:32 | 1,537 | 1,536 (AG News 1,500, GSM8K 36) | 28 | 15 (0.896) | old runner stopped for the scope change above |
+| 2 | `full.interrupted-2026-10-30-2` | 10-30 08:45–10:58 | 2,223 | 2,222 (AG News 1,500, GSM8K 722) | 532 | 22 (0.327) | interrupted (SIGINT) to free the GPU for the undefended A2 student ([v5](../v5-2026-10-30-undefended-a2-student/)) |
+| 3 | `full.interrupted-2026-10-30-3` | 10-30 12:15–15:05 | 2,481 | 2,480 (AG News 1,500, GSM8K 980) | 724 | 24 (0.327) | killed with the agent session that launched it (see below) |
+
+Attempt 3 was started with `setsid nohup` from an agent shell. That shell ran inside the agent's systemd scope, and when the agent session was stopped at 15:05:46 UTC systemd sent SIGTERM and, 10 seconds later, SIGKILL to the study, vLLM, the teacher API and the gateway, so the runner wrote no exit code. Attempt 4 started on 2026-10-31 at 07:14 UTC as its own systemd user service (`systemd-run --user`) from commit `c102078`, with the same arguments: `--budgets 6000 --seeds 42 --arms full --attacks A1,A2,A5,A6,A7 --concurrency 8 --run-dir artifacts/gateway-bounded-v1`. Partial attempts do not measure defense effectiveness; they are kept for the decision traces.
+
+## A6 undefended ledger
+
+A6 had no v2 undefended ledger, so the resumed run collected one on 2026-10-30 from 07:02 to 08:42 UTC: 6,000 submissions split across six accounts by a seeded permutation, 6,000 responses, zero failures, 588,079 released output tokens, 6,008 s. Non-stop finishes: GSM8K 1,117 and coding 50 at the output cap, SQuAD 1. It is under [ledgers/A6/s42-b6000/undefended/](ledgers/A6/s42-b6000/undefended/) with its contract, campaign summary, attempts and events.
 
 ## Development recipe selection
 
@@ -104,6 +120,11 @@ Per-request campaign files (`attempts.jsonl`, `campaign.events.jsonl`), account 
 | [harness/A1/s42-b6000/instantaneous/utility.json](harness/A1/s42-b6000/instantaneous/utility.json) | `d52c331458f129e2af63fb451f6a96b7ab7d7c17cce6bb20d91ab5a5ebc8dd60` |
 | [harness/A1/s42-b6000/quota/utility.json](harness/A1/s42-b6000/quota/utility.json) | `b21bd0d563c2ac36d27276ec63d8b9d237cf751a641e73c00839075cb18b606a` |
 | [harness/A2/s42-b6000/full.interrupted-2026-10-30/campaign/ledger.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30/campaign/ledger.jsonl) | `dd0cc5353ee8601e0a5aee42c647fab3adb0a07e8efc8855c4489fc3f2041d54` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-30-2/campaign/ledger.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-2/campaign/ledger.jsonl) | `46c0bef8cc42a3d6119964f0c71af8b3551ceaa7dc115ada7c4d2b323a3ce784` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-30-2/decisions.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-2/decisions.jsonl) | `40920f9420930cc3b901ea899ae857a5007dd447ce97e7d2d89c15928c589002` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-30-3/campaign/ledger.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-3/campaign/ledger.jsonl) | `e713ae17f13a6afefa7f80d572d3161618651271c9e3eb22be54ccd2abdf7888` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-30-3/decisions.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-3/decisions.jsonl) | `cac339f90f9dcaea90db3612f4827fa4fee778acf4fee0f950888af8bf78be9b` |
+| [ledgers/A6/s42-b6000/undefended/ledger.jsonl](ledgers/A6/s42-b6000/undefended/ledger.jsonl) | `df28ce3ec2c052d9d7b2586293b355d3f793612cff7bd506b7d8c2fe8cabbd0c` |
 | [utility/undefended.json](utility/undefended.json) | `54d7782baf056ee11163aa3457c3a68041d349e8826901e2fffeec95d314b6fe` |
 | [teacher/ag_news/df2e1b0189634222a64c97d8df8bf931.json](teacher/ag_news/df2e1b0189634222a64c97d8df8bf931.json) | `ce1ba11db23a0e9b382590829bcef3728d0952cbe78226f61ffcb0a5874545e2` |
 | [teacher/squad/4705f0a99a4b46d1848ca84426117fcb.json](teacher/squad/4705f0a99a4b46d1848ca84426117fcb.json) | `a7aab6541a78e892a4284dce1d01485f69dbf17ca11bc7a103c7f099bdc33105` |
