@@ -246,3 +246,13 @@ A four-worker pool serving 32 accounts is a shared compute limit, not 32 indepen
 
 - Validation of the synthetic legitimate-client profiles and arrival times against observed user traffic
 - Adaptive campaign schedules beyond the fixed-order extractor in `distillation/campaign.py`, including the adaptive tests against deception
+
+## Frozen gateway audit
+
+The 2026-10-30 audit of `readings/v3-2026-10-29-gateway-replay` reproduces all 60 A1 completed-window p-values in each of the full and instantaneous logs and all 15 in the interrupted A2 log exactly. Rebuilding calibration from the cached pinned BGE embeddings reproduces thresholds and the 1,215-request quota; the largest null-score difference is below 3.2e-8. This establishes consistency for those artifacts, not live deployment verification.
+
+The configured upper-tail score misses broad same-source extraction because pooled references resemble a broad client more than topic-focused benign specialists. The full policy releases all 6,000 A1 responses. Replay also predicts no refusal for A2, A5, A6 and A7 under the frozen policy. Those predictions must remain separate from live campaign results. Lower-tail and two-sided exploratory variants catch the original ordering but release all 6,000 requests when the same A1 prompts are ordered by domain and topic. They have not been selected on independent development data or qualified for deployment.
+
+The benign workload generator consumes category-sorted pools from one cursor, which can truncate roles to their earliest topics; the frozen policy-calibration AG News role uses only Business articles. Correcting that requires fresh workloads, calibration and a new frozen study. Existing study artifacts must remain unchanged. The live utility arm also has substantial undefended timeouts, so use the complete offline replay population when discussing calibration costs. Zero full-policy refusals in 100 scored synthetic benign accounts gives a one-sided 95% binomial upper bound near 3%, subject to account independence; shared sources weaken that interpretation.
+
+Use acquisition budgets as a separate layer, with explicit identity and cross-account assumptions. The request quota releases 1,215 responses to single-account A1, but all 6,000 to six-account A6. It therefore limits acquisition per account without solving account rotation. Choose budgets from measured capability-versus-data curves before claiming that reduced collection prevents transfer.
