@@ -1,5 +1,6 @@
 import hashlib
 import math
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from harness.mmd import Array, WindowScorer, kernel, mmd2_unbiased
 from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
 from harness.pow import solve
 from harness.replay import replay
+from harness.store import MemoryStore, Reservation, SQLiteStore
 
 DIMENSION = 8
 
@@ -322,11 +324,16 @@ def test_graduated_actions_space_challenge_and_refuse(
 	challenge = decisions[10]
 	counter, _ = solve(challenge.challenge)  # type: ignore[arg-type]
 	assert challenge.client_view()["challenge"]["prefix"].endswith(":")
-	assert not policy.redeem(challenge, "different text", counter, now=100.0)
-	assert policy.redeem(challenge, "q 10", counter, now=100.0)
-	assert not policy.redeem(challenge, "q 10", counter, now=100.0)
+	nonce = challenge.challenge.nonce  # type: ignore[union-attr]
+	assert policy.redeem(nonce, "a", "different text", counter, now=100.0) is None
+	assert policy.redeem(nonce, "other", "q 10", counter, now=100.0) is None
+	held = policy.redeem(nonce, "a", "q 10", counter, now=100.0)
+	assert held is not None and held.release_at == challenge.release_at == 102.0
+	assert (held.attempt, held.horizon) == (challenge.attempt, challenge.horizon) == (11, 100.0)
+	assert policy.redeem(nonce, "a", "q 10", counter, now=100.0) is None
 	late = decisions[11]
-	assert not policy.redeem(late, "q 11", solve(late.challenge)[0], now=1000.0)  # type: ignore[arg-type]
+	late_nonce = late.challenge.nonce  # type: ignore[union-attr]
+	assert policy.redeem(late_nonce, "a", "q 11", solve(late.challenge)[0], now=1000.0) is None  # type: ignore[arg-type]
 	forced.thresholds["paper"].thresholds = [-1, -1, -1, -1]
 	blocked = MMDPolicy(forced, scorer, encoder=FakeEncoder())
 	outcome = [blocked.admit("b", f"q {i}", now=0.0) for i in range(12)]
@@ -402,8 +409,8 @@ def test_mmd_attempt_cap_refuses_without_reset_even_for_deception(
 	decisions = [policy.admit("a", f"q{i}", 0) for i in range(31)]
 	assert all(d.action == "serve" for d in decisions[:10])
 	assert all(d.action == "refuse" and d.level == 4 for d in decisions[10:])
-	assert policy.accounts["a"].windows == 1
-	assert policy.accounts["a"].attempts == 31
+	state = policy.state("a")
+	assert state is not None and (state.windows, state.attempts) == (1, 31)
 	# The undefended arm must remain undefended at the same count.
 	allow = AllowPolicy(86400, 10)
 	assert all(allow.admit("a", "q", 0).action == "serve" for _ in range(31))
@@ -503,3 +510,113 @@ def test_legacy_horizon_calibration_requires_regeneration(
 		path.write_text(json.dumps(payload))
 	with pytest.raises(ValueError, match="recalibrate in a new directory"):
 		load_calibration(tmp_path)
+
+
+def _forced(calibration: Calibration, levels: list[float]) -> Calibration:
+	forced = calibration.model_copy(deep=True)
+	forced.config.horizon_seconds = 100
+	forced.config.horizon_attempts = 12
+	forced.thresholds["paper"].thresholds = levels
+	return forced
+
+
+def test_durable_state_resumes_the_horizon_window_and_cap_after_restart(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer = calibrated
+	forced = _forced(calibration, [1e9] * 4)
+	texts = [f"q {i}" for i in range(13)]
+	uninterrupted = MMDPolicy(forced, scorer, encoder=FakeEncoder())
+	expected = [uninterrupted.admit("a", text, 0.0) for text in texts]
+	path = tmp_path / "state.sqlite3"
+
+	def restarted() -> MMDPolicy:
+		return MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+
+	# Restart halfway through the first window and again after the cap is reached.
+	before = [restarted().admit("a", text, 0.0) for text in texts[:5]]
+	after = restarted()
+	resumed = before + [after.admit("a", text, 0.0) for text in texts[5:]]
+	assert [d.attempt for d in resumed] == list(range(1, 14))
+	assert resumed[9].window_completed and resumed[9].p_value == expected[9].p_value
+	assert (
+		[d.action for d in resumed] == [d.action for d in expected] == ["serve"] * 12 + ["refuse"]
+	)
+	assert restarted().admit("a", "spam", 99.999).action == "refuse"
+	fresh = restarted().admit("a", "fresh", 100.0)
+	assert (fresh.attempt, fresh.action, fresh.horizon) == (1, "serve", 100.0)
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		SQLiteStore(path, "another arm")
+
+
+def test_challenges_survive_restart_and_redeem_once(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer = calibrated
+	forced = _forced(calibration, [-1, -1, -1, 1e9])
+	path = tmp_path / "state.sqlite3"
+	first = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	decisions = [first.admit("a", f"q {i}", 0.0) for i in range(10)]
+	assert decisions[9].action == "challenge" and decisions[9].challenge is not None
+	counter, _ = solve(decisions[9].challenge)
+	nonce = decisions[9].challenge.nonce
+	# Two processes sharing the file after a restart: the proof releases once in total.
+	second = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	third = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	held = second.redeem(nonce, "a", "q 9", counter, 1.0)
+	assert held is not None and (held.attempt, held.level, held.horizon) == (10, 3, 0.0)
+	assert third.redeem(nonce, "a", "q 9", counter, 1.0) is None
+	assert second.redeem(nonce, "a", "q 9", counter, 1.0) is None
+	# The level persisted, so the next request after the restart is challenged too.
+	assert third.admit("a", "q 10", 2.0).action == "challenge"
+
+
+def test_concurrent_connections_admit_exactly_the_cap(tmp_path: Path) -> None:
+	path = tmp_path / "state.sqlite3"
+	workers = 4
+	policies = [QuotaPolicy(5, 100, 1000, store=SQLiteStore(path, "arm")) for _ in range(workers)]
+	start = threading.Barrier(workers)
+	results: list[list[tuple[int, str]]] = [[] for _ in range(workers)]
+
+	def run(worker: int) -> None:
+		start.wait()
+		for _ in range(10):
+			decision = policies[worker].admit("a", "q", 1.0)
+			results[worker].append((decision.attempt, decision.action))
+
+	threads = [threading.Thread(target=run, args=(w,)) for w in range(workers)]
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()
+	decisions = sorted(d for worker in results for d in worker)
+	assert [attempt for attempt, _ in decisions] == list(range(1, 41))
+	assert [action for _, action in decisions] == ["serve"] * 5 + ["refuse"] * 35
+
+
+@pytest.mark.parametrize("durable", [False, True])
+def test_release_ledger_settles_once_and_keeps_unsettled_reservations(
+	durable: bool, tmp_path: Path
+) -> None:
+	path = tmp_path / "state.sqlite3"
+
+	def open_store() -> MemoryStore | SQLiteStore:
+		return SQLiteStore(path, "arm") if durable else memory
+
+	memory = MemoryStore()
+	served, crashed = (
+		Reservation(account="a", horizon_start=0.0, attempt=n, request_digest="d", reserved_at=0)
+		for n in (1, 2)
+	)
+	store = open_store()
+	with store.transaction() as tx:
+		assert tx.reserve(served) and not tx.reserve(served)
+		assert tx.settle(served.key, "released", 1.0, 7)
+		assert not tx.settle(served.key, "cancelled", 2.0)
+		# The process dies after reserving this one, possibly after emitting its output.
+		assert tx.reserve(crashed)
+	with open_store().transaction() as tx:
+		usage = tx.usage("a", 0.0)
+		assert (usage.released, usage.reserved, usage.acquired, usage.output_tokens) == (1, 1, 2, 7)
+		assert not tx.reserve(crashed)
+		assert tx.usage("a", 100.0).acquired == 0

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from distillation.schemas import (
 	TeacherGenerationRequest,
 	TokenUsage,
 )
+from distillation.teacher import TeacherUpstreamError
 from harness.calibration import BenignRequest, Calibration, HarnessConfig, calibrate
 from harness.mmd import Array, WindowScorer
 from harness_api.app import create_app
@@ -688,3 +690,141 @@ async def test_http_refusal_spam_cannot_renew_an_account(
 		if json.loads(line)["event"] == "decision"
 	]
 	assert [e["attempt"] for e in decisions] == list(range(1, 12)) + [1]
+
+
+def _events(log: Path, kind: str) -> list[dict[str, Any]]:
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	return [event for event in events if event["event"] == kind]
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_account_state_and_redeems_a_proof_once(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	state = tmp_path / "state.sqlite3"
+	path = "/v1/teacher/generate"
+	actor = {"X-Benchmark-Actor": "u1"}
+	before, _, before_log = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_STATE_DB=state)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=before), base_url="http://harness"
+	) as client:
+		assert (await client.post(path, json=_request("q 1"), headers=actor)).status_code == 200
+		challenged = await client.post(path, json=_request("q 2"), headers=actor)
+	assert challenged.status_code == 428
+	challenge = challenged.json()["challenge"]
+	proof = actor | {
+		"X-Harness-Proof": f"{challenge['nonce']}:"
+		f"{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+	}
+	# A new process on the same state file: the challenge and the account's level survive.
+	after, teacher, after_log = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_STATE_DB=state)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=after), base_url="http://harness"
+	) as client:
+		served = await client.post(path, json=_request("q 2"), headers=proof)
+		assert served.status_code == 200 and served.headers["x-harness-decision"] == "throttle"
+		assert (await client.post(path, json=_request("q 2"), headers=proof)).status_code == 403
+		assert (await client.post(path, json=_request("q 3"), headers=actor)).status_code == 428
+	assert teacher.calls == 1
+	assert [e["attempt"] for e in _events(before_log, "decision")] == [1, 2]
+	assert [e["attempt"] for e in _events(after_log, "decision")] == [3]
+	assert [(e["attempt"], e["status"]) for e in _events(before_log, "release")] == [
+		(1, "released")
+	]
+	assert [(e["attempt"], e["status"]) for e in _events(after_log, "release")] == [(2, "released")]
+	assert [e["solved"] for e in _events(after_log, "redeem")] == [True, False]
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(artifacts, tmp_path, [-1] * 4, HARNESS_STATE_DB=state)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_near_limit_admissions_release_exactly_the_quota(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds = [3]
+	app, teacher, log = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = await asyncio.gather(
+			*(
+				client.post(
+					"/v1/teacher/generate",
+					json=_request(f"q {i}"),
+					headers={"X-Benchmark-Actor": "u1"},
+				)
+				for i in range(12)
+			)
+		)
+	assert sorted(r.status_code for r in responses) == [200] * 3 + [403] * 9
+	assert teacher.calls == 3
+	assert sorted(e["attempt"] for e in _events(log, "decision")) == list(range(1, 13))
+	releases = _events(log, "release")
+	assert sorted(e["attempt"] for e in releases) == [1, 2, 3]
+	assert all(e["status"] == "released" and e["output_tokens"] == 1 for e in releases)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_and_failed_releases_settle_without_refunding_the_admission(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds = [3]
+	state = tmp_path / "state.sqlite3"
+	app, teacher, log = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_STATE_DB=state,
+	)
+	entered = asyncio.Event()
+	mode = "hang"
+	generate = teacher.generate
+
+	async def controlled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		if mode == "hang":
+			entered.set()
+			await asyncio.Event().wait()
+		if mode == "fail":
+			raise TeacherUpstreamError("upstream down")
+		return await generate(request)
+
+	teacher.generate = controlled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "u1"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+
+		async def post(text: str) -> httpx.Response:
+			return await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+
+		# The client goes away while the teacher is generating.
+		pending = asyncio.create_task(post("q 1"))
+		await entered.wait()
+		pending.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await pending
+		mode = "fail"
+		assert (await post("q 2")).status_code == 502
+		mode = "serve"
+		assert (await post("q 3")).status_code == 200
+		# Neither the cancelled nor the failed attempt was refunded.
+		assert (await post("q 4")).status_code == 403
+	assert [(e["attempt"], e["status"]) for e in _events(log, "release")] == [
+		(1, "cancelled"),
+		(2, "failed"),
+		(3, "released"),
+	]
+	with sqlite3.connect(state) as db:
+		rows = db.execute("SELECT attempt, status FROM reservations ORDER BY attempt").fetchall()
+	assert rows == [(1, "cancelled"), (2, "failed"), (3, "released")]
