@@ -78,7 +78,7 @@ def benign_command(
 	output: Annotated[Path, typer.Option()],
 	accounts: Annotated[int, typer.Option(min=1)],
 	role: str = "benign_test",
-	tasks_dir: Path = Path("data/tasks"),
+	tasks_dir: Path = Path("data"),
 	domains: str = "ag_news,squad,gsm8k,coding",
 	generalist_share: Annotated[float, typer.Option(min=0, max=1)] = 0.1,
 	concentrated_share: Annotated[
@@ -134,7 +134,7 @@ def schedule_command(
 		),
 	],
 	budget: Annotated[int, typer.Option(min=1, help="Campaign-wide HTTP attempt limit.")] = 12_000,
-	tasks_dir: Path = Path("data/tasks"),
+	tasks_dir: Path = Path("data"),
 	domains: str = "ag_news,squad,gsm8k,coding",
 	campaign_id: str = "campaign",
 	accounts: Annotated[
@@ -182,7 +182,7 @@ def schedule_command(
 @app.command("external")
 def external_command(
 	task: Annotated[str, typer.Option(help="ag_news, squad, gsm8k, or coding.")],
-	tasks_dir: Path = Path("data/tasks"),
+	tasks_dir: Path = Path("data"),
 ) -> None:
 	"""Build TASK/external/attacker.jsonl from the domain's independently pinned A7 source."""
 	from distillation.external_sources import build_external

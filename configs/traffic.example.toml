@@ -19,9 +19,9 @@ backend = "teacher_api"
 # Protected teacher endpoint.
 base_url = "http://127.0.0.1:8003"
 service_revision = "replace-with-harness-revision"
+gateway_domain = "ag_news"
 # api_key_env = "TEACHER_API_TOKEN"
 
-# For credential-based policies, give each actor a separate test credential in BOTH
-# targets. Use IDs from the frozen suite, keeping the same principals across phases.
+# For credential-based policies, give each actor a separate test credential.
 # [targets.after.actor_key_envs]
 # u00 = "TRAFFIC_U00_TOKEN"

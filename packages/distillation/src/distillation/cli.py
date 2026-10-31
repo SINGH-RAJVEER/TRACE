@@ -39,8 +39,8 @@ def tasks_build_command(
 	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
 
 	Writes attacker.jsonl, gold-answers.jsonl, legitimate/*.jsonl, development-suite.json,
-	test-suite.json, and manifest.json into --output-dir. AG News and SQuAD default to
-	data/tasks/TASK-split-v2-s42; other tasks use their declared task directories.
+	test-suite.json, and manifest.json into --output-dir. Default directories are data/news,
+	data/question_answering, and data/math; coding uses its pool size and seed in its name.
 	"""
 	from distillation.tasks import build_task, task_directory
 
@@ -67,6 +67,9 @@ def traffic_freeze(
 	genuine_count: Annotated[int, typer.Option(min=4)] = 48,
 	attack_count: Annotated[int, typer.Option(min=4)] = 144,
 	duration_seconds: Annotated[float, typer.Option(min=0.01)] = 60,
+	gateway_news: Annotated[
+		bool, typer.Option(help="Format authored snippets for gateway news classification.")
+	] = False,
 ) -> None:
 	"""Freeze a reproducible small genuine and extraction traffic suite."""
 	from distillation.benchmarks.traffic import freeze_traffic
@@ -77,6 +80,7 @@ def traffic_freeze(
 		genuine_count=genuine_count,
 		attack_count=attack_count,
 		duration_seconds=duration_seconds,
+		gateway_news=gateway_news,
 	)
 	typer.echo(f"requests={len(suite.requests)} sha256={suite.sha256} output={output}")
 

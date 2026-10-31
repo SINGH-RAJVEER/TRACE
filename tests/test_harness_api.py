@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import numpy as np
 import pytest
+from distillation.benchmarks.models import GenerationConfig
 from distillation.benchmarks.traffic import (
 	TrafficConfig,
 	TrafficSample,
@@ -245,6 +246,39 @@ async def test_protected_collector_solves_real_api_challenges_and_collects_noise
 	assert gateway.challenges == 2
 	assert teacher.calls == 1
 	assert any(json.loads(line)["event"] == "noise" for line in log.read_text().splitlines())
+
+
+@pytest.mark.asyncio
+async def test_gateway_traffic_uses_news_template_and_domain(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	suite_path = tmp_path / "gateway-traffic.json"
+	suite = freeze_traffic(
+		suite_path, genuine_count=4, attack_count=4, duration_seconds=0.05, gateway_news=True
+	)
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_TASK="gateway",
+		HARNESS_GATEWAY_CAPS={"ag_news": 256, "squad": 256},
+	)
+	config = TrafficConfig(
+		experiment="gateway-news",
+		suite_path=suite_path,
+		output_dir=tmp_path / "results",
+		model="fake-model",
+		model_revision="fake-v1",
+		generation=GenerationConfig(max_output_tokens=256),
+		targets={
+			"after": TrafficTarget(
+				base_url="http://harness", service_revision="test", gateway_domain="ag_news"
+			)
+		},
+	)
+	run = await run_traffic(config, "after", transport=httpx.ASGITransport(app=app))
+	assert len(run.samples) == len(suite.requests) == teacher.calls
+	assert all(sample.succeeded and sample.http_status == 200 for sample in run.samples)
 
 
 @pytest.mark.asyncio

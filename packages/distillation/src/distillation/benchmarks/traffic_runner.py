@@ -109,6 +109,18 @@ async def run_traffic(
 ) -> TrafficRun:
 	suite = load_traffic_suite(config.suite_path)
 	target = config.targets[phase]
+	if target.gateway_domain:
+		from harness.serialization import valid_gateway_turn
+
+		if target.backend != "teacher_api":
+			raise ValueError("gateway_domain requires the teacher_api backend")
+		if any(
+			len(row.messages) != 1
+			or row.messages[0].role != "user"
+			or not valid_gateway_turn(target.gateway_domain, row.messages[0].content)
+			for row in suite.requests
+		):
+			raise ValueError("traffic suite does not match the configured gateway domain")
 	actors = {actor.id for actor in suite.actors}
 	if set(target.actor_key_envs) - actors:
 		raise ValueError("credential configuration references unknown traffic actors")
@@ -149,6 +161,8 @@ async def run_traffic(
 					# A run-unique correlation ID that the harness logs but never decides on.
 					"X-Benchmark-Request": f"{run_id}:{item.id}",
 				}
+				if target.gateway_domain:
+					headers["X-Gateway-Domain"] = target.gateway_domain
 				if key := keys[item.actor_id]:
 					headers["Authorization"] = f"Bearer {key}"
 				payload: dict[str, Any] = {
