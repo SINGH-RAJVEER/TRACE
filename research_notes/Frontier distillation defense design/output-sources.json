@@ -1,0 +1,321 @@
+{
+	"retrieved_at": "2026-10-31",
+	"scope": "Output defenses, practical architecture and original evaluation options",
+	"sources": [
+		{
+			"id": "O01",
+			"title": "Antidistillation Sampling",
+			"url": "https://arxiv.org/html/2504.13146v5",
+			"authors_or_org": "Yash Savani; Asher Trockman; Zhili Feng; Yixuan Even Xu; Avi Schwarzschild; Alexander Robey; Marc Finzi; J. Zico Kolter",
+			"date": "2025-10-26",
+			"kind": "preprint",
+			"verification": "full-text verified",
+			"supported_claims": [
+				"Proxy downstream-loss token perturbation; two proxy forwards per token; small-model reasoning experiments"
+			],
+			"limitations": [
+				"Adaptive cleanup/retries/prefill counterevidence; no frontier guarantee"
+			]
+		},
+		{
+			"id": "O02",
+			"title": "What Does It Mean to Break a Distillation Defense?",
+			"url": "https://arxiv.org/html/2606.25059v2",
+			"authors_or_org": "Lena Libon; Pura Peetathawatchai; Michael Aerni; Daniel Paleka; Florian Tramèr",
+			"date": "2026-07-13",
+			"kind": "preprint",
+			"verification": "full-text verified",
+			"supported_claims": [
+				"Query/data/interface threat model; repetition deletion; scaled-query and prefill attacks on ADS"
+			],
+			"limitations": [
+				"GSM8K and chosen small models; matched-utility curve interpolated"
+			]
+		},
+		{
+			"id": "O03",
+			"title": "Prediction Poisoning: Towards Defenses Against DNN Model Stealing Attacks",
+			"url": "https://resources.mpi-inf.mpg.de/d2/orekondy/predpoison/",
+			"authors_or_org": "Tribhuvanesh Orekondy; Bernt Schiele; Mario Fritz",
+			"date": "2020",
+			"kind": "peer-reviewed paper author page",
+			"verification": "author-page abstract verified in search; direct open returned403",
+			"supported_claims": [
+				"Output perturbation against classifier extraction"
+			],
+			"limitations": [
+				"Image classifiers and selected attacks; headline85x error is maximum"
+			]
+		},
+		{
+			"id": "O04",
+			"title": "Defending Against Model Stealing Attacks with Adaptive Misinformation",
+			"url": "https://openaccess.thecvf.com/content_CVPR_2020/papers/Kariyappa_Defending_Against_Model_Stealing_Attacks_With_Adaptive_Misinformation_CVPR_2020_paper.pdf",
+			"authors_or_org": "Sanjay Kariyappa; Moinuddin K Qureshi",
+			"date": "2020",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract and PDF beginning verified",
+			"supported_claims": [
+				"OOD-triggered incorrect predictions"
+			],
+			"limitations": [
+				"OOD assumption does not cover indistinguishable legitimate/attack queries"
+			]
+		},
+		{
+			"id": "O05",
+			"title": "ADS-C: Antidistillation Sampling for Classification",
+			"url": "https://arxiv.org/abs/2607.15467",
+			"authors_or_org": "Khawaja Abaid Ullah; Mohammad Javad Khojasteh",
+			"date": "2026-07-16",
+			"kind": "preprint",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"Margin budget preserves top1 while degrading soft-target student"
+			],
+			"limitations": [
+				"Cannot remove hard-label supervision; image classification; not independently reproduced"
+			]
+		},
+		{
+			"id": "O06",
+			"title": "Antidistillation Fingerprinting",
+			"url": "https://arxiv.org/html/2602.03812v2",
+			"authors_or_org": "Yixuan Even Xu; John Kirchenbauer; Yash Savani; Asher Trockman; Alexander Robey; Tom Goldstein; Fei Fang; J. Zico Kolter",
+			"date": "2026-05-15",
+			"kind": "paper arXiv record states ICML2026",
+			"verification": "full-text verified; proceedings status not independently checked",
+			"supported_claims": [
+				"Proxy-guided watermark absorption; open and closed suspect access; GSM8K/OASST1/MBPP"
+			],
+			"limitations": [
+				"Closed access needs controlled continuations; evaluation reused prompts"
+			]
+		},
+		{
+			"id": "O07",
+			"title": "Watermarking Makes Language Models Radioactive",
+			"url": "https://arxiv.org/abs/2402.14904",
+			"authors_or_org": "Tom Sander; Pierre Fernandez; Alain Durmus; Matthijs Douze; Teddy Furon",
+			"date": "2024",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract and selected PDF text verified",
+			"supported_claims": [
+				"Detecting marked text absorption under declared access models"
+			],
+			"limitations": [
+				"5percent high-confidence example is open-weight setting; no prevention result"
+			]
+		},
+		{
+			"id": "O08",
+			"title": "Protecting Language Generation Models via Invisible Watermarking",
+			"url": "https://proceedings.mlr.press/v202/zhao23i.html",
+			"authors_or_org": "Xuandong Zhao; Yu-Xiang Wang; Lei Li",
+			"date": "2023",
+			"kind": "peer-reviewed paper",
+			"verification": "official abstract verified",
+			"supported_claims": [
+				"GINSW decoding-distribution signals; suspect identification"
+			],
+			"limitations": [
+				"mAP is attribution metric; no capability suppression guarantee"
+			]
+		},
+		{
+			"id": "O09",
+			"title": "DAWN: Dynamic Adversarial Watermarking of Neural Networks",
+			"url": "https://arxiv.org/abs/1906.00830",
+			"authors_or_org": "Sebastian Szyller; Buse Gul Atli; Samuel Marchal; N. Asokan",
+			"date": "2021",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"Keyed API response changes transfer signature to surrogate"
+			],
+			"limitations": [
+				"Classifier study; incorrect labels cost utility"
+			]
+		},
+		{
+			"id": "O10",
+			"title": "Scalable watermarking for identifying large language model outputs",
+			"url": "https://www.nature.com/articles/s41586-024-08025-4",
+			"authors_or_org": "Sumanth Dathathri; Abigail See; Sumedh Ghaisas; Po-Sen Huang; Rob McAdam; et al.",
+			"date": "2024-10-23",
+			"kind": "peer-reviewed production study",
+			"verification": "official search full abstract and selected algorithm text verified; later direct open failed",
+			"supported_claims": [
+				"SynthID-Text sampling integration and feedback on nearly20million Gemini responses"
+			],
+			"limitations": [
+				"Text provenance is distinct from distillation prevention"
+			]
+		},
+		{
+			"id": "O11",
+			"title": "PostMark: A Robust Blackbox Watermark for Large Language Models",
+			"url": "https://aclanthology.org/2024.emnlp-main.506/",
+			"authors_or_org": "Yapei Chang; Kalpesh Krishna; Amir Houmansadr; John Frederick Wieting; Mohit Iyyer",
+			"date": "2024-11",
+			"kind": "peer-reviewed paper",
+			"verification": "official abstract verified",
+			"supported_claims": [
+				"Posthoc word insertion without teacher logits; quality/robustness tradeoff"
+			],
+			"limitations": [
+				"Long text method; exact labels/spans/code suitability not established"
+			]
+		},
+		{
+			"id": "O12",
+			"title": "Watermark Stealing in Large Language Models",
+			"url": "https://proceedings.mlr.press/v235/jovanovic24a.html",
+			"authors_or_org": "Nikola Jovanović; Robin Staab; Martin Vechev",
+			"date": "2024",
+			"kind": "peer-reviewed paper",
+			"verification": "official abstract verified",
+			"supported_claims": [
+				"API querying supports spoof/scrub; under50dollars and above80percent average success in tested attacks"
+			],
+			"limitations": [
+				"Scheme-specific experiments; does not prove universal watermark failure"
+			]
+		},
+		{
+			"id": "O13",
+			"title": "On the Reliability of Watermarks for Large Language Models",
+			"url": "https://arxiv.org/abs/2306.04634",
+			"authors_or_org": "John Kirchenbauer; Jonas Geiping; Yuxin Wen; Manli Shu; Khalid Saifullah; Kezhi Kong; Kasun Fernando; Aniruddha Saha; Micah Goldblum; Tom Goldstein",
+			"date": "2024",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract and selected PDF findings verified",
+			"supported_claims": [
+				"Paraphrase robustness depends on accumulated token evidence"
+			],
+			"limitations": [
+				"800token human-paraphrase average is setting-specific and irrelevant to one-token labels"
+			]
+		},
+		{
+			"id": "O14",
+			"title": "Paraphrasing evades detectors of AI-generated text, but retrieval is an effective defense",
+			"url": "https://arxiv.org/abs/2303.13408",
+			"authors_or_org": "Kalpesh Krishna; Yixiao Song; Marzena Karpinska; John Wieting; Mohit Iyyer",
+			"date": "2023-10-18",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"DIPPER attacks and provider retrieval over generated texts"
+			],
+			"limitations": [
+				"Retrieval needs stored generations; text detection not student attribution"
+			]
+		},
+		{
+			"id": "O15",
+			"title": "Linear Ensembles Wash Away Watermarks: On the Fragility of Distributional Perturbations in LLMs",
+			"url": "https://arxiv.org/html/2605.30501v1",
+			"authors_or_org": "Zhihao Wu; Gracia Gong; Qinglin Zhu; Yudong Chen; Runcong Zhao",
+			"date": "2026-05-28",
+			"kind": "preprint",
+			"verification": "full-text assumptions and abstract verified",
+			"supported_claims": [
+				"Averaging independent watermark distributions; WASH token alignment"
+			],
+			"limitations": [
+				"Theory assumes independent centered bounded perturbations; numerical-interface requirements"
+			]
+		},
+		{
+			"id": "O16",
+			"title": "Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes",
+			"url": "https://arxiv.org/abs/2305.02301",
+			"authors_or_org": "Cheng-Yu Hsieh; Chun-Liang Li; Chih-Kuan Yeh; Hootan Nakhost; Yasuhisa Fujii; Alexander Ratner; Ranjay Krishna; Chen-Yu Lee; Tomas Pfister",
+			"date": "2023-07-05",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"Rationales provide additional supervision in4NLP tasks"
+			],
+			"limitations": [
+				"Small task-specific distillation; not all-task proof"
+			]
+		},
+		{
+			"id": "O17",
+			"title": "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning",
+			"url": "https://github.com/deepseek-ai/DeepSeek-R1",
+			"authors_or_org": "DeepSeek-AI",
+			"date": "2025",
+			"kind": "official technical report and code",
+			"verification": "official README and arXiv abstract verified",
+			"supported_claims": [
+				"Six distilled models;800000curated samples; benchmark tables"
+			],
+			"limitations": [
+				"Provider-reported setup; no controlled anti-distillation comparison"
+			]
+		},
+		{
+			"id": "O18",
+			"title": "The False Promise of Imitating Proprietary LLMs",
+			"url": "https://arxiv.org/abs/2305.15717",
+			"authors_or_org": "Arnav Gudibande; Eric Wallace; Charlie Snell; Xinyang Geng; Hao Liu; Pieter Abbeel; Sergey Levine; Dawn Song",
+			"date": "2023-05-25",
+			"kind": "preprint",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"Style imitation can obscure limited capability gains"
+			],
+			"limitations": [
+				"2023models and methods; cannot conclude present distillation fails"
+			]
+		},
+		{
+			"id": "O19",
+			"title": "Stealing Part of a Production Language Model",
+			"url": "https://arxiv.org/abs/2403.06634",
+			"authors_or_org": "Nicholas Carlini; Daniel Paleka; Krishnamurthy Dvijotham; Thomas Steinke; Jonathan Hayase; A. Feder Cooper; Katherine Lee; Matthew Jagielski; Milad Nasr; Arthur Conmy; Itay Yona; Eric Wallace; David Rolnick; Florian Tramèr",
+			"date": "2024-03-11",
+			"kind": "peer-reviewed paper",
+			"verification": "abstract and author project page verified",
+			"supported_claims": [
+				"Numerical API access can reveal projection layers and hidden dimensions"
+			],
+			"limitations": [
+				"Partial parameter extraction differs from capability imitation"
+			]
+		},
+		{
+			"id": "O20",
+			"title": "Radioactive watermark official reproduction code",
+			"url": "https://github.com/facebookresearch/radioactive-watermark",
+			"authors_or_org": "Meta FAIR researchers",
+			"date": "2024",
+			"kind": "official code",
+			"verification": "README verified",
+			"supported_claims": [
+				"Open and closed supervised evaluation artifacts"
+			],
+			"limitations": [
+				"Repository archived2025-12-01; inspect dependency compatibility"
+			]
+		},
+		{
+			"id": "O21",
+			"title": "DAWN official code",
+			"url": "https://github.com/ssg-research/dawn-dynamic-adversarial-watermarking-of-neural-networks",
+			"authors_or_org": "DAWN authors",
+			"date": "2021",
+			"kind": "official code",
+			"verification": "README verified",
+			"supported_claims": [
+				"Reproduction code and exclusions"
+			],
+			"limitations": [
+				"README says extraction-attack experiments omitted"
+			]
+		}
+	]
+}

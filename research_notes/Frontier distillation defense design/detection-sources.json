@@ -1,0 +1,418 @@
+{
+	"checked_at": "2026-10-31",
+	"scope": "Statistical, behavioral and sequential defenses; not exhaustive output protection review",
+	"sources": [
+		{
+			"id": "D01",
+			"title": "Do Defenses Against LLM Extraction Work Across Attacks? A Lifecycle Benchmark of Black-Box Model Extraction",
+			"url": "https://arxiv.org/html/2610.00839v1",
+			"authors_or_org": "Shuze Liu; Kaixiang Zhao; Runyang Xu; Jingzhi Chen; Nathan Wu; Yu Wang; Yushun Dong",
+			"date": "2026-09-30",
+			"kind": "preprint",
+			"verification": "full-text verified, v1; tables and protocol inspected",
+			"supported_claims": [
+				"Detector success depends on query construction; lifecycle objectives differ."
+			],
+			"limitations": [
+				"Adapted detectors, fixed seed, four benign test batches."
+			],
+			"quantitative_evidence": "Table 12 MMD TPR: SeqKD 0%, QEDKS 100%; 20 attack batches each."
+		},
+		{
+			"id": "D02",
+			"title": "An Embarrassingly Simple Detector for Model Extraction Attacks in Large Language Model API Traffic",
+			"url": "https://arxiv.org/html/2606.05725v1",
+			"authors_or_org": "Shuze Liu; Qianwen Guo; Yushun Dong",
+			"date": "2026-06-04",
+			"kind": "preprint",
+			"verification": "full-text verified, v1; methods and limitations inspected",
+			"supported_claims": [
+				"Benign-calibrated MMD is a useful distribution-shift baseline."
+			],
+			"limitations": [
+				"Semantically close traffic, low contamination, drift and account calibration remain limitations."
+			],
+			"quantitative_evidence": "Reported 0.3% FPR; 1,500-query windows; 14 attacker-normal pairs."
+		},
+		{
+			"id": "D03",
+			"title": "PRADA: Protecting against DNN Model Stealing Attacks",
+			"url": "https://arxiv.org/html/1805.02628v3",
+			"authors_or_org": "Mika Juuti; Sebastian Szyller; Samuel Marchal; N. Asokan",
+			"date": "2018-11-16 inspected v3; EuroS&P 2019",
+			"kind": "peer-reviewed paper",
+			"verification": "full-text verified; v3; Sybil discussion inspected",
+			"supported_claims": [
+				"Per-client query-distance irregularity detection."
+			],
+			"limitations": [
+				"Authors explicitly acknowledge sufficient Sybil clients bypass it; image setting."
+			]
+		},
+		{
+			"id": "D04",
+			"title": "SEAT: Similarity Encoder by Adversarial Training for Detecting Model Extraction Attack Queries",
+			"url": "https://surrealyz.github.io/files/pubs/seat-aisec2021.pdf",
+			"authors_or_org": "Zhanyuan Zhang; Yizheng Chen; David Wagner",
+			"date": "2021-11-15",
+			"kind": "peer-reviewed workshop paper",
+			"verification": "full-text author PDF verified",
+			"supported_claims": [
+				"Adversarial similarity encoder evaluates query blinding and filtering."
+			],
+			"limitations": [
+				"Image tasks; query FPR is not account false-block probability."
+			],
+			"quantitative_evidence": "Reported 3.8-16 times extraction cost increase; calibrated 0.01% benign-query FPR."
+		},
+		{
+			"id": "D05",
+			"title": "AI Model Extraction Attacks: Bypassing Single-Client Assumptions in Defenses",
+			"url": "https://arxiv.org/html/2606.03381v1",
+			"authors_or_org": "Maxime Schwarzer et al.",
+			"date": "2026-06-02; authors state ICMCIS May 2026 presentation",
+			"kind": "preprint with conference-presentation claim",
+			"verification": "full-text verified, v1; Table II and setup inspected",
+			"supported_claims": [
+				"Identity splitting defeats account warm-up; global attribution can be costly."
+			],
+			"limitations": [
+				"MNIST, customized global PRADA, scenario-specific precision."
+			],
+			"quantitative_evidence": "2500 queries over 400 clients: 0% recall; global variant 83.1% recall."
+		},
+		{
+			"id": "D06",
+			"title": "Protecting Object Detection Models from Model Extraction Attack via Feature Space Coverage",
+			"url": "https://www.ijcai.org/proceedings/2024/0048.pdf",
+			"authors_or_org": "Zeyu Li; Yuwen Pu; Xuhong Zhang; Yu Li; Jinbao Li; Shouling Ji",
+			"date": "2024",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text PDF verified",
+			"supported_claims": [
+				"Coverage-based suspicion plus active verification is existing prior art."
+			],
+			"limitations": [
+				"Object detection; not LLM distillation evaluation."
+			]
+		},
+		{
+			"id": "D07",
+			"title": "Extracting Robust Models with Uncertain Examples",
+			"url": "https://tianweiz07.github.io/Papers/23-iclr-1.pdf",
+			"authors_or_org": "Guanlin Li; Guowen Xu; Shangwei Guo; Han Qiu; Jiwei Li; Tianwei Zhang",
+			"date": "2023",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text author PDF verified",
+			"supported_claims": [
+				"BEST provides adaptive counterevidence against extraction defenses."
+			],
+			"limitations": [
+				"Image robustness objectives and hard-label setting do not transfer numerically to LLMs."
+			]
+		},
+		{
+			"id": "D08",
+			"title": "Defending Against Model Stealing Attacks with Adaptive Misinformation",
+			"url": "https://arxiv.org/pdf/1911.07100",
+			"authors_or_org": "Sanjay Kariyappa; Moinuddin K. Qureshi",
+			"date": "2019 preprint; CVPR 2020 work",
+			"kind": "conference work; inspected preprint version",
+			"verification": "full-text arXiv PDF verified; CVF direct fetch returned 403",
+			"supported_claims": [
+				"Selective OOD misinformation relies on attacker OOD queries."
+			],
+			"limitations": [
+				"In-distribution extraction violates its premise; vision evaluation."
+			],
+			"quantitative_evidence": "Reported up to 40% clone accuracy reduction; less than 0.5% benign accuracy impact."
+		},
+		{
+			"id": "D09",
+			"title": "Thieves on Sesame Street! Model Extraction of BERT-based APIs",
+			"url": "https://arxiv.org/pdf/1910.12366",
+			"authors_or_org": "Kalpesh Krishna; Gaurav Singh Tomar; Ankur P. Parikh; Nicolas Papernot; Mohit Iyyer",
+			"date": "2020-10-12 v3; ICLR 2020",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text PDF verified, v3",
+			"supported_claims": [
+				"Pretrained attackers extract specialized NLP APIs from synthetic or natural queries."
+			],
+			"limitations": [
+				"2020 task-specific BERT and pricing; not modern frontier sample complexity."
+			]
+		},
+		{
+			"id": "D10",
+			"title": "Grey-box Extraction of Natural Language Models",
+			"url": "https://proceedings.mlr.press/v139/zanella-beguelin21a/zanella-beguelin21a.pdf",
+			"authors_or_org": "Santiago Zanella-Béguelin; Shruti Tople; Andrew Paverd; Boris Köpf",
+			"date": "2021-07",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text proceedings PDF verified",
+			"supported_claims": [
+				"A known frozen encoder and private head permit ID extraction."
+			],
+			"limitations": [
+				"Restricted grey-box architecture, not full-transformer recovery."
+			]
+		},
+		{
+			"id": "D11",
+			"title": "The False Promise of Imitating Proprietary LLMs",
+			"url": "https://arxiv.org/pdf/2305.15717",
+			"authors_or_org": "Arnav Gudibande; Eric Wallace; Charlie Snell; Xinyang Geng; Hao Liu; Pieter Abbeel; Sergey Levine; Dawn Song",
+			"date": "2023-05-25 v1",
+			"kind": "preprint",
+			"verification": "full-text PDF verified",
+			"supported_claims": [
+				"Style imitation and broad capability gains differ."
+			],
+			"limitations": [
+				"Older weak bases; does not establish modern reasoning-distillation impossibility."
+			]
+		},
+		{
+			"id": "D12",
+			"title": "DistillGuard: Evaluating Defenses Against LLM Knowledge Distillation",
+			"url": "https://arxiv.org/html/2603.07835v1",
+			"authors_or_org": "Bo Jiang",
+			"date": "2026-03-08",
+			"kind": "preprint",
+			"verification": "full-text verified, v1; limitations inspected",
+			"supported_claims": [
+				"Output throttling protection is task-dependent."
+			],
+			"limitations": [
+				"Single same-family teacher/student, naive attacker, fixed scale."
+			],
+			"quantitative_evidence": "CoT removal math 31.4% versus baseline 67.8%; code unaffected."
+		},
+		{
+			"id": "D13",
+			"title": "Stealing and Defending the Ends of LLMs",
+			"url": "https://openreview.net/pdf?id=dOS3e1kC5u",
+			"authors_or_org": "Anonymous in retrieved primary excerpt; attributed by Liu et al. to Kulkarni, Boenisch and Dziedzic",
+			"date": "ICLR 2026 submission; exact date not independently extracted",
+			"kind": "submission; accepted status unverified",
+			"verification": "snippet-only primary indexed excerpt; full retrieval blocked by browser challenge",
+			"supported_claims": [
+				"CAP coverage-aware perturbation for soft-prompt extraction is relevant prior art."
+			],
+			"limitations": [
+				"Do not assert original numerical performance or accepted status."
+			]
+		},
+		{
+			"id": "D14",
+			"title": "A Kernel Two-Sample Test",
+			"url": "https://www.jmlr.org/papers/volume13/gretton12a/gretton12a.pdf",
+			"authors_or_org": "Arthur Gretton; Karsten M. Borgwardt; Malte J. Rasch; Bernhard Schölkopf; Alexander Smola",
+			"date": "2012-03",
+			"kind": "peer-reviewed journal paper",
+			"verification": "full-text PDF verified",
+			"supported_claims": [
+				"MMD two-sample tests have estimator and sampling assumptions."
+			],
+			"limitations": [
+				"Population characteristic-kernel separation is not extraction-intent detection."
+			]
+		},
+		{
+			"id": "D15",
+			"title": "Learning Deep Kernels for Non-Parametric Two-Sample Tests",
+			"url": "https://proceedings.mlr.press/v119/liu20m/liu20m.pdf",
+			"authors_or_org": "Feng Liu; Wenkai Xu; Jie Lu; Guangquan Zhang; Arthur Gretton; Danica J. Sutherland",
+			"date": "2020-07",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text proceedings PDF verified",
+			"supported_claims": [
+				"Learned kernels can increase two-sample-test power with split training/testing."
+			],
+			"limitations": [
+				"No extraction evaluation; possible source/generator overfit."
+			]
+		},
+		{
+			"id": "D16",
+			"title": "Revisiting Classifier Two-Sample Tests",
+			"url": "https://arxiv.org/html/1610.06545v3",
+			"authors_or_org": "David Lopez-Paz; Maxime Oquab",
+			"date": "ICLR 2017; inspected v3",
+			"kind": "peer-reviewed conference paper",
+			"verification": "full-text arXiv HTML verified; OpenReview retrieval blocked",
+			"supported_claims": [
+				"Held-out classification supplies a detectability diagnostic."
+			],
+			"limitations": [
+				"Classification can exploit source leakage rather than malicious intent."
+			]
+		},
+		{
+			"id": "D17",
+			"title": "Time-uniform Chernoff bounds via nonnegative supermartingales",
+			"url": "https://arxiv.org/html/1808.03204v8",
+			"authors_or_org": "Steven R. Howard; Aaditya Ramdas; Jon McAuliffe; Jasjeet Sekhon",
+			"date": "Probability Surveys 2020; arXiv v8 2025-12-17",
+			"kind": "peer-reviewed journal paper; later arXiv revision",
+			"verification": "full-text v8 verified; canonical metadata verified",
+			"supported_claims": [
+				"Time-uniform thresholds require martingale conditions."
+			],
+			"limitations": [
+				"Does not validate arbitrary empirical-rank products."
+			]
+		},
+		{
+			"id": "D18",
+			"title": "E-detectors: a nonparametric framework for sequential change detection",
+			"url": "https://arxiv.org/html/2203.03532v4",
+			"authors_or_org": "Jaehyeok Shin; Aaditya Ramdas; Alessandro Rinaldo",
+			"date": "2023-10-29 v4 inspected; originally 2022-03-07",
+			"kind": "research paper; journal status not checked",
+			"verification": "full-text verified, v4; ARL section inspected",
+			"supported_claims": [
+				"CUSUM-style e-detectors and mixtures address changepoints with ARL control."
+			],
+			"limitations": [
+				"ARL control differs from probability of ever falsely intervening."
+			]
+		},
+		{
+			"id": "D19",
+			"title": "Conformal Prediction Beyond Exchangeability",
+			"url": "https://arxiv.org/html/2202.13415v3",
+			"authors_or_org": "Rina Foygel Barber; Emmanuel J. Candès; Aaditya Ramdas; Ryan J. Tibshirani",
+			"date": "Annals of Statistics 2023; inspected v3",
+			"kind": "peer-reviewed journal paper",
+			"verification": "full-text verified",
+			"supported_claims": [
+				"Drift/nonexchangeability need explicit treatment and assumptions."
+			],
+			"limitations": [
+				"Not a blanket guarantee for pooled dependent traffic windows."
+			]
+		},
+		{
+			"id": "D20",
+			"title": "Change detection with conformal martingales: new optimal constructions, and suboptimality of existing methods",
+			"url": "https://arxiv.org/html/2609.27179v1",
+			"authors_or_org": "Swapnaneel Bhattacharyya; Aaditya Ramdas",
+			"date": "2026-09-23",
+			"kind": "preprint",
+			"verification": "full text accessible; relevant introduction checked, proofs not audited",
+			"supported_claims": [
+				"Conformal validity alone need not give efficient delay."
+			],
+			"limitations": [
+				"Independent-observation assumptions; no LLM deployment test."
+			]
+		},
+		{
+			"id": "D21",
+			"title": "Non-partitioned e-detectors for nonparametric sequential change detection",
+			"url": "https://arxiv.org/html/2607.28322v1",
+			"authors_or_org": "Author names not extracted in this scoped pass; consult canonical arXiv metadata",
+			"date": "2026-07-30",
+			"kind": "preprint",
+			"verification": "full text accessible; abstract and method outline checked, proofs not audited",
+			"supported_claims": [
+				"Composite null and changepoint aggregation is existing prior art."
+			],
+			"limitations": [
+				"Not an off-the-shelf graph/LLM calibration guarantee."
+			]
+		},
+		{
+			"id": "D22",
+			"title": "The Sybil Attack",
+			"url": "https://www.microsoft.com/en-us/research/publication/the-sybil-attack/",
+			"authors_or_org": "John R. Douceur",
+			"date": "2002-01 publication page; IPTPS 2002",
+			"kind": "peer-reviewed workshop paper",
+			"verification": "abstract-only official publication page; full paper not audited",
+			"supported_claims": [
+				"Identity multiplicity motivates scarce or certified entitlements."
+			],
+			"limitations": [
+				"Distributed-system result does not itself quantify paid-API economics."
+			]
+		},
+		{
+			"id": "D23",
+			"title": "Detecting and preventing distillation attacks",
+			"url": "https://www.anthropic.com/news/detecting-and-preventing-distillation-attacks",
+			"authors_or_org": "Anthropic",
+			"date": "2026-02-23",
+			"kind": "official provider disclosure",
+			"verification": "full-text verified",
+			"supported_claims": [
+				"Classifiers, fingerprints and cross-account metadata appear in actual provider practice."
+			],
+			"limitations": [
+				"Provider self-report, no public ROC, control population or student outcome ablation."
+			],
+			"quantitative_evidence": "Reports over 16 million exchanges and approximately 24000 fraudulent accounts."
+		},
+		{
+			"id": "D24",
+			"title": "Bounded Behavioral Indistinguishability for Black-Box LLM Distillation",
+			"url": "https://arxiv.org/abs/2605.30448",
+			"authors_or_org": "Munawar Hasan",
+			"date": "2026-05-28",
+			"kind": "preprint",
+			"verification": "abstract-only verified",
+			"supported_claims": [
+				"Behavioral distinguishability and semantic fidelity are different metrics."
+			],
+			"limitations": [
+				"Full methodology not checked; lead only."
+			]
+		},
+		{
+			"id": "D25",
+			"title": "Exploring Connections Between Active Learning and Model Extraction",
+			"url": "https://www.usenix.org/conference/usenixsecurity20/presentation/chandrasekaran",
+			"authors_or_org": "Varun Chandrasekaran; Kamalika Chaudhuri; Irene Giacomelli; Somesh Jha; Songbai Yan",
+			"date": "2020-08",
+			"kind": "peer-reviewed conference paper",
+			"verification": "Abstract-only official proceedings page verified; full paper not inspected.",
+			"supported_claims": [
+				"Extraction and query complexity already have active-learning theory antecedents."
+			],
+			"limitations": [
+				"Classic classifiers; not proof of generative frontier LLM performance."
+			]
+		},
+		{
+			"id": "D26",
+			"title": "Knockoff Nets: Stealing Functionality of Black-Box Models",
+			"url": "https://openaccess.thecvf.com/content_CVPR_2019/html/Orekondy_Knockoff_Nets_Stealing_Functionality_of_Black-Box_Models_CVPR_2019_paper.html",
+			"authors_or_org": "Tribhuvanesh Orekondy; Bernt Schiele; Mario Fritz",
+			"date": "2019-06",
+			"kind": "peer-reviewed conference paper",
+			"verification": "Abstract-only official proceedings page verified; PDF fetch returned 403. Image tasks.",
+			"supported_claims": [
+				"Adaptive querying already optimizes extraction sample efficiency."
+			],
+			"limitations": [
+				"Classic classifiers; not proof of generative frontier LLM performance."
+			]
+		},
+		{
+			"id": "D27",
+			"title": "ActiveThief: Model Extraction Using Active Learning and Unannotated Public Data",
+			"url": "https://ojs.aaai.org/index.php/AAAI/article/view/5432",
+			"authors_or_org": "Soham Pal; Yash Gupta; Aditya Shukla; Aditya Kanade; Shirish Shevade; Vinod Ganapathy",
+			"date": "2020-04-03",
+			"kind": "peer-reviewed conference paper",
+			"verification": "Abstract-only official proceedings page verified; full experimental settings not checked.",
+			"supported_claims": [
+				"Active learning using public natural examples can evade PRADA."
+			],
+			"limitations": [
+				"Classic classifiers; not proof of generative frontier LLM performance."
+			]
+		}
+	]
+}
