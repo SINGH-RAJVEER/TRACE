@@ -1,0 +1,83 @@
+{
+	"checked_at": "2026-10-16T05:17:33.720065+00:00",
+	"upstream": {
+		"choices": [
+			{
+				"finish_reason": "stop",
+				"index": 0,
+				"message": {
+					"role": "assistant",
+					"content": "56"
+				}
+			}
+		],
+		"created": 1792127851,
+		"model": "Qwen3.5-9B-Q8_0",
+		"system_fingerprint": "b11669-620d2225c",
+		"object": "chat.completion",
+		"usage": {
+			"completion_tokens": 3,
+			"prompt_tokens": 26,
+			"total_tokens": 29,
+			"prompt_tokens_details": {
+				"cached_tokens": 0
+			}
+		},
+		"id": "chatcmpl-Kj3uyHUCdxoIcaKZnjh7A08lessLSJxB",
+		"timings": {
+			"cache_n": 0,
+			"prompt_n": 26,
+			"prompt_ms": 36830.142,
+			"prompt_per_token_ms": 1416.543923076923,
+			"prompt_per_second": 0.7059435176763641,
+			"predicted_n": 3,
+			"predicted_ms": 112.642,
+			"predicted_per_token_ms": 56.321,
+			"predicted_per_second": 17.755366559542622
+		}
+	},
+	"teacher_api": {
+		"id": "chatcmpl-DFy8YPdU8e85yc4CHRv6w05Cw4Awf2hs",
+		"provider": "colab-llamacpp-q8_0",
+		"model": "Qwen3.5-9B-Q8_0",
+		"generated_at": "2026-10-16T05:17:33.714095Z",
+		"message": {
+			"role": "assistant",
+			"content": "56"
+		},
+		"finish_reason": "stop",
+		"usage": {
+			"input_tokens": 26,
+			"output_tokens": 3
+		},
+		"request_id": null,
+		"endpoint": "http://127.0.0.1:18011/v1/chat/completions"
+	},
+	"unauthenticated_status": 401,
+	"slots": [
+		{
+			"id": 0,
+			"n_ctx": 4096,
+			"speculative": false,
+			"is_processing": false
+		},
+		{
+			"id": 1,
+			"n_ctx": 4096,
+			"speculative": false,
+			"is_processing": false
+		},
+		{
+			"id": 2,
+			"n_ctx": 4096,
+			"speculative": false,
+			"is_processing": false
+		},
+		{
+			"id": 3,
+			"n_ctx": 4096,
+			"speculative": false,
+			"is_processing": false
+		}
+	]
+}

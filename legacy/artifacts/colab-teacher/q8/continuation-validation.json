@@ -1,0 +1,16 @@
+{
+	"checked_at": "2026-10-16T05:18:08.985430+00:00",
+	"baseline_prefix_preserved": true,
+	"duplicate_ids": false,
+	"starting_records": 1083,
+	"current_records": 1097,
+	"new_q8_records": 14,
+	"new_quality": {
+		"pending": 14
+	},
+	"new_finish_reasons": {
+		"stop": 14
+	},
+	"collector_lock_held": true,
+	"services_alive": true
+}

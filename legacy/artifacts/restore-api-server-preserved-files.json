@@ -1,0 +1,16 @@
+{
+	"configs/train.distill.toml": "7321979ca086eef149399b20068a0ba7241ca509630ae08546d78f50e2c4ece8",
+	"configs/train.example.toml": "cb97958ab42368b6ab46d18a82cbfe4d9ab158c492e0fce6f9578836da212ba6",
+	"packages/distillation/src/distillation/training.py": "c9ffcf09dc9146e46f505899a0bc6541b7af445efe73eee3f6ae26aa7c2c49b4",
+	"tests/test_training.py": "b97e74915b8bfd985243129b2b59b4ce69b633fa1f4f8aba8cc4a4bdecce285a",
+	"tests/test_training_stack.py": "b1f45be5ccf7ee9beb3e83dcbf342ab2cebb186790b582ef9a428227f80e6866",
+	"packages/distillation/src/distillation/collection.py": "2017294bf67b0ec69e9ea3894db28df2daa42ac6f82e54f990a64144dd23847e",
+	"packages/distillation/src/distillation/corpus.py": "a50f7bf3b472fceef951741eeeb90323c60684da6f9665fc96d32808a5b061d9",
+	"packages/distillation/src/distillation/review.py": "8b380951a9d92f6d7ce231ace82c59cfcc135a503fbb6fe65c19d3e3e80de6d5",
+	"packages/distillation/src/distillation/progress.py": "47e4876c07e08a5423d6ce3847dd4ae4047dc912d87a4cf23aee5294e9f7520f",
+	"devenv.nix": "d2bfe3b17005e37aa620a871ff75e440a6fe580c1d2d74d258207222903d8b4d",
+	"pyproject.toml": "94c25d62cf7f5520afcf4844ca45e19c687ec4b0ad2fd0ff546653cca08a703e",
+	"uv.lock": "ecde61560f09d8281f3f9e0ee95f32ff93e73096c72ee7004cde16ce2893b3e1",
+	"README.md": "3121a7a3851c1d2caf0de060d0c558d58fb79af935fd294ead22b28384f3ce85",
+	"packages/distillation/pyproject.toml": "12a9f980898d98d0d70e22475cf4f34009d2e4352b9bcb7b5009a2fa3910433f"
+}

@@ -1,0 +1,10 @@
+{
+	"budget": 8000,
+	"pool": 53893,
+	"seed": 1,
+	"sha256": {
+		"gold-train.jsonl": "6aa9e9eec650901dee74e9f13de126af0fa64d716d475a7087b983d82ad12a83",
+		"prompts.jsonl": "b7dbc5e7c0cfaf03664850fefba8153df905c5d05ea5199b00bcb29eb0b0a998"
+	},
+	"task_dir": "data/tasks/ag_news"
+}

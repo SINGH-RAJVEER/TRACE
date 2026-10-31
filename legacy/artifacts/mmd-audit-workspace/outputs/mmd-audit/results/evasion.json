@@ -1,0 +1,102 @@
+{
+	"A1 as logged (interleaved)": {
+		"windows": 60,
+		"p_upper_min_med_max": [
+			0.947,
+			0.995,
+			1.0
+		],
+		"p_lower_min_med_max": [
+			0.002,
+			0.007,
+			0.055
+		],
+		"full (frozen)": {
+			"peak_level": 0,
+			"released_before_L4": 6000
+		},
+		"full, two-sided (refit)": {
+			"peak_level": 4,
+			"released_before_L4": 299
+		},
+		"full, lower tail (refit)": {
+			"peak_level": 4,
+			"released_before_L4": 199
+		}
+	},
+	"A1 domain-blocked, topic-sorted k=8": {
+		"windows": 60,
+		"p_upper_min_med_max": [
+			0.092,
+			0.318,
+			0.912
+		],
+		"p_lower_min_med_max": [
+			0.09,
+			0.684,
+			0.91
+		],
+		"full (frozen)": {
+			"peak_level": 1,
+			"released_before_L4": 6000
+		},
+		"full, two-sided (refit)": {
+			"peak_level": 0,
+			"released_before_L4": 6000
+		},
+		"full, lower tail (refit)": {
+			"peak_level": 2,
+			"released_before_L4": 6000
+		}
+	},
+	"A1 domain-blocked, topic-sorted k=30": {
+		"windows": 60,
+		"p_upper_min_med_max": [
+			0.098,
+			0.329,
+			0.915
+		],
+		"p_lower_min_med_max": [
+			0.087,
+			0.673,
+			0.903
+		],
+		"full (frozen)": {
+			"peak_level": 1,
+			"released_before_L4": 6000
+		},
+		"full, two-sided (refit)": {
+			"peak_level": 0,
+			"released_before_L4": 6000
+		},
+		"full, lower tail (refit)": {
+			"peak_level": 1,
+			"released_before_L4": 6000
+		}
+	},
+	"A1 two domains per window": {
+		"windows": 60,
+		"p_upper_min_med_max": [
+			0.928,
+			0.935,
+			1.0
+		],
+		"p_lower_min_med_max": [
+			0.002,
+			0.067,
+			0.073
+		],
+		"full (frozen)": {
+			"peak_level": 0,
+			"released_before_L4": 6000
+		},
+		"full, two-sided (refit)": {
+			"peak_level": 4,
+			"released_before_L4": 499
+		},
+		"full, lower tail (refit)": {
+			"peak_level": 4,
+			"released_before_L4": 199
+		}
+	}
+}

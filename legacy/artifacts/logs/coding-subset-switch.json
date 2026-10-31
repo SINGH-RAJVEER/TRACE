@@ -1,0 +1,33 @@
+{
+	"stopped_at": "2026-10-20T14:11:39.600657+00:00",
+	"previous_directory": "data/tasks/coding",
+	"previous_qualification": {
+		"complete": false,
+		"source": "nvidia/OpenCodeInstruct",
+		"revision": "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+		"source_identity": "operator-declared pinned export; not remotely attested",
+		"input_sha256": "unrecorded",
+		"evaluation_sha256": "cc0945dc8bf1aac6b81d3fc38e628fb9f3e4f3be7df04d2f3c14feebb1a539bd",
+		"algorithm": "coding-decontamination-v1",
+		"ngram_width": 13,
+		"containment_threshold": 0.7,
+		"limit": null,
+		"counts": {
+			"raw": 209000,
+			"reference_failed": 91280,
+			"eligible": 48895,
+			"malformed_or_unsupported": 36309,
+			"test_overlap": 794,
+			"reference_timeout": 322,
+			"duplicate": 31400
+		},
+		"role_assignment": "pending"
+	},
+	"external_suite_sha256": "5c9d47167b1d011c86b26ca72657c28e52e981cfca90720ac26bf442de323336",
+	"replacement_directory": "data/tasks/coding-subset-50000-s42",
+	"replacement_scope": "seed-42 global row permutation; 50000 eligible across roles",
+	"replacement_unit": "capstone-coding-subset.service",
+	"replacement_external_suite_sha256": "e926af5bfe422ebc1e2face4032a78cb63094eb6d4f0baa033363a7ce8a13541",
+	"external_suite_content_unchanged_except_created_at": true,
+	"external_suite_items": 539
+}

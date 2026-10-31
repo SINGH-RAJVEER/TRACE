@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_resume_rejects_changed_contract_without_touching_the_ledger[temperature] _
+tests/test_pipeline.py:505: in test_resume_rejects_changed_contract_without_touching_the_ledger
+    with pytest.raises(ValueError, match="resume mismatch"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'ValueError'>
+=========================== short test summary info ============================
+FAILED tests/test_pipeline.py::test_resume_rejects_changed_contract_without_touching_the_ledger[temperature]
+1 failed in 0.57s

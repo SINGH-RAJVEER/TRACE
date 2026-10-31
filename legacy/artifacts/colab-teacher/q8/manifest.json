@@ -1,0 +1,22 @@
+{
+	"release": "b11669",
+	"assets": [
+		{
+			"name": "cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			"digest": "sha256:ab3eda89a82096bcba00b6448218c3c11eec2016b0f38d64884dc29736549f26"
+		},
+		{
+			"name": "llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+			"digest": "sha256:4703ed1a3cd6e8504affb6cb9866f501e96d634d68a002dc9a8251c9e2819b49"
+		}
+	],
+	"model": {
+		"repository": "unsloth/Qwen3.5-9B-GGUF",
+		"revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+		"file": "Qwen3.5-9B-Q8_0.gguf",
+		"sha256": "809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4",
+		"bytes": 9527502048
+	}
+}

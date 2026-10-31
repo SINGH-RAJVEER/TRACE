@@ -1,0 +1,319 @@
+{
+	"contamination": {
+		"benchmarks": [
+			{
+				"available": 1319,
+				"benchmark": "gsm8k",
+				"configuration": "main",
+				"license": "mit",
+				"repository": "openai/gsm8k",
+				"revision": "740312add88f781978c0658806c59bc2815b9866",
+				"split": "test",
+				"url": "https://huggingface.co/datasets/openai/gsm8k/tree/740312add88f781978c0658806c59bc2815b9866"
+			},
+			{
+				"available": 1172,
+				"benchmark": "arc_challenge",
+				"configuration": "ARC-Challenge",
+				"license": "cc-by-sa-4.0",
+				"repository": "allenai/ai2_arc",
+				"revision": "210d026faf9955653af8916fad021475a3f00453",
+				"split": "test",
+				"url": "https://huggingface.co/datasets/allenai/ai2_arc/tree/210d026faf9955653af8916fad021475a3f00453"
+			},
+			{
+				"available": 14042,
+				"benchmark": "mmlu",
+				"configuration": "all",
+				"license": "mit",
+				"repository": "cais/mmlu",
+				"revision": "c30699e8356da336a370243923dbaf21066bb9fe",
+				"split": "test",
+				"url": "https://huggingface.co/datasets/cais/mmlu/tree/c30699e8356da336a370243923dbaf21066bb9fe"
+			},
+			{
+				"available": 790,
+				"benchmark": "truthfulqa",
+				"configuration": "binary-2025",
+				"license": "apache-2.0",
+				"repository": "sylinrl/TruthfulQA",
+				"revision": "d71c110897f5d31c5d7f309e7bc316c152f6f031",
+				"split": "all",
+				"url": "https://github.com/sylinrl/TruthfulQA/blob/d71c110897f5d31c5d7f309e7bc316c152f6f031/TruthfulQA.csv"
+			},
+			{
+				"available": 164,
+				"benchmark": "humaneval",
+				"configuration": "openai_humaneval",
+				"license": "mit",
+				"repository": "openai/openai_humaneval",
+				"revision": "7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544",
+				"split": "test",
+				"url": "https://huggingface.co/datasets/openai/openai_humaneval/tree/7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544"
+			},
+			{
+				"available": 257,
+				"benchmark": "mbpp",
+				"configuration": "sanitized",
+				"license": "cc-by-4.0",
+				"repository": "google-research-datasets/mbpp",
+				"revision": "4bb6404fdc6cacfda99d4ac4205087b89d32030c",
+				"split": "test",
+				"url": "https://huggingface.co/datasets/google-research-datasets/mbpp/tree/4bb6404fdc6cacfda99d4ac4205087b89d32030c"
+			}
+		],
+		"held_out_questions": 17744,
+		"method": "drop prompts that share a 13-word span with a held-out question"
+	},
+	"datasets": {
+		"aqua_rat": {
+			"configuration": "raw",
+			"license": "apache-2.0",
+			"repository": "deepmind/aqua_rat",
+			"revision": "33301c6a050c96af81f63cad5562cb5363e88971",
+			"url": "https://huggingface.co/datasets/deepmind/aqua_rat/tree/33301c6a050c96af81f63cad5562cb5363e88971"
+		},
+		"arc": {
+			"configuration": null,
+			"license": "cc-by-sa-4.0",
+			"repository": "allenai/ai2_arc",
+			"revision": "210d026faf9955653af8916fad021475a3f00453",
+			"url": "https://huggingface.co/datasets/allenai/ai2_arc/tree/210d026faf9955653af8916fad021475a3f00453"
+		},
+		"commonsense_qa": {
+			"configuration": null,
+			"license": "mit",
+			"repository": "tau/commonsense_qa",
+			"revision": "94630fe30dad47192a8546eb75f094926d47e155",
+			"url": "https://huggingface.co/datasets/tau/commonsense_qa/tree/94630fe30dad47192a8546eb75f094926d47e155"
+		},
+		"dolly": {
+			"configuration": null,
+			"license": "cc-by-sa-3.0",
+			"repository": "databricks/databricks-dolly-15k",
+			"revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+			"url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k/tree/bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a"
+		},
+		"gsm8k": {
+			"configuration": "main",
+			"license": "mit",
+			"repository": "openai/gsm8k",
+			"revision": "740312add88f781978c0658806c59bc2815b9866",
+			"url": "https://huggingface.co/datasets/openai/gsm8k/tree/740312add88f781978c0658806c59bc2815b9866"
+		},
+		"mbpp": {
+			"configuration": "full",
+			"license": "cc-by-4.0",
+			"repository": "google-research-datasets/mbpp",
+			"revision": "4bb6404fdc6cacfda99d4ac4205087b89d32030c",
+			"url": "https://huggingface.co/datasets/google-research-datasets/mbpp/tree/4bb6404fdc6cacfda99d4ac4205087b89d32030c"
+		},
+		"oasst2": {
+			"configuration": null,
+			"license": "apache-2.0",
+			"repository": "OpenAssistant/oasst2",
+			"revision": "179dd21fc55192153d94adb0e0ce8f69e222bf75",
+			"url": "https://huggingface.co/datasets/OpenAssistant/oasst2/tree/179dd21fc55192153d94adb0e0ce8f69e222bf75"
+		},
+		"self_oss_instruct": {
+			"configuration": null,
+			"license": "odc-by",
+			"repository": "bigcode/self-oss-instruct-sc2-exec-filter-50k",
+			"revision": "356bb069eee815daa6e23e9a282eeefe1490ad44",
+			"url": "https://huggingface.co/datasets/bigcode/self-oss-instruct-sc2-exec-filter-50k/tree/356bb069eee815daa6e23e9a282eeefe1490ad44"
+		}
+	},
+	"families": {
+		"aqua_rat": {
+			"available": 97721,
+			"cap": 3000,
+			"filtered": {
+				"benchmark_overlap": 108
+			},
+			"train": 2883,
+			"validation": 117
+		},
+		"arc_challenge": {
+			"available": 1418,
+			"cap": null,
+			"filtered": {
+				"benchmark_overlap": 14
+			},
+			"train": 1348,
+			"validation": 56
+		},
+		"arc_easy": {
+			"available": 2821,
+			"cap": null,
+			"filtered": {
+				"benchmark_overlap": 6
+			},
+			"train": 2687,
+			"validation": 128
+		},
+		"authored": {
+			"available": 238,
+			"cap": null,
+			"filtered": {},
+			"train": 235,
+			"validation": 3
+		},
+		"commonsense_qa": {
+			"available": 10962,
+			"cap": 3000,
+			"filtered": {
+				"benchmark_overlap": 1
+			},
+			"train": 2889,
+			"validation": 111
+		},
+		"constrained_writing": {
+			"available": 408,
+			"cap": null,
+			"filtered": {},
+			"train": 388,
+			"validation": 20
+		},
+		"dolly": {
+			"available": 15011,
+			"cap": 6000,
+			"filtered": {
+				"benchmark_overlap": 16,
+				"duplicate_prompt": 35,
+				"too_long": 255
+			},
+			"train": 5766,
+			"validation": 234
+		},
+		"gsm8k": {
+			"available": 7473,
+			"cap": null,
+			"filtered": {
+				"benchmark_overlap": 4
+			},
+			"train": 7168,
+			"validation": 301
+		},
+		"json_extraction": {
+			"available": 500,
+			"cap": 500,
+			"filtered": {},
+			"train": 500,
+			"validation": 0
+		},
+		"mbpp": {
+			"available": 474,
+			"cap": null,
+			"filtered": {
+				"benchmark_overlap": 8
+			},
+			"train": 446,
+			"validation": 20
+		},
+		"oasst2": {
+			"available": 5208,
+			"cap": 5000,
+			"filtered": {
+				"benchmark_overlap": 6,
+				"duplicate_prompt": 51,
+				"too_long": 9
+			},
+			"train": 4801,
+			"validation": 199
+		},
+		"python_functions": {
+			"available": 104,
+			"cap": null,
+			"filtered": {},
+			"train": 104,
+			"validation": 0
+		},
+		"self_oss_instruct": {
+			"available": 50661,
+			"cap": 4000,
+			"filtered": {
+				"benchmark_overlap": 2,
+				"too_long": 6
+			},
+			"train": 3825,
+			"validation": 175
+		},
+		"text_operations": {
+			"available": 500,
+			"cap": 500,
+			"filtered": {},
+			"train": 500,
+			"validation": 0
+		},
+		"word_problems": {
+			"available": 1200,
+			"cap": 1200,
+			"filtered": {},
+			"train": 1200,
+			"validation": 0
+		}
+	},
+	"max_prompt_chars": 3000,
+	"profile": "standard",
+	"reference_kinds": {
+		"choice": 4031,
+		"choice_reasoning": 6188,
+		"exact": 550,
+		"general": 11566,
+		"json_equals": 502,
+		"json_valid": 7,
+		"numeric": 8690,
+		"python_code": 4000,
+		"python_tests": 570
+	},
+	"seed": 42,
+	"sha256": {
+		"authored": "a0409f59439eac180b1819dbe4c0e55dae3c74a4c58fc9a8155f162831cb59d7",
+		"prompts": "f3ff4ba8ef375cadb841d5036299ec00064949efe2bd22df9c6c11acc83ccb6b",
+		"references": "d2a560339d4d3cff17434425b36f577ad9991668a46ee4d78704695cddb49da1"
+	},
+	"splits": {
+		"train": 34740,
+		"validation": 1364
+	},
+	"tasks": {
+		"classification": 22,
+		"coding-assistance": 28,
+		"commonsense-choice-letter": 1503,
+		"commonsense-choice-reasoning": 1497,
+		"constrained-writing": 408,
+		"creative-writing": 10,
+		"dolly-brainstorming": 709,
+		"dolly-classification": 859,
+		"dolly-closed_qa": 708,
+		"dolly-creative_writing": 272,
+		"dolly-general_qa": 892,
+		"dolly-information_extraction": 590,
+		"dolly-open_qa": 1505,
+		"dolly-summarization": 465,
+		"drafting": 12,
+		"exact-operation": 500,
+		"explanation": 38,
+		"format-following": 14,
+		"json-extraction": 500,
+		"logic": 18,
+		"math-choice-letter": 435,
+		"math-choice-reasoning": 2565,
+		"math-reasoning": 18,
+		"math-word-problem": 8669,
+		"multi-turn": 6,
+		"open-conversation": 5000,
+		"planning": 12,
+		"python-function": 570,
+		"python-instruction": 4000,
+		"reading-comprehension": 8,
+		"rewrite": 17,
+		"safety": 8,
+		"science-choice-letter": 2093,
+		"science-choice-reasoning": 2126,
+		"structured-output": 11,
+		"summarize": 16
+	},
+	"total": 36104,
+	"validation_fraction": 0.04
+}

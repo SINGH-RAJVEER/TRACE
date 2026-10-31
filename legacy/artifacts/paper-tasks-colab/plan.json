@@ -1,0 +1,73 @@
+{
+	"created_at": "2026-10-16T07:27:59.142518+00:00",
+	"tasks": {
+		"ag_news": {
+			"prompts": "data/tasks/ag_news/collection-prompts.jsonl",
+			"ledger": "data/tasks/ag_news/ledger.jsonl",
+			"unique_queries": 20585,
+			"max_output_tokens": 16,
+			"prompts_sha256": "c7903c68878099da3257bcf6d738d2ef908f0f5d56a9eb15576c92002ad06cc0",
+			"dataset": {
+				"configuration": null,
+				"license": "unknown",
+				"pool_split": "train",
+				"repository": "fancyzhx/ag_news",
+				"revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+				"test_split": "test"
+			}
+		},
+		"squad": {
+			"prompts": "data/tasks/squad/collection-prompts.jsonl",
+			"ledger": "data/tasks/squad/ledger.jsonl",
+			"unique_queries": 19509,
+			"max_output_tokens": 64,
+			"prompts_sha256": "a1c7fcd8468e922387ad7322e3bbd108cdc737fea4085921356b9f276a9e520e",
+			"dataset": {
+				"configuration": "plain_text",
+				"license": "cc-by-sa-4.0",
+				"pool_split": "train",
+				"repository": "rajpurkar/squad",
+				"revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+				"test_split": "validation"
+			}
+		}
+	},
+	"seeds": [
+		42,
+		1,
+		20
+	],
+	"budgets": [
+		500,
+		2000,
+		8000
+	],
+	"teacher": "Qwen3.5-9B-Q8_0",
+	"provider": "colab-llamacpp-q8_0",
+	"teacher_url": "http://127.0.0.1:18010",
+	"temperature": 0,
+	"enable_thinking": false,
+	"concurrency_per_task": 2,
+	"deployment": {
+		"release": "b11669",
+		"assets": [
+			{
+				"name": "cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+				"url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+				"digest": "sha256:ab3eda89a82096bcba00b6448218c3c11eec2016b0f38d64884dc29736549f26"
+			},
+			{
+				"name": "llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+				"url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+				"digest": "sha256:4703ed1a3cd6e8504affb6cb9866f501e96d634d68a002dc9a8251c9e2819b49"
+			}
+		],
+		"model": {
+			"repository": "unsloth/Qwen3.5-9B-GGUF",
+			"revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+			"file": "Qwen3.5-9B-Q8_0.gguf",
+			"sha256": "809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4",
+			"bytes": 9527502048
+		}
+	}
+}

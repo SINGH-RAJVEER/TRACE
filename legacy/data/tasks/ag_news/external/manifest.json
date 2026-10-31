@@ -1,0 +1,28 @@
+{
+	"available": {
+		"test": 1000,
+		"train": 1225
+	},
+	"dataset": {
+		"configuration": null,
+		"license": "unknown",
+		"repository": "SetFit/bbc-news",
+		"revision": "9c31f7087a8c225be8b4c420d70216ef1f121eb0",
+		"splits": [
+			"train",
+			"test"
+		]
+	},
+	"description": "BBC News articles, lower-cased, with five BBC categories rather than AG News topics",
+	"filtered": {
+		"duplicate_prompt": 101
+	},
+	"groups": 2124,
+	"overlap_check": "exact normalized match against development and test suites",
+	"prompts": 2124,
+	"sha256": {
+		"attacker.jsonl": "8847e7e133ec667a4d70601104fde18c288c7cfd53975dd53c60cae198968374"
+	},
+	"task": "ag_news",
+	"version": "external-sources-v1"
+}

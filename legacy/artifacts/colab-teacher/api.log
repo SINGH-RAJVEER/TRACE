@@ -1,0 +1,77 @@
+• Running devenv:files:cleanup
+✓ Running devenv:files:cleanup in 10.1ms
+• Running devenv:enterShell
+✓ Running devenv:enterShell in 9.14ms
+Resolved 108 packages in 1ms
+Checked 47 packages in 0.38ms
+[teacher-host] error: set TEACHER_TERMS_REVIEW_ID in .env; the teacher API 
+refuses requests without it
+• Running devenv:files:cleanup
+✓ Running devenv:files:cleanup in 9.75ms
+• Running devenv:enterShell
+✓ Running devenv:enterShell in 9.01ms
+Resolved 108 packages in 1ms
+Checked 47 packages in 0.41ms
+[pipeline] runtime: devenv
+[pipeline] installing workspace packages with uv
+Resolved 108 packages in 0.91ms
+Checked 47 packages in 0.21ms
+[teacher-host] started teacher-api (pid 182481)
+[teacher-host] waiting for http://127.0.0.1:18010/healthz
+INFO:     Started server process [182481]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18010 (Press CTRL+C to quit)
+INFO:     127.0.0.1:55556 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46288 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46288 - "POST /v1/teacher/generate HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:55566 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+[teacher-host] error: teacher response contains a <think> trace; disable Qwen 
+thinking mode upstream
+[teacher-host] stopping teacher-api (pid 182481)
+INFO:     Shutting down
+INFO:     Waiting for connections to close. (CTRL+C to force quit)
+INFO:     127.0.0.1:46288 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [182481]
+• Running devenv:files:cleanup
+✓ Running devenv:files:cleanup in 10.3ms
+• Running devenv:enterShell
+✓ Running devenv:enterShell in 10.3ms
+Resolved 108 packages in 1ms
+Checked 47 packages in 0.30ms
+[pipeline] runtime: devenv
+[pipeline] installing workspace packages with uv
+Resolved 108 packages in 1ms
+Checked 47 packages in 0.28ms
+[teacher-host] started teacher-api (pid 186683)
+[teacher-host] waiting for http://127.0.0.1:18010/healthz
+INFO:     Started server process [186683]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18010 (Press CTRL+C to quit)
+INFO:     127.0.0.1:46776 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46790 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+[teacher-host] teacher smoke test passed
+[teacher-host] teacher API ready on 127.0.0.1:18010
+[teacher-host] on the student machine run:
+[teacher-host]   just student-train --teacher-url http://172.18.141.182:18010
+[teacher-host] with the same TEACHER_API_TOKEN set on that machine
+[teacher-host] press Ctrl+C to stop
+INFO:     127.0.0.1:38694 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38694 - "POST /v1/teacher/generate HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:38694 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38694 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54274 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38028 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41006 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41006 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41006 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41006 - "POST /v1/teacher/generate HTTP/1.1" 200 OK
+INFO:     Shutting down
+[teacher-host] interrupted
+[teacher-host] stopping teacher-api (pid 186683)
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [186683]

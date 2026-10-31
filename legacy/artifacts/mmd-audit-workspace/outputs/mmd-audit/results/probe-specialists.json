@@ -1,0 +1,78 @@
+{
+	"ag_news": {
+		"specialist_windows": 88,
+		"specialist_q05_50_95": [
+			0.0079,
+			0.0122,
+			0.019
+		],
+		"A7_q05_50_95": [
+			0.0141,
+			0.0153,
+			0.0171
+		],
+		"A1_q05_50_95": [
+			-0.0003,
+			0.0001,
+			0.0005
+		],
+		"share_specialist_windows_above_A7_median": 0.341
+	},
+	"squad": {
+		"specialist_windows": 57,
+		"specialist_q05_50_95": [
+			0.0343,
+			0.0777,
+			0.1108
+		],
+		"A7_q05_50_95": [
+			0.0265,
+			0.0277,
+			0.0293
+		],
+		"A1_q05_50_95": [
+			0.0055,
+			0.0063,
+			0.0076
+		],
+		"share_specialist_windows_above_A7_median": 0.982
+	},
+	"gsm8k": {
+		"specialist_windows": 3,
+		"specialist_q05_50_95": [
+			-0.0007,
+			0.0002,
+			0.0002
+		],
+		"A7_q05_50_95": [
+			0.0198,
+			0.0232,
+			0.0254
+		],
+		"A1_q05_50_95": [
+			-0.0005,
+			-0.0003,
+			-0.0001
+		],
+		"share_specialist_windows_above_A7_median": 0.0
+	},
+	"coding": {
+		"specialist_windows": 34,
+		"specialist_q05_50_95": [
+			-0.0001,
+			0.001,
+			0.0037
+		],
+		"A7_q05_50_95": [
+			0.0178,
+			0.0204,
+			0.0233
+		],
+		"A1_q05_50_95": [
+			-0.0003,
+			0.0,
+			0.0008
+		],
+		"share_specialist_windows_above_A7_median": 0.0
+	}
+}

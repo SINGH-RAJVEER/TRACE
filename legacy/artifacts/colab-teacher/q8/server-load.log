@@ -1,0 +1,15 @@
+Downloading Downloadingcudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz
+ llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz
+Downloading Qwen3.5-9B-Q8_0.gguf
+Downloaded and verified llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz 172525113
+Downloaded and verified cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz 594377811
+Downloaded and verified Qwen3.5-9B-Q8_0.gguf 9527502048
+version: 0.7.0-dev (build 11669, commit 620d2225c)
+built with GNU 13.3.0 for Linux x86_64
+Starting pinned quantized teacher
+0.00.247.409 I srv  llama_server: initializing ...
+0.00.247.461 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.248.039 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.249.937 I srv    load_model: loading model '/content/capstone-teacher/models/Qwen3.5-9B-Q8_0.gguf'
+memory.used [MiB], memory.total [MiB], utilization.gpu [%]
+105 MiB, 15360 MiB, 0 %

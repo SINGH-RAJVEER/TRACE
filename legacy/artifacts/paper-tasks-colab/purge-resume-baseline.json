@@ -1,0 +1,12 @@
+{
+	"ag_news": {
+		"bytes": 1747393,
+		"sha256": "c1ea82d40a5c06cfffb4c78240550a6e7dd0b0f83ef639ae4040728c3384cb50",
+		"records": 1150
+	},
+	"squad": {
+		"bytes": 1816560,
+		"sha256": "0be9042687a489e10986272b6958bbb92ac701720156a47738f917ebced7c65b",
+		"records": 847
+	}
+}

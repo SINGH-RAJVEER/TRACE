@@ -1,0 +1,103 @@
+{
+	"calibration": "artifacts/task-diagnostic-v2/concentrated-0.1/ag_news/calibration",
+	"serialization": "detector-v2",
+	"window_size": 100,
+	"reference_windows": 20,
+	"sigma": 1.033915523453738,
+	"counts": {
+		"fitting_requests": 21558,
+		"score_calibration_requests": 11830,
+		"score_calibration_windows": 95,
+		"policy_calibration_requests": 11920,
+		"policy_calibration_accounts": 139,
+		"policy_calibration_horizons": 139,
+		"policy_calibration_unscored_horizons": 109,
+		"fitting_truncated": 0,
+		"score_calibration_truncated": 0,
+		"policy_calibration_truncated": 0
+	},
+	"thresholds": {
+		"paper": {
+			"thresholds": [
+				0.3862943611198906,
+				2.313382221179528,
+				3.1267013659826173,
+				3.270106309968968
+			],
+			"achieved": [
+				0.09352517985611511,
+				0.04316546762589928,
+				0.014388489208633094,
+				0.007194244604316547
+			],
+			"units": 139
+		},
+		"instantaneous": {
+			"thresholds": [
+				1.3862943611198906,
+				1.9252908618525775,
+				3.1780538303479458,
+				3.4657359027997265
+			],
+			"achieved": [
+				0.08633093525179857,
+				0.04316546762589928,
+				0.014388489208633094,
+				0.007194244604316547
+			],
+			"units": 139
+		},
+		"paper_no_memory": {
+			"thresholds": [
+				0.3862943611198906,
+				0.9252908618525775,
+				2.1780538303479458,
+				2.4657359027997265
+			],
+			"achieved": [
+				0.08633093525179857,
+				0.04316546762589928,
+				0.014388489208633094,
+				0.007194244604316547
+			],
+			"units": 139
+		},
+		"paper_no_decay": {
+			"thresholds": [
+				0.3862943611198906,
+				2.4657359027997265,
+				3.3535068789958338,
+				3.623170445944936
+			],
+			"achieved": [
+				0.09352517985611511,
+				0.04316546762589928,
+				0.014388489208633094,
+				0.007194244604316547
+			],
+			"units": 139
+		}
+	},
+	"baselines": {
+		"quota": {
+			"thresholds": [
+				500.0
+			],
+			"achieved": [
+				0.0
+			],
+			"units": 139
+		},
+		"rate_per_minute": {
+			"thresholds": [
+				500.0
+			],
+			"achieved": [
+				0.0
+			],
+			"units": 139
+		}
+	},
+	"aggregate_monitor": "skipped",
+	"aggregate_skipped": "not run in the declared task study"
+}

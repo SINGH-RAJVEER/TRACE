@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_preflight_cli_validates_real_serialization_without_loading_weights ____
+tests/test_training_stack.py:259: in test_preflight_cli_validates_real_serialization_without_loading_weights
+    assert result.exit_code != 0
+E   assert 0 != 0
+E    +  where 0 = <Result okay>.exit_code
+---------------------------- Captured stderr setup -----------------------------
+
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]
+Writing model shards: 100%|██████████| 1/1 [00:00<00:00, 385.79it/s]
+=============================== warnings summary ===============================
+tests/test_training_stack.py::test_preflight_cli_validates_real_serialization_without_loading_weights
+  /home/rajveer/Projects/personal/capstone/artifacts/test-venv/lib/python3.14/site-packages/fla/utils/_device.py:100: UserWarning: Triton is not supported on current platform, roll back to CPU.
+    _cpu_device_warning()
+
+tests/test_training_stack.py::test_preflight_cli_validates_real_serialization_without_loading_weights
+  /home/rajveer/Projects/personal/capstone/artifacts/test-venv/lib/python3.14/site-packages/torch/cuda/__init__.py:1174: UserWarning: Can't initialize NVML
+    raw_cnt = _raw_device_count_nvml()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_training_stack.py::test_preflight_cli_validates_real_serialization_without_loading_weights
+1 failed, 2 warnings in 4.14s

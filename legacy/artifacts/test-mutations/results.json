@@ -1,0 +1,27 @@
+[
+	{
+		"mutation": "resume-contract",
+		"caught": true,
+		"exit_code": 1
+	},
+	{
+		"mutation": "thought-rejection",
+		"caught": true,
+		"exit_code": 1
+	},
+	{
+		"mutation": "concurrency-bound",
+		"caught": true,
+		"exit_code": 1
+	},
+	{
+		"mutation": "overlong-target",
+		"caught": true,
+		"exit_code": 1
+	},
+	{
+		"mutation": "checkpoint-resume",
+		"caught": true,
+		"exit_code": 1
+	}
+]

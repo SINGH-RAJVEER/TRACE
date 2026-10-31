@@ -1,0 +1,41 @@
+{
+	"version": 1,
+	"scorer_version": "generated-answer-v1",
+	"seed": 42,
+	"created_at": "2026-10-19T12:05:30.010520Z",
+	"sources": [
+		{
+			"benchmark": "coding",
+			"repository": "evalplus/humanevalplus",
+			"revision": "d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+			"configuration": "default",
+			"split": "test",
+			"license": "apache-2.0",
+			"url": "https://huggingface.co/datasets/evalplus/humanevalplus/tree/d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+			"available": 1,
+			"selected": 1
+		}
+	],
+	"items": [
+		{
+			"id": "coding:test:Fixture/double",
+			"benchmark": "coding",
+			"category": "Fixture/double",
+			"question": "def double(x):\n\t\"\"\"Return twice the input.\"\"\"\n",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Complete the Python function below. Return the complete implementation, including needed imports, in a Python code block.\n\ndef double(x):\n\t\"\"\"Return twice the input.\"\"\"\n"
+				}
+			],
+			"metric": "pass_at_1",
+			"answer": "def double(x):\n\t\"\"\"Return twice the input.\"\"\"\n\treturn x * 2\n",
+			"choices": [],
+			"test_code": "import numpy as np\ndef check(candidate):\n\tassert np.allclose(candidate(3), 6)\n\nassert check(double) is None\n",
+			"code_prompt": "",
+			"entry_point": "double",
+			"answers": []
+		}
+	],
+	"sha256": "3796b5e77a02b60e81b07edeb6067a4be7564ca5737b2098284c396244c7a125"
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<style>
+		body { margin: 0; font-family: var(--font-sans); color: var(--foreground); }
+		figure { margin: 0; }
+		figcaption { font-weight: 500; margin-bottom: 20px; }
+		.row { margin-bottom: 18px; }
+		.label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+		.track { height: 14px; background: var(--muted); }
+		.bar { height: 14px; background: var(--chart-1); }
+		.quota { background: var(--chart-2); }
+		.note { color: var(--muted-foreground); }
+	</style>
+</head>
+<body>
+	<figure aria-label="Responses released from a 6,000-request campaign. Full MMD releases 6,000 in A1; the quota releases 1,215 in A1 and 6,000 in six-account A6 replay.">
+		<figcaption>Responses released from 6,000 requests</figcaption>
+		<div class="row">
+			<div class="label"><span>A1, full MMD, live</span><span>6,000</span></div>
+			<div class="track"><div class="bar" style="width:100%"></div></div>
+		</div>
+		<div class="row">
+			<div class="label"><span>A1, request quota, live</span><span>1,215</span></div>
+			<div class="track"><div class="bar quota" style="width:20.25%"></div></div>
+		</div>
+		<div class="row">
+			<div class="label"><span>A6, request quota, replay</span><span>6,000</span></div>
+			<div class="track"><div class="bar quota" style="width:100%"></div></div>
+		</div>
+		<div class="note">A1 uses one account. A6 splits requests across six accounts.</div>
+	</figure>
+</body>
+</html>

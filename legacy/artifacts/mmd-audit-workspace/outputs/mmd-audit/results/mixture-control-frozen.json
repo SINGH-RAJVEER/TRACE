@@ -1,0 +1,33 @@
+{
+	"mixture_control": {
+		"windows": 50,
+		"median_p_value": 0.9348914858096828,
+		"min_p_value": 0.9348914858096828,
+		"share_below_null_median": 1.0
+	},
+	"adequacy": {
+		"rule": "calibration-resolution-v2",
+		"status": "adequate",
+		"warnings": [],
+		"allow_resolution_limited": false,
+		"passed": true,
+		"reasons": [],
+		"accumulators": [
+			"paper",
+			"instantaneous"
+		],
+		"baselines": [
+			"quota"
+		],
+		"minimum_score_windows": 99,
+		"minimum_policy_horizons": 100,
+		"nonoverlapping_score_windows": 199,
+		"detectability_warnings": [
+			"100% of 50 pooled benign-mixture windows score below the median benign account window (median p 0.935); the upper-tail score cannot flag traffic that resembles the benign mixture"
+		],
+		"empirical_p_value_floor": 0.001669449081803005,
+		"scored_policy_horizons": 100,
+		"policy_horizons": 125,
+		"interpretation": "minimum resolution only; not evidence of population error control"
+	}
+}

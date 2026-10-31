@@ -1,0 +1,38 @@
+{
+	"base_model": "Qwen/Qwen3.5-2B-Base",
+	"base_revision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+	"dataset_path": "data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.jsonl",
+	"output_dir": "artifacts/tasks/ag_news/s42-b2000/attacker",
+	"eos_token": "<|im_end|>",
+	"chat_template_kwargs": {
+		"enable_thinking": false
+	},
+	"max_length": 2048,
+	"learning_rate": 0.0002,
+	"epochs": 2,
+	"per_device_batch_size": 4,
+	"gradient_accumulation_steps": 4,
+	"warmup_ratio": 0.03,
+	"logging_steps": 10,
+	"save_steps": 100,
+	"eval_strategy": "epoch",
+	"select_best_checkpoint": false,
+	"save_total_limit": 2,
+	"seed": 42,
+	"precision": "bf16",
+	"qlora": false,
+	"loss_type": "nll",
+	"attn_implementation": "sdpa",
+	"optimizer": "auto",
+	"activation_offloading": "auto",
+	"gradient_checkpointing": true,
+	"selective_gradient_checkpointing": false,
+	"lora_rank": 16,
+	"lora_alpha": 32,
+	"lora_dropout": 0.05,
+	"target_modules": "all-linear",
+	"input_sha256": {
+		"ledger": "7cdf77bbb61d7438abe6353dd9cb8e28d64e3ac2b85efacd1eed4adad500cd52"
+	},
+	"schedule_sha256": "3d7b9baf50f618c02b6ba8cf2f06234c610bb57c48ce0f58309de94e1b7ce916"
+}

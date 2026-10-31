@@ -1,0 +1,10 @@
+{
+	"budget": 8000,
+	"pool": 40356,
+	"seed": 1,
+	"sha256": {
+		"gold-train.jsonl": "7dde8de5c5567523922388868d61a55c008c5e47435472fbe7bea0d9edbb5374",
+		"prompts.jsonl": "89d2e6bb3d08a6745f65909395efc020486e15c05faa8e40549da7518a82ec2d"
+	},
+	"task_dir": "data/tasks/squad"
+}

@@ -1,0 +1,11 @@
+{
+	"source": "nvidia/OpenCodeInstruct",
+	"revision": "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+	"selection": "first 10 rows, nonrepresentative integration probe",
+	"complete_corpus_scan": false,
+	"observed": 10,
+	"converted": 8,
+	"reference_passed": 4,
+	"reference_failed": 4,
+	"unsupported": 2
+}

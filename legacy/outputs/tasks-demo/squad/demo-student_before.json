@@ -1,0 +1,472 @@
+{
+	"version": 1,
+	"id": "demo-student_before",
+	"experiment": "Dashboard preview: squad",
+	"slot": "student_before",
+	"started_at": "2026-10-16T07:27:43.265120Z",
+	"completed_at": "2026-10-16T07:27:43.265120Z",
+	"suite_sha256": "da8dcadb70bc25ad63f24eb3cbe6643152b1ceeb1753d7f972034add24137e93",
+	"scorer_version": "generated-answer-v1",
+	"generation": {
+		"max_output_tokens": 64,
+		"seed": 42,
+		"temperature": 0,
+		"enable_thinking": false
+	},
+	"model": {
+		"backend": "openai",
+		"model": "simulated-student",
+		"revision": "synthetic-v1",
+		"base_url": "https://example.invalid",
+		"api_key_env": "",
+		"adapter_path": null,
+		"tokenizer_model": null,
+		"tokenizer_revision": null,
+		"chat_template_path": null,
+		"eos_token": null,
+		"precision": "bf16",
+		"load_in_4bit": false,
+		"device": "auto",
+		"timeout_seconds": 120.0
+	},
+	"training_sha256": {},
+	"artifact_sha256": {},
+	"packages": {},
+	"platform": "",
+	"code_revision": "",
+	"demo": true,
+	"samples": [
+		{
+			"item_id": "demo:squad:0",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.8587222390076088,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 156
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:1",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.7338988271334796,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 103
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:2",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.2532553778269893,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 102
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:3",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.39822601295492377,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 116
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:4",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.9302358045737418,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 127
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:5",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.175334347327061,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 113
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:6",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.0307508228436844,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 58
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:7",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.44167893390595453,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 147
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:8",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.4979545243722878,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 127
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:9",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.4823814415926057,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 165
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:10",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.8060380253720931,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 59
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:11",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 1.2174850394553758,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 186
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:12",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.246913005788426,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 120
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:13",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.7081468346294346,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 129
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:14",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 1.0132438525260221,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 188
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:15",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 1.256270370985913,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 57
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:16",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.3079613366150498,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 109
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:17",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.8689180049035734,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 56
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:18",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.37280331311666365,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 119
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:19",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 1.0765546254332026,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 154
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:20",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.6415146385129791,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 138
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:21",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 1.3644483506857101,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 128
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:22",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated passing answer",
+			"prediction": "fixture span",
+			"correct": true,
+			"f1": 1.0,
+			"status": "ok",
+			"latency_seconds": 0.3270755136667063,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 158
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		},
+		{
+			"item_id": "demo:squad:23",
+			"benchmark": "squad",
+			"category": "squad",
+			"response": "Simulated failing answer",
+			"prediction": "wrong",
+			"correct": false,
+			"f1": 0.0,
+			"status": "ok",
+			"latency_seconds": 0.7265569314484153,
+			"usage": {
+				"input_tokens": 120,
+				"output_tokens": 196
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "simulated-student"
+		}
+	]
+}
