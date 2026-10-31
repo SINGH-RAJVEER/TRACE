@@ -93,3 +93,71 @@ def test_student_plan_and_cli(tmp_path) -> None:
 	)
 	assert result.exit_code == 0, result.output
 	assert (tmp_path / "plan.json").exists()
+
+
+def test_comparisons_require_matching_passing_teacher_capacity(tmp_path) -> None:
+	import hashlib
+	import json
+
+	conditions = [
+		{
+			"query_budget": 100,
+			"output_token_budget": 1000,
+			"money_budget": 1,
+			"deadline_seconds": 10,
+		},
+	] * 2
+	checks = dict.fromkeys(
+		[
+			"offered_throughput",
+			"completed_throughput",
+			"latency_p95",
+			"errors",
+			"timeouts",
+			"queue_end",
+			"queue_growth",
+			"undefended",
+		],
+		True,
+	)
+	schedule = tmp_path / "requests.jsonl"
+	schedule.write_text("frozen fixture\n")
+	sha = hashlib.sha256(schedule.read_bytes()).hexdigest()
+	evidence = {
+		"version": "teacher-capacity-v1",
+		"passed": True,
+		"schedule_sha256": sha,
+		"slo": {},
+		"checks": checks,
+	}
+	assert not compare_conditions(conditions, "attacker_budget")["comparable"]
+	assert compare_conditions(
+		conditions, "attacker_budget", capacity_evidence=evidence, schedule_sha256=sha
+	)["comparable"]
+	for invalid in [evidence | {"passed": False}, evidence | {"schedule_sha256": "other"}]:
+		assert not compare_conditions(
+			conditions, "attacker_budget", capacity_evidence=invalid, schedule_sha256=sha
+		)["comparable"]
+	conditions_file = tmp_path / "conditions.json"
+	conditions_file.write_text(json.dumps(conditions))
+	evidence_file = tmp_path / "capacity.json"
+	evidence_file.write_text(json.dumps(evidence))
+	args = [
+		"gateway",
+		"comparison-report",
+		"--conditions",
+		str(conditions_file),
+		"--view",
+		"attacker_budget",
+		"--capacity-evidence",
+		str(evidence_file),
+		"--benign-schedule",
+		str(schedule),
+	]
+	result = CliRunner().invoke(app, args)
+	assert result.exit_code == 0, result.output
+	assert json.loads(result.output)["comparable"] is True
+	schedule.write_text("different schedule\n")
+	result = CliRunner().invoke(app, args)
+	assert result.exit_code == 1, result.output
+	assert "teacher_capacity" in result.output

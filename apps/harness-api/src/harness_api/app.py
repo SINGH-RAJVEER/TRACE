@@ -26,7 +26,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,14 +40,14 @@ from distillation.schemas import (
 	TokenUsage,
 )
 from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from harness.calibration import Calibration, load_aggregate, load_calibration
 from harness.deception import noise
 from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
-from harness.policy import Decision, MMDPolicy, Policy
+from harness.policy import Decision, MMDPolicy, Policy, ScoreWindow
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
 from harness.store import (
@@ -62,8 +62,15 @@ from harness.store import (
 	admission_key,
 	reserve_entitlement,
 )
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import Message as ASGIMessage
 
+from harness_api.batching import EncoderBatcher
 from harness_api.settings import Settings
+
+
+class ScoringUnavailable(Exception):
+	"""The off-path scorer cannot accept a window, so the admission must not commit."""
 
 
 def current_turn(request: TeacherGenerationRequest) -> str:
@@ -228,11 +235,44 @@ def create_app(
 	served_task = calibration.config.task
 	if served_task != config.task:
 		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
+	if config.scoring_mode == "off_path" and config.state_db is not None:
+		# Queued windows live in this process, so a restart would silently drop their evidence.
+		raise ValueError("off-path scoring keeps queued windows in memory; unset HARNESS_STATE_DB")
 	store: StateStore = (
 		SQLiteStore(config.state_db, _scope(config, calibration, scorer, aggregate_scorer, key))
 		if config.state_db is not None
 		else MemoryStore()
 	)
+	queue: asyncio.Queue[ScoreWindow | None] = asyncio.Queue(maxsize=config.scoring_queue_capacity)
+	score_worker: asyncio.Task[None] | None = None
+	score_failure: list[str] = []
+	score_metrics: dict[int, dict[str, Any]] = {}
+	score_accounts: dict[int, str] = {}
+	inflight: dict[int, str] = {}
+	next_release_id = 0
+
+	def submit_window(work: ScoreWindow) -> None:
+		nonlocal score_worker
+		if score_failure:
+			raise ScoringUnavailable("off-path scorer unavailable")
+		if not config.test_clock:
+			work = replace(work, closed_at=clock())
+		try:
+			queue.put_nowait(work)
+		except asyncio.QueueFull as error:
+			score_failure.append("queue_full")
+			raise ScoringUnavailable("off-path scoring queue is full") from error
+		score_metrics[work.sequence] = {
+			"admissions": 0,
+			"released_responses": 0,
+			"released_tokens": 0,
+			"unknown_token_responses": 0,
+			"inflight_at_closure": sum(a == work.account for a in inflight.values()),
+		}
+		score_accounts[work.sequence] = work.account
+		if score_worker is None:
+			score_worker = asyncio.create_task(run_scores())
+
 	policy: Policy
 	if config.policy == "mmd":
 		policy = MMDPolicy(
@@ -249,8 +289,11 @@ def create_app(
 			actions=config.actions,
 			store=store,
 			policy_version=config.policy_version,
+			submit_window=submit_window if config.scoring_mode == "off_path" else None,
 		)
 	else:
+		if config.scoring_mode == "off_path":
+			raise ValueError("off-path scoring requires the MMD policy")
 		policy = make_policy(config.policy, calibration, scorer, store=store)
 	monitor = (
 		AggregateMonitor(aggregate_scorer, calibration.aggregate)
@@ -261,7 +304,7 @@ def create_app(
 	if encoder is None and needs_embeddings:
 		from harness.encoder import BGEEncoder
 
-		encoder = BGEEncoder(device=config.encoder_device)
+		encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
 	if token_counter is None and config.tokenizer_model:
 		from transformers import AutoTokenizer
 
@@ -277,19 +320,143 @@ def create_app(
 		token=config.teacher_token,
 		timeout_seconds=config.timeout_seconds,
 	)
+	batcher = (
+		EncoderBatcher(
+			encoder,
+			batch_size=config.encoder_batch_size,
+			wait_seconds=config.encoder_batch_wait_ms / 1000,
+			capacity=config.encoder_queue_capacity,
+		)
+		if encoder is not None and needs_embeddings and config.encoder_batch_wait_ms > 0
+		else None
+	)
 	log = DecisionLog(config.decision_log)
+	if encoder is not None and needs_embeddings:
+		log.write(
+			"encoder_config",
+			device=getattr(encoder, "device", "unknown"),
+			batch_size=config.encoder_batch_size,
+			batch_wait_ms=config.encoder_batch_wait_ms,
+			queue_capacity=config.encoder_queue_capacity,
+			identity=encoder.identity(),
+		)
+	# Orders off-path score application with release accounting; the store orders admissions.
+	lock = asyncio.Lock()
 	# Real responses teach the shape and timing that noise responses copy.
 	template: list[TeacherGeneration] = []
 	latencies: deque[float] = deque(maxlen=256)
 
+	async def run_scores() -> None:
+		assert isinstance(policy, MMDPolicy)
+		while (work := await queue.get()) is not None:
+			try:
+				if score_failure:
+					raise RuntimeError("an earlier score failed")
+				score = await asyncio.to_thread(policy.score_window, work)
+				async with lock:
+					with store.transaction() as tx:
+						current = tx.account(work.account)
+						previous_level = (
+							current.level
+							if current is not None and current.horizon_start == work.horizon_start
+							else None
+						)
+						state = policy.apply_window(tx, work, score)
+					applied = state is not None
+					level = state.level if state is not None else None
+					metrics = score_metrics.pop(work.sequence)
+					score_accounts.pop(work.sequence)
+					applied_at = clock()
+					escalated = (
+						level is not None and previous_level is not None and level > previous_level
+					)
+					log.write(
+						"off_path_score",
+						account=work.account,
+						sequence=work.sequence,
+						horizon_sequence=work.horizon_sequence,
+						horizon_start=work.horizon_start,
+						closed_at=work.closed_at,
+						applied_at=applied_at,
+						enforced_at=applied_at if escalated else None,
+						delay_seconds=max(0, applied_at - work.closed_at),
+						applied=applied,
+						escalated=escalated,
+						previous_level=previous_level,
+						level=level,
+						reservations=None,
+						total_released_tokens=(
+							None
+							if metrics["unknown_token_responses"]
+							else metrics["released_tokens"]
+						),
+						inflight_at_enforcement=sum(a == work.account for a in inflight.values()),
+						**metrics,
+					)
+			except Exception as error:
+				score_failure.append(type(error).__name__)
+				metrics = score_metrics.pop(work.sequence, {})
+				score_accounts.pop(work.sequence, None)
+				log.write(
+					"off_path_score_error",
+					account=work.account,
+					sequence=work.sequence,
+					horizon_sequence=work.horizon_sequence,
+					closed_at=work.closed_at,
+					**metrics,
+					error=type(error).__name__,
+				)
+			finally:
+				queue.task_done()
+
 	@asynccontextmanager
 	async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 		yield
+		if batcher is not None:
+			await batcher.close()
+		if score_worker is not None:
+			await queue.put(None)
+			await score_worker
 		await upstream.close()
 		if isinstance(store, SQLiteStore):
 			store.close()
 
 	app = FastAPI(title="TRACE protected teacher API", version="0.1.0", lifespan=lifespan)
+
+	class ReleaseAccounting:
+		def __init__(self, app: ASGIApp) -> None:
+			self.app = app
+
+		async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+			if scope["type"] != "http":
+				await self.app(scope, receive, send)
+				return
+			state = scope.setdefault("state", {})
+
+			async def counted_send(message: ASGIMessage) -> None:
+				if message["type"] == "http.response.body" and not message.get("more_body", False):
+					async with lock:
+						await send(message)
+						if (account := state.get("release_account")) is not None:
+							for sequence, metrics in score_metrics.items():
+								if score_accounts[sequence] == account:
+									metrics["released_responses"] += 1
+									tokens = state.get("release_tokens")
+									if tokens is None:
+										metrics["unknown_token_responses"] += 1
+									else:
+										metrics["released_tokens"] += tokens
+				else:
+					await send(message)
+
+			try:
+				await self.app(scope, receive, counted_send)
+			finally:
+				async with lock:
+					if (release_id := state.get("release_id")) is not None:
+						inflight.pop(release_id, None)
+
+	app.add_middleware(ReleaseAccounting)
 
 	def now_from(header: str | None) -> float:
 		if config.test_clock and header is not None:
@@ -436,6 +603,7 @@ def create_app(
 		)
 
 	async def release(
+		http_request: Request,
 		decision: Decision,
 		request: TeacherGenerationRequest,
 		text: str,
@@ -445,6 +613,13 @@ def create_app(
 		reservation: Reservation,
 		idem: str | None,
 	) -> JSONResponse:
+		nonlocal next_release_id
+		async with lock:
+			next_release_id += 1
+			release_id = next_release_id
+			inflight[release_id] = decision.account
+		# The release accounting middleware clears the in-flight entry after the response.
+		http_request.state.release_id = release_id
 		status: Settlement = "failed"
 		tokens: int | None = None
 		response: JSONResponse | None = None
@@ -504,6 +679,9 @@ def create_app(
 				request_digest=reservation.request_digest,
 				benchmark_request=benchmark_request,
 			)
+		if status == "released":
+			http_request.state.release_account = decision.account
+			http_request.state.release_tokens = tokens
 		assert response is not None
 		return response
 
@@ -564,6 +742,7 @@ def create_app(
 	@app.post("/v1/teacher/generate", response_model=None)
 	async def generate(
 		request: TeacherGenerationRequest,
+		http_request: Request,
 		authorization: str | None = Header(default=None),
 		x_benchmark_actor: str | None = Header(default=None),
 		x_harness_proof: str | None = Header(default=None),
@@ -577,6 +756,8 @@ def create_app(
 		if identity is None:
 			return _error(401, "unauthorized", "unknown API key", None)
 		account, organization = identity
+		if score_failure:
+			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		now = now_from(x_harness_time)
 		text = current_turn(request)
 		if served_task == "gateway":
@@ -660,56 +841,86 @@ def create_app(
 				return rejection
 			assert reservation is not None
 			return await release(
-				held, request, text, binding, x_benchmark_request, now, reservation, idempotency_key
+				http_request,
+				held,
+				request,
+				text,
+				binding,
+				x_benchmark_request,
+				now,
+				reservation,
+				idempotency_key,
 			)
-		embedding = (
-			(await asyncio.to_thread(encoder.encode, [detector_text(served_task, text)]))[0]
-			if needs_embeddings and encoder is not None
-			else None
-		)
+		embedding = None
+		if needs_embeddings and encoder is not None:
+			try:
+				encoded_text = detector_text(served_task, text)
+				embedding = (
+					await batcher.encode(encoded_text)
+					if batcher is not None
+					else (await asyncio.to_thread(encoder.encode, [encoded_text]))[0]
+				)
+			except asyncio.QueueFull:
+				return _error(503, "encoder_overloaded", "encoder queue is full", None)
+			except Exception:
+				log.write("encoder_error", account=account, request_digest=digest)
+				return _error(503, "encoder_error", "encoder failed", None)
+		if score_failure:
+			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		reservation = None
 		rejection = None
 		alert = None
-		with store.transaction() as tx:
-			prior = previous(tx, account, idempotency_key, digest)
-			if prior is not None:
-				return prior
-			decision = policy.admit_in_transaction(
-				tx, account, text, now, embedding=embedding, binding=binding
-			)
-			if (
-				monitor
-				and embedding is not None
-				and tx.append_aggregate(embedding, account, now) >= monitor.calibration.window_size
-			):
-				index, rows = tx.take_aggregate()
-				window = AggregateWindow(
-					index,
-					np.stack([r[0] for r in rows]),
-					[r[1] for r in rows],
-					rows[0][2],
-					rows[-1][2],
+		# A failed off-path submission rolls the whole admission back.
+		try:
+			with store.transaction() as tx:
+				prior = previous(tx, account, idempotency_key, digest)
+				if prior is not None:
+					return prior
+				decision = policy.admit_in_transaction(
+					tx, account, text, now, embedding=embedding, binding=binding
 				)
-				alert = monitor.score(window)
-				tx.put_aggregate_alert(index, asdict(alert))
-			if decision.action in {"serve", "challenge"}:
-				reservation, rejection = reserve(
-					tx, decision, request, digest, now, organization, idempotency_key
-				)
-				if rejection is not None:
-					remember(tx, account, idempotency_key, digest, now, rejection)
-				elif decision.action == "challenge":
-					assert decision.challenge is not None
-					challenge_record = tx.challenge(decision.challenge.nonce)
-					assert challenge_record is not None
-					challenge, held_data = challenge_record
-					held_data["idempotency_key"] = idempotency_key
-					# Replace the held metadata in the same transaction as the reservation.
-					tx.delete_challenge(challenge.nonce)
-					tx.put_challenge(challenge, held_data)
+				if (
+					monitor
+					and embedding is not None
+					and tx.append_aggregate(embedding, account, now)
+					>= monitor.calibration.window_size
+				):
+					index, rows = tx.take_aggregate()
+					window = AggregateWindow(
+						index,
+						np.stack([r[0] for r in rows]),
+						[r[1] for r in rows],
+						rows[0][2],
+						rows[-1][2],
+					)
+					alert = monitor.score(window)
+					tx.put_aggregate_alert(index, asdict(alert))
+				if decision.action in {"serve", "challenge"}:
+					reservation, rejection = reserve(
+						tx, decision, request, digest, now, organization, idempotency_key
+					)
+					if rejection is not None:
+						remember(tx, account, idempotency_key, digest, now, rejection)
+					elif decision.action == "challenge":
+						assert decision.challenge is not None
+						challenge_record = tx.challenge(decision.challenge.nonce)
+						assert challenge_record is not None
+						challenge, held_data = challenge_record
+						held_data["idempotency_key"] = idempotency_key
+						# Replace the held metadata in the same transaction as the reservation.
+						tx.delete_challenge(challenge.nonce)
+						tx.put_challenge(challenge, held_data)
+						remember(
+							tx, account, idempotency_key, digest, now, policy_response(decision)
+						)
+				else:
 					remember(tx, account, idempotency_key, digest, now, policy_response(decision))
-			else:
-				remember(tx, account, idempotency_key, digest, now, policy_response(decision))
+		except ScoringUnavailable:
+			log.write("off_path_queue_error", account=account, request_digest=digest)
+			return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
+		for sequence, metrics in score_metrics.items():
+			if score_accounts[sequence] == account:
+				metrics["admissions"] += 1
 		if alert is not None:
 			log.write("aggregate", **asdict(alert))
 		log.write(
@@ -740,7 +951,15 @@ def create_app(
 			return policy_response(decision)
 		assert reservation is not None
 		return await release(
-			decision, request, text, binding, x_benchmark_request, now, reservation, idempotency_key
+			http_request,
+			decision,
+			request,
+			text,
+			binding,
+			x_benchmark_request,
+			now,
+			reservation,
+			idempotency_key,
 		)
 
 	return app
