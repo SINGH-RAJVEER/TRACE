@@ -1,0 +1,197 @@
+{
+	"mean_output_tokens_by_domain": {
+		"coding": 136.35266666666666,
+		"gsm8k": 246.10866666666666,
+		"squad": 7.339333333333333,
+		"ag_news": 2.3586666666666667
+	},
+	"limits": {
+		"request_quota": 1215.0,
+		"token_quota": 44178.263999999996
+	},
+	"request_quota": {
+		"benign_test_blocked_accounts": {
+			"specialist": 1
+		},
+		"benign_test_accounts": {
+			"specialist": 112,
+			"generalist": 13
+		},
+		"benign_test_blocked_of_scored": "1/100",
+		"upper95": 0.04655981145353889,
+		"benign_requests_refused": 617,
+		"attacks": {
+			"A1": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 1215,
+				"released_tokens": 118024,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"coding": 294,
+					"gsm8k": 303,
+					"squad": 306,
+					"ag_news": 312
+				}
+			},
+			"A2": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 1215,
+				"released_tokens": 2872,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"ag_news": 1215
+				}
+			},
+			"A5": {
+				"accounts": 6,
+				"requests_per_account": [
+					750,
+					1500
+				],
+				"released_requests": 5430,
+				"released_tokens": 515789,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 2,
+				"released_by_domain": {
+					"coding": 1500,
+					"gsm8k": 1215,
+					"squad": 1215,
+					"ag_news": 1500
+				}
+			},
+			"A6": {
+				"accounts": 6,
+				"requests_per_account": [
+					1000
+				],
+				"released_requests": 6000,
+				"released_tokens": 588239,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 0,
+				"released_by_domain": {
+					"coding": 1500,
+					"squad": 1500,
+					"ag_news": 1500,
+					"gsm8k": 1500
+				}
+			},
+			"A7": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 1215,
+				"released_tokens": 123604,
+				"campaign_tokens": 632739,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"coding": 294,
+					"gsm8k": 303,
+					"squad": 306,
+					"ag_news": 312
+				}
+			}
+		}
+	},
+	"token_quota": {
+		"benign_test_blocked_accounts": {
+			"specialist": 4
+		},
+		"benign_test_accounts": {
+			"specialist": 112,
+			"generalist": 13
+		},
+		"benign_test_blocked_of_scored": "4/100",
+		"upper95": 0.08919625015887996,
+		"benign_requests_refused": 1328,
+		"attacks": {
+			"A1": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 449,
+				"released_tokens": 43941,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"coding": 113,
+					"gsm8k": 115,
+					"squad": 117,
+					"ag_news": 104
+				}
+			},
+			"A2": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 1665,
+				"released_tokens": 44006,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"ag_news": 1500,
+					"gsm8k": 165
+				}
+			},
+			"A5": {
+				"accounts": 6,
+				"requests_per_account": [
+					750,
+					1500
+				],
+				"released_requests": 3835,
+				"released_tokens": 146501,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 3,
+				"released_by_domain": {
+					"coding": 655,
+					"gsm8k": 180,
+					"squad": 1500,
+					"ag_news": 1500
+				}
+			},
+			"A6": {
+				"accounts": 6,
+				"requests_per_account": [
+					1000
+				],
+				"released_requests": 2706,
+				"released_tokens": 263838,
+				"campaign_tokens": 588239,
+				"accounts_blocked": 6,
+				"released_by_domain": {
+					"coding": 661,
+					"squad": 703,
+					"ag_news": 659,
+					"gsm8k": 683
+				}
+			},
+			"A7": {
+				"accounts": 1,
+				"requests_per_account": [
+					6000
+				],
+				"released_requests": 430,
+				"released_tokens": 44145,
+				"campaign_tokens": 632739,
+				"accounts_blocked": 1,
+				"released_by_domain": {
+					"coding": 110,
+					"gsm8k": 110,
+					"squad": 109,
+					"ag_news": 101
+				}
+			}
+		}
+	}
+}

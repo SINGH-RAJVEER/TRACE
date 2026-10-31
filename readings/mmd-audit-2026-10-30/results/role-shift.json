@@ -1,0 +1,28 @@
+{
+	"policy_calibration": {
+		"windows": 199,
+		"p_le_0.05": 0.095,
+		"p_le_0.10": 0.261,
+		"median_p": 0.367,
+		"accounts_over_L1_L4_thresholds": [
+			10,
+			5,
+			2,
+			1
+		],
+		"scored": 100
+	},
+	"benign_test": {
+		"windows": 198,
+		"p_le_0.05": 0.071,
+		"p_le_0.10": 0.141,
+		"median_p": 0.554,
+		"accounts_over_L1_L4_thresholds": [
+			12,
+			3,
+			0,
+			0
+		],
+		"scored": 100
+	}
+}
