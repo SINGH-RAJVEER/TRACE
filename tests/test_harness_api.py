@@ -27,6 +27,7 @@ from distillation.schemas import (
 from distillation.teacher import TeacherUpstreamError
 from harness.calibration import BenignRequest, Calibration, HarnessConfig, calibrate
 from harness.mmd import Array, WindowScorer
+from harness.policy import QuotaPolicy, RatePolicy
 from harness_api.app import create_app
 from harness_api.settings import Settings
 
@@ -828,3 +829,134 @@ async def test_cancelled_and_failed_releases_settle_without_refunding_the_admiss
 	with sqlite3.connect(state) as db:
 		rows = db.execute("SELECT attempt, status FROM reservations ORDER BY attempt").fetchall()
 	assert rows == [(1, "cancelled"), (2, "failed"), (3, "released")]
+
+
+def _budget_app(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path, **limits: Any
+) -> tuple[Any, Teacher, Path]:
+	return _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_TEST_CLOCK=True,
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		**limits,
+	)
+
+
+def _client(app: Any) -> httpx.AsyncClient:
+	return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://harness")
+
+
+async def _ask(client: httpx.AsyncClient, text: str, **headers: str) -> httpx.Response:
+	return await client.post(
+		"/v1/teacher/generate",
+		json=_request(text),
+		headers={"X-Benchmark-Actor": "u1", "X-Harness-Time": "10", **headers},
+	)
+
+
+def test_budget_limits_need_a_durable_store() -> None:
+	with pytest.raises(ValueError, match="HARNESS_STATE_DB"):
+		Settings(_env_file=None, HARNESS_BUDGET_REQUESTS=1)  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_spent_budget_refuses_before_embedding_and_survives_a_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	encoded: list[str] = []
+	original = Encoder.encode
+
+	def counted(self: Encoder, texts: list[str]) -> Array:
+		encoded.extend(texts)
+		return original(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", counted)
+	app, teacher, log = _budget_app(artifacts, tmp_path, HARNESS_BUDGET_REQUESTS=2)
+	async with _client(app) as client:
+		responses = [await _ask(client, f"q {i}") for i in range(3)]
+	assert [r.status_code for r in responses] == [200, 200, 403]
+	assert responses[2].json()["detail"]["code"] == "budget_exhausted"
+	assert responses[2].headers["x-harness-decision"] == "block"
+	assert teacher.calls == 2 and len(encoded) == 2
+
+	releases = _events(log, "release")
+	assert [(e["status"], e["output_tokens"]) for e in releases] == [("released", 1)] * 2
+	decisions = _events(log, "decision")
+	assert [e["reason"] for e in decisions] == [None, None, "budget_requests"]
+	assert decisions[2]["level"] == 4 and decisions[2]["attempt"] is None
+	revisions = {e["policy_revision"] for e in decisions + releases}
+	assert revisions == {_events(log, "startup")[0]["policy_revision"]}
+
+	restarted, teacher, _ = _budget_app(artifacts, tmp_path, HARNESS_BUDGET_REQUESTS=2)
+	async with _client(restarted) as client:
+		assert (await _ask(client, "after restart")).status_code == 403
+	assert teacher.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_teacher_failure_counts_as_an_attempt_but_uses_no_budget(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, log = _budget_app(artifacts, tmp_path, HARNESS_BUDGET_REQUESTS=1)
+	working = teacher.generate
+
+	async def failing(request: TeacherGenerationRequest) -> TeacherGeneration:
+		raise TeacherUpstreamError("down")
+
+	async with _client(app) as client:
+		teacher.generate = failing  # type: ignore[method-assign]
+		assert (await _ask(client, "q")).status_code == 502
+		teacher.generate = working  # type: ignore[method-assign]
+		assert (await _ask(client, "q")).status_code == 200
+		assert (await _ask(client, "q")).status_code == 403
+	assert [(e["attempt"], e["status"]) for e in _events(log, "release")] == [
+		(1, "failed"),
+		(2, "released"),
+	]
+
+
+@pytest.mark.asyncio
+async def test_concurrency_limit_throttles_and_a_key_cannot_regenerate(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _budget_app(artifacts, tmp_path, HARNESS_BUDGET_CONCURRENCY=1)
+	working = teacher.generate
+	entered, finish = asyncio.Event(), asyncio.Event()
+
+	async def held(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await finish.wait()
+		return await working(request)
+
+	teacher.generate = held  # type: ignore[method-assign]
+	async with _client(app) as client:
+		first = asyncio.create_task(_ask(client, "q", **{"X-Idempotency-Key": "k"}))
+		await entered.wait()
+		second = await _ask(client, "other")
+		assert second.status_code == 429
+		assert second.headers["x-harness-decision"] == "throttle"
+		finish.set()
+		assert (await first).status_code == 200
+		retry = await _ask(client, "q", **{"X-Idempotency-Key": "k"})
+		assert retry.status_code == 409 and retry.json()["detail"]["code"] == "duplicate_request"
+		conflict = await _ask(client, "changed", **{"X-Idempotency-Key": "k"})
+		assert conflict.json()["detail"]["code"] == "key_conflict"
+	assert teacher.calls == 1
+
+
+def test_every_restriction_names_its_cause() -> None:
+	assert QuotaPolicy(1, 100, 10).admit("a", "q", 0).reason is None
+	quota = QuotaPolicy(1, 100, 10)
+	quota.admit("a", "q", 0)
+	assert quota.admit("a", "q", 1).reason == "quota"
+	capped = QuotaPolicy(100, 100, 1)
+	capped.admit("a", "q", 0)
+	assert capped.admit("a", "q", 1).reason == "attempt_cap"
+	rate = RatePolicy(1, 100, 10)
+	rate.admit("a", "q", 0)
+	assert rate.admit("a", "q", 1).reason == "rate"

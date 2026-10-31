@@ -37,6 +37,17 @@ class Settings(BaseSettings):
 	challenge_ttl_seconds: float = Field(default=300, gt=0, alias="HARNESS_CHALLENGE_TTL_SECONDS")
 	min_interval_seconds: float = Field(default=1.0, ge=0, alias="HARNESS_MIN_INTERVAL_SECONDS")
 
+	# A per-account budget over a rolling window, kept in HARNESS_STATE_DB. Off until a limit is
+	# set, and each limit is optional. Output tokens are reserved at the request's maximum.
+	budget_window_seconds: float = Field(
+		default=604_800, gt=0, alias="HARNESS_BUDGET_WINDOW_SECONDS"
+	)
+	budget_requests: int | None = Field(default=None, ge=1, alias="HARNESS_BUDGET_REQUESTS")
+	budget_output_tokens: int | None = Field(
+		default=None, ge=1, alias="HARNESS_BUDGET_OUTPUT_TOKENS"
+	)
+	budget_concurrency: int | None = Field(default=None, ge=1, alias="HARNESS_BUDGET_CONCURRENCY")
+
 	# The teacher inference API this service protects.
 	teacher_url: str = Field(default="http://127.0.0.1:8000", alias="HARNESS_TEACHER_URL")
 	teacher_token: str = Field(default="", alias="HARNESS_TEACHER_TOKEN")
@@ -81,4 +92,8 @@ class Settings(BaseSettings):
 			raise ValueError(
 				"gateway mode requires positive caps for at least two supported domains"
 			)
+		if self.state_db is None and (
+			self.budget_requests or self.budget_output_tokens or self.budget_concurrency
+		):
+			raise ValueError("budget limits need HARNESS_STATE_DB, or a restart would refill them")
 		return self
