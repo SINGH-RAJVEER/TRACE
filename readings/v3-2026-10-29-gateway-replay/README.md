@@ -46,8 +46,13 @@ A protected campaign cannot resume after an interruption, because its harness st
 | 1 | `full.interrupted-2026-10-30` | 10-30 05:02–05:32 | 1,537 | 1,536 (AG News 1,500, GSM8K 36) | 28 | 15 (0.896) | old runner stopped for the scope change above |
 | 2 | `full.interrupted-2026-10-30-2` | 10-30 08:45–10:58 | 2,223 | 2,222 (AG News 1,500, GSM8K 722) | 532 | 22 (0.327) | interrupted (SIGINT) to free the GPU for the undefended A2 student ([v5](../v5-2026-10-30-undefended-a2-student/)) |
 | 3 | `full.interrupted-2026-10-30-3` | 10-30 12:15–15:05 | 2,481 | 2,480 (AG News 1,500, GSM8K 980) | 724 | 24 (0.327) | killed with the agent session that launched it (see below) |
+| 4 | `full.interrupted-2026-10-31-4` | 10-31 07:29–12:10 | 3,494 | 3,493 (AG News 1,500, GSM8K 1,500, coding 493) | 1,117 | 34 (0.322) | stopped on request to run A7 directly (see below) |
 
 Attempt 3 was started with `setsid nohup` from an agent shell. That shell ran inside the agent's systemd scope, and when the agent session was stopped at 15:05:46 UTC systemd sent SIGTERM and, 10 seconds later, SIGKILL to the study, vLLM, the teacher API and the gateway, so the runner wrote no exit code. Attempt 4 started on 2026-10-31 at 07:14 UTC as its own systemd user service (`systemd-run --user`) from commit `c102078`, with the same arguments: `--budgets 6000 --seeds 42 --arms full --attacks A1,A2,A5,A6,A7 --concurrency 8 --run-dir artifacts/gateway-bounded-v1`. Partial attempts do not measure defense effectiveness; they are kept for the decision traces.
+
+Attempt 4 shows how the accumulated evidence behaved. Window p-values stayed at 0.90–0.93 through AG News, fell to 0.32–0.42 during GSM8K, where evidence peaked at 0.584 against the 2.83 L1 threshold, and returned to 0.91–0.93 once coding began, which reset the evidence to 0. The account never left L0.
+
+On 2026-10-31 at 12:11 UTC, A2 attempt 4 was stopped and the remaining scope was narrowed to A7 alone: A5, A6 and a complete A2 protected campaign were dropped. The frozen protocol was saved as `protocol.v3-continuation-A1A2A5A6A7.json` in the run directory and its attack list set to A1 and A7 ([protocol-v3-A1-A7.json](protocol-v3-A1-A7.json)); A1 is listed so its completed campaigns are verified and reused. The study was relaunched from a separate worktree of this branch (`288cd32`), with its own environment, because the original checkout had been switched to `main`. Attempt 4's files are stored in Git LFS.
 
 ## A6 undefended ledger
 
@@ -125,6 +130,9 @@ Per-request campaign files (`attempts.jsonl`, `campaign.events.jsonl`), account 
 | [harness/A2/s42-b6000/full.interrupted-2026-10-30-3/campaign/ledger.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-3/campaign/ledger.jsonl) | `e713ae17f13a6afefa7f80d572d3161618651271c9e3eb22be54ccd2abdf7888` |
 | [harness/A2/s42-b6000/full.interrupted-2026-10-30-3/decisions.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-30-3/decisions.jsonl) | `cac339f90f9dcaea90db3612f4827fa4fee778acf4fee0f950888af8bf78be9b` |
 | [ledgers/A6/s42-b6000/undefended/ledger.jsonl](ledgers/A6/s42-b6000/undefended/ledger.jsonl) | `df28ce3ec2c052d9d7b2586293b355d3f793612cff7bd506b7d8c2fe8cabbd0c` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-31-4/campaign/ledger.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-31-4/campaign/ledger.jsonl) | `5d0866cc792136e94abcfcfeb974937366e527b625561ad250cf4e4bd2ee2df2` |
+| [harness/A2/s42-b6000/full.interrupted-2026-10-31-4/decisions.jsonl](harness/A2/s42-b6000/full.interrupted-2026-10-31-4/decisions.jsonl) | `dd73eb2669a4c74f651bcd61010210402e816d0ad0a9c1f0b0e86ac3e28fd6bb` |
+| [protocol-v3-A1-A7.json](protocol-v3-A1-A7.json) | `d72cdc36bab05ab910c75e81fb9593cc730ec2cbea42dc8d4a85d67791ff60ce` |
 | [utility/undefended.json](utility/undefended.json) | `54d7782baf056ee11163aa3457c3a68041d349e8826901e2fffeec95d314b6fe` |
 | [teacher/ag_news/df2e1b0189634222a64c97d8df8bf931.json](teacher/ag_news/df2e1b0189634222a64c97d8df8bf931.json) | `ce1ba11db23a0e9b382590829bcef3728d0952cbe78226f61ffcb0a5874545e2` |
 | [teacher/squad/4705f0a99a4b46d1848ca84426117fcb.json](teacher/squad/4705f0a99a4b46d1848ca84426117fcb.json) | `a7aab6541a78e892a4284dce1d01485f69dbf17ca11bc7a103c7f099bdc33105` |
