@@ -128,7 +128,7 @@ The local build differs slightly from the lab build: 5,877 of 6,251 fitting AG N
 
 ### F5. The live benign utility arm cannot measure false positives (high, demonstrated)
 
-- `utility/undefended.json`: 17,079 of 24,047 benign requests time out at the 120 s client deadline even with no defense (completion 0.290). All accounts start together at concurrency 8, and the utility run follows the attack campaign rather than overlapping it.
+- `utility/undefended.json` (current location [readings/v3/utility/undefended.json](../../v3/utility/undefended.json); historical copy `readings/v3-2026-10-29-gateway-replay/utility/undefended.json`): 17,079 of 24,047 benign requests time out at the 120 s client deadline even with no defense (completion 0.290). All accounts start together at concurrency 8, and the utility run follows the attack campaign rather than overlapping it.
 - Only 15 benign accounts per arm complete a scored window. "One benign account escalated to L1" means 1 of 15.
 - Use the 100-horizon replay (`full.json`, `quota.json`) for false-positive rates. My offline replay of the frozen full policy on `benign_test` matches it: 12 accounts at L1 or higher, 0 at L4.
 

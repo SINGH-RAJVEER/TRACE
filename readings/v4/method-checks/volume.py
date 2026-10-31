@@ -11,7 +11,7 @@ import json
 from common import ATTACKS, ROOT, benign, schedule
 from harness.calibration import binomial_upper, nested_thresholds
 
-LEDGERS = ROOT / "legacy/readings/v2-2026-10-21-gateway-bounded-v1/ledgers"
+LEDGERS = ROOT / "readings/v4/evidence/v2"
 tokens: dict[str, int] = {}
 for attack in ("A1", "A7"):
 	for line in (LEDGERS / attack / "s42-b6000/undefended/ledger.jsonl").open():

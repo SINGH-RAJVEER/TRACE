@@ -2,7 +2,7 @@
 # Keep generated embeddings and diagnostic outputs outside the committed reading.
 set -euo pipefail
 audit_source=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-audit_root=$(cd -- "$audit_source/../.." && pwd)
+audit_root=$(cd -- "$audit_source/../../.." && pwd)
 audit_output=${MMD_AUDIT_OUTPUT_DIR:-$audit_root/outputs/mmd-audit}
 audit_python=${MMD_AUDIT_PYTHON:-$audit_root/outputs/mmd-audit/.venv/bin/python}
 if [[ $# -eq 0 || ! -f "$audit_source/$1" || "$1" != *.py || "$1" == */* ]]; then

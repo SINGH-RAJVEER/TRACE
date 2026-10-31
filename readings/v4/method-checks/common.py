@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from harness.serialization import detector_text, gateway_turn
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 READINGS = ROOT / "readings/v3"
 CACHE = Path(os.environ.get("MMD_AUDIT_CACHE_DIR", ROOT / "outputs/mmd-audit/cache"))
 ROLES = ("fitting", "score_calibration", "policy_calibration", "benign_test")
