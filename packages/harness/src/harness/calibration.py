@@ -155,6 +155,35 @@ class Calibration(BaseModel):
 	input_validation: dict[str, Any] | None = None
 	_aggregate_references: Array | None = PrivateAttr(default=None)
 
+	def _level_report(
+		self, level: int, accumulators: tuple[str, ...], scored: int, null_windows: int
+	) -> dict[str, Any]:
+		"""One level's target, the sample sizes that resolve it, and its fitted evidence."""
+		target = self.config.level_targets[level - 1]
+		minimum_policy = math.ceil(1 / target)
+		results: dict[str, dict[str, Any] | None] = {}
+		for name in accumulators:
+			fitted = self.thresholds.get(name)
+			level_results = fitted.level_results if fitted is not None else None
+			results[name] = (
+				level_results[level - 1]
+				if level_results is not None and len(level_results) >= level
+				else None
+			)
+		legacy = any(
+			name not in self.thresholds or self.thresholds[name].level_results is None
+			for name in accumulators
+		)
+		return {
+			"target": target,
+			"minimum_policy_horizons": minimum_policy,
+			"minimum_score_windows": minimum_policy - 1,
+			"resolution_sufficient": scored >= minimum_policy
+			and (not accumulators or null_windows >= minimum_policy - 1),
+			"evidence_version": "legacy-inferred" if legacy else "level-results-v1",
+			"results": results,
+		}
+
 	def adequacy(
 		self,
 		*,
@@ -229,8 +258,8 @@ class Calibration(BaseModel):
 								reasons.append(f"{name}: L{level} evidence missing or incompatible")
 							elif result.get("achieved", 1.0) > self.config.level_targets[level - 1]:
 								reasons.append(
-								f"{name}: L{level} target exceeded by mandatory caps"
-							)
+									f"{name}: L{level} target exceeded by mandatory caps"
+								)
 		for name in baselines:
 			fitted = self.baselines.get(name)
 			if fitted is None:
@@ -277,36 +306,7 @@ class Calibration(BaseModel):
 			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
 			"scored_policy_horizons": scored,
 			"levels": {
-				f"L{level}": {
-					"target": self.config.level_targets[level - 1],
-					"minimum_policy_horizons": math.ceil(1 / self.config.level_targets[level - 1]),
-					"minimum_score_windows": math.ceil(1 / self.config.level_targets[level - 1])
-					- 1,
-					"resolution_sufficient": (
-						scored >= math.ceil(1 / self.config.level_targets[level - 1])
-						and (
-							not accumulators
-							or null_windows
-							>= math.ceil(1 / self.config.level_targets[level - 1]) - 1
-						)
-					),
-					"evidence_version": "level-results-v1"
-					if all(
-						name in self.thresholds and self.thresholds[name].level_results is not None
-						for name in accumulators
-					)
-					else "legacy-inferred",
-					"results": {
-						name: (
-							self.thresholds[name].level_results[level - 1]
-							if name in self.thresholds
-							and self.thresholds[name].level_results is not None
-							and len(self.thresholds[name].level_results) >= level
-							else None
-						)
-						for name in accumulators
-					},
-				}
+				f"L{level}": self._level_report(level, accumulators, scored, null_windows)
 				for level in levels
 			},
 			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
