@@ -1,0 +1,1846 @@
+{
+	"title": "Frontier distillation defense source register",
+	"retrieved_at": "2026-10-31",
+	"raw_record_count": 67,
+	"deduplicated_source_count": 64,
+	"category_counts": {
+		"Provider disclosure or official documentation": 16,
+		"Preprint or mixed preprint record": 15,
+		"Code, practitioner writing or other primary material": 4,
+		"Anonymous, unverified account": 1,
+		"Peer-reviewed or proceedings record": 27,
+		"Submission with partial verification": 1
+	},
+	"deduplication": "Exact normalized URL, arXiv work identifier across versions/formats, and exact distinctive normalized title longer than 35 characters; generic titles such as Rate limits remain separate. Every original ID and record retained. Different inspected versions remain visible in records.",
+	"sources": [
+		{
+			"id": "F01",
+			"aliases": [
+				"F01",
+				"D23"
+			],
+			"title": "Detecting and preventing distillation attacks",
+			"canonical_url": "https://anthropic.com/news/detecting-and-preventing-distillation-attacks",
+			"url": "https://www.anthropic.com/news/detecting-and-preventing-distillation-attacks",
+			"records": [
+				{
+					"id": "F01",
+					"title": "Detecting and preventing distillation attacks",
+					"url": "https://www.anthropic.com/news/detecting-and-preventing-distillation-attacks",
+					"authors_or_org": "Anthropic",
+					"date": "2026-02-23",
+					"kind": "provider threat report",
+					"verification": "Full relevant detection and account-network sections fetched",
+					"supported_claims": [
+						"Cross-account metadata, payments, timing, fingerprints and verification defenses"
+					],
+					"limitations": "Provider-selected cases; no independent confusion matrix",
+					"research_register": "frontier-sources.json"
+				},
+				{
+					"id": "D23",
+					"title": "Detecting and preventing distillation attacks",
+					"url": "https://www.anthropic.com/news/detecting-and-preventing-distillation-attacks",
+					"authors_or_org": "Anthropic",
+					"date": "2026-02-23",
+					"kind": "official provider disclosure",
+					"verification": "full-text verified",
+					"supported_claims": [
+						"Classifiers, fingerprints and cross-account metadata appear in actual provider practice."
+					],
+					"limitations": [
+						"Provider self-report, no public ROC, control population or student outcome ablation."
+					],
+					"quantitative_evidence": "Reports over 16 million exchanges and approximately 24000 fraudulent accounts.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F02",
+			"aliases": [
+				"F02"
+			],
+			"title": "Strengthening our defenses against distillation attacks",
+			"canonical_url": "https://anthropic.com/news/distillation-defenses",
+			"url": "https://www.anthropic.com/news/distillation-defenses",
+			"records": [
+				{
+					"id": "F02",
+					"title": "Strengthening our defenses against distillation attacks",
+					"url": "https://www.anthropic.com/news/distillation-defenses",
+					"authors_or_org": "Anthropic",
+					"date": "2026-10-12",
+					"kind": "provider production disclosure",
+					"verification": "Full substantive sections including limitations fetched",
+					"supported_claims": [
+						"Reasoning bindings, classifiers, limits, bans and paid blocks"
+					],
+					"quantitative_evidence": {
+						"harvested_reasoning": "10–100x lower on own platform",
+						"false_positives": "<0.1%, provider reported",
+						"student_SWE_bench": "80.4% full transcripts versus71.8% summaries"
+					},
+					"limitations": "Hidden-reasoning metric; no persistent sophisticated circumvention established; not generic answer-only prevention",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F03",
+			"aliases": [
+				"F03"
+			],
+			"title": "Detecting and countering misuse of AI: September2026",
+			"canonical_url": "https://anthropic.com/threat-intelligence-report-september-2026",
+			"url": "https://www.anthropic.com/threat-intelligence-report-september-2026",
+			"records": [
+				{
+					"id": "F03",
+					"title": "Detecting and countering misuse of AI: September2026",
+					"url": "https://www.anthropic.com/threat-intelligence-report-september-2026",
+					"authors_or_org": "Anthropic",
+					"date": "2026-09-10",
+					"kind": "provider threat report",
+					"verification": "Full relevant illicit-distillation and credential-abuse sections fetched",
+					"supported_claims": [
+						"Genuine-session replay, credential theft, purchased transcripts and rotating proxy pools"
+					],
+					"limitations": "Selected cases and provider attribution; downstream-training allegations not independently verified",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F04",
+			"aliases": [
+				"F04"
+			],
+			"title": "Disrupting a coordinated model-distillation campaign",
+			"canonical_url": "https://openai.com/index/disrupting-a-coordinated-model-distillation-campaign",
+			"url": "https://openai.com/index/disrupting-a-coordinated-model-distillation-campaign/",
+			"records": [
+				{
+					"id": "F04",
+					"title": "Disrupting a coordinated model-distillation campaign",
+					"url": "https://openai.com/index/disrupting-a-coordinated-model-distillation-campaign/",
+					"authors_or_org": "OpenAI",
+					"date": "2026-09-30",
+					"kind": "provider threat report",
+					"verification": "Full relevant report and attempt-count footnote fetched",
+					"supported_claims": [
+						"Reasoning scope binding, streamed-output holds and account/partner enforcement"
+					],
+					"quantitative_evidence": {
+						"attempts": "16000 requests from>4000 users July24–25; not necessarily successful",
+						"related_cluster": ">15000 users reportedly disrupted July28"
+					},
+					"limitations": "Only core cluster attributed; no student-transfer evaluation",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F05",
+			"aliases": [
+				"F05"
+			],
+			"title": "GTIG AI Threat Tracker: Distillation, Experimentation, and (Continued) Integration of AI for Adversarial Use",
+			"canonical_url": "https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use",
+			"url": "https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use",
+			"records": [
+				{
+					"id": "F05",
+					"title": "GTIG AI Threat Tracker: Distillation, Experimentation, and (Continued) Integration of AI for Adversarial Use",
+					"url": "https://cloud.google.com/blog/topics/threat-intelligence/distillation-experimentation-integration-ai-adversarial-use",
+					"authors_or_org": "Google Threat Intelligence Group",
+					"date": "2026-02-12",
+					"kind": "provider threat report",
+					"verification": "Full model-extraction section fetched",
+					"supported_claims": [
+						"Reasoning coercion detected in real time; account/project disruption; undisclosed student-degradation defenses"
+					],
+					"limitations": "No mechanism or capability-reduction evaluation disclosed",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F06",
+			"aliases": [
+				"F06"
+			],
+			"title": "Next-generation Constitutional Classifiers: More efficient protection against universal jailbreaks",
+			"canonical_url": "https://anthropic.com/research/next-generation-constitutional-classifiers",
+			"url": "https://www.anthropic.com/research/next-generation-constitutional-classifiers",
+			"records": [
+				{
+					"id": "F06",
+					"title": "Next-generation Constitutional Classifiers: More efficient protection against universal jailbreaks",
+					"url": "https://www.anthropic.com/research/next-generation-constitutional-classifiers",
+					"authors_or_org": "Anthropic",
+					"date": "2026-01-09",
+					"kind": "provider research and production disclosure",
+					"verification": "Full architecture and results sections fetched",
+					"supported_claims": [
+						"Probe-first cascade with exchange-aware classifier ensemble"
+					],
+					"quantitative_evidence": {
+						"harmless_refusal": "0.05%, one month Sonnet4.5 traffic",
+						"compute": "Approximately1% if applied to Opus4.0 traffic"
+					},
+					"limitations": "Jailbreak/CBRN results; populations for costs and refusals differ; not distillation evaluation",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F07",
+			"aliases": [
+				"F07"
+			],
+			"title": "Scaling Misuse Detection with Self-Assessment",
+			"canonical_url": "https://safeguards.anthropic.com/2026/self-assessment",
+			"url": "https://safeguards.anthropic.com/2026/self-assessment/",
+			"records": [
+				{
+					"id": "F07",
+					"title": "Scaling Misuse Detection with Self-Assessment",
+					"url": "https://safeguards.anthropic.com/2026/self-assessment/",
+					"authors_or_org": "Yiming Zhang, Chen Xia, Andy Dau, John Wang, James Yu, Bobby Chen, Andreas Terzis, Nicholas Carlini, Erik Jones",
+					"date": "2026-10-16",
+					"kind": "provider technical production blog",
+					"verification": "Full relevant methods/results/limitations/data-handling sections fetched",
+					"supported_claims": [
+						"Cached private self-assessment supports offline review; weak sole inline defense"
+					],
+					"quantitative_evidence": {
+						"teacher_agreement": "78% potentially harmful,94% high priority at1%FPR",
+						"cyber_attack_success": "19/24 unguarded,13/24 self-assessment,6/24 prompted classifier"
+					},
+					"limitations": "Training/evaluation share teacher blind spots; cyber experiment is24 tasks; production is offline",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F08",
+			"aliases": [
+				"F08"
+			],
+			"title": "Preserved thinking",
+			"canonical_url": "https://platform.claude.com/docs/en/build-with-claude/preserved-thinking",
+			"url": "https://platform.claude.com/docs/en/build-with-claude/preserved-thinking",
+			"records": [
+				{
+					"id": "F08",
+					"title": "Preserved thinking",
+					"url": "https://platform.claude.com/docs/en/build-with-claude/preserved-thinking",
+					"authors_or_org": "Anthropic",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Full relevant prefix/account/model-binding sections fetched October31",
+					"supported_claims": [
+						"Model/account/prefix mismatches can drop reasoning; beta reports transformations; linked-account exception"
+					],
+					"limitations": "Mutable model-specific documentation; not generic extraction prevention",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F09",
+			"aliases": [
+				"F09"
+			],
+			"title": "Reasoning models",
+			"canonical_url": "https://developers.openai.com/api/docs/guides/reasoning",
+			"url": "https://developers.openai.com/api/docs/guides/reasoning",
+			"records": [
+				{
+					"id": "F09",
+					"title": "Reasoning models",
+					"url": "https://developers.openai.com/api/docs/guides/reasoning",
+					"authors_or_org": "OpenAI",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Relevant encrypted reasoning sections fetched October31",
+					"supported_claims": [
+						"Encrypted reasoning supports replay with store:false"
+					],
+					"limitations": "Interface does not establish cryptographic implementation or identity restrictions",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F10",
+			"aliases": [
+				"F10"
+			],
+			"title": "Safety best practices",
+			"canonical_url": "https://developers.openai.com/api/docs/guides/safety-best-practices",
+			"url": "https://developers.openai.com/api/docs/guides/safety-best-practices",
+			"records": [
+				{
+					"id": "F10",
+					"title": "Safety best practices",
+					"url": "https://developers.openai.com/api/docs/guides/safety-best-practices",
+					"authors_or_org": "OpenAI",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Relevant safety-identifier section fetched October31",
+					"supported_claims": [
+						"Stable hashed user identifiers support abuse attribution"
+					],
+					"limitations": "Client-provided identity is not unique-person verification",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F11",
+			"aliases": [
+				"F11"
+			],
+			"title": "Safety classifiers",
+			"canonical_url": "https://developers.openai.com/api/docs/guides/safety-checks",
+			"url": "https://developers.openai.com/api/docs/guides/safety-checks",
+			"records": [
+				{
+					"id": "F11",
+					"title": "Safety classifiers",
+					"url": "https://developers.openai.com/api/docs/guides/safety-checks",
+					"authors_or_org": "OpenAI",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Relevant enforcement section fetched October31",
+					"supported_claims": [
+						"Streaming may be withheld until checks pass; identifiers may be blocked"
+					],
+					"limitations": "Stated biology/chemical coverage; not an anti-distillation endpoint; replacement-account controls required",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F12",
+			"aliases": [
+				"F12"
+			],
+			"title": "Rate limits",
+			"canonical_url": "https://developers.openai.com/api/docs/guides/rate-limits",
+			"url": "https://developers.openai.com/api/docs/guides/rate-limits",
+			"records": [
+				{
+					"id": "F12",
+					"title": "Rate limits",
+					"url": "https://developers.openai.com/api/docs/guides/rate-limits",
+					"authors_or_org": "OpenAI",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Relevant scopes, metrics and spend-control sections fetched October31",
+					"supported_claims": [
+						"Organization/project request-token limits; hard caps differ from alerts"
+					],
+					"limitations": "Capacity limits do not establish extraction-safe budgets",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F13",
+			"aliases": [
+				"F13"
+			],
+			"title": "Rate limits",
+			"canonical_url": "https://platform.claude.com/docs/en/api/rate-limits",
+			"url": "https://platform.claude.com/docs/en/api/rate-limits",
+			"records": [
+				{
+					"id": "F13",
+					"title": "Rate limits",
+					"url": "https://platform.claude.com/docs/en/api/rate-limits",
+					"authors_or_org": "Anthropic",
+					"date": null,
+					"kind": "official API documentation",
+					"verification": "Relevant bucket/tier/cap sections fetched October31",
+					"supported_claims": [
+						"Organization token buckets, workspace controls and history-dependent initial limits"
+					],
+					"limitations": "Account history and payment do not guarantee legitimacy",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F14",
+			"aliases": [
+				"F14"
+			],
+			"title": "Stealing Reasoning Traces from Proprietary LLM APIs",
+			"canonical_url": "https://arxiv.org/abs/2608.09867",
+			"url": "https://arxiv.org/html/2608.09867v1",
+			"records": [
+				{
+					"id": "F14",
+					"title": "Stealing Reasoning Traces from Proprietary LLM APIs",
+					"url": "https://arxiv.org/html/2608.09867v1",
+					"authors_or_org": "Alexander Panfilov, David Schmotz, Ilia Shumailov, Luca Beurer-Kellner, Joachim Schaeffer, Ameya Prabhu, Jonas Geiping, Maksym Andriushchenko",
+					"date": "2026-08-10",
+					"kind": "research preprint",
+					"verification": "Full HTML setup, compatibility, mitigations and limitations checked",
+					"supported_claims": [
+						"Early-July reasoning-replay attacks and identity/session/predecessor-binding proposals"
+					],
+					"limitations": "Historical APIs; incomplete plaintext ground truth; global-key explanation inferred rather than proven",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "F15",
+			"aliases": [
+				"F15"
+			],
+			"title": "Identity verification on Claude",
+			"canonical_url": "https://support.claude.com/en/articles/14328960-identity-verification-on-claude",
+			"url": "https://support.claude.com/en/articles/14328960-identity-verification-on-claude",
+			"records": [
+				{
+					"id": "F15",
+					"title": "Identity verification on Claude",
+					"url": "https://support.claude.com/en/articles/14328960-identity-verification-on-claude",
+					"authors_or_org": "Anthropic",
+					"date": "2026-08-11",
+					"kind": "official support documentation",
+					"verification": "Relevant identity/business/privacy/appeal sections fetched",
+					"supported_claims": [
+						"Persona verification may require physical ID, selfie and business details"
+					],
+					"limitations": "Selected cases; no quantified uniqueness or false-rejection rate",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F16",
+			"aliases": [
+				"F16"
+			],
+			"title": "Anthropic Transparency Hub: System Trust and Reporting",
+			"canonical_url": "https://anthropic.com/transparency/system-trust-reporting",
+			"url": "https://www.anthropic.com/transparency/system-trust-reporting",
+			"records": [
+				{
+					"id": "F16",
+					"title": "Anthropic Transparency Hub: System Trust and Reporting",
+					"url": "https://www.anthropic.com/transparency/system-trust-reporting",
+					"authors_or_org": "Anthropic",
+					"date": "2026-07-23",
+					"kind": "official transparency statistics",
+					"verification": "Current H1 2026 bans/appeals/overturn table fetched",
+					"supported_claims": [
+						"11.4million bans,398k appeals,42k overturns"
+					],
+					"limitations": "Not distillation-specific; appeal overturn fraction is not classifier FPR or population false-ban estimate",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F17",
+			"aliases": [
+				"F17"
+			],
+			"title": "Safeguards warnings and appeals",
+			"canonical_url": "https://support.claude.com/en/articles/8241253-safeguards-warnings-and-appeals",
+			"url": "https://support.claude.com/en/articles/8241253-safeguards-warnings-and-appeals",
+			"records": [
+				{
+					"id": "F17",
+					"title": "Safeguards warnings and appeals",
+					"url": "https://support.claude.com/en/articles/8241253-safeguards-warnings-and-appeals",
+					"authors_or_org": "Anthropic",
+					"date": null,
+					"kind": "official support documentation",
+					"verification": "Appeal process and delayed-response notice fetched October31; marked updated today",
+					"supported_claims": [
+						"Appeals exist with longer-than-normal response warning"
+					],
+					"limitations": "No service-level resolution deadline; mutable page",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Provider disclosure or official documentation"
+		},
+		{
+			"id": "F18",
+			"aliases": [
+				"F18"
+			],
+			"title": "Antidistillation preserves AI openness, originality, and safety.",
+			"canonical_url": "https://antidistillation.com/blog/unexpected-externalities-of-distillation",
+			"url": "https://antidistillation.com/blog/unexpected-externalities-of-distillation/",
+			"records": [
+				{
+					"id": "F18",
+					"title": "Antidistillation preserves AI openness, originality, and safety.",
+					"url": "https://antidistillation.com/blog/unexpected-externalities-of-distillation/",
+					"authors_or_org": "Asher Trockman and Yash Savani",
+					"date": "2026-02-19",
+					"kind": "researcher practitioner opinion",
+					"verification": "Full relevant sampling/fingerprinting discussion fetched; updated February23",
+					"supported_claims": [
+						"Economic argument distinguishes sampling defenses from provenance fingerprints"
+					],
+					"limitations": "Personal-capacity advocacy; not independent production validation",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Code, practitioner writing or other primary material"
+		},
+		{
+			"id": "F19",
+			"aliases": [
+				"F19"
+			],
+			"title": "Anthropic is now limiting having multiple individual accounts?",
+			"canonical_url": "https://reddit.com/r/ClaudeCode/comments/1x6fc82/anthropic_is_now_limiting_having_multiple",
+			"url": "https://www.reddit.com/r/ClaudeCode/comments/1x6fc82/anthropic_is_now_limiting_having_multiple/",
+			"records": [
+				{
+					"id": "F19",
+					"title": "Anthropic is now limiting having multiple individual accounts?",
+					"url": "https://www.reddit.com/r/ClaudeCode/comments/1x6fc82/anthropic_is_now_limiting_having_multiple/",
+					"authors_or_org": "Anonymous Reddit user",
+					"date": null,
+					"kind": "unverified user anecdote",
+					"verification": "Full post fetched October31; allegation not independently verified",
+					"supported_claims": [
+						"User alleges ban after verification before model use and disputes quota-policy clarity"
+					],
+					"limitations": "Conflicting timestamp labels; much policy interpretation explicitly AI-generated; no population inference",
+					"research_register": "frontier-sources.json"
+				}
+			],
+			"category": "Anonymous, unverified account"
+		},
+		{
+			"id": "D01",
+			"aliases": [
+				"D01"
+			],
+			"title": "Do Defenses Against LLM Extraction Work Across Attacks? A Lifecycle Benchmark of Black-Box Model Extraction",
+			"canonical_url": "https://arxiv.org/abs/2610.00839",
+			"url": "https://arxiv.org/html/2610.00839v1",
+			"records": [
+				{
+					"id": "D01",
+					"title": "Do Defenses Against LLM Extraction Work Across Attacks? A Lifecycle Benchmark of Black-Box Model Extraction",
+					"url": "https://arxiv.org/html/2610.00839v1",
+					"authors_or_org": "Shuze Liu; Kaixiang Zhao; Runyang Xu; Jingzhi Chen; Nathan Wu; Yu Wang; Yushun Dong",
+					"date": "2026-09-30",
+					"kind": "preprint",
+					"verification": "full-text verified, v1; tables and protocol inspected",
+					"supported_claims": [
+						"Detector success depends on query construction; lifecycle objectives differ."
+					],
+					"limitations": [
+						"Adapted detectors, fixed seed, four benign test batches."
+					],
+					"quantitative_evidence": "Table 12 MMD TPR: SeqKD 0%, QEDKS 100%; 20 attack batches each.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D02",
+			"aliases": [
+				"D02"
+			],
+			"title": "An Embarrassingly Simple Detector for Model Extraction Attacks in Large Language Model API Traffic",
+			"canonical_url": "https://arxiv.org/abs/2606.05725",
+			"url": "https://arxiv.org/html/2606.05725v1",
+			"records": [
+				{
+					"id": "D02",
+					"title": "An Embarrassingly Simple Detector for Model Extraction Attacks in Large Language Model API Traffic",
+					"url": "https://arxiv.org/html/2606.05725v1",
+					"authors_or_org": "Shuze Liu; Qianwen Guo; Yushun Dong",
+					"date": "2026-06-04",
+					"kind": "preprint",
+					"verification": "full-text verified, v1; methods and limitations inspected",
+					"supported_claims": [
+						"Benign-calibrated MMD is a useful distribution-shift baseline."
+					],
+					"limitations": [
+						"Semantically close traffic, low contamination, drift and account calibration remain limitations."
+					],
+					"quantitative_evidence": "Reported 0.3% FPR; 1,500-query windows; 14 attacker-normal pairs.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D03",
+			"aliases": [
+				"D03"
+			],
+			"title": "PRADA: Protecting against DNN Model Stealing Attacks",
+			"canonical_url": "https://arxiv.org/abs/1805.02628",
+			"url": "https://arxiv.org/html/1805.02628v3",
+			"records": [
+				{
+					"id": "D03",
+					"title": "PRADA: Protecting against DNN Model Stealing Attacks",
+					"url": "https://arxiv.org/html/1805.02628v3",
+					"authors_or_org": "Mika Juuti; Sebastian Szyller; Samuel Marchal; N. Asokan",
+					"date": "2018-11-16 inspected v3; EuroS&P 2019",
+					"kind": "peer-reviewed paper",
+					"verification": "full-text verified; v3; Sybil discussion inspected",
+					"supported_claims": [
+						"Per-client query-distance irregularity detection."
+					],
+					"limitations": [
+						"Authors explicitly acknowledge sufficient Sybil clients bypass it; image setting."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D04",
+			"aliases": [
+				"D04"
+			],
+			"title": "SEAT: Similarity Encoder by Adversarial Training for Detecting Model Extraction Attack Queries",
+			"canonical_url": "https://surrealyz.github.io/files/pubs/seat-aisec2021.pdf",
+			"url": "https://surrealyz.github.io/files/pubs/seat-aisec2021.pdf",
+			"records": [
+				{
+					"id": "D04",
+					"title": "SEAT: Similarity Encoder by Adversarial Training for Detecting Model Extraction Attack Queries",
+					"url": "https://surrealyz.github.io/files/pubs/seat-aisec2021.pdf",
+					"authors_or_org": "Zhanyuan Zhang; Yizheng Chen; David Wagner",
+					"date": "2021-11-15",
+					"kind": "peer-reviewed workshop paper",
+					"verification": "full-text author PDF verified",
+					"supported_claims": [
+						"Adversarial similarity encoder evaluates query blinding and filtering."
+					],
+					"limitations": [
+						"Image tasks; query FPR is not account false-block probability."
+					],
+					"quantitative_evidence": "Reported 3.8-16 times extraction cost increase; calibrated 0.01% benign-query FPR.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D05",
+			"aliases": [
+				"D05"
+			],
+			"title": "AI Model Extraction Attacks: Bypassing Single-Client Assumptions in Defenses",
+			"canonical_url": "https://arxiv.org/abs/2606.03381",
+			"url": "https://arxiv.org/html/2606.03381v1",
+			"records": [
+				{
+					"id": "D05",
+					"title": "AI Model Extraction Attacks: Bypassing Single-Client Assumptions in Defenses",
+					"url": "https://arxiv.org/html/2606.03381v1",
+					"authors_or_org": "Maxime Schwarzer et al.",
+					"date": "2026-06-02; authors state ICMCIS May 2026 presentation",
+					"kind": "preprint with conference-presentation claim",
+					"verification": "full-text verified, v1; Table II and setup inspected",
+					"supported_claims": [
+						"Identity splitting defeats account warm-up; global attribution can be costly."
+					],
+					"limitations": [
+						"MNIST, customized global PRADA, scenario-specific precision."
+					],
+					"quantitative_evidence": "2500 queries over 400 clients: 0% recall; global variant 83.1% recall.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D06",
+			"aliases": [
+				"D06"
+			],
+			"title": "Protecting Object Detection Models from Model Extraction Attack via Feature Space Coverage",
+			"canonical_url": "https://ijcai.org/proceedings/2024/0048.pdf",
+			"url": "https://www.ijcai.org/proceedings/2024/0048.pdf",
+			"records": [
+				{
+					"id": "D06",
+					"title": "Protecting Object Detection Models from Model Extraction Attack via Feature Space Coverage",
+					"url": "https://www.ijcai.org/proceedings/2024/0048.pdf",
+					"authors_or_org": "Zeyu Li; Yuwen Pu; Xuhong Zhang; Yu Li; Jinbao Li; Shouling Ji",
+					"date": "2024",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text PDF verified",
+					"supported_claims": [
+						"Coverage-based suspicion plus active verification is existing prior art."
+					],
+					"limitations": [
+						"Object detection; not LLM distillation evaluation."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D07",
+			"aliases": [
+				"D07"
+			],
+			"title": "Extracting Robust Models with Uncertain Examples",
+			"canonical_url": "https://tianweiz07.github.io/Papers/23-iclr-1.pdf",
+			"url": "https://tianweiz07.github.io/Papers/23-iclr-1.pdf",
+			"records": [
+				{
+					"id": "D07",
+					"title": "Extracting Robust Models with Uncertain Examples",
+					"url": "https://tianweiz07.github.io/Papers/23-iclr-1.pdf",
+					"authors_or_org": "Guanlin Li; Guowen Xu; Shangwei Guo; Han Qiu; Jiwei Li; Tianwei Zhang",
+					"date": "2023",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text author PDF verified",
+					"supported_claims": [
+						"BEST provides adaptive counterevidence against extraction defenses."
+					],
+					"limitations": [
+						"Image robustness objectives and hard-label setting do not transfer numerically to LLMs."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D08",
+			"aliases": [
+				"D08",
+				"O04"
+			],
+			"title": "Defending Against Model Stealing Attacks with Adaptive Misinformation",
+			"canonical_url": "https://arxiv.org/abs/1911.07100",
+			"url": "https://arxiv.org/pdf/1911.07100",
+			"records": [
+				{
+					"id": "D08",
+					"title": "Defending Against Model Stealing Attacks with Adaptive Misinformation",
+					"url": "https://arxiv.org/pdf/1911.07100",
+					"authors_or_org": "Sanjay Kariyappa; Moinuddin K. Qureshi",
+					"date": "2019 preprint; CVPR 2020 work",
+					"kind": "conference work; inspected preprint version",
+					"verification": "full-text arXiv PDF verified; CVF direct fetch returned 403",
+					"supported_claims": [
+						"Selective OOD misinformation relies on attacker OOD queries."
+					],
+					"limitations": [
+						"In-distribution extraction violates its premise; vision evaluation."
+					],
+					"quantitative_evidence": "Reported up to 40% clone accuracy reduction; less than 0.5% benign accuracy impact.",
+					"research_register": "detection-sources.json"
+				},
+				{
+					"id": "O04",
+					"title": "Defending Against Model Stealing Attacks with Adaptive Misinformation",
+					"url": "https://openaccess.thecvf.com/content_CVPR_2020/papers/Kariyappa_Defending_Against_Model_Stealing_Attacks_With_Adaptive_Misinformation_CVPR_2020_paper.pdf",
+					"authors_or_org": "Sanjay Kariyappa; Moinuddin K Qureshi",
+					"date": "2020",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract and PDF beginning verified",
+					"supported_claims": [
+						"OOD-triggered incorrect predictions"
+					],
+					"limitations": [
+						"OOD assumption does not cover indistinguishable legitimate/attack queries"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D09",
+			"aliases": [
+				"D09"
+			],
+			"title": "Thieves on Sesame Street! Model Extraction of BERT-based APIs",
+			"canonical_url": "https://arxiv.org/abs/1910.12366",
+			"url": "https://arxiv.org/pdf/1910.12366",
+			"records": [
+				{
+					"id": "D09",
+					"title": "Thieves on Sesame Street! Model Extraction of BERT-based APIs",
+					"url": "https://arxiv.org/pdf/1910.12366",
+					"authors_or_org": "Kalpesh Krishna; Gaurav Singh Tomar; Ankur P. Parikh; Nicolas Papernot; Mohit Iyyer",
+					"date": "2020-10-12 v3; ICLR 2020",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text PDF verified, v3",
+					"supported_claims": [
+						"Pretrained attackers extract specialized NLP APIs from synthetic or natural queries."
+					],
+					"limitations": [
+						"2020 task-specific BERT and pricing; not modern frontier sample complexity."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D10",
+			"aliases": [
+				"D10"
+			],
+			"title": "Grey-box Extraction of Natural Language Models",
+			"canonical_url": "https://proceedings.mlr.press/v139/zanella-beguelin21a/zanella-beguelin21a.pdf",
+			"url": "https://proceedings.mlr.press/v139/zanella-beguelin21a/zanella-beguelin21a.pdf",
+			"records": [
+				{
+					"id": "D10",
+					"title": "Grey-box Extraction of Natural Language Models",
+					"url": "https://proceedings.mlr.press/v139/zanella-beguelin21a/zanella-beguelin21a.pdf",
+					"authors_or_org": "Santiago Zanella-Béguelin; Shruti Tople; Andrew Paverd; Boris Köpf",
+					"date": "2021-07",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text proceedings PDF verified",
+					"supported_claims": [
+						"A known frozen encoder and private head permit ID extraction."
+					],
+					"limitations": [
+						"Restricted grey-box architecture, not full-transformer recovery."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D11",
+			"aliases": [
+				"D11",
+				"O18"
+			],
+			"title": "The False Promise of Imitating Proprietary LLMs",
+			"canonical_url": "https://arxiv.org/abs/2305.15717",
+			"url": "https://arxiv.org/pdf/2305.15717",
+			"records": [
+				{
+					"id": "D11",
+					"title": "The False Promise of Imitating Proprietary LLMs",
+					"url": "https://arxiv.org/pdf/2305.15717",
+					"authors_or_org": "Arnav Gudibande; Eric Wallace; Charlie Snell; Xinyang Geng; Hao Liu; Pieter Abbeel; Sergey Levine; Dawn Song",
+					"date": "2023-05-25 v1",
+					"kind": "preprint",
+					"verification": "full-text PDF verified",
+					"supported_claims": [
+						"Style imitation and broad capability gains differ."
+					],
+					"limitations": [
+						"Older weak bases; does not establish modern reasoning-distillation impossibility."
+					],
+					"research_register": "detection-sources.json"
+				},
+				{
+					"id": "O18",
+					"title": "The False Promise of Imitating Proprietary LLMs",
+					"url": "https://arxiv.org/abs/2305.15717",
+					"authors_or_org": "Arnav Gudibande; Eric Wallace; Charlie Snell; Xinyang Geng; Hao Liu; Pieter Abbeel; Sergey Levine; Dawn Song",
+					"date": "2023-05-25",
+					"kind": "preprint",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"Style imitation can obscure limited capability gains"
+					],
+					"limitations": [
+						"2023models and methods; cannot conclude present distillation fails"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D12",
+			"aliases": [
+				"D12"
+			],
+			"title": "DistillGuard: Evaluating Defenses Against LLM Knowledge Distillation",
+			"canonical_url": "https://arxiv.org/abs/2603.07835",
+			"url": "https://arxiv.org/html/2603.07835v1",
+			"records": [
+				{
+					"id": "D12",
+					"title": "DistillGuard: Evaluating Defenses Against LLM Knowledge Distillation",
+					"url": "https://arxiv.org/html/2603.07835v1",
+					"authors_or_org": "Bo Jiang",
+					"date": "2026-03-08",
+					"kind": "preprint",
+					"verification": "full-text verified, v1; limitations inspected",
+					"supported_claims": [
+						"Output throttling protection is task-dependent."
+					],
+					"limitations": [
+						"Single same-family teacher/student, naive attacker, fixed scale."
+					],
+					"quantitative_evidence": "CoT removal math 31.4% versus baseline 67.8%; code unaffected.",
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D13",
+			"aliases": [
+				"D13"
+			],
+			"title": "Stealing and Defending the Ends of LLMs",
+			"canonical_url": "https://openreview.net/pdf",
+			"url": "https://openreview.net/pdf?id=dOS3e1kC5u",
+			"records": [
+				{
+					"id": "D13",
+					"title": "Stealing and Defending the Ends of LLMs",
+					"url": "https://openreview.net/pdf?id=dOS3e1kC5u",
+					"authors_or_org": "Anonymous in retrieved primary excerpt; attributed by Liu et al. to Kulkarni, Boenisch and Dziedzic",
+					"date": "ICLR 2026 submission; exact date not independently extracted",
+					"kind": "submission; accepted status unverified",
+					"verification": "snippet-only primary indexed excerpt; full retrieval blocked by browser challenge",
+					"supported_claims": [
+						"CAP coverage-aware perturbation for soft-prompt extraction is relevant prior art."
+					],
+					"limitations": [
+						"Do not assert original numerical performance or accepted status."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Submission with partial verification"
+		},
+		{
+			"id": "D14",
+			"aliases": [
+				"D14"
+			],
+			"title": "A Kernel Two-Sample Test",
+			"canonical_url": "https://jmlr.org/papers/volume13/gretton12a/gretton12a.pdf",
+			"url": "https://www.jmlr.org/papers/volume13/gretton12a/gretton12a.pdf",
+			"records": [
+				{
+					"id": "D14",
+					"title": "A Kernel Two-Sample Test",
+					"url": "https://www.jmlr.org/papers/volume13/gretton12a/gretton12a.pdf",
+					"authors_or_org": "Arthur Gretton; Karsten M. Borgwardt; Malte J. Rasch; Bernhard Schölkopf; Alexander Smola",
+					"date": "2012-03",
+					"kind": "peer-reviewed journal paper",
+					"verification": "full-text PDF verified",
+					"supported_claims": [
+						"MMD two-sample tests have estimator and sampling assumptions."
+					],
+					"limitations": [
+						"Population characteristic-kernel separation is not extraction-intent detection."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D15",
+			"aliases": [
+				"D15"
+			],
+			"title": "Learning Deep Kernels for Non-Parametric Two-Sample Tests",
+			"canonical_url": "https://proceedings.mlr.press/v119/liu20m/liu20m.pdf",
+			"url": "https://proceedings.mlr.press/v119/liu20m/liu20m.pdf",
+			"records": [
+				{
+					"id": "D15",
+					"title": "Learning Deep Kernels for Non-Parametric Two-Sample Tests",
+					"url": "https://proceedings.mlr.press/v119/liu20m/liu20m.pdf",
+					"authors_or_org": "Feng Liu; Wenkai Xu; Jie Lu; Guangquan Zhang; Arthur Gretton; Danica J. Sutherland",
+					"date": "2020-07",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text proceedings PDF verified",
+					"supported_claims": [
+						"Learned kernels can increase two-sample-test power with split training/testing."
+					],
+					"limitations": [
+						"No extraction evaluation; possible source/generator overfit."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D16",
+			"aliases": [
+				"D16"
+			],
+			"title": "Revisiting Classifier Two-Sample Tests",
+			"canonical_url": "https://arxiv.org/abs/1610.06545",
+			"url": "https://arxiv.org/html/1610.06545v3",
+			"records": [
+				{
+					"id": "D16",
+					"title": "Revisiting Classifier Two-Sample Tests",
+					"url": "https://arxiv.org/html/1610.06545v3",
+					"authors_or_org": "David Lopez-Paz; Maxime Oquab",
+					"date": "ICLR 2017; inspected v3",
+					"kind": "peer-reviewed conference paper",
+					"verification": "full-text arXiv HTML verified; OpenReview retrieval blocked",
+					"supported_claims": [
+						"Held-out classification supplies a detectability diagnostic."
+					],
+					"limitations": [
+						"Classification can exploit source leakage rather than malicious intent."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D17",
+			"aliases": [
+				"D17"
+			],
+			"title": "Time-uniform Chernoff bounds via nonnegative supermartingales",
+			"canonical_url": "https://arxiv.org/abs/1808.03204",
+			"url": "https://arxiv.org/html/1808.03204v8",
+			"records": [
+				{
+					"id": "D17",
+					"title": "Time-uniform Chernoff bounds via nonnegative supermartingales",
+					"url": "https://arxiv.org/html/1808.03204v8",
+					"authors_or_org": "Steven R. Howard; Aaditya Ramdas; Jon McAuliffe; Jasjeet Sekhon",
+					"date": "Probability Surveys 2020; arXiv v8 2025-12-17",
+					"kind": "peer-reviewed journal paper; later arXiv revision",
+					"verification": "full-text v8 verified; canonical metadata verified",
+					"supported_claims": [
+						"Time-uniform thresholds require martingale conditions."
+					],
+					"limitations": [
+						"Does not validate arbitrary empirical-rank products."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D18",
+			"aliases": [
+				"D18"
+			],
+			"title": "E-detectors: a nonparametric framework for sequential change detection",
+			"canonical_url": "https://arxiv.org/abs/2203.03532",
+			"url": "https://arxiv.org/html/2203.03532v4",
+			"records": [
+				{
+					"id": "D18",
+					"title": "E-detectors: a nonparametric framework for sequential change detection",
+					"url": "https://arxiv.org/html/2203.03532v4",
+					"authors_or_org": "Jaehyeok Shin; Aaditya Ramdas; Alessandro Rinaldo",
+					"date": "2023-10-29 v4 inspected; originally 2022-03-07",
+					"kind": "research paper; journal status not checked",
+					"verification": "full-text verified, v4; ARL section inspected",
+					"supported_claims": [
+						"CUSUM-style e-detectors and mixtures address changepoints with ARL control."
+					],
+					"limitations": [
+						"ARL control differs from probability of ever falsely intervening."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D19",
+			"aliases": [
+				"D19"
+			],
+			"title": "Conformal Prediction Beyond Exchangeability",
+			"canonical_url": "https://arxiv.org/abs/2202.13415",
+			"url": "https://arxiv.org/html/2202.13415v3",
+			"records": [
+				{
+					"id": "D19",
+					"title": "Conformal Prediction Beyond Exchangeability",
+					"url": "https://arxiv.org/html/2202.13415v3",
+					"authors_or_org": "Rina Foygel Barber; Emmanuel J. Candès; Aaditya Ramdas; Ryan J. Tibshirani",
+					"date": "Annals of Statistics 2023; inspected v3",
+					"kind": "peer-reviewed journal paper",
+					"verification": "full-text verified",
+					"supported_claims": [
+						"Drift/nonexchangeability need explicit treatment and assumptions."
+					],
+					"limitations": [
+						"Not a blanket guarantee for pooled dependent traffic windows."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D20",
+			"aliases": [
+				"D20"
+			],
+			"title": "Change detection with conformal martingales: new optimal constructions, and suboptimality of existing methods",
+			"canonical_url": "https://arxiv.org/abs/2609.27179",
+			"url": "https://arxiv.org/html/2609.27179v1",
+			"records": [
+				{
+					"id": "D20",
+					"title": "Change detection with conformal martingales: new optimal constructions, and suboptimality of existing methods",
+					"url": "https://arxiv.org/html/2609.27179v1",
+					"authors_or_org": "Swapnaneel Bhattacharyya; Aaditya Ramdas",
+					"date": "2026-09-23",
+					"kind": "preprint",
+					"verification": "full text accessible; relevant introduction checked, proofs not audited",
+					"supported_claims": [
+						"Conformal validity alone need not give efficient delay."
+					],
+					"limitations": [
+						"Independent-observation assumptions; no LLM deployment test."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D21",
+			"aliases": [
+				"D21"
+			],
+			"title": "Non-partitioned e-detectors for nonparametric sequential change detection",
+			"canonical_url": "https://arxiv.org/abs/2607.28322",
+			"url": "https://arxiv.org/html/2607.28322v1",
+			"records": [
+				{
+					"id": "D21",
+					"title": "Non-partitioned e-detectors for nonparametric sequential change detection",
+					"url": "https://arxiv.org/html/2607.28322v1",
+					"authors_or_org": "Author names not extracted in this scoped pass; consult canonical arXiv metadata",
+					"date": "2026-07-30",
+					"kind": "preprint",
+					"verification": "full text accessible; abstract and method outline checked, proofs not audited",
+					"supported_claims": [
+						"Composite null and changepoint aggregation is existing prior art."
+					],
+					"limitations": [
+						"Not an off-the-shelf graph/LLM calibration guarantee."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D22",
+			"aliases": [
+				"D22"
+			],
+			"title": "The Sybil Attack",
+			"canonical_url": "https://microsoft.com/en-us/research/publication/the-sybil-attack",
+			"url": "https://www.microsoft.com/en-us/research/publication/the-sybil-attack/",
+			"records": [
+				{
+					"id": "D22",
+					"title": "The Sybil Attack",
+					"url": "https://www.microsoft.com/en-us/research/publication/the-sybil-attack/",
+					"authors_or_org": "John R. Douceur",
+					"date": "2002-01 publication page; IPTPS 2002",
+					"kind": "peer-reviewed workshop paper",
+					"verification": "abstract-only official publication page; full paper not audited",
+					"supported_claims": [
+						"Identity multiplicity motivates scarce or certified entitlements."
+					],
+					"limitations": [
+						"Distributed-system result does not itself quantify paid-API economics."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D24",
+			"aliases": [
+				"D24"
+			],
+			"title": "Bounded Behavioral Indistinguishability for Black-Box LLM Distillation",
+			"canonical_url": "https://arxiv.org/abs/2605.30448",
+			"url": "https://arxiv.org/abs/2605.30448",
+			"records": [
+				{
+					"id": "D24",
+					"title": "Bounded Behavioral Indistinguishability for Black-Box LLM Distillation",
+					"url": "https://arxiv.org/abs/2605.30448",
+					"authors_or_org": "Munawar Hasan",
+					"date": "2026-05-28",
+					"kind": "preprint",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"Behavioral distinguishability and semantic fidelity are different metrics."
+					],
+					"limitations": [
+						"Full methodology not checked; lead only."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "D25",
+			"aliases": [
+				"D25"
+			],
+			"title": "Exploring Connections Between Active Learning and Model Extraction",
+			"canonical_url": "https://usenix.org/conference/usenixsecurity20/presentation/chandrasekaran",
+			"url": "https://www.usenix.org/conference/usenixsecurity20/presentation/chandrasekaran",
+			"records": [
+				{
+					"id": "D25",
+					"title": "Exploring Connections Between Active Learning and Model Extraction",
+					"url": "https://www.usenix.org/conference/usenixsecurity20/presentation/chandrasekaran",
+					"authors_or_org": "Varun Chandrasekaran; Kamalika Chaudhuri; Irene Giacomelli; Somesh Jha; Songbai Yan",
+					"date": "2020-08",
+					"kind": "peer-reviewed conference paper",
+					"verification": "Abstract-only official proceedings page verified; full paper not inspected.",
+					"supported_claims": [
+						"Extraction and query complexity already have active-learning theory antecedents."
+					],
+					"limitations": [
+						"Classic classifiers; not proof of generative frontier LLM performance."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D26",
+			"aliases": [
+				"D26"
+			],
+			"title": "Knockoff Nets: Stealing Functionality of Black-Box Models",
+			"canonical_url": "https://openaccess.thecvf.com/content_CVPR_2019/html/Orekondy_Knockoff_Nets_Stealing_Functionality_of_Black-Box_Models_CVPR_2019_paper.html",
+			"url": "https://openaccess.thecvf.com/content_CVPR_2019/html/Orekondy_Knockoff_Nets_Stealing_Functionality_of_Black-Box_Models_CVPR_2019_paper.html",
+			"records": [
+				{
+					"id": "D26",
+					"title": "Knockoff Nets: Stealing Functionality of Black-Box Models",
+					"url": "https://openaccess.thecvf.com/content_CVPR_2019/html/Orekondy_Knockoff_Nets_Stealing_Functionality_of_Black-Box_Models_CVPR_2019_paper.html",
+					"authors_or_org": "Tribhuvanesh Orekondy; Bernt Schiele; Mario Fritz",
+					"date": "2019-06",
+					"kind": "peer-reviewed conference paper",
+					"verification": "Abstract-only official proceedings page verified; PDF fetch returned 403. Image tasks.",
+					"supported_claims": [
+						"Adaptive querying already optimizes extraction sample efficiency."
+					],
+					"limitations": [
+						"Classic classifiers; not proof of generative frontier LLM performance."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "D27",
+			"aliases": [
+				"D27"
+			],
+			"title": "ActiveThief: Model Extraction Using Active Learning and Unannotated Public Data",
+			"canonical_url": "https://ojs.aaai.org/index.php/AAAI/article/view/5432",
+			"url": "https://ojs.aaai.org/index.php/AAAI/article/view/5432",
+			"records": [
+				{
+					"id": "D27",
+					"title": "ActiveThief: Model Extraction Using Active Learning and Unannotated Public Data",
+					"url": "https://ojs.aaai.org/index.php/AAAI/article/view/5432",
+					"authors_or_org": "Soham Pal; Yash Gupta; Aditya Shukla; Aditya Kanade; Shirish Shevade; Vinod Ganapathy",
+					"date": "2020-04-03",
+					"kind": "peer-reviewed conference paper",
+					"verification": "Abstract-only official proceedings page verified; full experimental settings not checked.",
+					"supported_claims": [
+						"Active learning using public natural examples can evade PRADA."
+					],
+					"limitations": [
+						"Classic classifiers; not proof of generative frontier LLM performance."
+					],
+					"research_register": "detection-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O01",
+			"aliases": [
+				"O01"
+			],
+			"title": "Antidistillation Sampling",
+			"canonical_url": "https://arxiv.org/abs/2504.13146",
+			"url": "https://arxiv.org/html/2504.13146v5",
+			"records": [
+				{
+					"id": "O01",
+					"title": "Antidistillation Sampling",
+					"url": "https://arxiv.org/html/2504.13146v5",
+					"authors_or_org": "Yash Savani; Asher Trockman; Zhili Feng; Yixuan Even Xu; Avi Schwarzschild; Alexander Robey; Marc Finzi; J. Zico Kolter",
+					"date": "2025-10-26",
+					"kind": "preprint",
+					"verification": "full-text verified",
+					"supported_claims": [
+						"Proxy downstream-loss token perturbation; two proxy forwards per token; small-model reasoning experiments"
+					],
+					"limitations": [
+						"Adaptive cleanup/retries/prefill counterevidence; no frontier guarantee"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "O02",
+			"aliases": [
+				"O02"
+			],
+			"title": "What Does It Mean to Break a Distillation Defense?",
+			"canonical_url": "https://arxiv.org/abs/2606.25059",
+			"url": "https://arxiv.org/html/2606.25059v2",
+			"records": [
+				{
+					"id": "O02",
+					"title": "What Does It Mean to Break a Distillation Defense?",
+					"url": "https://arxiv.org/html/2606.25059v2",
+					"authors_or_org": "Lena Libon; Pura Peetathawatchai; Michael Aerni; Daniel Paleka; Florian Tramèr",
+					"date": "2026-07-13",
+					"kind": "preprint",
+					"verification": "full-text verified",
+					"supported_claims": [
+						"Query/data/interface threat model; repetition deletion; scaled-query and prefill attacks on ADS"
+					],
+					"limitations": [
+						"GSM8K and chosen small models; matched-utility curve interpolated"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "O03",
+			"aliases": [
+				"O03"
+			],
+			"title": "Prediction Poisoning: Towards Defenses Against DNN Model Stealing Attacks",
+			"canonical_url": "https://resources.mpi-inf.mpg.de/d2/orekondy/predpoison",
+			"url": "https://resources.mpi-inf.mpg.de/d2/orekondy/predpoison/",
+			"records": [
+				{
+					"id": "O03",
+					"title": "Prediction Poisoning: Towards Defenses Against DNN Model Stealing Attacks",
+					"url": "https://resources.mpi-inf.mpg.de/d2/orekondy/predpoison/",
+					"authors_or_org": "Tribhuvanesh Orekondy; Bernt Schiele; Mario Fritz",
+					"date": "2020",
+					"kind": "peer-reviewed paper author page",
+					"verification": "author-page abstract verified in search; direct open returned403",
+					"supported_claims": [
+						"Output perturbation against classifier extraction"
+					],
+					"limitations": [
+						"Image classifiers and selected attacks; headline85x error is maximum"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O05",
+			"aliases": [
+				"O05"
+			],
+			"title": "ADS-C: Antidistillation Sampling for Classification",
+			"canonical_url": "https://arxiv.org/abs/2607.15467",
+			"url": "https://arxiv.org/abs/2607.15467",
+			"records": [
+				{
+					"id": "O05",
+					"title": "ADS-C: Antidistillation Sampling for Classification",
+					"url": "https://arxiv.org/abs/2607.15467",
+					"authors_or_org": "Khawaja Abaid Ullah; Mohammad Javad Khojasteh",
+					"date": "2026-07-16",
+					"kind": "preprint",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"Margin budget preserves top1 while degrading soft-target student"
+					],
+					"limitations": [
+						"Cannot remove hard-label supervision; image classification; not independently reproduced"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "O06",
+			"aliases": [
+				"O06"
+			],
+			"title": "Antidistillation Fingerprinting",
+			"canonical_url": "https://arxiv.org/abs/2602.03812",
+			"url": "https://arxiv.org/html/2602.03812v2",
+			"records": [
+				{
+					"id": "O06",
+					"title": "Antidistillation Fingerprinting",
+					"url": "https://arxiv.org/html/2602.03812v2",
+					"authors_or_org": "Yixuan Even Xu; John Kirchenbauer; Yash Savani; Asher Trockman; Alexander Robey; Tom Goldstein; Fei Fang; J. Zico Kolter",
+					"date": "2026-05-15",
+					"kind": "paper arXiv record states ICML2026",
+					"verification": "full-text verified; proceedings status not independently checked",
+					"supported_claims": [
+						"Proxy-guided watermark absorption; open and closed suspect access; GSM8K/OASST1/MBPP"
+					],
+					"limitations": [
+						"Closed access needs controlled continuations; evaluation reused prompts"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "O07",
+			"aliases": [
+				"O07"
+			],
+			"title": "Watermarking Makes Language Models Radioactive",
+			"canonical_url": "https://arxiv.org/abs/2402.14904",
+			"url": "https://arxiv.org/abs/2402.14904",
+			"records": [
+				{
+					"id": "O07",
+					"title": "Watermarking Makes Language Models Radioactive",
+					"url": "https://arxiv.org/abs/2402.14904",
+					"authors_or_org": "Tom Sander; Pierre Fernandez; Alain Durmus; Matthijs Douze; Teddy Furon",
+					"date": "2024",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract and selected PDF text verified",
+					"supported_claims": [
+						"Detecting marked text absorption under declared access models"
+					],
+					"limitations": [
+						"5percent high-confidence example is open-weight setting; no prevention result"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O08",
+			"aliases": [
+				"O08"
+			],
+			"title": "Protecting Language Generation Models via Invisible Watermarking",
+			"canonical_url": "https://proceedings.mlr.press/v202/zhao23i.html",
+			"url": "https://proceedings.mlr.press/v202/zhao23i.html",
+			"records": [
+				{
+					"id": "O08",
+					"title": "Protecting Language Generation Models via Invisible Watermarking",
+					"url": "https://proceedings.mlr.press/v202/zhao23i.html",
+					"authors_or_org": "Xuandong Zhao; Yu-Xiang Wang; Lei Li",
+					"date": "2023",
+					"kind": "peer-reviewed paper",
+					"verification": "official abstract verified",
+					"supported_claims": [
+						"GINSW decoding-distribution signals; suspect identification"
+					],
+					"limitations": [
+						"mAP is attribution metric; no capability suppression guarantee"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O09",
+			"aliases": [
+				"O09"
+			],
+			"title": "DAWN: Dynamic Adversarial Watermarking of Neural Networks",
+			"canonical_url": "https://arxiv.org/abs/1906.00830",
+			"url": "https://arxiv.org/abs/1906.00830",
+			"records": [
+				{
+					"id": "O09",
+					"title": "DAWN: Dynamic Adversarial Watermarking of Neural Networks",
+					"url": "https://arxiv.org/abs/1906.00830",
+					"authors_or_org": "Sebastian Szyller; Buse Gul Atli; Samuel Marchal; N. Asokan",
+					"date": "2021",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"Keyed API response changes transfer signature to surrogate"
+					],
+					"limitations": [
+						"Classifier study; incorrect labels cost utility"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O10",
+			"aliases": [
+				"O10"
+			],
+			"title": "Scalable watermarking for identifying large language model outputs",
+			"canonical_url": "https://nature.com/articles/s41586-024-08025-4",
+			"url": "https://www.nature.com/articles/s41586-024-08025-4",
+			"records": [
+				{
+					"id": "O10",
+					"title": "Scalable watermarking for identifying large language model outputs",
+					"url": "https://www.nature.com/articles/s41586-024-08025-4",
+					"authors_or_org": "Sumanth Dathathri; Abigail See; Sumedh Ghaisas; Po-Sen Huang; Rob McAdam; et al.",
+					"date": "2024-10-23",
+					"kind": "peer-reviewed production study",
+					"verification": "official search full abstract and selected algorithm text verified; later direct open failed",
+					"supported_claims": [
+						"SynthID-Text sampling integration and feedback on nearly20million Gemini responses"
+					],
+					"limitations": [
+						"Text provenance is distinct from distillation prevention"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O11",
+			"aliases": [
+				"O11"
+			],
+			"title": "PostMark: A Robust Blackbox Watermark for Large Language Models",
+			"canonical_url": "https://aclanthology.org/2024.emnlp-main.506",
+			"url": "https://aclanthology.org/2024.emnlp-main.506/",
+			"records": [
+				{
+					"id": "O11",
+					"title": "PostMark: A Robust Blackbox Watermark for Large Language Models",
+					"url": "https://aclanthology.org/2024.emnlp-main.506/",
+					"authors_or_org": "Yapei Chang; Kalpesh Krishna; Amir Houmansadr; John Frederick Wieting; Mohit Iyyer",
+					"date": "2024-11",
+					"kind": "peer-reviewed paper",
+					"verification": "official abstract verified",
+					"supported_claims": [
+						"Posthoc word insertion without teacher logits; quality/robustness tradeoff"
+					],
+					"limitations": [
+						"Long text method; exact labels/spans/code suitability not established"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O12",
+			"aliases": [
+				"O12"
+			],
+			"title": "Watermark Stealing in Large Language Models",
+			"canonical_url": "https://proceedings.mlr.press/v235/jovanovic24a.html",
+			"url": "https://proceedings.mlr.press/v235/jovanovic24a.html",
+			"records": [
+				{
+					"id": "O12",
+					"title": "Watermark Stealing in Large Language Models",
+					"url": "https://proceedings.mlr.press/v235/jovanovic24a.html",
+					"authors_or_org": "Nikola Jovanović; Robin Staab; Martin Vechev",
+					"date": "2024",
+					"kind": "peer-reviewed paper",
+					"verification": "official abstract verified",
+					"supported_claims": [
+						"API querying supports spoof/scrub; under50dollars and above80percent average success in tested attacks"
+					],
+					"limitations": [
+						"Scheme-specific experiments; does not prove universal watermark failure"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O13",
+			"aliases": [
+				"O13"
+			],
+			"title": "On the Reliability of Watermarks for Large Language Models",
+			"canonical_url": "https://arxiv.org/abs/2306.04634",
+			"url": "https://arxiv.org/abs/2306.04634",
+			"records": [
+				{
+					"id": "O13",
+					"title": "On the Reliability of Watermarks for Large Language Models",
+					"url": "https://arxiv.org/abs/2306.04634",
+					"authors_or_org": "John Kirchenbauer; Jonas Geiping; Yuxin Wen; Manli Shu; Khalid Saifullah; Kezhi Kong; Kasun Fernando; Aniruddha Saha; Micah Goldblum; Tom Goldstein",
+					"date": "2024",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract and selected PDF findings verified",
+					"supported_claims": [
+						"Paraphrase robustness depends on accumulated token evidence"
+					],
+					"limitations": [
+						"800token human-paraphrase average is setting-specific and irrelevant to one-token labels"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O14",
+			"aliases": [
+				"O14"
+			],
+			"title": "Paraphrasing evades detectors of AI-generated text, but retrieval is an effective defense",
+			"canonical_url": "https://arxiv.org/abs/2303.13408",
+			"url": "https://arxiv.org/abs/2303.13408",
+			"records": [
+				{
+					"id": "O14",
+					"title": "Paraphrasing evades detectors of AI-generated text, but retrieval is an effective defense",
+					"url": "https://arxiv.org/abs/2303.13408",
+					"authors_or_org": "Kalpesh Krishna; Yixiao Song; Marzena Karpinska; John Wieting; Mohit Iyyer",
+					"date": "2023-10-18",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"DIPPER attacks and provider retrieval over generated texts"
+					],
+					"limitations": [
+						"Retrieval needs stored generations; text detection not student attribution"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O15",
+			"aliases": [
+				"O15"
+			],
+			"title": "Linear Ensembles Wash Away Watermarks: On the Fragility of Distributional Perturbations in LLMs",
+			"canonical_url": "https://arxiv.org/abs/2605.30501",
+			"url": "https://arxiv.org/html/2605.30501v1",
+			"records": [
+				{
+					"id": "O15",
+					"title": "Linear Ensembles Wash Away Watermarks: On the Fragility of Distributional Perturbations in LLMs",
+					"url": "https://arxiv.org/html/2605.30501v1",
+					"authors_or_org": "Zhihao Wu; Gracia Gong; Qinglin Zhu; Yudong Chen; Runcong Zhao",
+					"date": "2026-05-28",
+					"kind": "preprint",
+					"verification": "full-text assumptions and abstract verified",
+					"supported_claims": [
+						"Averaging independent watermark distributions; WASH token alignment"
+					],
+					"limitations": [
+						"Theory assumes independent centered bounded perturbations; numerical-interface requirements"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Preprint or mixed preprint record"
+		},
+		{
+			"id": "O16",
+			"aliases": [
+				"O16"
+			],
+			"title": "Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes",
+			"canonical_url": "https://arxiv.org/abs/2305.02301",
+			"url": "https://arxiv.org/abs/2305.02301",
+			"records": [
+				{
+					"id": "O16",
+					"title": "Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes",
+					"url": "https://arxiv.org/abs/2305.02301",
+					"authors_or_org": "Cheng-Yu Hsieh; Chun-Liang Li; Chih-Kuan Yeh; Hootan Nakhost; Yasuhisa Fujii; Alexander Ratner; Ranjay Krishna; Chen-Yu Lee; Tomas Pfister",
+					"date": "2023-07-05",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract-only verified",
+					"supported_claims": [
+						"Rationales provide additional supervision in4NLP tasks"
+					],
+					"limitations": [
+						"Small task-specific distillation; not all-task proof"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O17",
+			"aliases": [
+				"O17"
+			],
+			"title": "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning",
+			"canonical_url": "https://github.com/deepseek-ai/DeepSeek-R1",
+			"url": "https://github.com/deepseek-ai/DeepSeek-R1",
+			"records": [
+				{
+					"id": "O17",
+					"title": "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning",
+					"url": "https://github.com/deepseek-ai/DeepSeek-R1",
+					"authors_or_org": "DeepSeek-AI",
+					"date": "2025",
+					"kind": "official technical report and code",
+					"verification": "official README and arXiv abstract verified",
+					"supported_claims": [
+						"Six distilled models;800000curated samples; benchmark tables"
+					],
+					"limitations": [
+						"Provider-reported setup; no controlled anti-distillation comparison"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Code, practitioner writing or other primary material"
+		},
+		{
+			"id": "O19",
+			"aliases": [
+				"O19"
+			],
+			"title": "Stealing Part of a Production Language Model",
+			"canonical_url": "https://arxiv.org/abs/2403.06634",
+			"url": "https://arxiv.org/abs/2403.06634",
+			"records": [
+				{
+					"id": "O19",
+					"title": "Stealing Part of a Production Language Model",
+					"url": "https://arxiv.org/abs/2403.06634",
+					"authors_or_org": "Nicholas Carlini; Daniel Paleka; Krishnamurthy Dvijotham; Thomas Steinke; Jonathan Hayase; A. Feder Cooper; Katherine Lee; Matthew Jagielski; Milad Nasr; Arthur Conmy; Itay Yona; Eric Wallace; David Rolnick; Florian Tramèr",
+					"date": "2024-03-11",
+					"kind": "peer-reviewed paper",
+					"verification": "abstract and author project page verified",
+					"supported_claims": [
+						"Numerical API access can reveal projection layers and hidden dimensions"
+					],
+					"limitations": [
+						"Partial parameter extraction differs from capability imitation"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Peer-reviewed or proceedings record"
+		},
+		{
+			"id": "O20",
+			"aliases": [
+				"O20"
+			],
+			"title": "Radioactive watermark official reproduction code",
+			"canonical_url": "https://github.com/facebookresearch/radioactive-watermark",
+			"url": "https://github.com/facebookresearch/radioactive-watermark",
+			"records": [
+				{
+					"id": "O20",
+					"title": "Radioactive watermark official reproduction code",
+					"url": "https://github.com/facebookresearch/radioactive-watermark",
+					"authors_or_org": "Meta FAIR researchers",
+					"date": "2024",
+					"kind": "official code",
+					"verification": "README verified",
+					"supported_claims": [
+						"Open and closed supervised evaluation artifacts"
+					],
+					"limitations": [
+						"Repository archived2025-12-01; inspect dependency compatibility"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Code, practitioner writing or other primary material"
+		},
+		{
+			"id": "O21",
+			"aliases": [
+				"O21"
+			],
+			"title": "DAWN official code",
+			"canonical_url": "https://github.com/ssg-research/dawn-dynamic-adversarial-watermarking-of-neural-networks",
+			"url": "https://github.com/ssg-research/dawn-dynamic-adversarial-watermarking-of-neural-networks",
+			"records": [
+				{
+					"id": "O21",
+					"title": "DAWN official code",
+					"url": "https://github.com/ssg-research/dawn-dynamic-adversarial-watermarking-of-neural-networks",
+					"authors_or_org": "DAWN authors",
+					"date": "2021",
+					"kind": "official code",
+					"verification": "README verified",
+					"supported_claims": [
+						"Reproduction code and exclusions"
+					],
+					"limitations": [
+						"README says extraction-attack experiments omitted"
+					],
+					"research_register": "output-sources.json"
+				}
+			],
+			"category": "Code, practitioner writing or other primary material"
+		}
+	]
+}
