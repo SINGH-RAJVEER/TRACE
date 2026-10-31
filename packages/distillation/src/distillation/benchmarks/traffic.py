@@ -68,6 +68,7 @@ class TrafficTarget(StrictModel):
 	backend: Literal["teacher_api", "openai"] = "teacher_api"
 	base_url: str = Field(min_length=1)
 	service_revision: str = Field(min_length=1)
+	gateway_domain: Literal["ag_news"] | None = None
 	api_key_env: str = ""
 	# Actor IDs are opaque. Ground-truth labels never enter HTTP requests.
 	actor_key_envs: dict[str, str] = Field(default_factory=dict)
@@ -184,6 +185,7 @@ def freeze_traffic(
 	genuine_count: int = 48,
 	attack_count: int = 144,
 	duration_seconds: float = 60,
+	gateway_news: bool = False,
 ) -> TrafficSuite:
 	if path.exists():
 		raise FileExistsError("traffic suite already exists; freeze to a new path")
@@ -229,6 +231,15 @@ def freeze_traffic(
 					messages=[Message(role="user", content=template.format(n=index + 11))],
 				)
 			)
+	if gateway_news:
+		from distillation.tasks import AG_NEWS_PROMPT
+
+		for request in requests:
+			request.messages = [
+				Message(
+					role="user", content=AG_NEWS_PROMPT.format(text=request.messages[0].content)
+				)
+			]
 	suite = TrafficSuite(
 		seed=seed,
 		duration_seconds=duration_seconds,

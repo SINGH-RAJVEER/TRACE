@@ -326,15 +326,14 @@ def task_directory(
 	*,
 	coding_pool_size: int = DEFAULT_POOL_SIZE,
 	seed: int = 42,
-	root: Path = Path("data/tasks"),
+	root: Path = Path("data"),
 ) -> Path:
+	names = {"ag_news": "news", "squad": "question_answering", "gsm8k": "math"}
 	name = (
 		f"coding-subset-{coding_pool_size}-s{seed}"
 		if task == "coding" and coding_pool_size
-		else task
+		else names.get(task, task)
 	)
-	if task in {"ag_news", "squad"}:
-		name = f"{task}-split-v2-s{seed}"
 	return root / name
 
 

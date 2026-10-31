@@ -444,7 +444,7 @@ def main() -> None:
 	parser.add_argument(
 		"--evaluation", required=True, type=Path, help="Frozen id/specification/solution JSONL"
 	)
-	parser.add_argument("--output", type=Path, default=Path("data/tasks/coding/qualified"))
+	parser.add_argument("--output", type=Path, default=Path("data/coding/qualified"))
 	parser.add_argument(
 		"--eligible-limit",
 		type=int,

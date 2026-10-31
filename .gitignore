@@ -18,8 +18,7 @@ build/
 .jj/
 artifacts/
 outputs/
-data/tasks/
-data/traffic/
+data/
 *.tsbuildinfo
 /paper/main.pdf
 /scripts/kaggle_gpu.py
