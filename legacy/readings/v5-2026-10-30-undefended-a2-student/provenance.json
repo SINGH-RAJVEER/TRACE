@@ -1,9 +1,0 @@
-{
-  "ledger": "artifacts/gateway-bounded-v1/A2/s42-b6000/undefended/ledger.jsonl",
-  "ledger_sha256": "55a778db0121e830aa8114f59b613464c573368073d27b421988ce03cdef9a18",
-  "schedule_sha256": "1713ae17492d5224a4090a0dca736063d7329194d8a307e0cf7afd38273a01a3",
-  "recipe": {
-    "learning_rate": 0.0001,
-    "epochs": 3
-  }
-}
