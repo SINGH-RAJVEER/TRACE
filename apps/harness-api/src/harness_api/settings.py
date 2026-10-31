@@ -56,6 +56,14 @@ class Settings(BaseSettings):
 	# Without it, state lives in this process and a restart renews every account. Use a new
 	# file for each arm; a file written under another policy or calibration is rejected.
 	state_db: Path | None = Field(default=None, alias="HARNESS_STATE_DB")
+	output_token_budget: int | None = Field(default=None, gt=0, alias="HARNESS_OUTPUT_TOKEN_BUDGET")
+	organization_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ORGANIZATION_TOKEN_BUDGET"
+	)
+	in_flight_limit: int | None = Field(default=None, gt=0, alias="HARNESS_IN_FLIGHT_LIMIT")
+	reservation_lease_seconds: float = Field(
+		default=600, gt=0, alias="HARNESS_RESERVATION_LEASE_SECONDS"
+	)
 
 	decision_log: Path = Field(
 		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"

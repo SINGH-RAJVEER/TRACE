@@ -919,3 +919,271 @@ async def test_cancelled_and_failed_releases_settle_without_refunding_the_admiss
 	with sqlite3.connect(state) as db:
 		rows = db.execute("SELECT attempt, status FROM reservations ORDER BY attempt").fetchall()
 	assert rows == [(1, "cancelled"), (2, "failed"), (3, "released")]
+
+
+@pytest.mark.asyncio
+async def test_entitlement_idempotency_and_concurrent_reservations(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+		HARNESS_IN_FLIGHT_LIMIT=1,
+		HARNESS_STATE_DB=tmp_path / "state.db",
+	)
+	entered, resume = asyncio.Event(), asyncio.Event()
+	generate = teacher.generate
+
+	async def slow(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await resume.wait()
+		return await generate(request)
+
+	teacher.generate = slow  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "one"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		first = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		)
+		await entered.wait()
+		pending = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		conflict = await client.post(
+			"/v1/teacher/generate", json=_request("different"), headers=headers
+		)
+		other = await client.post(
+			"/v1/teacher/generate",
+			json=_request("other"),
+			headers=headers | {"Idempotency-Key": "two"},
+		)
+		assert (pending.status_code, conflict.status_code, other.status_code) == (409, 409, 429)
+		resume.set()
+		response = await first
+		retry = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		assert response.status_code == 200 and retry.json() == response.json()
+		assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_organization_budget_rejection_does_not_charge_principal(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {"principal": "a", "organization": "org"},
+				hashlib.sha256(b"b").hexdigest(): {"principal": "b", "organization": "org"},
+			}
+		)
+	)
+	app, teacher, log = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_ORGANIZATION_TOKEN_BUDGET=16,
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+		HARNESS_STATE_DB=tmp_path / "organization.db",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		a = await client.post(
+			"/v1/teacher/generate", json=_request("a"), headers={"Authorization": "Bearer a"}
+		)
+		b = await client.post(
+			"/v1/teacher/generate", json=_request("b"), headers={"Authorization": "Bearer b"}
+		)
+	assert a.status_code == 200 and b.status_code == 429 and teacher.calls == 1
+	# The refused admission still counted, so it is logged with its entitlement outcome.
+	assert [(e["account"], e["entitlement"]) for e in _events(log, "decision")] == [
+		("a", None),
+		("b", "token_budget_exceeded"),
+	]
+	with sqlite3.connect(tmp_path / "organization.db") as db:
+		assert db.execute("SELECT count(*) FROM reservations WHERE account = 'b'").fetchone() == (
+			0,
+		)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_keeps_reserved_tokens_and_key_pending(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+	)
+	entered = asyncio.Event()
+
+	async def stalled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await asyncio.Event().wait()
+		raise AssertionError("unreachable")
+
+	teacher.generate = stalled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "cancelled"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		task = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		)
+		await entered.wait()
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		retry = await client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		other = await client.post(
+			"/v1/teacher/generate", json=_request("b"), headers=headers | {"Idempotency-Key": "new"}
+		)
+		assert retry.status_code == 409 and other.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_keyed_challenge_retries_and_redeems_once(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(artifacts, tmp_path, [-10, -10, -10, 100], HARNESS_L4_ACTION="refuse")
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "challenge"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		await client.post(
+			"/v1/teacher/generate", json=_request("warmup"), headers={"X-Benchmark-Actor": "a"}
+		)
+		first = await client.post("/v1/teacher/generate", json=_request("target"), headers=headers)
+		assert first.status_code == 428
+		retry = await client.post("/v1/teacher/generate", json=_request("target"), headers=headers)
+		assert retry.json() == first.json()
+		challenge = first.json()["challenge"]
+		counter = solve_challenge(challenge["prefix"], challenge["difficulty"])
+		proof = headers | {"X-Harness-Proof": f"{challenge['nonce']}:{counter}"}
+		done = await client.post("/v1/teacher/generate", json=_request("target"), headers=proof)
+		again = await client.post("/v1/teacher/generate", json=_request("target"), headers=proof)
+		assert done.status_code == 200 and again.json() == done.json()
+		assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_completed_key_survives_restart_and_unknown_usage_is_withheld(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	state = tmp_path / "state.db"
+	options = {
+		"HARNESS_POLICY": "allow",
+		"HARNESS_OUTPUT_TOKEN_BUDGET": 32,
+		"HARNESS_STATE_DB": state,
+	}
+	app, teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "saved"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		first = await client.post("/v1/teacher/generate", json=_request("hello"), headers=headers)
+	assert first.status_code == 200 and teacher.calls == 1
+	app2, teacher2, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	original = teacher2.generate
+
+	async def unknown(request: TeacherGenerationRequest) -> TeacherGeneration:
+		generation = await original(request)
+		generation.usage = TokenUsage()
+		return generation
+
+	teacher2.generate = unknown  # type: ignore[method-assign]
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app2), base_url="http://h"
+	) as client:
+		retry = await client.post("/v1/teacher/generate", json=_request("hello"), headers=headers)
+		unknown_result = await client.post(
+			"/v1/teacher/generate",
+			json=_request("new"),
+			headers=headers | {"Idempotency-Key": "unknown"},
+		)
+		assert retry.json() == first.json() and teacher2.calls == 1
+		assert unknown_result.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_concurrency_limit_is_shared_between_sqlite_workers(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = {
+		"HARNESS_POLICY": "allow",
+		"HARNESS_IN_FLIGHT_LIMIT": 1,
+		"HARNESS_STATE_DB": tmp_path / "state.db",
+	}
+	first_app, first_teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	second_app, second_teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	entered, resume = asyncio.Event(), asyncio.Event()
+	original = first_teacher.generate
+
+	async def slow(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await resume.wait()
+		return await original(request)
+
+	first_teacher.generate = slow  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a"}
+	async with (
+		httpx.AsyncClient(transport=httpx.ASGITransport(app=first_app), base_url="http://one") as a,
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=second_app), base_url="http://two"
+		) as b,
+	):
+		task = asyncio.create_task(
+			a.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		)
+		await entered.wait()
+		blocked = await b.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert blocked.status_code == 429 and blocked.json()["detail"]["code"] == "in_flight_limit"
+		resume.set()
+		assert (await task).status_code == 200
+		assert (
+			await b.post("/v1/teacher/generate", json=_request("third"), headers=headers)
+		).status_code == 200
+		assert second_teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_pending_key_is_conservative_across_worker_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = {"HARNESS_POLICY": "allow", "HARNESS_STATE_DB": tmp_path / "state.db"}
+	app, teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	entered = asyncio.Event()
+
+	async def stalled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await asyncio.Event().wait()
+		raise AssertionError("unreachable")
+
+	teacher.generate = stalled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "crash"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://one"
+	) as client:
+		task = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("request"), headers=headers)
+		)
+		await entered.wait()
+		app2, teacher2, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app2), base_url="http://two"
+		) as second:
+			result = await second.post(
+				"/v1/teacher/generate", json=_request("request"), headers=headers
+			)
+			assert result.status_code == 409 and teacher2.calls == 0
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task

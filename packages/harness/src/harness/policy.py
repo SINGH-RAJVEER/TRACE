@@ -64,6 +64,16 @@ class Decision:
 
 
 class Policy(Protocol):
+	def admit_in_transaction(
+		self,
+		tx: Transaction,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> Decision: ...
+
 	def admit(
 		self,
 		account: str,
@@ -110,17 +120,28 @@ class _HorizonPolicy:
 		binding: str | None = None,
 	) -> Decision:
 		with self.store.transaction() as tx:
-			state = tx.account(account)
-			if state is None or now - state.horizon_start >= self.horizon_seconds:
-				state = AccountState(horizon_start=now)
-			state.attempts += 1
-			if self.capped and state.attempts > self.horizon_attempts:
-				# The attempt cap denies new admissions; only elapsed time can renew it.
-				state.level = 4
-				decision = Decision(account, state.attempts, 4, "refuse", now)
-			else:
-				decision = self._decide(tx, account, state, text, now, embedding, binding)
-			tx.put_account(account, state)
+			return self.admit_in_transaction(tx, account, text, now, embedding, binding)
+
+	def admit_in_transaction(
+		self,
+		tx: Transaction,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> Decision:
+		state = tx.account(account)
+		if state is None or now - state.horizon_start >= self.horizon_seconds:
+			state = AccountState(horizon_start=now)
+		state.attempts += 1
+		if self.capped and state.attempts > self.horizon_attempts:
+			# The attempt cap denies new admissions; only elapsed time can renew it.
+			state.level = 4
+			decision = Decision(account, state.attempts, 4, "refuse", now)
+		else:
+			decision = self._decide(tx, account, state, text, now, embedding, binding)
+		tx.put_account(account, state)
 		return replace(decision, horizon=state.horizon_start)
 
 	def _decide(
@@ -394,23 +415,30 @@ class MMDPolicy(_HorizonPolicy):
 		accepted once, also across restarts and connections sharing a durable store.
 		"""
 		with self.store.transaction() as tx:
-			digest = request_digest(binding)
-			found = self.challenges.redeem(tx, nonce, account, digest, counter, now)
-			if found is None:
-				return None
-			challenge, held = found
-			if self.policy_version == "verify-risk-v2":
-				# Checked in the transaction that consumes the proof. A rejected proof stays
-				# consumed: the request needs a new admission, subject to the attempt cap.
-				state = tx.account(account)
-				if (
-					state is None
-					or state.horizon_start != held["horizon"]
-					or now - state.horizon_start >= self.horizon_seconds
-					or state.attempts > self.horizon_attempts
-					or state.level > held["level"]
-				):
-					return None
+			return self.redeem_in_transaction(tx, nonce, account, binding, counter, now)
+
+	def redeem_in_transaction(
+		self, tx: Transaction, nonce: str, account: str, binding: str, counter: int, now: float
+	) -> Decision | None:
+		"""Redeem inside the caller's transaction, so release accounting commits with it."""
+		state = tx.account(account)
+		if state is None or (
+			state.level >= 4 and self.l4_action == "refuse" and self.policy_version == "legacy-v1"
+		):
+			return None
+		found = self.challenges.redeem(tx, nonce, account, request_digest(binding), counter, now)
+		if found is None:
+			return None
+		challenge, held = found
+		# A proof cannot bypass a later escalation or outlive its horizon. A rejected proof
+		# stays consumed: the request needs a new admission, subject to the attempt cap.
+		if state.horizon_start != held["horizon"] or state.level > held["level"]:
+			return None
+		if self.policy_version == "verify-risk-v2" and (
+			now - state.horizon_start >= self.horizon_seconds
+			or state.attempts > self.horizon_attempts
+		):
+			return None
 		return Decision(
 			account,
 			held["attempt"],
