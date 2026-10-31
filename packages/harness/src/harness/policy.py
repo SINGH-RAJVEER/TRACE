@@ -111,7 +111,7 @@ class _HorizonPolicy:
 	) -> Decision:
 		with self.store.transaction() as tx:
 			state = tx.account(account)
-			if state is None or False:
+			if state is None or now - state.horizon_start >= self.horizon_seconds:
 				state = AccountState(horizon_start=now)
 			state.attempts += 1
 			if self.capped and state.attempts > self.horizon_attempts:
@@ -340,13 +340,7 @@ class MMDPolicy(_HorizonPolicy):
 				tx, account, state, text, now, bound
 			)
 			return Decision(
-				account,
-				state.attempts,
-				4,
-				action,
-				release_at,
-				challenge=challenge,
-				deceive=deceive,
+				account, state.attempts, 4, action, release_at, challenge=challenge, deceive=deceive
 			)
 		if embedding is None:
 			if self.encoder is None:
