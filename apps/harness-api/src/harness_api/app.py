@@ -11,8 +11,10 @@ content is keyed noise, built without calling the teacher.
 Admission and release are separate events. A `decision` event records each admission. Before
 any output is produced, the admission is reserved in the release ledger, and a `release` event
 records how the reservation settled: released, failed, or cancelled. With HARNESS_STATE_DB,
-account horizons, open challenges, and the ledger survive restarts. The aggregate monitor and
-the noise template still live in this process, so the service runs as a single worker.
+account horizons, open challenges, and the ledger survive restarts, and budget limits can be
+set over the ledger. A budget refuses a spent account before any embedding. The aggregate
+monitor and the noise template still live in this process, so the service runs as a single
+worker.
 """
 
 import asyncio
@@ -41,6 +43,7 @@ from distillation.schemas import (
 from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
 from fastapi import FastAPI, Header
 from fastapi.responses import JSONResponse
+from harness.budget import BudgetLimits, Refusal
 from harness.calibration import Calibration, load_aggregate, load_calibration
 from harness.deception import noise
 from harness.encoder import Encoder
@@ -72,6 +75,17 @@ def _error(status: int, code: str, message: str, decision: str | None) -> JSONRe
 		status_code=status,
 		headers={"X-Harness-Decision": decision} if decision else None,
 	)
+
+
+def _budget_error(reason: Refusal) -> JSONResponse:
+	"""A budget refusal names the limit reached, so a legitimate client can act on it."""
+	if reason == "budget_concurrency":
+		return _error(429, "too_many_requests", "wait for a request to finish", "throttle")
+	if reason == "duplicate_request":
+		return _error(409, "duplicate_request", "this idempotency key was already used", None)
+	if reason == "key_conflict":
+		return _error(409, "key_conflict", "this idempotency key belongs to another request", None)
+	return _error(403, "budget_exhausted", "the account's budget is used up", "block")
 
 
 class DecisionLog:
@@ -142,6 +156,9 @@ def _scope(settings: Settings, calibration: Calibration) -> str:
 		}
 	)
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
+	# The ledger's columns. Budget limits are left out: they read the ledger without changing
+	# what it means, so tightening one must not discard an account's history.
+	fields["ledger"] = 2
 	return canonical_json(fields)
 
 
@@ -177,11 +194,21 @@ def create_app(
 	served_task = calibration.config.task
 	if served_task != config.task:
 		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
+	scope = _scope(config, calibration)
 	store: StateStore = (
-		SQLiteStore(config.state_db, _scope(config, calibration))
-		if config.state_db is not None
-		else MemoryStore()
+		SQLiteStore(config.state_db, scope) if config.state_db is not None else MemoryStore()
 	)
+	limits = BudgetLimits(
+		config.budget_window_seconds,
+		config.budget_requests,
+		config.budget_output_tokens,
+		config.budget_concurrency,
+	)
+	# Binds every logged event to the exact policy, calibration, and limits behind it.
+	policy_revision = hashlib.sha256(
+		canonical_json({"scope": scope, "budget": asdict(limits)}).encode()
+	).hexdigest()
+	session = secrets.token_hex(8)
 	policy: Policy
 	if config.policy == "mmd":
 		policy = MMDPolicy(
@@ -226,6 +253,9 @@ def create_app(
 		timeout_seconds=config.timeout_seconds,
 	)
 	log = DecisionLog(config.decision_log)
+	with store.transaction() as tx:
+		orphaned = tx.outstanding()
+	log.write("startup", policy=config.policy, policy_revision=policy_revision, orphaned=orphaned)
 	lock = asyncio.Lock()
 	background: set[asyncio.Task[None]] = set()
 	# Real responses teach the shape and timing that noise responses copy.
@@ -291,6 +321,7 @@ def create_app(
 		binding: str,
 		benchmark_request: str | None,
 		now: float,
+		idempotency_key: str | None,
 	) -> JSONResponse:
 		"""Reserve the admission, produce its output, and settle the reservation once.
 
@@ -306,9 +337,30 @@ def create_app(
 			request_digest=digest,
 			reserved_at=now,
 			deceive=decision.deceive,
+			max_output_tokens=request.max_output_tokens,
+			idempotency_key=idempotency_key,
+			session=session,
 		)
 		with store.transaction() as tx:
-			reserved = tx.reserve(reservation)
+			# Noise releases no teacher output, so it draws nothing from the budget.
+			refusal = None if decision.deceive else limits.refusal(tx, reservation)
+			reserved = refusal is None and tx.reserve(reservation)
+		if refusal is not None:
+			log.write(
+				"release",
+				time=now,
+				account=decision.account,
+				horizon=decision.horizon,
+				attempt=decision.attempt,
+				status="refused",
+				reason=refusal,
+				output_tokens=None,
+				deceive=decision.deceive,
+				policy_revision=policy_revision,
+				request_digest=digest,
+				benchmark_request=benchmark_request,
+			)
+			return _budget_error(refusal)
 		if not reserved:
 			return _error(409, "already_released", "this admission was already released", None)
 		status: Settlement = "failed"
@@ -334,6 +386,7 @@ def create_app(
 				status=status,
 				output_tokens=tokens,
 				deceive=decision.deceive,
+				policy_revision=policy_revision,
 				request_digest=digest,
 				benchmark_request=benchmark_request,
 			)
@@ -401,6 +454,7 @@ def create_app(
 		x_harness_time: str | None = Header(default=None),
 		x_benchmark_request: str | None = Header(default=None),
 		x_gateway_domain: str | None = Header(default=None),
+		x_idempotency_key: str | None = Header(default=None),
 	) -> JSONResponse:
 		# X-Benchmark-Request is a test correlation ID: it is logged, never used to decide.
 		account = resolve(authorization, x_benchmark_actor)
@@ -452,7 +506,45 @@ def create_app(
 				return _error(
 					403, "challenge_failed", "the challenge answer was not accepted", "throttle"
 				)
-			return await release(held, request, text, binding, x_benchmark_request, now)
+			return await release(
+				held, request, text, binding, x_benchmark_request, now, x_idempotency_key
+			)
+		# Budgets are cheap to check, so a spent account costs no embedding or policy state.
+		if limits.active or x_idempotency_key is not None:
+			claim = Reservation(
+				account=account,
+				horizon_start=now,
+				attempt=0,
+				request_digest=digest,
+				reserved_at=now,
+				max_output_tokens=request.max_output_tokens,
+				idempotency_key=x_idempotency_key,
+				session=session,
+			)
+			with store.transaction() as tx:
+				refusal = limits.refusal(tx, claim)
+			if refusal is not None:
+				log.write(
+					"decision",
+					time=now,
+					account=account,
+					attempt=None,
+					horizon=None,
+					level={"budget_requests": 4, "budget_tokens": 4, "budget_concurrency": 2}.get(
+						refusal, 0
+					),
+					action="refuse",
+					reason=refusal,
+					policy_revision=policy_revision,
+					deceive=False,
+					window_completed=False,
+					p_value=None,
+					statistic=None,
+					witness=[],
+					request_digest=digest,
+					benchmark_request=x_benchmark_request,
+				)
+				return _budget_error(refusal)
 		embedding = (
 			(await asyncio.to_thread(encoder.encode, [detector_text(served_task, text)]))[0]
 			if needs_embeddings and encoder is not None
@@ -475,6 +567,8 @@ def create_app(
 			horizon=decision.horizon,
 			level=decision.level,
 			action=decision.action,
+			reason=decision.reason,
+			policy_revision=policy_revision,
 			deceive=decision.deceive,
 			window_completed=decision.window_completed,
 			p_value=decision.p_value,
@@ -500,6 +594,8 @@ def create_app(
 				status_code=428,
 				headers={"X-Harness-Decision": "throttle"},
 			)
-		return await release(decision, request, text, binding, x_benchmark_request, now)
+		return await release(
+			decision, request, text, binding, x_benchmark_request, now, x_idempotency_key
+		)
 
 	return app

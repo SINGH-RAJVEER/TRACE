@@ -60,6 +60,11 @@ class Reservation:
 	status: Literal["reserved"] | Settlement = "reserved"
 	settled_at: float | None = None
 	output_tokens: int | None = None
+	# The most output this admission can release, charged until it settles.
+	max_output_tokens: int = 0
+	idempotency_key: str | None = None
+	# The server process that made it, so a dead process's reservation holds no in-flight slot.
+	session: str = ""
 
 	@property
 	def key(self) -> str:
@@ -82,6 +87,20 @@ class Usage:
 		return self.released + self.reserved
 
 
+@dataclass(frozen=True)
+class BudgetUsage:
+	"""One account's charged usage since a time, across horizons.
+
+	Released and outstanding admissions count; failed, cancelled, and noise ones released no
+	teacher output. Output tokens are the settled count, or the full reservation while the
+	count is unknown, so a crash or missing usage cannot lower the charge.
+	"""
+
+	requests: int
+	output_tokens: int
+	in_flight: int
+
+
 def admission_key(account: str, horizon_start: float, attempt: int) -> str:
 	return json.dumps([account, horizon_start, attempt])
 
@@ -99,6 +118,9 @@ class Transaction(Protocol):
 	) -> bool: ...
 	def reservation(self, key: str) -> Reservation | None: ...
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
+	def budget_usage(self, account: str, since: float, session: str) -> BudgetUsage: ...
+	def idempotent(self, account: str, key: str) -> Reservation | None: ...
+	def outstanding(self) -> int: ...
 
 
 class StateStore(Protocol):
@@ -178,6 +200,38 @@ class _MemoryTransaction:
 			]
 		)
 
+	def budget_usage(self, account: str, since: float, session: str) -> BudgetUsage:
+		rows = [r for r in self.store.reservations.values() if r.account == account]
+		charged = [
+			r
+			for r in rows
+			if r.reserved_at > since and not r.deceive and r.status in ("reserved", "released")
+		]
+		return BudgetUsage(
+			requests=len(charged),
+			output_tokens=sum(
+				r.max_output_tokens
+				if r.status == "reserved" or r.output_tokens is None
+				else r.output_tokens
+				for r in charged
+			),
+			in_flight=sum(r.status == "reserved" and r.session == session for r in rows),
+		)
+
+	def idempotent(self, account: str, key: str) -> Reservation | None:
+		return next(
+			(
+				r
+				for r in self.store.reservations.values()
+				if (r.account, r.idempotency_key) == (account, key)
+				and r.status in ("reserved", "released")
+			),
+			None,
+		)
+
+	def outstanding(self) -> int:
+		return sum(r.status == "reserved" for r in self.store.reservations.values())
+
 
 class MemoryStore:
 	"""State in this process. A restart loses it; use it for replays and simulations."""
@@ -248,19 +302,40 @@ CREATE TABLE IF NOT EXISTS reservations (
 	deceive INTEGER NOT NULL,
 	status TEXT NOT NULL,
 	settled_at REAL,
-	output_tokens INTEGER
+	output_tokens INTEGER,
+	max_output_tokens INTEGER NOT NULL,
+	idempotency_key TEXT,
+	session TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reservations_horizon ON reservations (account, horizon_start);
+CREATE INDEX IF NOT EXISTS reservations_budget ON reservations (account, reserved_at);
+CREATE INDEX IF NOT EXISTS reservations_open ON reservations (account) WHERE status = 'reserved';
+CREATE UNIQUE INDEX IF NOT EXISTS reservations_idempotency
+	ON reservations (account, idempotency_key)
+	WHERE idempotency_key IS NOT NULL AND status IN ('reserved', 'released');
 """
 
 _RESERVATION_COLUMNS = (
 	"account, horizon_start, attempt, request_digest, reserved_at, deceive, status, "
-	"settled_at, output_tokens"
+	"settled_at, output_tokens, max_output_tokens, idempotency_key, session"
 )
 
 
 def _reservation(row: tuple[Any, ...]) -> Reservation:
-	account, horizon, attempt, digest, reserved_at, deceive, status, settled_at, tokens = row
+	(
+		account,
+		horizon,
+		attempt,
+		digest,
+		reserved_at,
+		deceive,
+		status,
+		settled_at,
+		tokens,
+		max_output_tokens,
+		idempotency_key,
+		session,
+	) = row
 	return Reservation(
 		account=account,
 		horizon_start=horizon,
@@ -271,6 +346,9 @@ def _reservation(row: tuple[Any, ...]) -> Reservation:
 		status=status,
 		settled_at=settled_at,
 		output_tokens=tokens,
+		max_output_tokens=max_output_tokens,
+		idempotency_key=idempotency_key,
+		session=session,
 	)
 
 
@@ -317,7 +395,7 @@ class _SQLiteTransaction:
 	def reserve(self, reservation: Reservation) -> bool:
 		cursor = self.db.execute(
 			f"INSERT INTO reservations (key, {_RESERVATION_COLUMNS}) "
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
 			(
 				reservation.key,
 				reservation.account,
@@ -329,6 +407,9 @@ class _SQLiteTransaction:
 				reservation.status,
 				reservation.settled_at,
 				reservation.output_tokens,
+				reservation.max_output_tokens,
+				reservation.idempotency_key,
+				reservation.session,
 			),
 		)
 		return cursor.rowcount == 1
@@ -356,6 +437,33 @@ class _SQLiteTransaction:
 			(account, horizon_start),
 		).fetchall()
 		return _usage([_reservation(row) for row in rows])
+
+	def budget_usage(self, account: str, since: float, session: str) -> BudgetUsage:
+		requests, tokens = self.db.execute(
+			"SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'released' THEN "
+			"COALESCE(output_tokens, max_output_tokens) ELSE max_output_tokens END), 0) "
+			"FROM reservations WHERE account = ? AND reserved_at > ? AND deceive = 0 "
+			"AND status IN ('reserved', 'released')",
+			(account, since),
+		).fetchone()
+		in_flight = self.db.execute(
+			"SELECT COUNT(*) FROM reservations "
+			"WHERE account = ? AND status = 'reserved' AND session = ?",
+			(account, session),
+		).fetchone()[0]
+		return BudgetUsage(requests, tokens, in_flight)
+
+	def idempotent(self, account: str, key: str) -> Reservation | None:
+		row = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations "
+			"WHERE account = ? AND idempotency_key = ? AND status IN ('reserved', 'released')",
+			(account, key),
+		).fetchone()
+		return None if row is None else _reservation(row)
+
+	def outstanding(self) -> int:
+		row = self.db.execute("SELECT COUNT(*) FROM reservations WHERE status = 'reserved'")
+		return int(row.fetchone()[0])
 
 
 class SQLiteStore:

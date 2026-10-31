@@ -21,6 +21,7 @@ from harness.serialization import detector_text
 from harness.store import AccountState, MemoryStore, StateStore, Transaction
 
 Action = Literal["serve", "challenge", "refuse"]
+Reason = Literal["attempt_cap", "quota", "rate", "detector"]
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ class Decision:
 	# Start of the account horizon the attempt was counted in. With the account and attempt,
 	# it identifies the admission in the release ledger.
 	horizon: float = 0.0
+	# What restricted this request; None when nothing did. Telemetry, not shown to the client.
+	reason: Reason | None = None
 
 	def client_view(self) -> dict[str, Any]:
 		view: dict[str, Any] = {"action": self.action, "release_at": self.release_at}
@@ -117,7 +120,7 @@ class _HorizonPolicy:
 			if self.capped and state.attempts > self.horizon_attempts:
 				# The attempt cap denies new admissions; only elapsed time can renew it.
 				state.level = 4
-				decision = Decision(account, state.attempts, 4, "refuse", now)
+				decision = Decision(account, state.attempts, 4, "refuse", now, reason="attempt_cap")
 			else:
 				decision = self._decide(tx, account, state, text, now, embedding, binding)
 			tx.put_account(account, state)
@@ -179,7 +182,7 @@ class QuotaPolicy(_HorizonPolicy):
 	) -> Decision:
 		if state.level >= 4 or state.attempts > self.quota:
 			state.level = 4
-			return Decision(account, state.attempts, 4, "refuse", now)
+			return Decision(account, state.attempts, 4, "refuse", now, reason="quota")
 		return Decision(account, state.attempts, 0, "serve", now)
 
 
@@ -207,13 +210,13 @@ class RatePolicy(_HorizonPolicy):
 		binding: str | None,
 	) -> Decision:
 		if state.level >= 4:
-			return Decision(account, state.attempts, 4, "refuse", now)
+			return Decision(account, state.attempts, 4, "refuse", now, reason="rate")
 		state.recent.append(now)
 		while state.recent and state.recent[0] <= now - 60:
 			state.recent.popleft()
 		if state.level >= 4 or len(state.recent) > self.per_minute:
 			state.level = 4
-			return Decision(account, state.attempts, 4, "refuse", now)
+			return Decision(account, state.attempts, 4, "refuse", now, reason="rate")
 		return Decision(account, state.attempts, 0, "serve", now)
 
 
@@ -332,7 +335,14 @@ class MMDPolicy(_HorizonPolicy):
 				tx, account, state, text, now, bound
 			)
 			return Decision(
-				account, state.attempts, 4, action, release_at, challenge=challenge, deceive=deceive
+				account,
+				state.attempts,
+				4,
+				action,
+				release_at,
+				challenge=challenge,
+				deceive=deceive,
+				reason="detector",
 			)
 		if embedding is None:
 			if self.encoder is None:
@@ -375,6 +385,7 @@ class MMDPolicy(_HorizonPolicy):
 			statistic=state.statistic,
 			deceive=deceive,
 			witness=witness,
+			reason="detector" if state.level >= 2 else None,
 		)
 
 	def redeem(
@@ -400,4 +411,5 @@ class MMDPolicy(_HorizonPolicy):
 			challenge=challenge,
 			deceive=held["deceive"],
 			horizon=held["horizon"],
+			reason="detector",
 		)
