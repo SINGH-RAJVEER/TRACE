@@ -1187,3 +1187,77 @@ async def test_pending_key_is_conservative_across_worker_restart(
 		task.cancel()
 		with pytest.raises(asyncio.CancelledError):
 			await task
+
+
+def _rolling_app(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path, **limits: Any
+) -> tuple[Any, Teacher, Path]:
+	return _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_TEST_CLOCK=True,
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		**limits,
+	)
+
+
+async def _ask_at(client: httpx.AsyncClient, text: str, now: float) -> httpx.Response:
+	return await client.post(
+		"/v1/teacher/generate",
+		json=_request(text),
+		headers={"X-Benchmark-Actor": "u1", "X-Harness-Time": str(now)},
+	)
+
+
+@pytest.mark.asyncio
+async def test_spent_rolling_budget_refuses_before_embedding_across_horizons_and_restarts(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	encoded: list[str] = []
+	original = Encoder.encode
+
+	def counted(self: Encoder, texts: list[str]) -> Array:
+		encoded.extend(texts)
+		return original(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", counted)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = [await _ask_at(client, f"q {i}", 10.0) for i in range(3)]
+		assert [r.status_code for r in responses] == [200, 200, 429]
+		assert responses[2].json()["detail"]["code"] == "rolling_budget_exceeded"
+		assert responses[2].headers["x-harness-decision"] == "block"
+		assert len(encoded) == 2
+		# A new policy horizon renews attempts but not the budget.
+		assert (await _ask_at(client, "next day", 10.0 + 90_000)).status_code == 429
+	assert teacher.calls == 2 and len(encoded) == 2
+
+	decisions = _events(log, "decision")
+	assert [e["entitlement"] for e in decisions] == [None, None, *["rolling_budget_exceeded"] * 2]
+	assert decisions[2]["level"] == 4 and decisions[2]["attempt"] is None
+	releases = _events(log, "release")
+	assert len({e["policy_revision"] for e in decisions + releases}) == 1
+
+	restarted, teacher, _ = _rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=restarted), base_url="http://harness"
+	) as client:
+		assert (await _ask_at(client, "after restart", 100.0)).status_code == 429
+		assert (await _ask_at(client, "a week later", 10.0 + 604_801)).status_code == 200
+	assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rolling_settings_change_the_state_scope_only_when_set(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	_rolling_app(artifacts, tmp_path)
+	_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_WINDOW_SECONDS=3600)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
