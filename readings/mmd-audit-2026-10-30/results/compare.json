@@ -1,0 +1,1256 @@
+{
+	"thresholds": {
+		"full (frozen)": [
+			2.8303122406539125,
+			4.851500161345655,
+			8.097829990250128,
+			9.529682129942291
+		],
+		"instantaneous (frozen)": [
+			3.2597673821862996,
+			3.8303122406539125,
+			4.449351449060136,
+			4.603502128887395
+		],
+		"full, lower tail (refit)": [
+			0.6161381050039199,
+			1.961274393630303,
+			3.9250126863064763,
+			5.406658031617069
+		],
+		"full, two-sided (refit)": [
+			2.3042191447571336,
+			3.5345205182817585,
+			5.553560022106266,
+			6.281878632182414
+		]
+	},
+	"limits": {
+		"request_quota": 1215.0,
+		"token_quota": 44178.263999999996
+	},
+	"defenses": {
+		"full (frozen)": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 12,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.03,
+					"refused_requests": 0
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 12,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.032,
+					"refused_requests": 0
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 7,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.07,
+					"refused_requests": 0
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 3,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 2,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 632739,
+					"released_ag_news": 1500
+				}
+			}
+		},
+		"instantaneous (frozen)": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 12,
+					"L4": 2,
+					"L4_rate": 0.02,
+					"L4_upper95": 0.062,
+					"refused_requests": 13
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 12,
+					"L4": 2,
+					"L4_rate": 0.022,
+					"L4_upper95": 0.068,
+					"refused_requests": 13
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 6,
+					"L4": 1,
+					"L4_rate": 0.024,
+					"L4_upper95": 0.111,
+					"refused_requests": 7
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 4,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 2,
+					"L4": 1,
+					"L4_rate": 0.2,
+					"L4_upper95": 0.657,
+					"refused_requests": 6
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 632739,
+					"released_ag_news": 1500
+				}
+			}
+		},
+		"full, lower tail (refit)": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 20,
+					"L4": 3,
+					"L4_rate": 0.03,
+					"L4_upper95": 0.076,
+					"refused_requests": 875
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 9,
+					"L4": 1,
+					"L4_rate": 0.111,
+					"L4_upper95": 0.429,
+					"refused_requests": 111
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 3,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 5,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 1,
+					"L4": 1,
+					"L4_rate": 1.0,
+					"L4_upper95": 1.0,
+					"refused_requests": 111
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 11,
+					"L4": 2,
+					"L4_rate": 0.022,
+					"L4_upper95": 0.068,
+					"refused_requests": 764
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 6,
+					"L4": 2,
+					"L4_rate": 0.049,
+					"L4_upper95": 0.146,
+					"refused_requests": 764
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 4,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 1,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 100,
+					"released_requests": 199,
+					"released_tokens": 20884,
+					"released_ag_news": 45
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 100,
+					"released_requests": 499,
+					"released_tokens": 1198,
+					"released_ag_news": 499
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 5,
+					"first_alert_request": 100,
+					"released_requests": 3895,
+					"released_tokens": 497880,
+					"released_ag_news": 998
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 6,
+					"first_alert_request": 100,
+					"released_requests": 1194,
+					"released_tokens": 116253,
+					"released_ag_news": 301
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 100,
+					"released_requests": 399,
+					"released_tokens": 40678,
+					"released_ag_news": 92
+				}
+			}
+		},
+		"full, two-sided (refit)": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 12,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.03,
+					"refused_requests": 0
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 3,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 2,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 1,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 9,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.032,
+					"refused_requests": 0
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 6,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.07,
+					"refused_requests": 0
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 1,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 2,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 100,
+					"released_requests": 299,
+					"released_tokens": 30521,
+					"released_ag_news": 68
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 400,
+					"released_requests": 4399,
+					"released_tokens": 562066,
+					"released_ag_news": 1500
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": 300,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 6,
+					"first_alert_request": 100,
+					"released_requests": 1694,
+					"released_tokens": 167731,
+					"released_ag_news": 403
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 200,
+					"released_requests": 599,
+					"released_tokens": 62511,
+					"released_ag_news": 138
+				}
+			}
+		},
+		"request quota": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 1,
+					"L4": 1,
+					"L4_rate": 0.01,
+					"L4_upper95": 0.047,
+					"refused_requests": 617
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 1,
+					"L4": 1,
+					"L4_rate": 0.011,
+					"L4_upper95": 0.051,
+					"refused_requests": 617
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 1,
+					"L4": 1,
+					"L4_rate": 0.024,
+					"L4_upper95": 0.111,
+					"refused_requests": 617
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 118024,
+					"released_ag_news": 312
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 2872,
+					"released_ag_news": 1215
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 2,
+					"first_alert_request": 1216,
+					"released_requests": 5430,
+					"released_tokens": 515789,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 123604,
+					"released_ag_news": 312
+				}
+			}
+		},
+		"token quota (est.)": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 4,
+					"L4": 4,
+					"L4_rate": 0.04,
+					"L4_upper95": 0.089,
+					"refused_requests": 1328
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 4,
+					"L4": 4,
+					"L4_rate": 0.044,
+					"L4_upper95": 0.098,
+					"refused_requests": 1328
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 3,
+					"L4": 3,
+					"L4_rate": 0.073,
+					"L4_upper95": 0.178,
+					"refused_requests": 1227
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 1,
+					"L4": 1,
+					"L4_rate": 0.026,
+					"L4_upper95": 0.116,
+					"refused_requests": 101
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 450,
+					"released_requests": 449,
+					"released_tokens": 43941,
+					"released_ag_news": 104
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1666,
+					"released_requests": 1665,
+					"released_tokens": 44006,
+					"released_ag_news": 1500
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 3,
+					"first_alert_request": 181,
+					"released_requests": 3835,
+					"released_tokens": 146501,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 6,
+					"first_alert_request": 434,
+					"released_requests": 2706,
+					"released_tokens": 263838,
+					"released_ag_news": 659
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 431,
+					"released_requests": 430,
+					"released_tokens": 44145,
+					"released_ag_news": 101
+				}
+			}
+		},
+		"full + request quota": {
+			"benign_test": {
+				"all scored": {
+					"n": 100,
+					"L1+": 13,
+					"L4": 1,
+					"L4_rate": 0.01,
+					"L4_upper95": 0.047,
+					"refused_requests": 617
+				},
+				"generalist": {
+					"n": 9,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.283,
+					"refused_requests": 0
+				},
+				"generalist/batch": {
+					"n": 3,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.632,
+					"refused_requests": 0
+				},
+				"generalist/bursty": {
+					"n": 5,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"generalist/repetitive": {
+					"n": 1,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.95,
+					"refused_requests": 0
+				},
+				"specialist": {
+					"n": 91,
+					"L1+": 13,
+					"L4": 1,
+					"L4_rate": 0.011,
+					"L4_upper95": 0.051,
+					"refused_requests": 617
+				},
+				"specialist/batch": {
+					"n": 41,
+					"L1+": 8,
+					"L4": 1,
+					"L4_rate": 0.024,
+					"L4_upper95": 0.111,
+					"refused_requests": 617
+				},
+				"specialist/bursty": {
+					"n": 39,
+					"L1+": 3,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.074,
+					"refused_requests": 0
+				},
+				"specialist/repetitive": {
+					"n": 5,
+					"L1+": 2,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.451,
+					"refused_requests": 0
+				},
+				"specialist/specialist": {
+					"n": 6,
+					"L1+": 0,
+					"L4": 0,
+					"L4_rate": 0.0,
+					"L4_upper95": 0.393,
+					"refused_requests": 0
+				}
+			},
+			"attacks": {
+				"A1": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 118024,
+					"released_ag_news": 312
+				},
+				"A2": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 2872,
+					"released_ag_news": 1215
+				},
+				"A5": {
+					"accounts": 6,
+					"accounts_reaching_L4": 2,
+					"first_alert_request": 1216,
+					"released_requests": 5430,
+					"released_tokens": 515789,
+					"released_ag_news": 1500
+				},
+				"A6": {
+					"accounts": 6,
+					"accounts_reaching_L4": 0,
+					"first_alert_request": null,
+					"released_requests": 6000,
+					"released_tokens": 588239,
+					"released_ag_news": 1500
+				},
+				"A7": {
+					"accounts": 1,
+					"accounts_reaching_L4": 1,
+					"first_alert_request": 1216,
+					"released_requests": 1215,
+					"released_tokens": 123604,
+					"released_ag_news": 312
+				}
+			}
+		}
+	},
+	"attack_window_p_upper": {
+		"A1": {
+			"A1-s42-b6000-account": [
+				0.99,
+				0.997,
+				0.992,
+				1.0,
+				0.982,
+				0.998,
+				0.997,
+				0.95,
+				0.977,
+				0.983,
+				0.998,
+				0.993,
+				0.985,
+				0.958,
+				0.998,
+				0.958,
+				0.998,
+				0.998,
+				0.998,
+				0.998,
+				0.998,
+				0.957,
+				0.968,
+				0.985,
+				1.0,
+				0.988,
+				0.988,
+				0.962,
+				0.988,
+				1.0,
+				0.998,
+				0.995,
+				0.995,
+				0.998,
+				0.998,
+				0.947,
+				0.983,
+				0.993,
+				0.998,
+				0.998,
+				0.975,
+				0.997,
+				0.997,
+				0.985,
+				0.998,
+				0.993,
+				0.993,
+				0.997,
+				0.998,
+				0.997,
+				1.0,
+				0.997,
+				0.998,
+				0.985,
+				0.995,
+				1.0,
+				0.988,
+				0.995,
+				1.0,
+				0.962
+			]
+		},
+		"A2": {
+			"A2-s42-b6000-account": [
+				0.917,
+				0.917,
+				0.922,
+				0.912,
+				0.908,
+				0.902,
+				0.917,
+				0.925,
+				0.918,
+				0.917,
+				0.912,
+				0.896,
+				0.925,
+				0.907,
+				0.917,
+				0.422,
+				0.352,
+				0.327,
+				0.351,
+				0.329,
+				0.334,
+				0.351,
+				0.349,
+				0.334,
+				0.337,
+				0.351,
+				0.344,
+				0.322,
+				0.374,
+				0.371,
+				0.928,
+				0.925,
+				0.928,
+				0.912,
+				0.917,
+				0.925,
+				0.925,
+				0.925,
+				0.925,
+				0.908,
+				0.917,
+				0.925,
+				0.925,
+				0.918,
+				0.93,
+				0.9,
+				0.922,
+				0.928,
+				0.917,
+				0.925,
+				0.902,
+				0.92,
+				0.917,
+				0.917,
+				0.925,
+				0.922,
+				0.925,
+				0.908,
+				0.907,
+				0.928
+			]
+		},
+		"A5": {
+			"A5-s42-b6000-coding-000": [
+				0.912,
+				0.917,
+				0.917,
+				0.917,
+				0.917,
+				0.928,
+				0.917
+			],
+			"A5-s42-b6000-gsm8k-000": [
+				0.524,
+				0.332,
+				0.337,
+				0.329,
+				0.516,
+				0.349,
+				0.334,
+				0.334,
+				0.337,
+				0.337,
+				0.327,
+				0.337,
+				0.334,
+				0.337,
+				0.334
+			],
+			"A5-s42-b6000-squad-000": [
+				0.917,
+				0.908,
+				0.925,
+				0.907,
+				0.925,
+				0.907,
+				0.922,
+				0.907,
+				0.922,
+				0.917,
+				0.917,
+				0.918,
+				0.922,
+				0.917,
+				0.925
+			],
+			"A5-s42-b6000-coding-001": [
+				0.93,
+				0.925,
+				0.925,
+				0.928,
+				0.925,
+				0.925,
+				0.925
+			],
+			"A5-s42-b6000-ag_news-000": [
+				0.918,
+				0.907,
+				0.917,
+				0.918,
+				0.925,
+				0.913,
+				0.907
+			],
+			"A5-s42-b6000-ag_news-001": [
+				0.917,
+				0.917,
+				0.913,
+				0.908,
+				0.917,
+				0.907,
+				0.922
+			]
+		},
+		"A6": {
+			"A6-s42-b6000-sybil-005": [
+				0.997,
+				0.985,
+				0.998,
+				0.95,
+				0.997,
+				0.983,
+				0.998,
+				0.998,
+				0.998,
+				0.982
+			],
+			"A6-s42-b6000-sybil-000": [
+				0.998,
+				0.953,
+				0.998,
+				0.998,
+				0.998,
+				0.982,
+				0.957,
+				0.997,
+				0.968,
+				1.0
+			],
+			"A6-s42-b6000-sybil-002": [
+				0.995,
+				0.985,
+				0.993,
+				0.995,
+				0.997,
+				0.998,
+				0.963,
+				0.998,
+				0.998,
+				0.997
+			],
+			"A6-s42-b6000-sybil-001": [
+				0.997,
+				0.995,
+				0.958,
+				0.998,
+				0.985,
+				0.998,
+				0.995,
+				0.998,
+				0.998,
+				0.957
+			],
+			"A6-s42-b6000-sybil-003": [
+				0.997,
+				0.998,
+				0.983,
+				0.997,
+				0.962,
+				0.998,
+				0.985,
+				0.988,
+				0.998,
+				1.0
+			],
+			"A6-s42-b6000-sybil-004": [
+				0.973,
+				0.988,
+				0.96,
+				0.995,
+				0.995,
+				0.993,
+				1.0,
+				0.958,
+				0.998,
+				0.998
+			]
+		},
+		"A7": {
+			"A7-s42-b6000-account": [
+				0.95,
+				0.95,
+				0.953,
+				0.953,
+				0.953,
+				0.973,
+				0.953,
+				0.935,
+				0.948,
+				0.953,
+				0.955,
+				0.95,
+				0.957,
+				0.948,
+				0.975,
+				0.947,
+				0.968,
+				0.962,
+				0.95,
+				0.962,
+				0.957,
+				0.945,
+				0.95,
+				0.945,
+				0.975,
+				0.968,
+				0.95,
+				0.94,
+				0.95,
+				0.988,
+				0.958,
+				0.953,
+				0.957,
+				0.957,
+				0.975,
+				0.935,
+				0.95,
+				0.95,
+				0.962,
+				0.96,
+				0.947,
+				0.957,
+				0.957,
+				0.953,
+				0.957,
+				0.953,
+				0.95,
+				0.957,
+				0.957,
+				0.955,
+				0.978,
+				0.955,
+				0.962,
+				0.948,
+				0.973,
+				0.983,
+				0.953,
+				0.957,
+				0.982,
+				0.938
+			]
+		}
+	}
+}

@@ -1,0 +1,1341 @@
+{
+	"variant": "noprefix",
+	"sigma": 1.0545340491518744,
+	"null_q05_50_95": [
+		0.0093,
+		0.0466,
+		0.107
+	],
+	"groups": {
+		"A1": {
+			"windows": 60,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0018,
+				0.0038,
+				0.0064
+			],
+			"p_upper_min_med_max": [
+				0.95,
+				0.997,
+				1.0
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.983
+		},
+		"A2": {
+			"windows": 60,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0259,
+				0.029,
+				0.0447
+			],
+			"p_upper_min_med_max": [
+				0.427,
+				0.915,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window00": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.029,
+				0.029,
+				0.029
+			],
+			"p_upper_min_med_max": [
+				0.915,
+				0.915,
+				0.915
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window01": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0286,
+				0.0286,
+				0.0286
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window02": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.028,
+				0.028,
+				0.028
+			],
+			"p_upper_min_med_max": [
+				0.918,
+				0.918,
+				0.918
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window03": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0289,
+				0.0289,
+				0.0289
+			],
+			"p_upper_min_med_max": [
+				0.915,
+				0.915,
+				0.915
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window04": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.03,
+				0.03,
+				0.03
+			],
+			"p_upper_min_med_max": [
+				0.903,
+				0.903,
+				0.903
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window05": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0304,
+				0.0304,
+				0.0304
+			],
+			"p_upper_min_med_max": [
+				0.898,
+				0.898,
+				0.898
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window06": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0282,
+				0.0282,
+				0.0282
+			],
+			"p_upper_min_med_max": [
+				0.918,
+				0.918,
+				0.918
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window07": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0268,
+				0.0268,
+				0.0268
+			],
+			"p_upper_min_med_max": [
+				0.922,
+				0.922,
+				0.922
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window08": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0276,
+				0.0276,
+				0.0276
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window09": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0287,
+				0.0287,
+				0.0287
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window10": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0293,
+				0.0293,
+				0.0293
+			],
+			"p_upper_min_med_max": [
+				0.913,
+				0.913,
+				0.913
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window11": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0306,
+				0.0306,
+				0.0306
+			],
+			"p_upper_min_med_max": [
+				0.896,
+				0.896,
+				0.896
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window12": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.026,
+				0.026,
+				0.026
+			],
+			"p_upper_min_med_max": [
+				0.927,
+				0.927,
+				0.927
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window13": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0301,
+				0.0301,
+				0.0301
+			],
+			"p_upper_min_med_max": [
+				0.902,
+				0.902,
+				0.902
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window14": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0282,
+				0.0282,
+				0.0282
+			],
+			"p_upper_min_med_max": [
+				0.918,
+				0.918,
+				0.918
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window15": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.041,
+				0.041,
+				0.041
+			],
+			"p_upper_min_med_max": [
+				0.591,
+				0.591,
+				0.591
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window16": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0422,
+				0.0422,
+				0.0422
+			],
+			"p_upper_min_med_max": [
+				0.564,
+				0.564,
+				0.564
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window17": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0447,
+				0.0447,
+				0.0447
+			],
+			"p_upper_min_med_max": [
+				0.536,
+				0.536,
+				0.536
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window18": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0437,
+				0.0437,
+				0.0437
+			],
+			"p_upper_min_med_max": [
+				0.544,
+				0.544,
+				0.544
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window19": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0457,
+				0.0457,
+				0.0457
+			],
+			"p_upper_min_med_max": [
+				0.526,
+				0.526,
+				0.526
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window20": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0438,
+				0.0438,
+				0.0438
+			],
+			"p_upper_min_med_max": [
+				0.543,
+				0.543,
+				0.543
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window21": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0432,
+				0.0432,
+				0.0432
+			],
+			"p_upper_min_med_max": [
+				0.556,
+				0.556,
+				0.556
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window22": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0416,
+				0.0416,
+				0.0416
+			],
+			"p_upper_min_med_max": [
+				0.574,
+				0.574,
+				0.574
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window23": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0448,
+				0.0448,
+				0.0448
+			],
+			"p_upper_min_med_max": [
+				0.536,
+				0.536,
+				0.536
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window24": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0412,
+				0.0412,
+				0.0412
+			],
+			"p_upper_min_med_max": [
+				0.586,
+				0.586,
+				0.586
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window25": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.042,
+				0.042,
+				0.042
+			],
+			"p_upper_min_med_max": [
+				0.566,
+				0.566,
+				0.566
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window26": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0429,
+				0.0429,
+				0.0429
+			],
+			"p_upper_min_med_max": [
+				0.559,
+				0.559,
+				0.559
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window27": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.048,
+				0.048,
+				0.048
+			],
+			"p_upper_min_med_max": [
+				0.427,
+				0.427,
+				0.427
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window28": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0422,
+				0.0422,
+				0.0422
+			],
+			"p_upper_min_med_max": [
+				0.564,
+				0.564,
+				0.564
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window29": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0408,
+				0.0408,
+				0.0408
+			],
+			"p_upper_min_med_max": [
+				0.598,
+				0.598,
+				0.598
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window30": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0255,
+				0.0255,
+				0.0255
+			],
+			"p_upper_min_med_max": [
+				0.927,
+				0.927,
+				0.927
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window31": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0266,
+				0.0266,
+				0.0266
+			],
+			"p_upper_min_med_max": [
+				0.923,
+				0.923,
+				0.923
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window32": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0253,
+				0.0253,
+				0.0253
+			],
+			"p_upper_min_med_max": [
+				0.927,
+				0.927,
+				0.927
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window33": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0289,
+				0.0289,
+				0.0289
+			],
+			"p_upper_min_med_max": [
+				0.915,
+				0.915,
+				0.915
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window34": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0285,
+				0.0285,
+				0.0285
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window35": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0266,
+				0.0266,
+				0.0266
+			],
+			"p_upper_min_med_max": [
+				0.923,
+				0.923,
+				0.923
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window36": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0269,
+				0.0269,
+				0.0269
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window37": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0273,
+				0.0273,
+				0.0273
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window38": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0262,
+				0.0262,
+				0.0262
+			],
+			"p_upper_min_med_max": [
+				0.925,
+				0.925,
+				0.925
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window39": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0298,
+				0.0298,
+				0.0298
+			],
+			"p_upper_min_med_max": [
+				0.908,
+				0.908,
+				0.908
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window40": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0283,
+				0.0283,
+				0.0283
+			],
+			"p_upper_min_med_max": [
+				0.918,
+				0.918,
+				0.918
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window41": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0268,
+				0.0268,
+				0.0268
+			],
+			"p_upper_min_med_max": [
+				0.922,
+				0.922,
+				0.922
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window42": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0269,
+				0.0269,
+				0.0269
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window43": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0279,
+				0.0279,
+				0.0279
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window44": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0244,
+				0.0244,
+				0.0244
+			],
+			"p_upper_min_med_max": [
+				0.928,
+				0.928,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window45": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0318,
+				0.0318,
+				0.0318
+			],
+			"p_upper_min_med_max": [
+				0.861,
+				0.861,
+				0.861
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window46": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.029,
+				0.029,
+				0.029
+			],
+			"p_upper_min_med_max": [
+				0.915,
+				0.915,
+				0.915
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window47": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0269,
+				0.0269,
+				0.0269
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window48": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0301,
+				0.0301,
+				0.0301
+			],
+			"p_upper_min_med_max": [
+				0.902,
+				0.902,
+				0.902
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window49": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0287,
+				0.0287,
+				0.0287
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window50": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0316,
+				0.0316,
+				0.0316
+			],
+			"p_upper_min_med_max": [
+				0.875,
+				0.875,
+				0.875
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window51": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0293,
+				0.0293,
+				0.0293
+			],
+			"p_upper_min_med_max": [
+				0.913,
+				0.913,
+				0.913
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window52": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0299,
+				0.0299,
+				0.0299
+			],
+			"p_upper_min_med_max": [
+				0.905,
+				0.905,
+				0.905
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window53": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0301,
+				0.0301,
+				0.0301
+			],
+			"p_upper_min_med_max": [
+				0.902,
+				0.902,
+				0.902
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window54": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0286,
+				0.0286,
+				0.0286
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window55": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0289,
+				0.0289,
+				0.0289
+			],
+			"p_upper_min_med_max": [
+				0.915,
+				0.915,
+				0.915
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window56": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0286,
+				0.0286,
+				0.0286
+			],
+			"p_upper_min_med_max": [
+				0.917,
+				0.917,
+				0.917
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window57": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.031,
+				0.031,
+				0.031
+			],
+			"p_upper_min_med_max": [
+				0.888,
+				0.888,
+				0.888
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window58": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0315,
+				0.0315,
+				0.0315
+			],
+			"p_upper_min_med_max": [
+				0.875,
+				0.875,
+				0.875
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A2/window59": {
+			"windows": 1,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0269,
+				0.0269,
+				0.0269
+			],
+			"p_upper_min_med_max": [
+				0.92,
+				0.92,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A5": {
+			"windows": 58,
+			"accounts": 6,
+			"score_q05_50_95": [
+				0.0261,
+				0.0291,
+				0.0443
+			],
+			"p_upper_min_med_max": [
+				0.534,
+				0.915,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"A6": {
+			"windows": 60,
+			"accounts": 6,
+			"score_q05_50_95": [
+				0.0021,
+				0.0037,
+				0.0065
+			],
+			"p_upper_min_med_max": [
+				0.952,
+				0.997,
+				1.0
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.983
+		},
+		"A7": {
+			"windows": 60,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0049,
+				0.0062,
+				0.0102
+			],
+			"p_upper_min_med_max": [
+				0.935,
+				0.965,
+				0.997
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.833
+		},
+		"benign_test/generalist": {
+			"windows": 16,
+			"accounts": 9,
+			"score_q05_50_95": [
+				0.0054,
+				0.0119,
+				0.0233
+			],
+			"p_upper_min_med_max": [
+				0.93,
+				0.937,
+				0.993
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.125
+		},
+		"benign_test/generalist/batch": {
+			"windows": 5,
+			"accounts": 3,
+			"score_q05_50_95": [
+				0.0047,
+				0.0099,
+				0.0151
+			],
+			"p_upper_min_med_max": [
+				0.935,
+				0.945,
+				0.993
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.4
+		},
+		"benign_test/generalist/bursty": {
+			"windows": 6,
+			"accounts": 5,
+			"score_q05_50_95": [
+				0.0083,
+				0.0102,
+				0.0233
+			],
+			"p_upper_min_med_max": [
+				0.93,
+				0.945,
+				0.95
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/generalist/domains=2": {
+			"windows": 3,
+			"accounts": 3,
+			"score_q05_50_95": [
+				0.0063,
+				0.0232,
+				0.0233
+			],
+			"p_upper_min_med_max": [
+				0.93,
+				0.93,
+				0.993
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.333
+		},
+		"benign_test/generalist/domains=3": {
+			"windows": 7,
+			"accounts": 3,
+			"score_q05_50_95": [
+				0.0078,
+				0.0131,
+				0.0151
+			],
+			"p_upper_min_med_max": [
+				0.935,
+				0.935,
+				0.98
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.143
+		},
+		"benign_test/generalist/domains=4": {
+			"windows": 6,
+			"accounts": 5,
+			"score_q05_50_95": [
+				0.0082,
+				0.0092,
+				0.0107
+			],
+			"p_upper_min_med_max": [
+				0.94,
+				0.95,
+				0.95
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/generalist/repetitive": {
+			"windows": 5,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0094,
+				0.013,
+				0.0136
+			],
+			"p_upper_min_med_max": [
+				0.935,
+				0.935,
+				0.95
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist": {
+			"windows": 182,
+			"accounts": 91,
+			"score_q05_50_95": [
+				0.0267,
+				0.0442,
+				0.1144
+			],
+			"p_upper_min_med_max": [
+				0.003,
+				0.539,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.077,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist/batch": {
+			"windows": 93,
+			"accounts": 41,
+			"score_q05_50_95": [
+				0.0261,
+				0.0427,
+				0.1144
+			],
+			"p_upper_min_med_max": [
+				0.003,
+				0.559,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.075,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist/bursty": {
+			"windows": 71,
+			"accounts": 39,
+			"score_q05_50_95": [
+				0.0303,
+				0.045,
+				0.1042
+			],
+			"p_upper_min_med_max": [
+				0.018,
+				0.534,
+				0.925
+			],
+			"share_p_upper_le_0.05": 0.056,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist/domains=1": {
+			"windows": 182,
+			"accounts": 91,
+			"score_q05_50_95": [
+				0.0267,
+				0.0442,
+				0.1144
+			],
+			"p_upper_min_med_max": [
+				0.003,
+				0.539,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.077,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist/repetitive": {
+			"windows": 9,
+			"accounts": 5,
+			"score_q05_50_95": [
+				0.0264,
+				0.0917,
+				0.1295
+			],
+			"p_upper_min_med_max": [
+				0.003,
+				0.114,
+				0.928
+			],
+			"share_p_upper_le_0.05": 0.333,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"benign_test/specialist/specialist": {
+			"windows": 9,
+			"accounts": 6,
+			"score_q05_50_95": [
+				0.0355,
+				0.0477,
+				0.0971
+			],
+			"p_upper_min_med_max": [
+				0.088,
+				0.444,
+				0.785
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"probe/random-ag_news": {
+			"windows": 10,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0278,
+				0.0289,
+				0.0296
+			],
+			"p_upper_min_med_max": [
+				0.908,
+				0.916,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"probe/random-coding": {
+			"windows": 10,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0256,
+				0.028,
+				0.0294
+			],
+			"p_upper_min_med_max": [
+				0.908,
+				0.918,
+				0.927
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"probe/random-gsm8k": {
+			"windows": 6,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0414,
+				0.0431,
+				0.0468
+			],
+			"p_upper_min_med_max": [
+				0.479,
+				0.553,
+				0.583
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"probe/random-squad": {
+			"windows": 10,
+			"accounts": 1,
+			"score_q05_50_95": [
+				0.0273,
+				0.028,
+				0.0305
+			],
+			"p_upper_min_med_max": [
+				0.896,
+				0.918,
+				0.92
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.0
+		},
+		"probe/uniform-mixture": {
+			"windows": 100,
+			"accounts": 10,
+			"score_q05_50_95": [
+				0.0049,
+				0.0081,
+				0.0123
+			],
+			"p_upper_min_med_max": [
+				0.935,
+				0.95,
+				0.997
+			],
+			"share_p_upper_le_0.05": 0.0,
+			"share_p_lower_le_0.05": 0.43
+		}
+	},
+	"benign_test_spearman_score_vs_top_domain_share": 0.4720359679370673,
+	"benign_test_spearman_score_vs_domain_count": -0.4720702875069112
+}
