@@ -1,5 +1,6 @@
 """Command-line interface for calibrating the harness and replaying request streams."""
 
+import hashlib
 import json
 import os
 import secrets
@@ -62,6 +63,9 @@ def calibrate_command(
 		),
 	] = "text",
 	window_size: Annotated[int, typer.Option(min=2)] = 100,
+	mixture_control_required: bool = False,
+	validation_report: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	allow_invalid_workload: bool = False,
 	seed: int = 42,
 	device: str | None = None,
 ) -> None:
@@ -72,14 +76,62 @@ def calibrate_command(
 	"""
 	from harness.encoder import BGEEncoder
 
-	calibration, references = calibrate(
-		config=HarnessConfig(task=task, window_size=window_size, seed=seed),
-		encoder=BGEEncoder(device=device),
-		fitting=read_requests(fitting),
-		score_calibration=read_requests(score_calibration),
-		policy_calibration=read_requests(policy_calibration),
-		log=lambda message: typer.echo(f"calibrate: {message}", err=True),
+	paths = {
+		"reference_fit": fitting,
+		"score_calibration": score_calibration,
+		"policy_development": policy_calibration,
+	}
+	rows = {role: read_requests(path) for role, path in paths.items()}
+	new_workload = any(
+		row.workload_version == "gateway-clients-v5" for values in rows.values() for row in values
 	)
+	validation = None
+	if new_workload:
+		issues = []
+		if any(
+			row.workload_version != "gateway-clients-v5"
+			for values in rows.values()
+			for row in values
+		):
+			issues.append("mixed or missing workload versions")
+		if validation_report is None:
+			issues.append("validation report is required")
+		else:
+			validation = json.loads(validation_report.read_text())
+			if validation.get("version") != "role-validation-v1" or not validation.get("passed"):
+				issues.append("role validation did not pass")
+			for role, path in paths.items():
+				if (
+					validation.get("detector_sha256", {}).get(role)
+					!= hashlib.sha256(path.read_bytes()).hexdigest()
+				):
+					issues.append(f"{role} detector input hash mismatch")
+		if issues and not allow_invalid_workload:
+			raise typer.BadParameter("; ".join(issues))
+		validation = {
+			"passed": not issues,
+			"reasons": issues,
+			"override": bool(issues and allow_invalid_workload),
+			"report_sha256": hashlib.sha256(validation_report.read_bytes()).hexdigest()
+			if validation_report
+			else None,
+		}
+
+	calibration, references = calibrate(
+		config=HarnessConfig(
+			task=task,
+			window_size=window_size,
+			seed=seed,
+			mixture_control_required=mixture_control_required,
+		),
+		encoder=BGEEncoder(device=device),
+		fitting=rows["reference_fit"],
+		score_calibration=rows["score_calibration"],
+		policy_calibration=rows["policy_development"],
+		log=lambda message: typer.echo(f"calibrate: {message}", err=True),
+		input_validation=validation,
+	)
+	calibration.input_validation = validation
 	save_calibration(output_dir, calibration, references)
 	typer.echo(
 		json.dumps(
@@ -240,3 +292,18 @@ def pool_accounts_command(
 	output.parent.mkdir(parents=True, exist_ok=True)
 	output.write_text("".join(row.model_dump_json() + "\n" for row in rows), encoding="utf-8")
 	typer.echo(f"wrote {len(rows):,} requests in {len({r.account for r in rows}):,} accounts")
+
+
+@app.command("adequacy")
+def adequacy_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+) -> None:
+	"""Write the selected MMD and quota adequacy verdict; fail when inadequate."""
+	calibration, _ = load_calibration(calibration_dir)
+	report = calibration.adequacy(accumulators=("paper", "instantaneous"), baselines=("quota",))
+	with output.open("x", encoding="utf-8") as target:
+		json.dump(report, target, indent="\t")
+		target.write("\n")
+	if not report["passed"]:
+		raise typer.Exit(code=1)

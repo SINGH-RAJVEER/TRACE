@@ -54,7 +54,7 @@ def test_timing_reports_first_reach_per_account_stops_and_tail_latency(tmp_path:
 	timing = campaign_timing(tmp_path)
 	l1, l4 = timing["levels"]["L1"], timing["levels"]["L4"]
 	assert (l1["attempt_index"], l1["seconds"], l1["account"], l1["domain"]) == (2, 1, "a", "squad")
-	assert l1["received_before"] == {"ag_news": {"responses": 1, "tokens": 10}}
+	assert l1["received_before"] == {"ag_news": {"responses": 1, "tokens": 10, "unknown_tokens": 0}}
 	assert l4["seconds"] == 3 and l4["received_before"]["squad"]["responses"] == 2
 	assert timing["accounts"]["a"]["stopped"] and timing["accounts"]["a"]["stop_seconds"] == 3
 	# One block after a success is not a stop, so the campaign has not stopped.
