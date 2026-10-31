@@ -35,7 +35,7 @@ Benign utility on the held-out benign workload (24,047 requests), measured live 
 | `instantaneous` | 6,346 | 0.264 | 0.232 | 0.878 | 1 (to L2) |
 | `quota` | 6,589 | 0.274 | 0.240 | 0.877 | 0 |
 
-Bare-teacher test scores from the first teacher slot (`Qwen3.5-9B`, fp8, non-thinking): AG News 85.38% accuracy on 7,600 items, SQuAD 88.82 F1 on 10,570 items. GSM8K and coding were interrupted and rerun in the resumed study.
+Bare-teacher test scores from the first teacher slot (`Qwen3.5-9B`, fp8, non-thinking): AG News 85.38% accuracy on 7,600 items, SQuAD 88.82 F1 on 10,570 items. GSM8K and coding were interrupted and rerun in the resumed study. The interrupted GSM8K teacher run's per-item samples are kept under [teacher/gsm8k.interrupted/](teacher/gsm8k.interrupted/): 1,039 of 1,319 test items, 239 correct, 799 stopped at the 256-token cap. They are partial and are not a teacher score.
 
 ## A2 protected attempts
 
@@ -67,7 +67,7 @@ Before any protected collection, the run trained six shared students (Qwen3.5-2B
 | lr 2e-4, 2 epochs | 85.0 | 80.1 | 27.9 | 63.2 | 3.125 |
 | lr 2e-4, 3 epochs | 83.2 | 80.2 | 32.2 | 63.4 | 2.75 |
 
-On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/development/).
+On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/development/). Each trial directory also holds its prompt inventory (`prompts.jsonl`) and per-response usability reviews (`reviews.jsonl`), and [development-suites/](development-suites/) holds the frozen source-disjoint selection and qualification suites with their split records; these are stored in Git LFS.
 
 ## Calibration, workloads and schedules
 

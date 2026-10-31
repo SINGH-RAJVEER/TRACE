@@ -29,7 +29,7 @@ Usability review (`task-usability-v1`, no gold labels) accepted 4,816 responses 
 
 ## Files
 
-`adapter/` holds the final adapter, tokenizer files, chat template, and the training manifest. Intermediate checkpoints and optimizer state are not included. `train.toml`, `provenance.json`, `train.manifest.json` and `reviews.summary.json` are the run's configuration and data summaries; `training.log` is the training output. Weights, `training_args.bin`, `tokenizer.json`, and the log are stored with Git LFS. The training rows, prompts and per-response reviews stay on the run machine under `artifacts/undefended-a2-benchmark/`; the ledger they derive from is committed with v2.
+`adapter/` holds the final adapter, tokenizer files, chat template, and the training manifest. Intermediate checkpoints and optimizer state are not included. `train.toml`, `provenance.json`, `train.manifest.json` and `reviews.summary.json` are the run's configuration and data summaries; `training.log` is the training output. Weights, `training_args.bin`, `tokenizer.json`, and the log are stored with Git LFS. `train.jsonl` (the 4,816 training rows), `prompts.jsonl` (the 6,000 prompts) and `reviews.jsonl` (per-response usability reviews) are included in Git LFS; the ledger they derive from is committed with v2.
 
 ## Limitations
 

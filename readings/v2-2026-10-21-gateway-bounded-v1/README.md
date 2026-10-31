@@ -2,7 +2,7 @@
 
 This is an **interim** record of the shared gateway study, which is still running. It holds the complete undefended ledgers: the teacher's responses to every attacker campaign, collected directly from the teacher with no harness in the path. The protected campaigns, students, and final results will be added when the run finishes.
 
-Every ledger, campaign summary, and execution contract is committed under [`ledgers/`](ledgers/). [`ledgers/manifest.json`](ledgers/manifest.json) lists each file's SHA-256, size, record count, token count, and generation window.
+Every ledger, campaign summary, and execution contract is committed under [`ledgers/`](ledgers/). [`ledgers/manifest.json`](ledgers/manifest.json) lists each file's SHA-256, size, record count, token count, and generation window. Each campaign directory, including `development/campaign/`, also holds its per-attempt record (`attempts.jsonl`) and event log (`campaign.events.jsonl`), added on 2026-10-31 and stored in Git LFS; the manifest predates them and does not list them.
 
 ## Run so far
 
