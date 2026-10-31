@@ -7,10 +7,8 @@ for that request (paper Section III-D).
 """
 
 import hashlib
-import math
-from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 import numpy as np
@@ -21,6 +19,7 @@ from harness.encoder import Encoder
 from harness.mmd import Array, WindowScorer, distinct
 from harness.pow import Challenge, ChallengeBook
 from harness.serialization import detector_text
+from harness.store import AccountState, MemoryStore, StateStore, Transaction
 
 Action = Literal["serve", "challenge", "refuse"]
 
@@ -49,6 +48,9 @@ class Decision:
 	# When a window raises the level: the window's requests with the largest MMD witness,
 	# as (request digest, witness) pairs, most anomalous first.
 	witness: tuple[tuple[str, float], ...] = ()
+	# Start of the account horizon the attempt was counted in. With the account and attempt,
+	# it identifies the admission in the release ledger.
+	horizon: float = 0.0
 
 	def client_view(self) -> dict[str, Any]:
 		view: dict[str, Any] = {"action": self.action, "release_at": self.release_at}
@@ -63,6 +65,16 @@ class Decision:
 
 
 class Policy(Protocol):
+	def admit_in_transaction(
+		self,
+		tx: Transaction,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> Decision: ...
+
 	def admit(
 		self,
 		account: str,
@@ -77,24 +89,12 @@ def request_digest(text: str) -> str:
 	return hashlib.sha256(text.encode()).hexdigest()
 
 
-@dataclass
-class AccountState:
-	horizon_start: float
-	attempts: int = 0
-	level: int = 0
-	statistic: float = 0.0
-	windows: int = 0
-	submitted_windows: int = 0
-	buffer: list[Array] = field(default_factory=list)
-	buffer_digests: list[str] = field(default_factory=list)
-	last_release: float = -math.inf
-	recent: deque[float] = field(default_factory=deque)
-
-
 @dataclass(frozen=True)
 class ScoreWindow:
+	"""A completed window waiting for an off-path score, keyed by the horizon it closed in."""
+
 	account: str
-	state: AccountState
+	horizon_start: float
 	sequence: int
 	horizon_sequence: int
 	closed_at: float
@@ -103,31 +103,27 @@ class ScoreWindow:
 
 
 class _HorizonPolicy:
-	"""Keeps one state per account and starts a fresh one when a policy horizon ends."""
+	"""Keeps one state per account and starts a fresh one when a policy horizon ends.
 
-	def __init__(self, horizon_seconds: float, horizon_attempts: int) -> None:
+	State lives in a store, in memory unless one is passed. Each admission reads, decides, and
+	writes back in one store transaction, so a durable store keeps attempts, levels, partial
+	windows, and open challenges across restarts and serializes concurrent admissions.
+	"""
+
+	# Whether the horizon attempt cap applies; the undefended arm serves past it.
+	capped = True
+
+	def __init__(
+		self, horizon_seconds: float, horizon_attempts: int, store: StateStore | None = None
+	) -> None:
 		self.horizon_seconds = horizon_seconds
 		self.horizon_attempts = horizon_attempts
-		self.accounts: dict[str, AccountState] = {}
+		self.store: StateStore = store or MemoryStore()
 
-	def _state(self, account: str, now: float) -> AccountState:
-		state = self.accounts.get(account)
-		if state is None or now - state.horizon_start >= self.horizon_seconds:
-			state = AccountState(horizon_start=now)
-			self.accounts[account] = state
-		state.attempts += 1
-		return state
-
-	def _at_capacity(self, account: str, state: AccountState, now: float) -> Decision | None:
-		"""The attempt cap denies new admissions; only elapsed time can renew it."""
-		if state.attempts > self.horizon_attempts:
-			state.level = 4
-			return Decision(account, state.attempts, 4, "refuse", now)
-		return None
-
-
-class AllowPolicy(_HorizonPolicy):
-	"""The undefended service: every request is served immediately."""
+	def state(self, account: str) -> AccountState | None:
+		"""The account's stored state, for inspection."""
+		with self.store.transaction() as tx:
+			return tx.account(account)
 
 	def admit(
 		self,
@@ -137,28 +133,85 @@ class AllowPolicy(_HorizonPolicy):
 		embedding: Array | None = None,
 		binding: str | None = None,
 	) -> Decision:
-		state = self._state(account, now)
+		with self.store.transaction() as tx:
+			return self.admit_in_transaction(tx, account, text, now, embedding, binding)
+
+	def admit_in_transaction(
+		self,
+		tx: Transaction,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> Decision:
+		state = tx.account(account)
+		if state is None or now - state.horizon_start >= self.horizon_seconds:
+			state = AccountState(horizon_start=now)
+		state.attempts += 1
+		if self.capped and state.attempts > self.horizon_attempts:
+			# The attempt cap denies new admissions; only elapsed time can renew it.
+			state.level = 4
+			decision = Decision(account, state.attempts, 4, "refuse", now)
+		else:
+			decision = self._decide(tx, account, state, text, now, embedding, binding)
+		tx.put_account(account, state)
+		return replace(decision, horizon=state.horizon_start)
+
+	def _decide(
+		self,
+		tx: Transaction,
+		account: str,
+		state: AccountState,
+		text: str,
+		now: float,
+		embedding: Array | None,
+		binding: str | None,
+	) -> Decision:
+		raise NotImplementedError
+
+
+class AllowPolicy(_HorizonPolicy):
+	"""The undefended service: every request is served immediately."""
+
+	capped = False
+
+	def _decide(
+		self,
+		tx: Transaction,
+		account: str,
+		state: AccountState,
+		text: str,
+		now: float,
+		embedding: Array | None,
+		binding: str | None,
+	) -> Decision:
 		return Decision(account, state.attempts, 0, "serve", now)
 
 
 class QuotaPolicy(_HorizonPolicy):
 	"""Blocks an account for the rest of the horizon once it exceeds a request quota."""
 
-	def __init__(self, quota: float, horizon_seconds: float, horizon_attempts: int) -> None:
-		super().__init__(horizon_seconds, horizon_attempts)
+	def __init__(
+		self,
+		quota: float,
+		horizon_seconds: float,
+		horizon_attempts: int,
+		store: StateStore | None = None,
+	) -> None:
+		super().__init__(horizon_seconds, horizon_attempts, store)
 		self.quota = quota
 
-	def admit(
+	def _decide(
 		self,
+		tx: Transaction,
 		account: str,
+		state: AccountState,
 		text: str,
 		now: float,
-		embedding: Array | None = None,
-		binding: str | None = None,
+		embedding: Array | None,
+		binding: str | None,
 	) -> Decision:
-		state = self._state(account, now)
-		if capped := self._at_capacity(account, state, now):
-			return capped
 		if state.level >= 4 or state.attempts > self.quota:
 			state.level = 4
 			return Decision(account, state.attempts, 4, "refuse", now)
@@ -168,21 +221,26 @@ class QuotaPolicy(_HorizonPolicy):
 class RatePolicy(_HorizonPolicy):
 	"""Blocks an account for the rest of the horizon once it exceeds a per-minute rate."""
 
-	def __init__(self, per_minute: float, horizon_seconds: float, horizon_attempts: int) -> None:
-		super().__init__(horizon_seconds, horizon_attempts)
+	def __init__(
+		self,
+		per_minute: float,
+		horizon_seconds: float,
+		horizon_attempts: int,
+		store: StateStore | None = None,
+	) -> None:
+		super().__init__(horizon_seconds, horizon_attempts, store)
 		self.per_minute = per_minute
 
-	def admit(
+	def _decide(
 		self,
+		tx: Transaction,
 		account: str,
+		state: AccountState,
 		text: str,
 		now: float,
-		embedding: Array | None = None,
-		binding: str | None = None,
+		embedding: Array | None,
+		binding: str | None,
 	) -> Decision:
-		state = self._state(account, now)
-		if capped := self._at_capacity(account, state, now):
-			return capped
 		if state.level >= 4:
 			return Decision(account, state.attempts, 4, "refuse", now)
 		state.recent.append(now)
@@ -228,16 +286,22 @@ class MMDPolicy(_HorizonPolicy):
 		witness_size: int = 5,
 		actions: Literal["graduated", "direct"] = "graduated",
 		submit_window: Callable[[ScoreWindow], None] | None = None,
+		store: StateStore | None = None,
+		policy_version: Literal["legacy-v1", "verify-risk-v2"] = "legacy-v1",
 	) -> None:
 		calibration.require_current_policy()
 		config: HarnessConfig = calibration.config
 		if config.task == "coding" and l4_action == "deceive":
 			raise ValueError("coding deception is not implemented; use L4 refusal")
-		if l4_action == "deceive" and not deception_key:
+		if l4_action == "deceive" and policy_version == "legacy-v1" and not deception_key:
 			raise ValueError("deception needs a secret key")
 		if not 0 <= deception_rate <= 1:
 			raise ValueError("deception_rate must be in [0, 1]")
-		super().__init__(config.horizon_seconds, config.horizon_attempts)
+		if policy_version not in ("legacy-v1", "verify-risk-v2"):
+			raise ValueError("unknown policy version")
+		if policy_version == "verify-risk-v2" and actions != "graduated":
+			raise ValueError("verify-risk-v2 requires graduated actions")
+		super().__init__(config.horizon_seconds, config.horizon_attempts, store)
 		if accumulator not in calibration.thresholds:
 			raise ValueError(f"the calibration has no thresholds for {accumulator!r}")
 		if thresholds == "ville" and config.accumulators[accumulator].kind != "e_process":
@@ -255,6 +319,7 @@ class MMDPolicy(_HorizonPolicy):
 		self.deception_key = deception_key or b""
 		self.witness_size = witness_size
 		self.actions: Literal["graduated", "direct"] = actions
+		self.policy_version = policy_version
 		self.submit_window = submit_window
 		self.window_sequence = 0
 
@@ -262,24 +327,34 @@ class MMDPolicy(_HorizonPolicy):
 		keys = list(work.digests) if self.calibration.config.distinct_prompts else None
 		return float(self.scorer.score(work.window, keys))
 
-	def apply_window(self, work: ScoreWindow, score: float) -> bool:
-		"""Apply ordered evidence only to the horizon that produced it."""
-		state = work.state
-		if self.accounts.get(work.account) is not state:
-			return False
+	def apply_window(self, tx: Transaction, work: ScoreWindow, score: float) -> AccountState | None:
+		"""Apply ordered evidence only to the horizon that produced it.
+
+		Returns the updated state, or None when the account has since started a new horizon.
+		"""
+		state = tx.account(work.account)
+		if state is None or state.horizon_start != work.horizon_start:
+			return None
 		state.windows += 1
 		state.statistic = self.spec.update(state.statistic, self.calibration.p_value(score))
 		reached = self.calibration.level(self.accumulator, state.statistic, self.threshold_mode)
 		if self.actions == "direct":
 			reached = 4 if reached >= 4 else 0
 		state.level = max(state.level, reached)
-		return True
+		tx.put_account(work.account, state)
+		return state
 
 	def _respond(
-		self, account: str, state: AccountState, text: str, now: float, binding: str
+		self,
+		tx: Transaction,
+		account: str,
+		state: AccountState,
+		text: str,
+		now: float,
+		binding: str,
 	) -> tuple[Action, float, Challenge | None, bool]:
 		"""The action, release time, challenge, and deception flag for the current level."""
-		if state.level >= 4 and self.l4_action == "refuse":
+		if state.level >= 4 and self.l4_action == "refuse" and self.policy_version == "legacy-v1":
 			return "refuse", now, None, False
 		if state.level < 2:
 			# An L0 or L1 admission still counts as the previous release, so L2 spacing
@@ -290,28 +365,39 @@ class MMDPolicy(_HorizonPolicy):
 		state.last_release = release_at
 		if state.level < 3:
 			return "serve", release_at, None, False
-		challenge = self.challenges.issue(account, request_digest(binding), now)
-		deceive = state.level >= 4 and (
-			keyed_unit(self.deception_key, "rate", request_digest(text)) < self.deception_rate
+		deceive = (
+			self.policy_version == "legacy-v1"
+			and state.level >= 4
+			and (keyed_unit(self.deception_key, "rate", request_digest(text)) < self.deception_rate)
 		)
+		# The challenge holds what its solution releases, so a restart cannot lose it.
+		held = {
+			"attempt": state.attempts,
+			"level": state.level,
+			"release_at": release_at,
+			"deceive": deceive,
+			"horizon": state.horizon_start,
+		}
+		challenge = self.challenges.issue(tx, account, request_digest(binding), now, held)
 		return "challenge", release_at, challenge, deceive
 
-	def admit(
+	def _decide(
 		self,
+		tx: Transaction,
 		account: str,
+		state: AccountState,
 		text: str,
 		now: float,
-		embedding: Array | None = None,
-		binding: str | None = None,
+		embedding: Array | None,
+		binding: str | None,
 	) -> Decision:
 		"""Decide one request. A challenge binds to `binding`, by default the text; a server
 		passes the whole canonical request so a solution cannot be reused with other settings."""
 		bound = text if binding is None else binding
-		state = self._state(account, now)
-		if capped := self._at_capacity(account, state, now):
-			return capped
 		if state.level >= 4:
-			action, release_at, challenge, deceive = self._respond(account, state, text, now, bound)
+			action, release_at, challenge, deceive = self._respond(
+				tx, account, state, text, now, bound
+			)
 			return Decision(
 				account, state.attempts, 4, action, release_at, challenge=challenge, deceive=deceive
 			)
@@ -332,7 +418,7 @@ class MMDPolicy(_HorizonPolicy):
 				self.submit_window(
 					ScoreWindow(
 						account,
-						state,
+						state.horizon_start,
 						self.window_sequence,
 						state.submitted_windows,
 						now,
@@ -343,7 +429,7 @@ class MMDPolicy(_HorizonPolicy):
 				state.buffer.clear()
 				state.buffer_digests.clear()
 				action, release_at, challenge, deceive = self._respond(
-					account, state, text, now, bound
+					tx, account, state, text, now, bound
 				)
 				return Decision(
 					account,
@@ -373,7 +459,7 @@ class MMDPolicy(_HorizonPolicy):
 			state.level = max(state.level, reached)
 			state.buffer.clear()
 			state.buffer_digests.clear()
-		action, release_at, challenge, deceive = self._respond(account, state, text, now, bound)
+		action, release_at, challenge, deceive = self._respond(tx, account, state, text, now, bound)
 		return Decision(
 			account,
 			state.attempts,
@@ -388,13 +474,46 @@ class MMDPolicy(_HorizonPolicy):
 			witness=witness,
 		)
 
-	def redeem(self, decision: Decision, binding: str, counter: int, now: float) -> bool:
-		"""Verify a challenge solution for the binding the challenge was issued for.
+	def redeem(
+		self, nonce: str, account: str, binding: str, counter: int, now: float
+	) -> Decision | None:
+		"""Verify a challenge solution for the account and binding it was issued for.
 
-		The output is released only when this returns True.
+		Returns the held decision whose output the solution releases, or None. A solution is
+		accepted once, also across restarts and connections sharing a durable store.
 		"""
-		if decision.challenge is None:
-			raise ValueError("this decision has no challenge")
-		return self.challenges.redeem(
-			decision.challenge.nonce, decision.account, request_digest(binding), counter, now
+		with self.store.transaction() as tx:
+			return self.redeem_in_transaction(tx, nonce, account, binding, counter, now)
+
+	def redeem_in_transaction(
+		self, tx: Transaction, nonce: str, account: str, binding: str, counter: int, now: float
+	) -> Decision | None:
+		"""Redeem inside the caller's transaction, so release accounting commits with it."""
+		state = tx.account(account)
+		if state is None or (
+			state.level >= 4 and self.l4_action == "refuse" and self.policy_version == "legacy-v1"
+		):
+			return None
+		found = self.challenges.redeem(tx, nonce, account, request_digest(binding), counter, now)
+		if found is None:
+			return None
+		challenge, held = found
+		# A proof cannot bypass a later escalation or outlive its horizon. A rejected proof
+		# stays consumed: the request needs a new admission, subject to the attempt cap.
+		if state.horizon_start != held["horizon"] or state.level > held["level"]:
+			return None
+		if self.policy_version == "verify-risk-v2" and (
+			now - state.horizon_start >= self.horizon_seconds
+			or state.attempts > self.horizon_attempts
+		):
+			return None
+		return Decision(
+			account,
+			held["attempt"],
+			held["level"],
+			"challenge",
+			held["release_at"],
+			challenge=challenge,
+			deceive=held["deceive"],
+			horizon=held["horizon"],
 		)

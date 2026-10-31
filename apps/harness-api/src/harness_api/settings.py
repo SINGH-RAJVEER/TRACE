@@ -21,6 +21,9 @@ class Settings(BaseSettings):
 	)
 	# "direct" replaces the graduated actions with blocking at the L4 threshold (an ablation).
 	actions: Literal["graduated", "direct"] = Field(default="graduated", alias="HARNESS_ACTIONS")
+	policy_version: Literal["legacy-v1", "verify-risk-v2"] = Field(
+		default="legacy-v1", alias="HARNESS_POLICY_VERSION"
+	)
 	l4_action: Literal["refuse", "deceive"] = Field(default="deceive", alias="HARNESS_L4_ACTION")
 	deception_rate: float = Field(default=1.0, ge=0, le=1, alias="HARNESS_DECEPTION_RATE")
 	# Hex secret, at least 16 bytes. Without it, the key file is read, or created on first start.
@@ -48,6 +51,19 @@ class Settings(BaseSettings):
 	trust_actor_header: bool = Field(default=False, alias="HARNESS_TRUST_ACTOR_HEADER")
 	# Test only: take the time from X-Harness-Time and never wait in real time.
 	test_clock: bool = Field(default=False, alias="HARNESS_TEST_CLOCK")
+
+	# Durable enforcement state: account horizons, open challenges, and the release ledger.
+	# Without it, state lives in this process and a restart renews every account. Use a new
+	# file for each arm; a file written under another policy or calibration is rejected.
+	state_db: Path | None = Field(default=None, alias="HARNESS_STATE_DB")
+	output_token_budget: int | None = Field(default=None, gt=0, alias="HARNESS_OUTPUT_TOKEN_BUDGET")
+	organization_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ORGANIZATION_TOKEN_BUDGET"
+	)
+	in_flight_limit: int | None = Field(default=None, gt=0, alias="HARNESS_IN_FLIGHT_LIMIT")
+	reservation_lease_seconds: float = Field(
+		default=600, gt=0, alias="HARNESS_RESERVATION_LEASE_SECONDS"
+	)
 
 	decision_log: Path = Field(
 		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"

@@ -94,9 +94,12 @@ def benign_command(
 		DEFAULT_MAX_REQUESTS_PER_ACCOUNT
 	),
 	seed: int = 42,
+	workload_version: str = "gateway-clients-v3",
 ) -> None:
 	"""Generate mixed benign clients for one separated calibration or test role."""
 	try:
+		if workload_version != "gateway-clients-v3":
+			raise ValueError("use gateway profile-build for source-family roles")
 		if role not in LEGITIMATE_ROLES:
 			raise ValueError(f"role must be one of {', '.join(LEGITIMATE_ROLES)}")
 		pools, caps, provenance = _pools(tasks_dir, domains, role)
@@ -269,13 +272,21 @@ def detector_input_command(
 				example_id=row.prompt.example_id,
 				source_group=f"{row.domain}:{row.prompt.source.group_id}",
 				client_type=row.client_type,
+				workload_version=manifest.get("version")
+				if manifest.get("version") == "gateway-clients-v5"
+				else None,
 			)
 			for row in rows
 		]
 		output.parent.mkdir(parents=True, exist_ok=True)
 		with output.open("x") as target:
 			for row in converted:
-				target.write(row.model_dump_json() + "\n")
+				target.write(
+					row.model_dump_json(
+						exclude={"workload_version"} if row.workload_version is None else set()
+					)
+					+ "\n"
+				)
 		typer.echo(f"requests={len(converted)} output={output}")
 	except (ValueError, OSError, KeyError, StopIteration) as error:
 		raise typer.BadParameter(str(error)) from None
@@ -370,5 +381,69 @@ def require_teacher_capacity_command(
 			raise ValueError("gateway schedule hash does not match its manifest")
 		require_capacity_pass(json.loads(evidence.read_text()), schedule_sha256=sha)
 		typer.echo("teacher capacity preflight passed")
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("profile-build")
+def profile_build_command(
+	source: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option()],
+	workload_version: str = "gateway-clients-v5",
+	horizons_per_profile: Annotated[int, typer.Option(min=1)] = 300,
+	requests_per_account: Annotated[int, typer.Option(min=1)] = 100,
+	seed: int = 42,
+) -> None:
+	"""Freeze source families and create five profile schedules and detector inputs."""
+	from distillation.profiles import PROFILE_WORKLOAD_VERSION, SCORED_PROFILES, profile_clients
+	from distillation.role_workflow import ROLES, SourceItem, build_roles
+	from distillation.tasks import TASKS
+
+	try:
+		if workload_version != PROFILE_WORKLOAD_VERSION:
+			raise ValueError(f"profile-build requires {PROFILE_WORKLOAD_VERSION}")
+		output.mkdir(parents=True, exist_ok=False)
+		build_roles(source, output / "roles", seed)
+		for role in ROLES:
+			items = read_jsonl(output / "roles" / f"{role}.jsonl", SourceItem)
+			pools: dict[str, list[PromptRecord]] = {}
+			for item in items:
+				pools.setdefault(item.prompt.task, []).append(item.prompt)
+			rows, manifest = profile_clients(
+				pools=pools,
+				caps={domain: TASKS[domain].max_output_tokens for domain in pools},
+				role=role,
+				accounts=horizons_per_profile * len(SCORED_PROFILES),
+				references={item.prompt.example_id: item.reference for item in items},
+				families={item.prompt.example_id: item.family for item in items},
+				short_share=0,
+				requests_per_account=requests_per_account,
+				seed=seed,
+				length_tail=None,
+				max_requests_per_account=requests_per_account,
+			)
+			_write(output / role, rows, manifest)
+			detector_input_command(output / role, output / f"{role}.detector.jsonl")
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("profile-validate")
+def profile_validate_command(
+	input_dir: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+	output: Annotated[Path, typer.Option()],
+	min_horizons: Annotated[int, typer.Option(min=1)] = 300,
+) -> None:
+	"""Check role provenance, leakage, topic mix, profile counts, and detector-input hashes."""
+	from distillation.role_workflow import validate_roles
+
+	try:
+		report = validate_roles(input_dir, min_horizons=min_horizons)
+		if output.exists():
+			raise ValueError("validation report already exists")
+		save_json(output, report)
+		typer.echo(json.dumps(report, indent="\t"))
+		if not report["passed"]:
+			raise typer.Exit(code=1)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None

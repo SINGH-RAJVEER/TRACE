@@ -7,8 +7,8 @@ from harness_api.settings import Settings
 
 def main() -> None:
 	settings = Settings()
-	# Account state, open challenges, and the aggregate stream live in this process, so the
-	# service must run as exactly one worker.
+	# The noise template lives in this process, and without HARNESS_STATE_DB so do account
+	# state, open challenges, and the aggregate stream, so the service runs as one worker.
 	uvicorn.run(
 		"harness_api.app:create_app",
 		factory=True,

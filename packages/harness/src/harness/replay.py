@@ -9,6 +9,7 @@ from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
 from harness.serialization import detector_text
+from harness.store import StateStore
 
 
 def make_policy(
@@ -22,18 +23,21 @@ def make_policy(
 	deception_rate: float = 1.0,
 	deception_key: bytes | None = None,
 	actions: Literal["graduated", "direct"] = "graduated",
+	store: StateStore | None = None,
 ) -> Policy:
 	config = calibration.config
 	calibration.require_current_policy()
 	horizon = (config.horizon_seconds, config.horizon_attempts)
 	if name == "allow":
-		return AllowPolicy(*horizon)
+		return AllowPolicy(*horizon, store=store)
 	if name == "quota":
-		return QuotaPolicy(calibration.baselines["quota"].thresholds[0], *horizon)
+		return QuotaPolicy(calibration.baselines["quota"].thresholds[0], *horizon, store=store)
 	if name == "rate":
 		if "rate_per_minute" not in calibration.baselines:
 			raise ValueError("the calibration has no rate cutoff; its requests had no times")
-		return RatePolicy(calibration.baselines["rate_per_minute"].thresholds[0], *horizon)
+		return RatePolicy(
+			calibration.baselines["rate_per_minute"].thresholds[0], *horizon, store=store
+		)
 	if name == "mmd":
 		return MMDPolicy(
 			calibration,
@@ -44,6 +48,7 @@ def make_policy(
 			deception_rate=deception_rate,
 			deception_key=deception_key,
 			actions=actions,
+			store=store,
 		)
 	raise ValueError("policy must be allow, quota, rate, or mmd")
 

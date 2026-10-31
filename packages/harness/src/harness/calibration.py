@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from harness.accumulators import DEFAULT_ACCUMULATORS, AccumulatorSpec
 from harness.encoder import Encoder
@@ -65,6 +65,18 @@ class HarnessConfig(BaseModel):
 	aggregate_alert_rate: float = Field(default=0.05, gt=0, lt=1)
 	seed: int = 42
 	aggregate_enabled: bool = True
+	mixture_control_required: bool = False
+
+	@field_validator("level_targets")
+	@classmethod
+	def valid_targets(
+		cls, values: tuple[float, float, float, float]
+	) -> tuple[float, float, float, float]:
+		if any(not 0 < value < 1 for value in values) or any(
+			a < b for a, b in zip(values, values[1:], strict=False)
+		):
+			raise ValueError("level targets must be in (0, 1) and nonincreasing")
+		return values
 
 
 class BenignRequest(BaseModel):
@@ -78,6 +90,7 @@ class BenignRequest(BaseModel):
 	example_id: str | None = None
 	source_group: str | None = None
 	client_type: str | None = None
+	workload_version: str | None = None
 
 
 class LevelThresholds(BaseModel):
@@ -87,6 +100,8 @@ class LevelThresholds(BaseModel):
 	units: int
 	# One-sided 95% Clopper-Pearson upper bounds on each achieved rate over `units`.
 	upper95: list[float] = Field(default_factory=list)
+	# Absent in legacy artifacts. These counts distinguish detector evidence from quota.
+	level_results: list[dict[str, Any]] | None = None
 
 
 class AggregateCalibration(BaseModel):
@@ -137,7 +152,37 @@ class Calibration(BaseModel):
 	aggregate_skipped: str | None = None
 	# Missing in artifacts calibrated before the control existed; they report no warning.
 	mixture_control: MixtureControl | None = None
+	input_validation: dict[str, Any] | None = None
 	_aggregate_references: Array | None = PrivateAttr(default=None)
+
+	def _level_report(
+		self, level: int, accumulators: tuple[str, ...], scored: int, null_windows: int
+	) -> dict[str, Any]:
+		"""One level's target, the sample sizes that resolve it, and its fitted evidence."""
+		target = self.config.level_targets[level - 1]
+		minimum_policy = math.ceil(1 / target)
+		results: dict[str, dict[str, Any] | None] = {}
+		for name in accumulators:
+			fitted = self.thresholds.get(name)
+			level_results = fitted.level_results if fitted is not None else None
+			results[name] = (
+				level_results[level - 1]
+				if level_results is not None and len(level_results) >= level
+				else None
+			)
+		legacy = any(
+			name not in self.thresholds or self.thresholds[name].level_results is None
+			for name in accumulators
+		)
+		return {
+			"target": target,
+			"minimum_policy_horizons": minimum_policy,
+			"minimum_score_windows": minimum_policy - 1,
+			"resolution_sufficient": scored >= minimum_policy
+			and (not accumulators or null_windows >= minimum_policy - 1),
+			"evidence_version": "legacy-inferred" if legacy else "level-results-v1",
+			"results": results,
+		}
 
 	def adequacy(
 		self,
@@ -145,6 +190,7 @@ class Calibration(BaseModel):
 		accumulators: tuple[str, ...] = (),
 		baselines: tuple[str, ...] = (),
 		allow_resolution_limited: bool = False,
+		levels: tuple[int, ...] = (1, 2, 3, 4),
 	) -> dict[str, Any]:
 		"""Minimum resolution for selected study defenses, not a false-positive guarantee.
 
@@ -154,12 +200,16 @@ class Calibration(BaseModel):
 		and small-sample level ties into warnings; invalid fits still fail closed. Legacy
 		artifacts without scored counts fail closed.
 		"""
-		target = min(self.config.level_targets)
+		if not levels or any(level not in range(1, LEVELS + 1) for level in levels):
+			raise ValueError("levels must select L1 through L4")
+		target = min(self.config.level_targets[level - 1] for level in levels)
 		minimum_policy = math.ceil(1 / target)
 		minimum_score = minimum_policy - 1
 		null_windows = self.counts.get("score_calibration_independent_windows", 0)
 		scored = self.counts.get("policy_calibration_scored_horizons", 0)
 		reasons: list[str] = []
+		if self.input_validation is not None and not self.input_validation.get("passed"):
+			reasons.append("workload input validation failed or was overridden")
 		resolution_reasons: list[str] = []
 		if accumulators:
 			if null_windows < minimum_score:
@@ -181,11 +231,35 @@ class Calibration(BaseModel):
 					)
 				):
 					reasons.append(f"{name}: level thresholds are collapsed or invalid")
-				elif len(set(fitted.thresholds)) != LEVELS:
+				elif len({fitted.thresholds[level - 1] for level in levels}) != len(set(levels)):
 					if scored < minimum_policy or null_windows < minimum_score:
 						resolution_reasons.append(f"{name}: level thresholds are collapsed")
 					else:
 						reasons.append(f"{name}: level thresholds are collapsed or invalid")
+				if fitted is not None and fitted.level_results is not None:
+					for level in levels:
+						if len(fitted.level_results) < level:
+							reasons.append(f"{name}: L{level} evidence missing")
+						elif fitted.level_results[level - 1].get("scored") != scored:
+							reasons.append(
+								f"{name}: L{level} evidence has incompatible denominator"
+							)
+						else:
+							result = fitted.level_results[level - 1]
+							if (
+								len(fitted.thresholds) < level
+								or result.get("target") != self.config.level_targets[level - 1]
+								or result.get("threshold") != fitted.thresholds[level - 1]
+								or any(
+									key not in result
+									for key in ("reached", "capped", "upper95", "censored")
+								)
+							):
+								reasons.append(f"{name}: L{level} evidence missing or incompatible")
+							elif result.get("achieved", 1.0) > self.config.level_targets[level - 1]:
+								reasons.append(
+									f"{name}: L{level} target exceeded by mandatory caps"
+								)
 		for name in baselines:
 			fitted = self.baselines.get(name)
 			if fitted is None:
@@ -201,8 +275,6 @@ class Calibration(BaseModel):
 		warnings = resolution_reasons if allow_resolution_limited else []
 		if not allow_resolution_limited:
 			reasons = resolution_reasons + reasons
-		# Detectability is reported, never enforced: it limits what the study can show, not
-		# whether the calibration is valid.
 		detectability: list[str] = []
 		control = self.mixture_control
 		if accumulators and control and control.share_below_null_median >= MIXTURE_WARNING_SHARE:
@@ -212,6 +284,11 @@ class Calibration(BaseModel):
 				f"{control.median_p_value:.3f}); the upper-tail score cannot flag traffic that "
 				"resembles the benign mixture"
 			)
+		if accumulators and self.config.mixture_control_required:
+			if control is None or control.windows <= 0:
+				reasons.append("required mixture control is missing or has no windows")
+			elif detectability:
+				reasons.append("required mixture control failed: " + detectability[0])
 		return {
 			"rule": "calibration-resolution-v2",
 			"status": "invalid" if reasons else "resolution-limited" if warnings else "adequate",
@@ -225,8 +302,13 @@ class Calibration(BaseModel):
 			"minimum_policy_horizons": minimum_policy,
 			"nonoverlapping_score_windows": null_windows,
 			"detectability_warnings": detectability,
+			"mixture_control_required": self.config.mixture_control_required,
 			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
 			"scored_policy_horizons": scored,
+			"levels": {
+				f"L{level}": self._level_report(level, accumulators, scored, null_windows)
+				for level in levels
+			},
 			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
 			"interpretation": "minimum resolution only; not evidence of population error control",
 		}
@@ -369,6 +451,7 @@ def nested_thresholds(
 	"""Fit the remaining escalation allowance after mandatory attempt-cap refusals."""
 	if not values:
 		raise ValueError("threshold calibration needs at least one benign unit")
+	targets = list(targets)
 	forced = [False] * len(values) if forced is None else forced
 	if len(forced) != len(values):
 		raise ValueError("forced refusals must match calibration units")
@@ -387,6 +470,19 @@ def nested_thresholds(
 		achieved=[count / len(values) for count in exceeded],
 		units=len(values),
 		upper95=[binomial_upper(count, len(values)) for count in exceeded],
+		level_results=[
+			{
+				"target": target,
+				"threshold": threshold,
+				"scored": len(values),
+				"reached": count,
+				"detector_reached": sum(value > threshold for value in values),
+				"capped": sum(forced),
+				"achieved": count / len(values),
+				"upper95": binomial_upper(count, len(values)),
+			}
+			for target, threshold, count in zip(targets, thresholds, exceeded, strict=True)
+		],
 	)
 
 
@@ -428,7 +524,12 @@ def mixture_control(
 
 
 def requests_sha256(requests: list[BenignRequest]) -> str:
-	payload = "\n".join(request.model_dump_json() for request in requests)
+	payload = "\n".join(
+		request.model_dump_json(
+			exclude={"workload_version"} if request.workload_version is None else set()
+		)
+		for request in requests
+	)
 	return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -456,8 +557,19 @@ def calibrate(
 	score_calibration: list[BenignRequest],
 	policy_calibration: list[BenignRequest],
 	log: Callable[[str], None] | None = None,
+	input_validation: dict[str, Any] | None = None,
 ) -> tuple[Calibration, Array]:
 	"""Build the calibration artifact and the reference windows it scores against."""
+
+	if (
+		any(
+			row.workload_version == "gateway-clients-v5"
+			for role in (fitting, score_calibration, policy_calibration)
+			for row in role
+		)
+		and input_validation is None
+	):
+		raise ValueError("v5 workload requires input validation")
 
 	def report(message: str) -> None:
 		if log:
@@ -560,6 +672,7 @@ def calibrate(
 		encoder=encoder.identity(),
 		serialization=SERIALIZATION,
 		horizon_policy=HORIZON_POLICY,
+		input_validation=input_validation,
 		sigma=sigma,
 		calibration_scores=null_scores,
 		thresholds={},
@@ -597,6 +710,11 @@ def calibrate(
 		name: nested_thresholds(values, config.level_targets, scored_capped)
 		for name, values in maxima.items()
 	}
+	for level_fit in calibration.thresholds.values():
+		assert level_fit.level_results is not None
+		for result in level_fit.level_results:
+			result["horizons"] = len(units)
+			result["censored"] = len(units) - len(scored_units)
 	calibration.counts = {
 		"fitting_requests": len(fitting),
 		"score_calibration_requests": len(score_calibration),
