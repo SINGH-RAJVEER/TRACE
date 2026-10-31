@@ -3,6 +3,10 @@
 import hashlib
 import secrets
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+	from harness.store import Transaction
 
 
 @dataclass(frozen=True)
@@ -41,15 +45,21 @@ def solve(challenge: Challenge) -> tuple[int, int]:
 
 
 class ChallengeBook:
-	"""Issues challenges and accepts each solution at most once, before it expires."""
+	"""Issues challenges and accepts each solution at most once, before it expires.
+
+	Open challenges live in the policy's state store, together with the held decision that
+	the solution releases, so redemption survives a restart and stays single-use across
+	connections to the same store.
+	"""
 
 	def __init__(self, difficulty: int = 20, ttl_seconds: float = 300) -> None:
 		self.difficulty = difficulty
 		self.ttl_seconds = ttl_seconds
-		self._open: dict[str, Challenge] = {}
 
-	def issue(self, account: str, request_digest: str, now: float) -> Challenge:
-		self._open = {key: value for key, value in self._open.items() if value.expires_at >= now}
+	def issue(
+		self, tx: Transaction, account: str, request_digest: str, now: float, held: dict[str, Any]
+	) -> Challenge:
+		tx.expire_challenges(now)
 		challenge = Challenge(
 			nonce=secrets.token_hex(16),
 			account=account,
@@ -57,23 +67,33 @@ class ChallengeBook:
 			difficulty=self.difficulty,
 			expires_at=now + self.ttl_seconds,
 		)
-		self._open[challenge.nonce] = challenge
+		tx.put_challenge(challenge, held)
 		return challenge
 
 	def redeem(
-		self, nonce: str, account: str, request_digest: str, counter: int, now: float
-	) -> bool:
-		"""Accept a valid solution once. Unknown, reused, expired, or rebound nonces fail."""
-		challenge = self._open.get(nonce)
-		if challenge is None:
-			return False
+		self,
+		tx: Transaction,
+		nonce: str,
+		account: str,
+		request_digest: str,
+		counter: int,
+		now: float,
+	) -> tuple[Challenge, dict[str, Any]] | None:
+		"""Accept a valid solution once and return the challenge with its held decision.
+
+		Unknown, reused, expired, or rebound nonces return None.
+		"""
+		found = tx.challenge(nonce)
+		if found is None:
+			return None
+		challenge, _ = found
 		if now > challenge.expires_at:
-			del self._open[nonce]
-			return False
+			tx.delete_challenge(nonce)
+			return None
 		if (challenge.account, challenge.request_digest) != (account, request_digest):
-			return False
+			return None
 		digest = hashlib.sha256(challenge.payload(counter)).digest()
 		if leading_zero_bits(digest) < challenge.difficulty:
-			return False
-		del self._open[nonce]
-		return True
+			return None
+		tx.delete_challenge(nonce)
+		return found

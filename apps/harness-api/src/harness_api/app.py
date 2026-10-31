@@ -6,8 +6,13 @@ X-Harness-Decision: allow (L0 and L1), throttle (L2 and L3, including answered c
 or block (L4 refusals). An L3 response is HTTP 428 with a proof-of-work challenge; the client
 resends the same request with X-Harness-Proof: NONCE:COUNTER. An account at L4 is refused by
 default. With HARNESS_L4_ACTION=deceive it instead keeps receiving L3-shaped responses whose
-content is keyed noise, built without calling the teacher. Account state lives in this
-process, so the service must run as a single worker.
+content is keyed noise, built without calling the teacher.
+
+Admission and release are separate events. A `decision` event records each admission. Before
+any output is produced, the admission is reserved in the release ledger, and a `release` event
+records how the reservation settled: released, failed, or cancelled. With HARNESS_STATE_DB,
+account horizons, open challenges, and the ledger survive restarts. The aggregate monitor and
+the noise template still live in this process, so the service runs as a single worker.
 """
 
 import asyncio
@@ -21,7 +26,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -44,19 +49,9 @@ from harness.monitor import AggregateMonitor, AggregateWindow
 from harness.policy import Decision, MMDPolicy, Policy
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
+from harness.store import MemoryStore, Reservation, Settlement, SQLiteStore, StateStore
 
 from harness_api.settings import Settings
-
-
-@dataclass
-class Pending:
-	"""A request waiting for its challenge to be answered."""
-
-	decision: Decision
-	request: TeacherGenerationRequest
-	binding: str
-	text: str
-	benchmark_request: str | None
 
 
 def current_turn(request: TeacherGenerationRequest) -> str:
@@ -128,6 +123,28 @@ def _mimic(identifier: str | None) -> str | None:
 	return head + secrets.token_hex((len(tail) + 1) // 2)[: len(tail)]
 
 
+def _scope(settings: Settings, calibration: Calibration) -> str:
+	"""Everything that gives stored state its meaning: the policy, its actions, and the
+	calibration. Secrets and service addresses are left out."""
+	fields = settings.model_dump(
+		include={
+			"policy",
+			"accumulator",
+			"thresholds",
+			"actions",
+			"l4_action",
+			"deception_rate",
+			"task",
+			"gateway_caps",
+			"pow_difficulty",
+			"challenge_ttl_seconds",
+			"min_interval_seconds",
+		}
+	)
+	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
+	return canonical_json(fields)
+
+
 def _accounts(settings: Settings) -> dict[str, str]:
 	if settings.accounts_file is None:
 		return {}
@@ -160,6 +177,11 @@ def create_app(
 	served_task = calibration.config.task
 	if served_task != config.task:
 		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
+	store: StateStore = (
+		SQLiteStore(config.state_db, _scope(config, calibration))
+		if config.state_db is not None
+		else MemoryStore()
+	)
 	policy: Policy
 	if config.policy == "mmd":
 		policy = MMDPolicy(
@@ -174,9 +196,10 @@ def create_app(
 			deception_rate=config.deception_rate,
 			deception_key=key,
 			actions=config.actions,
+			store=store,
 		)
 	else:
-		policy = make_policy(config.policy, calibration, scorer)
+		policy = make_policy(config.policy, calibration, scorer, store=store)
 	monitor = (
 		AggregateMonitor(aggregate_scorer, calibration.aggregate)
 		if aggregate_scorer is not None and calibration.aggregate is not None
@@ -204,7 +227,6 @@ def create_app(
 	)
 	log = DecisionLog(config.decision_log)
 	lock = asyncio.Lock()
-	pending: dict[str, Pending] = {}
 	background: set[asyncio.Task[None]] = set()
 	# Real responses teach the shape and timing that noise responses copy.
 	template: list[TeacherGeneration] = []
@@ -216,6 +238,8 @@ def create_app(
 		if background:
 			await asyncio.gather(*background, return_exceptions=True)
 		await upstream.close()
+		if isinstance(store, SQLiteStore):
+			store.close()
 
 	app = FastAPI(title="TRACE protected teacher API", version="0.1.0", lifespan=lifespan)
 
@@ -266,7 +290,63 @@ def create_app(
 		text: str,
 		binding: str,
 		benchmark_request: str | None,
+		now: float,
 	) -> JSONResponse:
+		"""Reserve the admission, produce its output, and settle the reservation once.
+
+		Output is produced only under a new reservation, so one admission releases at most
+		once. A response counts as released when it is built, before it is sent: a sent
+		response cannot be shown to have arrived, so the ledger errs towards acquisition.
+		"""
+		digest = hashlib.sha256(binding.encode()).hexdigest()
+		reservation = Reservation(
+			account=decision.account,
+			horizon_start=decision.horizon,
+			attempt=decision.attempt,
+			request_digest=digest,
+			reserved_at=now,
+			deceive=decision.deceive,
+		)
+		with store.transaction() as tx:
+			reserved = tx.reserve(reservation)
+		if not reserved:
+			return _error(409, "already_released", "this admission was already released", None)
+		status: Settlement = "failed"
+		tokens: int | None = None
+		try:
+			response, produced = await produce(decision, request, text, binding, benchmark_request)
+			if response.status_code == 200:
+				status, tokens = "released", produced
+			return response
+		except asyncio.CancelledError:
+			status = "cancelled"
+			raise
+		finally:
+			settled_at = now if config.test_clock else clock()
+			with store.transaction() as tx:
+				tx.settle(reservation.key, status, settled_at, tokens)
+			log.write(
+				"release",
+				time=settled_at,
+				account=decision.account,
+				horizon=decision.horizon,
+				attempt=decision.attempt,
+				status=status,
+				output_tokens=tokens,
+				deceive=decision.deceive,
+				request_digest=digest,
+				benchmark_request=benchmark_request,
+			)
+
+	async def produce(
+		decision: Decision,
+		request: TeacherGenerationRequest,
+		text: str,
+		binding: str,
+		benchmark_request: str | None,
+	) -> tuple[JSONResponse, int | None]:
+		"""The response, and the output tokens it releases by the server's own count: the
+		victim tokenizer's when configured, else the teacher's usage for a truthful answer."""
 		headers = {"X-Harness-Decision": decision_header(decision)}
 		if config.test_clock:
 			headers["X-Harness-Release-At"] = repr(decision.release_at)
@@ -292,17 +372,21 @@ def create_app(
 				# Until one real response has been seen there is no shape to copy.
 				generation = await call_teacher(request)
 		except TeacherUpstreamError as error:
-			return _error(502, "teacher_upstream_error", str(error), headers["X-Harness-Decision"])
+			failed = _error(
+				502, "teacher_upstream_error", str(error), headers["X-Harness-Decision"]
+			)
+			return failed, None
+		tokens = generation.usage.output_tokens if content is None else None
 		if content is not None:
 			generation.message = Message(role="assistant", content=content)
 			generation.finish_reason = "stop"
+		if token_counter:
+			tokens = token_counter(generation.message.content)
 		# Every response carries the same usage fields: output tokens recounted or omitted, and
 		# no input count, which a fabricated response could not know.
 		if config.l4_action == "deceive":
-			generation.usage = TokenUsage(
-				output_tokens=token_counter(generation.message.content) if token_counter else None
-			)
-		return JSONResponse(generation.model_dump(mode="json"), headers=headers)
+			generation.usage = TokenUsage(output_tokens=tokens if token_counter else None)
+		return JSONResponse(generation.model_dump(mode="json"), headers=headers), tokens
 
 	@app.get("/healthz")
 	async def health() -> dict[str, str]:
@@ -351,56 +435,34 @@ def create_app(
 		digest = hashlib.sha256(binding.encode()).hexdigest()
 		if x_harness_proof is not None:
 			nonce, _, counter = x_harness_proof.partition(":")
-			async with lock:
-				for stale in [
-					n
-					for n, p in pending.items()
-					if p.decision.challenge and p.decision.challenge.expires_at < now
-				]:
-					del pending[stale]
-				waiting = pending.pop(nonce, None)
-				solved = (
-					waiting is not None
-					and waiting.decision.account == account
-					and waiting.binding == binding
-					and counter.isdigit()
-					and isinstance(policy, MMDPolicy)
-					and policy.redeem(waiting.decision, binding, int(counter), now)
-				)
+			# The challenge is bound to the account and the whole canonical request, so the
+			# resent request is the one that was challenged and can be released as sent.
+			held: Decision | None = None
+			if isinstance(policy, MMDPolicy) and counter.isdigit():
+				async with lock:
+					held = policy.redeem(nonce, account, binding, int(counter), now)
 			log.write(
 				"redeem",
 				account=account,
 				request_digest=digest,
-				solved=solved,
+				solved=held is not None,
 				benchmark_request=x_benchmark_request,
 			)
-			if not solved or waiting is None:
+			if held is None:
 				return _error(
 					403, "challenge_failed", "the challenge answer was not accepted", "throttle"
 				)
-			return await release(
-				waiting.decision, waiting.request, waiting.text, binding, x_benchmark_request
-			)
+			return await release(held, request, text, binding, x_benchmark_request, now)
 		embedding = (
 			(await asyncio.to_thread(encoder.encode, [detector_text(served_task, text)]))[0]
 			if needs_embeddings and encoder is not None
 			else None
 		)
 		async with lock:
-			for stale in [
-				n
-				for n, p in pending.items()
-				if p.decision.challenge and p.decision.challenge.expires_at < now
-			]:
-				del pending[stale]
 			decision = policy.admit(account, text, now, embedding=embedding, binding=binding)
 			window = (
 				monitor.add(embedding, account, now) if monitor and embedding is not None else None
 			)
-			if decision.challenge is not None:
-				pending[decision.challenge.nonce] = Pending(
-					decision, request, binding, text, x_benchmark_request
-				)
 		if window is not None:
 			task = asyncio.create_task(score_aggregate(window))
 			background.add(task)
@@ -410,6 +472,7 @@ def create_app(
 			time=now,
 			account=account,
 			attempt=decision.attempt,
+			horizon=decision.horizon,
 			level=decision.level,
 			action=decision.action,
 			deceive=decision.deceive,
@@ -437,6 +500,6 @@ def create_app(
 				status_code=428,
 				headers={"X-Harness-Decision": "throttle"},
 			)
-		return await release(decision, request, text, binding, x_benchmark_request)
+		return await release(decision, request, text, binding, x_benchmark_request, now)
 
 	return app
