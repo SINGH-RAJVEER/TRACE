@@ -1,0 +1,25 @@
+{
+	"description": "Checks while archiving the offline audit into version control",
+	"original_results_byte_identical": true,
+	"portable_launcher_replay_json_matches_original": true,
+	"portable_launcher_arithmetic_json_matches_original": true,
+	"python_ast_parse": "passed for all 11 scripts",
+	"ruff_check": "passed",
+	"ruff_format_check": "passed",
+	"bash_syntax_check": "passed",
+	"script_sha256": {
+		"arithmetic.py": "1abf7f6dba68922735881d1a68846bb989068bb59edc2b0d4068947220d850cc",
+		"common.py": "b88b14bf0b1377abd08569e53bd13cb911f7ac2af5eabcbb06ba28f2c20fba53",
+		"compare.py": "853f2586b7d6484d18720d2bbb497f91f3623fc33212d8f29575e78fc11d5a3d",
+		"decisions_summary.py": "a05b856e686a8454844a90ee4a2dd0ddfbf08c9d8fee65c81cde2f5693e35bc9",
+		"diagnose.py": "b134d5573f13076cd022ae5a970352c1378fb4e55489ac781f421c3eba83bc8a",
+		"embed.py": "c85be684ddf6f2332954731593d2c829d6fd1e1a9e698b9b14d0e659d511fd22",
+		"evasion.py": "d10439aee8c57b6adfbe2271706f7212915b0a3970e5eb2ee1622223f01b38aa",
+		"probe_specialists.py": "e60c12508d781ba2a3b0bc7605189dbaffd122ef367bb725d04fa80b676fc352",
+		"probes.py": "95c0af85f022818c9545b3b0a895d67ea47b3e5422f1a6b0150c70959bd74b33",
+		"reproduce.py": "5ff657faad71df56e844f89ff9e92b667c9a7cb0324bbe392f22aa32e2b60063",
+		"volume.py": "ae6338e94f35dbd32e96499fd3ac688ca922eb405cc66f7b2f2408756eb9e22c"
+	},
+	"cache_and_venv_committed": false,
+	"production_code_changed": false
+}

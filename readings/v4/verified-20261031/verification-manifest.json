@@ -1,0 +1,34 @@
+{
+	"verified_date": "2026-10-31",
+	"code_commit": "46d68412fad5074abf6fb2c7d1162bab15682b73",
+	"origin_main_observed": "43464d2e",
+	"local_experiment_processes_observed": false,
+	"lab_live_state": "unverified; remote environment link tool unavailable",
+	"inputs_sha256": {
+		"readings/v3-2026-10-29-gateway-replay/calibration/calibration.json": "48b674c57fb25cec5b91c58ee82b5416cd1b439fc15ac8d7a0456c0e5727327e",
+		"readings/v3-2026-10-29-gateway-replay/calibration/references.npy": "493b2b4d7b03be4c5be0aa13d5f738441da3093d5e83c50d86ee5bd599d96896",
+		"readings/v3-2026-10-29-gateway-replay/benign/policy_calibration/requests.jsonl": "d9d55390fbc6d169f232e55082c098567752247d3cb819b5ff96553e974338d8",
+		"readings/v3-2026-10-29-gateway-replay/benign/fitting/requests.jsonl": "d2c59493ce03de3c46d6d0627d9221fce9188f694af219bd0f5ef450b1ed576a",
+		"readings/v3-2026-10-29-gateway-replay/benign/score_calibration/requests.jsonl": "37110b23b70d61633d204bbf70b07a564902403c38cabcdcbc2b26764aefb09c",
+		"readings/v3-2026-10-29-gateway-replay/benign/benign_test/requests.jsonl": "a711f7ac2f1338c7a28527674f45d6e670a26d1a0dfb921fa78d8e4eafa23e37"
+	},
+	"reproduce_matches_previous_json": true,
+	"pytest": {
+		"passed": 253,
+		"skipped": 5,
+		"seconds": 45.81
+	},
+	"focused_pytest": {
+		"passed": 37,
+		"seconds": 19.96
+	},
+	"ruff_changed_python_files": "passed",
+	"gpu_used": false,
+	"inputs_modified": false,
+	"results_equal_previous_audit": {
+		"reproduce.json": true,
+		"volume.json": true,
+		"compare.json": true,
+		"evasion.json": true
+	}
+}
