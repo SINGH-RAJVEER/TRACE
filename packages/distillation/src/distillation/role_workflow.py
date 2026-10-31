@@ -205,15 +205,15 @@ def validate_roles(root: Path, *, min_horizons: int = 300) -> dict[str, Any]:
 		family_accounts: dict[tuple[str, str], str] = {}
 		group_accounts: dict[tuple[str, str], str] = {}
 		for row in rows:
-			item = by_id.get(row.prompt.example_id)
-			if item is None or row.prompt != item.prompt:
+			frozen = by_id.get(row.prompt.example_id)
+			if frozen is None or row.prompt != frozen.prompt:
 				errors.append(f"{role}: request outside frozen role: {row.prompt.example_id}")
 				continue
-			family_key = (row.domain, item.family)
+			family_key = (row.domain, frozen.family)
 			if family_key in family_accounts and family_accounts[family_key] != row.account:
 				errors.append(f"{role}: family shared between accounts: {family_key}")
 			family_accounts[family_key] = row.account
-			group_key = (row.domain, item.prompt.source.group_id or "")
+			group_key = (row.domain, frozen.prompt.source.group_id or "")
 			if group_key in group_accounts and group_accounts[group_key] != row.account:
 				errors.append(f"{role}: source group shared between accounts: {group_key}")
 			group_accounts[group_key] = row.account
