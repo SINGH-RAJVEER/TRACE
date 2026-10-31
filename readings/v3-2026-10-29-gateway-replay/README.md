@@ -146,3 +146,7 @@ Per-request campaign files (`attempts.jsonl`, `campaign.events.jsonl`), account 
 | [quota.jsonl](quota.jsonl) | `04ceeca63f44cb2ab0a2990df2d948920b93b0bcb1dabdb73ba584e7ab2b1b74` |
 | [calibration-adequacy.json](calibration-adequacy.json) | `1aa5ea9752763b9e18773d77eb65d7cfc48eb59713be3bf2207263c47f0028e1` |
 | [protocol.json](protocol.json) | `c11ad1cd68ac2c75d93d016a6586ed21ab02b400fbc099327f54d2ac0b586b64` |
+
+## A7 protected campaign (full)
+
+Recorded automatically when the campaign finished on 2026-10-31 at 18:39 UTC: received 6000, blocked 0, challenged 0, failed 0, 6.20 h, released output tokens 630460; highest level L0; 60 scored windows, min p 0.935. Files are under [harness/A7/s42-b6000/full/](harness/A7/s42-b6000/full/) in Git LFS; account credentials are not published. Student training and evaluation for this campaign had not run when this was written.
