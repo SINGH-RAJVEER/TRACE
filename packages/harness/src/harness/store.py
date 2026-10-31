@@ -54,6 +54,8 @@ class AccountState:
 	level: int = 0
 	statistic: float = 0.0
 	windows: int = 0
+	# Windows handed to an off-path scorer in this horizon, scored or not.
+	submitted_windows: int = 0
 	buffer: list[Array] = field(default_factory=list)
 	buffer_digests: list[str] = field(default_factory=list)
 	last_release: float = -math.inf
@@ -435,6 +437,7 @@ def _encode_state(state: AccountState) -> str:
 			"level": state.level,
 			"statistic": state.statistic,
 			"windows": state.windows,
+			"submitted_windows": state.submitted_windows,
 			# Embeddings round-trip exactly as float64 bytes, so a resumed window scores the
 			# same as an uninterrupted one.
 			"buffer": [_array(row) for row in state.buffer],
@@ -453,6 +456,7 @@ def _decode_state(text: str) -> AccountState:
 		level=data["level"],
 		statistic=data["statistic"],
 		windows=data["windows"],
+		submitted_windows=data.get("submitted_windows", 0),
 		buffer=[np.frombuffer(base64.b64decode(row), dtype=np.float64) for row in data["buffer"]],
 		buffer_digests=data["buffer_digests"],
 		last_release=data["last_release"],

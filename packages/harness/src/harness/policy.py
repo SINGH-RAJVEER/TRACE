@@ -7,6 +7,7 @@ for that request (paper Section III-D).
 """
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
@@ -89,6 +90,19 @@ class Policy(Protocol):
 
 def request_digest(text: str) -> str:
 	return hashlib.sha256(text.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class ScoreWindow:
+	"""A completed window waiting for an off-path score, keyed by the horizon it closed in."""
+
+	account: str
+	horizon_start: float
+	sequence: int
+	horizon_sequence: int
+	closed_at: float
+	window: Array
+	digests: tuple[str, ...]
 
 
 class _HorizonPolicy:
@@ -274,6 +288,7 @@ class MMDPolicy(_HorizonPolicy):
 		deception_key: bytes | None = None,
 		witness_size: int = 5,
 		actions: Literal["graduated", "direct"] = "graduated",
+		submit_window: Callable[[ScoreWindow], None] | None = None,
 		store: StateStore | None = None,
 		policy_version: Literal["legacy-v1", "verify-risk-v2"] = "legacy-v1",
 	) -> None:
@@ -308,6 +323,29 @@ class MMDPolicy(_HorizonPolicy):
 		self.witness_size = witness_size
 		self.actions: Literal["graduated", "direct"] = actions
 		self.policy_version = policy_version
+		self.submit_window = submit_window
+		self.window_sequence = 0
+
+	def score_window(self, work: ScoreWindow) -> float:
+		keys = list(work.digests) if self.calibration.config.distinct_prompts else None
+		return float(self.scorer.score(work.window, keys))
+
+	def apply_window(self, tx: Transaction, work: ScoreWindow, score: float) -> AccountState | None:
+		"""Apply ordered evidence only to the horizon that produced it.
+
+		Returns the updated state, or None when the account has since started a new horizon.
+		"""
+		state = tx.account(work.account)
+		if state is None or state.horizon_start != work.horizon_start:
+			return None
+		state.windows += 1
+		state.statistic = self.spec.update(state.statistic, self.calibration.p_value(score))
+		reached = self.calibration.level(self.accumulator, state.statistic, self.threshold_mode)
+		if self.actions == "direct":
+			reached = 4 if reached >= 4 else 0
+		state.level = max(state.level, reached)
+		tx.put_account(work.account, state)
+		return state
 
 	def _respond(
 		self,
@@ -384,6 +422,37 @@ class MMDPolicy(_HorizonPolicy):
 		completed = len(state.buffer) == self.scorer.window_size
 		if completed:
 			window = np.stack(state.buffer)
+			if self.submit_window is not None:
+				self.window_sequence += 1
+				state.submitted_windows += 1
+				self.submit_window(
+					ScoreWindow(
+						account,
+						state.horizon_start,
+						self.window_sequence,
+						state.submitted_windows,
+						now,
+						window,
+						tuple(state.buffer_digests),
+					)
+				)
+				state.buffer.clear()
+				state.buffer_digests.clear()
+				action, release_at, challenge, deceive = self._respond(
+					tx, account, state, text, now, bound
+				)
+				return Decision(
+					account,
+					state.attempts,
+					state.level,
+					action,
+					release_at,
+					challenge=challenge,
+					window_completed=True,
+					statistic=state.statistic,
+					deceive=deceive,
+					reason="detector" if state.level >= 2 else None,
+				)
 			keys = state.buffer_digests if self.calibration.config.distinct_prompts else None
 			score = self.scorer.score(window, keys)
 			state.windows += 1
