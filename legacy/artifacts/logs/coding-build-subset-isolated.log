@@ -1,0 +1,368 @@
+tasks coding: validating pinned external evaluation references in the sandbox
+<unknown>:4: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:3: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:3: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding: preparing a global seeded subset; target 50000 eligible examples; 
+16 sandbox workers
+<unknown>:4: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:3: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding qualification: {'raw': 1000, 'reference_failed': 551, 
+'malformed_or_unsupported': 132, 'eligible': 297, 'tests_accept_null_stub': 8, 
+'reference_timeout': 4, 'duplicate': 6, 'test_overlap': 2}
+tasks coding qualification: {'raw': 2000, 'reference_failed': 1129, 
+'malformed_or_unsupported': 275, 'eligible': 555, 'tests_accept_null_stub': 17, 
+'reference_timeout': 4, 'duplicate': 18, 'test_overlap': 2}
+tasks coding qualification: {'raw': 3000, 'reference_failed': 1701, 
+'malformed_or_unsupported': 389, 'eligible': 829, 'tests_accept_null_stub': 28, 
+'reference_timeout': 9, 'duplicate': 38, 'test_overlap': 6}
+<unknown>:2: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding qualification: {'raw': 4000, 'reference_failed': 2256, 
+'malformed_or_unsupported': 531, 'eligible': 1093, 'tests_accept_null_stub': 40,
+'reference_timeout': 12, 'duplicate': 61, 'test_overlap': 7}
+<unknown>:2: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding qualification: {'raw': 5000, 'reference_failed': 2816, 
+'malformed_or_unsupported': 670, 'eligible': 1347, 'tests_accept_null_stub': 49,
+'reference_timeout': 16, 'duplicate': 93, 'test_overlap': 9}
+<unknown>:15: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:15: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:15: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:15: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:15: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:20: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+tasks coding qualification: {'raw': 6000, 'reference_failed': 3367, 
+'malformed_or_unsupported': 806, 'eligible': 1613, 'tests_accept_null_stub': 59,
+'reference_timeout': 20, 'duplicate': 125, 'test_overlap': 10}
+<unknown>:18: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:18: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:18: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:18: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:18: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:1: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+<unknown>:1: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+<unknown>:1: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+<unknown>:1: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+<unknown>:1: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+tasks coding qualification: {'raw': 7000, 'reference_failed': 3959, 
+'malformed_or_unsupported': 931, 'eligible': 1846, 'tests_accept_null_stub': 65,
+'reference_timeout': 24, 'duplicate': 162, 'test_overlap': 13}
+<unknown>:6: SyntaxWarning: "\B" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\B"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\B" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\B"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\B" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\B"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\B" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\B"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\B" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\B"? A raw string is also an option.
+tasks coding qualification: {'raw': 8000, 'reference_failed': 4515, 
+'malformed_or_unsupported': 1079, 'eligible': 2098, 'tests_accept_null_stub': 
+72, 'reference_timeout': 26, 'duplicate': 195, 'test_overlap': 15}
+tasks coding qualification: {'raw': 9000, 'reference_failed': 5095, 
+'malformed_or_unsupported': 1196, 'eligible': 2350, 'tests_accept_null_stub': 
+84, 'reference_timeout': 33, 'duplicate': 225, 'test_overlap': 17}
+tasks coding qualification: {'raw': 10000, 'reference_failed': 5658, 
+'malformed_or_unsupported': 1315, 'eligible': 2608, 'tests_accept_null_stub': 
+95, 'reference_timeout': 35, 'duplicate': 269, 'test_overlap': 20}
+tasks coding qualification: {'raw': 11000, 'reference_failed': 6225, 
+'malformed_or_unsupported': 1454, 'eligible': 2843, 'tests_accept_null_stub': 
+107, 'reference_timeout': 38, 'duplicate': 312, 'test_overlap': 21}
+<unknown>:28: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:28: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:28: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:28: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:28: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding qualification: {'raw': 12000, 'reference_failed': 6818, 
+'malformed_or_unsupported': 1587, 'eligible': 3072, 'tests_accept_null_stub': 
+113, 'reference_timeout': 40, 'duplicate': 349, 'test_overlap': 21}
+<unknown>:7: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:7: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:7: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:7: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:7: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\-" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\-"? A raw string is also an option.
+tasks coding qualification: {'raw': 13000, 'reference_failed': 7375, 
+'malformed_or_unsupported': 1729, 'eligible': 3311, 'tests_accept_null_stub': 
+116, 'reference_timeout': 45, 'duplicate': 400, 'test_overlap': 24}
+tasks coding qualification: {'raw': 14000, 'reference_failed': 7934, 
+'malformed_or_unsupported': 1858, 'eligible': 3557, 'tests_accept_null_stub': 
+128, 'reference_timeout': 49, 'duplicate': 448, 'test_overlap': 26}
+<unknown>:51: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:51: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:51: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:51: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:51: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+tasks coding qualification: {'raw': 15000, 'reference_failed': 8501, 
+'malformed_or_unsupported': 1984, 'eligible': 3791, 'tests_accept_null_stub': 
+145, 'reference_timeout': 49, 'duplicate': 503, 'test_overlap': 27}
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+tasks coding qualification: {'raw': 16000, 'reference_failed': 9075, 
+'malformed_or_unsupported': 2107, 'eligible': 4012, 'tests_accept_null_stub': 
+156, 'reference_timeout': 51, 'duplicate': 570, 'test_overlap': 29}
+<unknown>:6: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\:" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\:"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\:" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\:"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\:" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\:"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\," is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\,"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\]" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\]"? A raw string is also an option.
+tasks coding qualification: {'raw': 17000, 'reference_failed': 9624, 
+'malformed_or_unsupported': 2239, 'eligible': 4268, 'tests_accept_null_stub': 
+164, 'reference_timeout': 53, 'duplicate': 619, 'test_overlap': 33}
+tasks coding qualification: {'raw': 18000, 'reference_failed': 10156, 
+'malformed_or_unsupported': 2395, 'eligible': 4504, 'tests_accept_null_stub': 
+179, 'reference_timeout': 56, 'duplicate': 676, 'test_overlap': 34}
+tasks coding qualification: {'raw': 19000, 'reference_failed': 10729, 
+'malformed_or_unsupported': 2529, 'eligible': 4729, 'tests_accept_null_stub': 
+182, 'reference_timeout': 62, 'duplicate': 730, 'test_overlap': 39}
+tasks coding qualification: {'raw': 20000, 'reference_failed': 11305, 
+'malformed_or_unsupported': 2662, 'eligible': 4950, 'tests_accept_null_stub': 
+191, 'reference_timeout': 65, 'duplicate': 785, 'test_overlap': 42}
+<unknown>:5: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\u" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\u"? A raw string is also an option.
+tasks coding qualification: {'raw': 21000, 'reference_failed': 11840, 
+'malformed_or_unsupported': 2806, 'eligible': 5202, 'tests_accept_null_stub': 
+198, 'reference_timeout': 66, 'duplicate': 846, 'test_overlap': 42}
+tasks coding qualification: {'raw': 22000, 'reference_failed': 12401, 
+'malformed_or_unsupported': 2934, 'eligible': 5435, 'tests_accept_null_stub': 
+214, 'reference_timeout': 69, 'duplicate': 904, 'test_overlap': 43}
+tasks coding qualification: {'raw': 23000, 'reference_failed': 12961, 
+'malformed_or_unsupported': 3056, 'eligible': 5681, 'tests_accept_null_stub': 
+221, 'reference_timeout': 73, 'duplicate': 962, 'test_overlap': 46}
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+tasks coding qualification: {'raw': 24000, 'reference_failed': 13518, 
+'malformed_or_unsupported': 3176, 'eligible': 5934, 'tests_accept_null_stub': 
+233, 'reference_timeout': 78, 'duplicate': 1014, 'test_overlap': 47}
+tasks coding qualification: {'raw': 25000, 'reference_failed': 14098, 
+'malformed_or_unsupported': 3295, 'eligible': 6155, 'tests_accept_null_stub': 
+247, 'reference_timeout': 79, 'duplicate': 1079, 'test_overlap': 47}
+tasks coding qualification: {'raw': 26000, 'reference_failed': 14663, 
+'malformed_or_unsupported': 3427, 'eligible': 6383, 'tests_accept_null_stub': 
+255, 'reference_timeout': 81, 'duplicate': 1143, 'test_overlap': 48}
+tasks coding qualification: {'raw': 27000, 'reference_failed': 15207, 
+'malformed_or_unsupported': 3569, 'eligible': 6612, 'tests_accept_null_stub': 
+262, 'reference_timeout': 84, 'duplicate': 1217, 'test_overlap': 49}
+<unknown>:19: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:19: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+tasks coding qualification: {'raw': 28000, 'reference_failed': 15778, 
+'malformed_or_unsupported': 3691, 'eligible': 6857, 'tests_accept_null_stub': 
+271, 'reference_timeout': 87, 'duplicate': 1266, 'test_overlap': 50}
+<unknown>:2: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\/" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\/"? A raw string is also an option.
+tasks coding qualification: {'raw': 29000, 'reference_failed': 16355, 
+'malformed_or_unsupported': 3806, 'eligible': 7076, 'tests_accept_null_stub': 
+284, 'reference_timeout': 90, 'duplicate': 1335, 'test_overlap': 54}
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:9: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\*" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\*"? A raw string is also an option.
+tasks coding qualification: {'raw': 30000, 'reference_failed': 16900, 
+'malformed_or_unsupported': 3954, 'eligible': 7308, 'tests_accept_null_stub': 
+291, 'reference_timeout': 93, 'duplicate': 1399, 'test_overlap': 55}
+tasks coding qualification: {'raw': 31000, 'reference_failed': 17485, 
+'malformed_or_unsupported': 4077, 'eligible': 7528, 'tests_accept_null_stub': 
+300, 'reference_timeout': 96, 'duplicate': 1459, 'test_overlap': 55}
+<unknown>:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+<unknown>:10: SyntaxWarning: "\d" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\d"? A raw string is also an option.
+tasks coding qualification: {'raw': 32000, 'reference_failed': 18052, 
+'malformed_or_unsupported': 4208, 'eligible': 7754, 'tests_accept_null_stub': 
+308, 'reference_timeout': 98, 'duplicate': 1523, 'test_overlap': 57}
+<unknown>:29: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+tasks coding qualification: {'raw': 33000, 'reference_failed': 18611, 
+'malformed_or_unsupported': 4335, 'eligible': 8002, 'tests_accept_null_stub': 
+317, 'reference_timeout': 102, 'duplicate': 1576, 'test_overlap': 57}
+<unknown>:5: SyntaxWarning: "\o" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\o"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\o" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\o"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\o" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\o"? A raw string is also an option.
+tasks coding qualification: {'raw': 34000, 'reference_failed': 19159, 
+'malformed_or_unsupported': 4493, 'eligible': 8214, 'tests_accept_null_stub': 
+329, 'reference_timeout': 104, 'duplicate': 1642, 'test_overlap': 59}
+tasks coding qualification: {'raw': 35000, 'reference_failed': 19740, 
+'malformed_or_unsupported': 4606, 'eligible': 8431, 'tests_accept_null_stub': 
+339, 'reference_timeout': 109, 'duplicate': 1716, 'test_overlap': 59}
+tasks coding qualification: {'raw': 36000, 'reference_failed': 20317, 
+'malformed_or_unsupported': 4727, 'eligible': 8658, 'tests_accept_null_stub': 
+347, 'reference_timeout': 113, 'duplicate': 1779, 'test_overlap': 59}
+tasks coding qualification: {'raw': 37000, 'reference_failed': 20882, 
+'malformed_or_unsupported': 4847, 'eligible': 8891, 'tests_accept_null_stub': 
+355, 'reference_timeout': 117, 'duplicate': 1848, 'test_overlap': 60}
+tasks coding qualification: {'raw': 38000, 'reference_failed': 21446, 
+'malformed_or_unsupported': 4973, 'eligible': 9102, 'tests_accept_null_stub': 
+358, 'reference_timeout': 120, 'duplicate': 1935, 'test_overlap': 66}
+tasks coding qualification: {'raw': 39000, 'reference_failed': 22017, 
+'malformed_or_unsupported': 5099, 'eligible': 9319, 'tests_accept_null_stub': 
+370, 'reference_timeout': 130, 'duplicate': 1999, 'test_overlap': 66}
+tasks coding qualification: {'raw': 40000, 'reference_failed': 22571, 
+'malformed_or_unsupported': 5236, 'eligible': 9550, 'tests_accept_null_stub': 
+380, 'reference_timeout': 133, 'duplicate': 2063, 'test_overlap': 67}
+<unknown>:2: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:2: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:5: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:11: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:14: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:17: SyntaxWarning: "\#" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\#"? A raw string is also an option.
+<unknown>:23: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:26: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+<unknown>:29: SyntaxWarning: "\_" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\_"? A raw string is also an option.
+tasks coding qualification: {'raw': 41000, 'reference_failed': 23133, 
+'malformed_or_unsupported': 5361, 'eligible': 9782, 'tests_accept_null_stub': 
+386, 'reference_timeout': 134, 'duplicate': 2133, 'test_overlap': 71}
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:6: SyntaxWarning: "\`" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\`"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:8: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+<unknown>:21: SyntaxWarning: "\<" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\<"? A raw string is also an option.
+tasks coding qualification: {'raw': 42000, 'reference_failed': 23690, 
+'malformed_or_unsupported': 5496, 'eligible': 10006, 'tests_accept_null_stub': 
+395, 'reference_timeout': 138, 'duplicate': 2202, 'test_overlap': 73}
+tasks coding qualification: {'raw': 43000, 'reference_failed': 24263, 
+'malformed_or_unsupported': 5614, 'eligible': 10223, 'tests_accept_null_stub': 
+403, 'reference_timeout': 143, 'duplicate': 2278, 'test_overlap': 76}
+/nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7/lib/python3.14/multiprocessing/resource_tracker.py:475: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown: {'/mp-h21ro4l3'}
+  warnings.warn(

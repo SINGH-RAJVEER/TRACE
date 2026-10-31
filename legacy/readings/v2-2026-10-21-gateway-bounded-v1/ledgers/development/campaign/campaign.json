@@ -1,0 +1,234 @@
+{
+	"contract": "a18898518c4ccf2098b4124cc5493e8f1185b397aed41ee3e142f574f93c443d",
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"solver": {
+		"version": "process-sha256-v1",
+		"workers": 4,
+		"chunk_hashes": 4096
+	},
+	"attempt_budget": 2000,
+	"deadline_seconds": 86400.0,
+	"elapsed_seconds": 6453.1366863859585,
+	"termination_by_account": {
+		"A1-s42-b2000-account": "prompts_exhausted"
+	},
+	"queries": 2000,
+	"received": 2000,
+	"blocked": 0,
+	"failed": 0,
+	"deadline": 0,
+	"challenge": 0,
+	"pending": 0,
+	"released_output_tokens": 196300,
+	"levels": {
+		"L1": {
+			"J": 2000,
+			"Q": 2000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L2": {
+			"J": 2000,
+			"Q": 2000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L3": {
+			"J": 2000,
+			"Q": 2000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		},
+		"L4": {
+			"J": 2000,
+			"Q": 2000,
+			"reached": false,
+			"censored": true,
+			"attribution_complete": false
+		}
+	},
+	"proof_requests": 0,
+	"index_unit": "global campaign HTTP submissions",
+	"domains": {
+		"ag_news": {
+			"queries": 500,
+			"received": 500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 1200,
+			"levels": {
+				"L1": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"coding": {
+			"queries": 500,
+			"received": 500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 68379,
+			"levels": {
+				"L1": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"gsm8k": {
+			"queries": 500,
+			"received": 500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 123005,
+			"levels": {
+				"L1": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		},
+		"squad": {
+			"queries": 500,
+			"received": 500,
+			"blocked": 0,
+			"failed": 0,
+			"deadline": 0,
+			"challenge": 0,
+			"pending": 0,
+			"released_output_tokens": 3716,
+			"levels": {
+				"L1": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L2": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L3": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				},
+				"L4": {
+					"J": 500,
+					"Q": 500,
+					"reached": false,
+					"censored": true,
+					"attribution_complete": false
+				}
+			},
+			"proof_requests": 0
+		}
+	},
+	"ledger_records": 2000,
+	"ledger_records_by_domain": {
+		"ag_news": 500,
+		"coding": 500,
+		"gsm8k": 500,
+		"squad": 500
+	},
+	"hashes": 0,
+	"challenge_seconds": 0.0,
+	"sha256": {
+		"ledger": "7cdf77bbb61d7438abe6353dd9cb8e28d64e3ac2b85efacd1eed4adad500cd52",
+		"events": "be360b7e0b29292e6a94eddae4b658db70a0d9ee190a38d07234e4ea51a1b955"
+	}
+}

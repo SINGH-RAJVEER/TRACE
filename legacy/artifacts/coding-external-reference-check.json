@@ -1,0 +1,673 @@
+{
+	"source": "evalplus/humanevalplus",
+	"revision": "d32357cf319e50e9c8d8dab5ea876c72b0fd321b",
+	"runtime": {
+		"version": "bubblewrap-assertions-v2",
+		"trace": "reference-covered-calls-v1",
+		"architecture": "x86_64",
+		"python": "3.14.7",
+		"wall_seconds": 20.0,
+		"cpu_seconds": 15,
+		"memory_bytes": 268435456,
+		"file_bytes": 1048576
+	},
+	"results": [
+		{
+			"id": "HumanEval/0",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/1",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/2",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/3",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/4",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/5",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/6",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/7",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/8",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/9",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/10",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/11",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/12",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/13",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/14",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/15",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/16",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/17",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/18",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/19",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/20",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/21",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/22",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/23",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/24",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/25",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/26",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/27",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/28",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/29",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/30",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/31",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/32",
+			"status": "declared_exclusion",
+			"reason": "pinned export calls _poly(*candidate(*inp), inp), expanding a float"
+		},
+		{
+			"id": "HumanEval/33",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/34",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/35",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/36",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/37",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/38",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/39",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/40",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/41",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/42",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/43",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/44",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/45",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/46",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/47",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/48",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/49",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/50",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/51",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/52",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/53",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/54",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/55",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/56",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/57",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/58",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/59",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/60",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/61",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/62",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/63",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/64",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/65",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/66",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/67",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/68",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/69",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/70",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/71",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/72",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/73",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/74",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/75",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/76",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/77",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/78",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/79",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/80",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/81",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/82",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/83",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/84",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/85",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/86",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/87",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/88",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/89",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/90",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/91",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/92",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/93",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/94",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/95",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/96",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/97",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/98",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/99",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/100",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/101",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/102",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/103",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/104",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/105",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/106",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/107",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/108",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/109",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/110",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/111",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/112",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/113",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/114",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/115",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/116",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/117",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/118",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/119",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/120",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/121",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/122",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/123",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/124",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/125",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/126",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/127",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/128",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/129",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/130",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/131",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/132",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/133",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/134",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/135",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/136",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/137",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/138",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/139",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/140",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/141",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/142",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/143",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/144",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/145",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/146",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/147",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/148",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/149",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/150",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/151",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/152",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/153",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/154",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/155",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/156",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/157",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/158",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/159",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/160",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/161",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/162",
+			"status": "passed"
+		},
+		{
+			"id": "HumanEval/163",
+			"status": "passed"
+		}
+	]
+}

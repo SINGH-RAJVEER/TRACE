@@ -1,0 +1,26 @@
+{
+	"available": {
+		"train": 74160
+	},
+	"dataset": {
+		"configuration": null,
+		"license": "unknown",
+		"repository": "lucadiliello/newsqa",
+		"revision": "728e52920b8e4ffcfaad93fa47556f26a1d82546",
+		"splits": [
+			"train"
+		]
+	},
+	"description": "NewsQA questions over CNN articles rather than Wikipedia passages",
+	"filtered": {
+		"duplicate_prompt": 269
+	},
+	"groups": 10670,
+	"overlap_check": "exact normalized match against development and test suites",
+	"prompts": 73891,
+	"sha256": {
+		"attacker.jsonl": "f3e369d2465428b80ec15f916b60795cd613a84597ca0f9e39d05498d41ac10e"
+	},
+	"task": "squad",
+	"version": "external-sources-v1"
+}

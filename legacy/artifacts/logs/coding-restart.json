@@ -1,0 +1,19 @@
+{
+	"archived_directory": "/home/rajveer/Projects/personal/capstone/artifacts/coding-build-stopped-20261020T122305Z",
+	"stopped_counts": {
+		"raw": 26000,
+		"reference_failed": 10308,
+		"eligible": 7291,
+		"malformed_or_unsupported": 5794,
+		"test_overlap": 88,
+		"reference_timeout": 37,
+		"duplicate": 2482
+	},
+	"restart_workers": 16,
+	"restart_tasks": [
+		"coding",
+		"gsm8k"
+	],
+	"suspend_block": "sleep",
+	"unit": "capstone-task-build.service"
+}

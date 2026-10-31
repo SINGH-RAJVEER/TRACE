@@ -1,0 +1,8 @@
+name, memory.used [MiB], memory.total [MiB], utilization.gpu [%]
+Tesla T4, 9015 MiB, 15360 MiB, 100 %
+114.55.061.863 I slot print_timing: id  3 | task 74549 | prompt eval time =     274.18 ms /    97 tokens (    2.83 ms per token,   353.78 tokens per second)
+114.55.061.892 I slot print_timing: id  3 | task 74549 |        eval time =     929.12 ms /     4 tokens (  309.70 ms per token,     3.23 tokens per second)
+114.55.061.894 I slot print_timing: id  3 | task 74549 |       total time =    1203.29 ms /   101 tokens
+114.55.061.895 I slot print_timing: id  3 | task 74549 |    graphs reused =      66029
+114.55.061.896 I slot print_timing: id  3 | task 74549 |   graph reallocs =          0    /     0        (same size) / (changed size)
+114.55.061.950 I slot      release: id  3 | task 74549 | stop processing: n_tokens = 100, truncated = 0

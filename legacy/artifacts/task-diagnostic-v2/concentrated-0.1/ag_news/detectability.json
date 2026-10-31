@@ -1,0 +1,366 @@
+{
+	"budget": 2000,
+	"seed": 42,
+	"single_account": true,
+	"purpose": "development diagnostic, not a power estimate",
+	"concentrated_share": 0.1,
+	"level_target": 0.1,
+	"calibration_sha256": "c7c24c5e49307a46f68f662d73ad05d64040d36ddaae396f865d0769918ff9a7",
+	"mmd_signal": false,
+	"results": {
+		"full": {
+			"policy": "mmd",
+			"accumulator": "paper",
+			"actions": "graduated",
+			"thresholds": "calibrated",
+			"requests": 2000,
+			"horizons": 1,
+			"unscored_horizons": 0,
+			"windows": 20,
+			"l4_action": "refuse",
+			"deceived": 0,
+			"implemented_levels": [
+				1,
+				2,
+				3,
+				4
+			],
+			"reached": {
+				"L1": 0,
+				"L2": 0,
+				"L3": 0,
+				"L4": 0
+			},
+			"reached_rate": {
+				"L1": 0.0,
+				"L2": 0.0,
+				"L3": 0.0,
+				"L4": 0.0
+			},
+			"output": "artifacts/task-diagnostic-v2/concentrated-0.1/ag_news/detectability/full.jsonl",
+			"extractor": {
+				"horizons": 1,
+				"scored_horizons": 1,
+				"peak_levels": {
+					"L0": 1,
+					"L1": 0,
+					"L2": 0,
+					"L3": 0,
+					"L4": 0
+				},
+				"windows": 20,
+				"p_value_mean": 0.5619791666666667,
+				"p_value_median": 0.5104166666666666
+			},
+			"benign_by_client_type": {
+				"batch": {
+					"horizons": 8,
+					"scored_horizons": 8,
+					"peak_levels": {
+						"L0": 6,
+						"L1": 2,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 38,
+					"p_value_mean": 0.6828399122807017,
+					"p_value_median": 0.6979166666666666
+				},
+				"bursty": {
+					"horizons": 13,
+					"scored_horizons": 13,
+					"peak_levels": {
+						"L0": 13,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 38,
+					"p_value_mean": 0.6603618421052632,
+					"p_value_median": 0.6875
+				},
+				"repetitive": {
+					"horizons": 6,
+					"scored_horizons": 6,
+					"peak_levels": {
+						"L0": 0,
+						"L1": 4,
+						"L2": 2,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 16,
+					"p_value_mean": 0.17317708333333334,
+					"p_value_median": 0.19791666666666666
+				},
+				"short": {
+					"horizons": 110,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 110,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"specialist": {
+					"horizons": 3,
+					"scored_horizons": 3,
+					"peak_levels": {
+						"L0": 0,
+						"L1": 1,
+						"L2": 1,
+						"L3": 0,
+						"L4": 1
+					},
+					"windows": 5,
+					"p_value_mean": 0.08333333333333334,
+					"p_value_median": 0.041666666666666664
+				}
+			},
+			"benign_rate_at_extractor_peak": 1.0,
+			"escalates_beyond_benign": false
+		},
+		"instantaneous": {
+			"policy": "mmd",
+			"accumulator": "instantaneous",
+			"actions": "graduated",
+			"thresholds": "calibrated",
+			"requests": 2000,
+			"horizons": 1,
+			"unscored_horizons": 0,
+			"windows": 20,
+			"l4_action": "refuse",
+			"deceived": 0,
+			"implemented_levels": [
+				1,
+				2,
+				3,
+				4
+			],
+			"reached": {
+				"L1": 0,
+				"L2": 0,
+				"L3": 0,
+				"L4": 0
+			},
+			"reached_rate": {
+				"L1": 0.0,
+				"L2": 0.0,
+				"L3": 0.0,
+				"L4": 0.0
+			},
+			"output": "artifacts/task-diagnostic-v2/concentrated-0.1/ag_news/detectability/instantaneous.jsonl",
+			"extractor": {
+				"horizons": 1,
+				"scored_horizons": 1,
+				"peak_levels": {
+					"L0": 1,
+					"L1": 0,
+					"L2": 0,
+					"L3": 0,
+					"L4": 0
+				},
+				"windows": 20,
+				"p_value_mean": 0.5619791666666667,
+				"p_value_median": 0.5104166666666666
+			},
+			"benign_by_client_type": {
+				"batch": {
+					"horizons": 8,
+					"scored_horizons": 8,
+					"peak_levels": {
+						"L0": 6,
+						"L1": 2,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 38,
+					"p_value_mean": 0.6828399122807017,
+					"p_value_median": 0.6979166666666666
+				},
+				"bursty": {
+					"horizons": 13,
+					"scored_horizons": 13,
+					"peak_levels": {
+						"L0": 13,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 38,
+					"p_value_mean": 0.6603618421052632,
+					"p_value_median": 0.6875
+				},
+				"repetitive": {
+					"horizons": 6,
+					"scored_horizons": 6,
+					"peak_levels": {
+						"L0": 0,
+						"L1": 4,
+						"L2": 2,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 16,
+					"p_value_mean": 0.17317708333333334,
+					"p_value_median": 0.19791666666666666
+				},
+				"short": {
+					"horizons": 110,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 110,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"specialist": {
+					"horizons": 3,
+					"scored_horizons": 3,
+					"peak_levels": {
+						"L0": 0,
+						"L1": 0,
+						"L2": 2,
+						"L3": 0,
+						"L4": 1
+					},
+					"windows": 5,
+					"p_value_mean": 0.08333333333333334,
+					"p_value_median": 0.041666666666666664
+				}
+			},
+			"benign_rate_at_extractor_peak": 1.0,
+			"escalates_beyond_benign": false
+		},
+		"quota": {
+			"policy": "quota",
+			"accumulator": null,
+			"actions": null,
+			"thresholds": null,
+			"requests": 2000,
+			"horizons": 1,
+			"unscored_horizons": null,
+			"windows": 0,
+			"l4_action": null,
+			"deceived": 0,
+			"implemented_levels": [
+				4
+			],
+			"reached": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": 1
+			},
+			"reached_rate": {
+				"L1": null,
+				"L2": null,
+				"L3": null,
+				"L4": 1.0
+			},
+			"output": "artifacts/task-diagnostic-v2/concentrated-0.1/ag_news/detectability/quota.jsonl",
+			"extractor": {
+				"horizons": 1,
+				"scored_horizons": 0,
+				"peak_levels": {
+					"L0": 0,
+					"L1": 0,
+					"L2": 0,
+					"L3": 0,
+					"L4": 1
+				},
+				"windows": 0,
+				"p_value_mean": null,
+				"p_value_median": null
+			},
+			"benign_by_client_type": {
+				"batch": {
+					"horizons": 8,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 8,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"bursty": {
+					"horizons": 13,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 13,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"repetitive": {
+					"horizons": 6,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 6,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"short": {
+					"horizons": 110,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 110,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				},
+				"specialist": {
+					"horizons": 3,
+					"scored_horizons": 0,
+					"peak_levels": {
+						"L0": 3,
+						"L1": 0,
+						"L2": 0,
+						"L3": 0,
+						"L4": 0
+					},
+					"windows": 0,
+					"p_value_mean": null,
+					"p_value_median": null
+				}
+			},
+			"benign_rate_at_extractor_peak": 0.0,
+			"escalates_beyond_benign": true
+		}
+	}
+}

@@ -1,0 +1,28 @@
+{
+	"policy": "quota",
+	"accumulator": null,
+	"actions": null,
+	"thresholds": null,
+	"requests": 12044,
+	"horizons": 140,
+	"unscored_horizons": null,
+	"windows": 0,
+	"l4_action": null,
+	"deceived": 0,
+	"implemented_levels": [
+		4
+	],
+	"reached": {
+		"L1": null,
+		"L2": null,
+		"L3": null,
+		"L4": 0
+	},
+	"reached_rate": {
+		"L1": null,
+		"L2": null,
+		"L3": null,
+		"L4": 0.0
+	},
+	"output": "artifacts/task-diagnostic-v2/concentrated-0.1/ag_news/benign-test/quota.decisions.jsonl"
+}

@@ -1,0 +1,271 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu] _
+tests/test_training_stack.py:397: in test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly
+    assert steps == [3, 4]
+E   assert [1, 2, 3, 4] == [3, 4]
+E     
+E     At index 0 diff: 1 != 3
+E     Left contains 2 more items, first extra item: 3
+E     Use -v to get more diff
+---------------------------- Captured stderr setup -----------------------------
+
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]
+Writing model shards: 100%|██████████| 1/1 [00:00<00:00, 396.74it/s]
+----------------------------- Captured stdout call -----------------------------
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '10', 'epoch': '1'}
+{'eval_loss': '2.609', 'eval_runtime': '0.0055', 'eval_samples_per_second': '182.5', 'eval_steps_per_second': '182.5', 'eval_entropy': '2.304', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '10', 'epoch': '1'}
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0.01', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '20', 'epoch': '2'}
+{'eval_loss': '2.416', 'eval_runtime': '0.0066', 'eval_samples_per_second': '151.1', 'eval_steps_per_second': '151.1', 'eval_entropy': '2.316', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '20', 'epoch': '2'}
+{'loss': '2.391', 'grad_norm': '0.8721', 'learning_rate': '0.006667', 'entropy': '2.318', 'mean_token_accuracy': '0', 'num_tokens': '30', 'epoch': '3'}
+{'eval_loss': '2.243', 'eval_runtime': '0.0061', 'eval_samples_per_second': '165', 'eval_steps_per_second': '165', 'eval_entropy': '2.331', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '30', 'epoch': '3'}
+{'loss': '2.226', 'grad_norm': '0.9278', 'learning_rate': '0.003333', 'entropy': '2.333', 'mean_token_accuracy': '0', 'num_tokens': '40', 'epoch': '4'}
+{'eval_loss': '2.152', 'eval_runtime': '0.0065', 'eval_samples_per_second': '154', 'eval_steps_per_second': '154', 'eval_entropy': '2.338', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '40', 'epoch': '4'}
+{'train_runtime': '0.2607', 'train_samples_per_second': '15.35', 'train_steps_per_second': '15.35', 'train_loss': '2.455', 'epoch': '4'}
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '10', 'epoch': '1'}
+{'eval_loss': '2.609', 'eval_runtime': '0.0026', 'eval_samples_per_second': '378.4', 'eval_steps_per_second': '378.4', 'eval_entropy': '2.304', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '10', 'epoch': '1'}
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0.01', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '20', 'epoch': '2'}
+{'eval_loss': '2.416', 'eval_runtime': '0.0031', 'eval_samples_per_second': '318.3', 'eval_steps_per_second': '318.3', 'eval_entropy': '2.316', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '20', 'epoch': '2'}
+{'train_runtime': '0.0749', 'train_samples_per_second': '26.7', 'train_steps_per_second': '26.7', 'train_loss': '2.602', 'epoch': '2'}
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '10', 'epoch': '1'}
+{'eval_loss': '2.609', 'eval_runtime': '0.0027', 'eval_samples_per_second': '375.6', 'eval_steps_per_second': '375.6', 'eval_entropy': '2.304', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '10', 'epoch': '1'}
+{'loss': '2.602', 'grad_norm': '0.881', 'learning_rate': '0.01', 'entropy': '2.303', 'mean_token_accuracy': '0', 'num_tokens': '20', 'epoch': '2'}
+{'eval_loss': '2.416', 'eval_runtime': '0.0026', 'eval_samples_per_second': '392', 'eval_steps_per_second': '392', 'eval_entropy': '2.316', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '20', 'epoch': '2'}
+{'loss': '2.391', 'grad_norm': '0.8721', 'learning_rate': '0.006667', 'entropy': '2.318', 'mean_token_accuracy': '0', 'num_tokens': '30', 'epoch': '3'}
+{'eval_loss': '2.243', 'eval_runtime': '0.0027', 'eval_samples_per_second': '364', 'eval_steps_per_second': '364', 'eval_entropy': '2.331', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '30', 'epoch': '3'}
+{'loss': '2.226', 'grad_norm': '0.9278', 'learning_rate': '0.003333', 'entropy': '2.333', 'mean_token_accuracy': '0', 'num_tokens': '40', 'epoch': '4'}
+{'eval_loss': '2.152', 'eval_runtime': '0.0028', 'eval_samples_per_second': '354.5', 'eval_steps_per_second': '354.5', 'eval_entropy': '2.338', 'eval_mean_token_accuracy': '0', 'eval_num_tokens': '40', 'epoch': '4'}
+{'train_runtime': '0.1108', 'train_samples_per_second': '36.1', 'train_steps_per_second': '36.1', 'train_loss': '2.455', 'epoch': '4'}
+----------------------------- Captured stderr call -----------------------------
+
+Generating train split: 0 examples [00:00, ? examples/s]
+Generating train split: 1 examples [00:00, 499.62 examples/s]
+
+Generating train split: 0 examples [00:00, ? examples/s]
+Generating train split: 1 examples [00:00, 1016.31 examples/s]
+
+Loading weights:   0%|          | 0/24 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 24/24 [00:00<00:00, 15069.36it/s]
+
+Tokenizing train dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Tokenizing train dataset: 100%|██████████| 1/1 [00:00<00:00, 133.79 examples/s]
+
+Building labels for train dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Building labels for train dataset: 100%|██████████| 1/1 [00:00<00:00, 200.36 examples/s]
+
+Truncating train dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Truncating train dataset: 100%|██████████| 1/1 [00:00<00:00, 210.34 examples/s]
+
+Dropping fully masked examples from train dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Dropping fully masked examples from train dataset: 100%|██████████| 1/1 [00:00<00:00, 348.51 examples/s]
+
+Tokenizing eval dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Tokenizing eval dataset: 100%|██████████| 1/1 [00:00<00:00, 171.18 examples/s]
+
+Building labels for eval dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Building labels for eval dataset: 100%|██████████| 1/1 [00:00<00:00, 196.44 examples/s]
+
+Truncating eval dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Truncating eval dataset: 100%|██████████| 1/1 [00:00<00:00, 209.97 examples/s]
+
+Dropping fully masked examples from eval dataset:   0%|          | 0/1 [00:00<?, ? examples/s]
+Dropping fully masked examples from eval dataset: 100%|██████████| 1/1 [00:00<00:00, 337.24 examples/s]
+
+  0%|          | 0/4 [00:00<?, ?it/s]
+                                     
+
+ 25%|██▌       | 1/4 [00:00<00:00, 51.53it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+                                             
+
+                                     
+[A
+ 25%|██▌       | 1/4 [00:00<00:00, 36.83it/s]
+
+100%|██████████| 1/1 [00:00<00:00, 2406.37it/s][A
+
+                                               [A
+                                             
+
+ 50%|█████     | 2/4 [00:00<00:00, 23.51it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+                                             
+
+                                     
+[A
+ 50%|█████     | 2/4 [00:00<00:00, 21.23it/s]
+
+100%|██████████| 1/1 [00:00<00:00, 2114.06it/s][A
+
+                                               [A[transformers] mtime may not be reliable on this filesystem, falling back to numerical ordering
+
+ 75%|███████▌  | 3/4 [00:00<00:00, 20.20it/s]
+                                             
+
+ 75%|███████▌  | 3/4 [00:00<00:00, 20.20it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+                                             
+
+                                     
+[A
+ 75%|███████▌  | 3/4 [00:00<00:00, 20.20it/s]
+
+100%|██████████| 1/1 [00:00<00:00, 2513.06it/s][A
+
+                                               [A
+                                             
+
+100%|██████████| 4/4 [00:00<00:00, 20.20it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+                                             
+
+                                     
+[A
+100%|██████████| 4/4 [00:00<00:00, 20.20it/s]
+
+100%|██████████| 1/1 [00:00<00:00, 2347.12it/s][A
+
+                                               [A
+                                             
+
+100%|██████████| 4/4 [00:00<00:00, 20.20it/s]
+100%|██████████| 4/4 [00:00<00:00, 15.35it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s]
+100%|██████████| 1/1 [00:00<00:00, 3927.25it/s]
+
+Loading weights:   0%|          | 0/24 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 24/24 [00:00<00:00, 16671.63it/s]
+
+  0%|          | 0/4 [00:00<?, ?it/s]
+                                     
+
+ 25%|██▌       | 1/4 [00:00<00:00, 102.16it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                              
+
+100%|██████████| 1/1 [00:00<00:00, 6955.73it/s][A
+ 25%|██▌       | 1/4 [00:00<00:00, 73.20it/s]
+
+                                               [Astopping after the current optimizer step to save a checkpoint; send the signal again to stop now without one
+
+                                             
+
+ 50%|█████     | 2/4 [00:00<00:00, 50.29it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                             
+
+100%|██████████| 1/1 [00:00<00:00, 7061.12it/s][A
+ 50%|█████     | 2/4 [00:00<00:00, 32.33it/s]
+
+                                               [A
+                                             
+
+ 50%|█████     | 2/4 [00:00<00:00, 26.78it/s]
+ 50%|█████     | 2/4 [00:00<00:00, 26.73it/s]
+resuming from /tmp/pytest-of-rajveer/pytest-251/test_cpu_lora_updates_weights_0/resumed/checkpoint-2
+
+Loading weights:   0%|          | 0/24 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 24/24 [00:00<00:00, 10702.03it/s]
+
+  0%|          | 0/4 [00:00<?, ?it/s]
+                                     
+
+ 25%|██▌       | 1/4 [00:00<00:00, 112.68it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                              
+
+100%|██████████| 1/1 [00:00<00:00, 7206.71it/s][A
+ 25%|██▌       | 1/4 [00:00<00:00, 78.28it/s]
+
+                                               [A
+                                             
+
+ 50%|█████     | 2/4 [00:00<00:00, 60.19it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                             
+
+100%|██████████| 1/1 [00:00<00:00, 7281.78it/s][A
+ 50%|█████     | 2/4 [00:00<00:00, 54.03it/s]
+
+                                               [A
+                                             
+
+ 75%|███████▌  | 3/4 [00:00<00:00, 52.02it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                             
+
+100%|██████████| 1/1 [00:00<00:00, 7121.06it/s][A
+ 75%|███████▌  | 3/4 [00:00<00:00, 48.64it/s]
+
+                                               [A
+                                             
+
+100%|██████████| 4/4 [00:00<00:00, 45.08it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s][A
+
+                                     
+[A
+                                             
+
+100%|██████████| 1/1 [00:00<00:00, 7108.99it/s][A
+100%|██████████| 4/4 [00:00<00:00, 43.07it/s]
+
+                                               [A
+                                             
+
+100%|██████████| 4/4 [00:00<00:00, 36.19it/s]
+100%|██████████| 4/4 [00:00<00:00, 36.14it/s]
+
+  0%|          | 0/1 [00:00<?, ?it/s]
+100%|██████████| 1/1 [00:00<00:00, 7025.63it/s]
+------------------------------ Captured log call -------------------------------
+WARNING  bitsandbytes.backends.cpu.ops:ops.py:252 Failed to load CPU gemm_4bit_forward from kernels-community: No module named 'kernels'. Please make sure you already `pip install kernels` and the kernels >= 0.11.1
+=============================== warnings summary ===============================
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+  /home/rajveer/Projects/personal/capstone/artifacts/test-venv/lib/python3.14/site-packages/fla/utils/_device.py:100: UserWarning: Triton is not supported on current platform, roll back to CPU.
+    _cpu_device_warning()
+
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+  /home/rajveer/Projects/personal/capstone/artifacts/test-venv/lib/python3.14/site-packages/torch/cuda/__init__.py:1174: UserWarning: Can't initialize NVML
+    raw_cnt = _raw_device_count_nvml()
+
+tests/test_training_stack.py: 13 warnings
+  /home/rajveer/Projects/personal/capstone/artifacts/test-venv/lib/python3.14/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+    super().__init__(loader)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_training_stack.py::test_cpu_lora_updates_weights_and_resumes_the_optimizer_exactly[full-attention-cpu]
+1 failed, 21 warnings in 6.81s

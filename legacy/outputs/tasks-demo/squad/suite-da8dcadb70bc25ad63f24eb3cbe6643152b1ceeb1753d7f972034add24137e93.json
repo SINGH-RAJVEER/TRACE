@@ -1,0 +1,526 @@
+{
+	"version": 1,
+	"scorer_version": "generated-answer-v1",
+	"seed": 42,
+	"created_at": "2026-10-16T07:27:43.265120Z",
+	"sources": [
+		{
+			"benchmark": "squad",
+			"repository": "synthetic/dashboard-fixture",
+			"revision": "synthetic-v1",
+			"configuration": "demo",
+			"split": "demo",
+			"license": "Apache-2.0",
+			"url": "https://example.invalid/simulated",
+			"available": 24,
+			"selected": 24
+		}
+	],
+	"items": [
+		{
+			"id": "demo:squad:0",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 1. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 1. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:1",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 2. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 2. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:2",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 3. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 3. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:3",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 4. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 4. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:4",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 5. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 5. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:5",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 6. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 6. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:6",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 7. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 7. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:7",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 8. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 8. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:8",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 9. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 9. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:9",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 10. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 10. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:10",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 11. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 11. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:11",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 12. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 12. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:12",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 13. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 13. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:13",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 14. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 14. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:14",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 15. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 15. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:15",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 16. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 16. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:16",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 17. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 17. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:17",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 18. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 18. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:18",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 19. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 19. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:19",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 20. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 20. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:20",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 21. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 21. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:21",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 22. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 22. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:22",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 23. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 23. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		},
+		{
+			"id": "demo:squad:23",
+			"benchmark": "squad",
+			"category": "squad",
+			"question": "Simulated squad question 24. This is a dashboard fixture.",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Simulated squad question 24. This is a dashboard fixture."
+				}
+			],
+			"metric": "squad",
+			"answer": "fixture span",
+			"choices": [],
+			"test_code": "",
+			"code_prompt": "",
+			"entry_point": "",
+			"answers": [
+				"fixture span"
+			]
+		}
+	],
+	"sha256": "da8dcadb70bc25ad63f24eb3cbe6643152b1ceeb1753d7f972034add24137e93"
+}

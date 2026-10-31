@@ -1,0 +1,46 @@
+# Default coding task; output-cap and transfer measurements remain development gates.
+# Paper task: coding. Build it with `distill tasks build --task coding`. See docs/paper-tasks.md.
+# The output limit is part of the task contract and matches the collection limit.
+experiment = "paper-coding-v1"
+suite_path = "data/tasks/coding-subset-50000-s42/test-suite.json"
+output_dir = "outputs/tasks/coding"
+# Adapter evaluation adds its own training files; list any other transfer data here.
+training_paths = []
+
+[generation]
+max_output_tokens = 512
+seed = 42
+temperature = 0
+enable_thinking = false
+
+[models.teacher]
+backend = "teacher_api"
+model = "Qwen/Qwen3.5-9B"
+revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+base_url = "http://127.0.0.1:8000"
+
+[models.student_before]
+backend = "local"
+model = "Qwen/Qwen3.5-2B-Base"
+revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+eos_token = "<|im_end|>"
+precision = "bf16"
+# Must match the adapter's qlora setting; evaluation rejects a mismatch.
+load_in_4bit = false
+
+[models.student_after]
+backend = "local"
+model = "Qwen/Qwen3.5-2B-Base"
+revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+eos_token = "<|im_end|>"
+precision = "bf16"
+load_in_4bit = false
+# Replace FULL with the numeric attacker-pool count from the coding build manifest.
+# One adapter per seed and budget; point this at the run being evaluated.
+adapter_path = "artifacts/tasks/coding/s42-bFULL/attacker"
+
+[models.teacher_after]
+backend = "teacher_api"
+model = "Qwen/Qwen3.5-9B"
+revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+base_url = "http://127.0.0.1:8000"

@@ -1,0 +1,2345 @@
+{
+	"version": 1,
+	"protocol": "synthetic-traffic-v1",
+	"seed": 42,
+	"duration_seconds": 60.0,
+	"actors": [
+		{
+			"id": "u03",
+			"label": "genuine",
+			"scenario": "ordinary_repeat_user"
+		},
+		{
+			"id": "u01",
+			"label": "genuine",
+			"scenario": "ordinary_repeat_user"
+		},
+		{
+			"id": "u02",
+			"label": "genuine",
+			"scenario": "ordinary_repeat_user"
+		},
+		{
+			"id": "u04",
+			"label": "genuine",
+			"scenario": "ordinary_repeat_user"
+		},
+		{
+			"id": "u00",
+			"label": "distillation",
+			"scenario": "ramping_extraction"
+		},
+		{
+			"id": "u05",
+			"label": "distillation",
+			"scenario": "steady_extraction"
+		}
+	],
+	"requests": [
+		{
+			"id": "r00048",
+			"actor_id": "u00",
+			"at_seconds": 0.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 11 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00156",
+			"actor_id": "u05",
+			"at_seconds": 0.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 11 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00000",
+			"actor_id": "u03",
+			"at_seconds": 0.15305740862717263,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a polite email asking to reschedule my appointment to Friday."
+				}
+			]
+		},
+		{
+			"id": "r00001",
+			"actor_id": "u01",
+			"at_seconds": 1.3372112053282148,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain why changing a Python list while iterating can skip elements."
+				}
+			]
+		},
+		{
+			"id": "r00157",
+			"actor_id": "u05",
+			"at_seconds": 1.6666666666666665,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 12th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00002",
+			"actor_id": "u02",
+			"at_seconds": 2.5640594851071925,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain fractions to a beginner using a pizza example."
+				}
+			]
+		},
+		{
+			"id": "r00158",
+			"actor_id": "u05",
+			"at_seconds": 3.333333333333333,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 13: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00003",
+			"actor_id": "u04",
+			"at_seconds": 4.212917340417298,
+			"category": "planning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Plan three inexpensive vegetarian lunches for a busy work week."
+				}
+			]
+		},
+		{
+			"id": "r00159",
+			"actor_id": "u05",
+			"at_seconds": 5.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 14: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00004",
+			"actor_id": "u03",
+			"at_seconds": 5.34085408359272,
+			"category": "summarization",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Summarize this note: The release moved to Monday; tests need review."
+				}
+			]
+		},
+		{
+			"id": "r00049",
+			"actor_id": "u00",
+			"at_seconds": 5.773502691896258,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 12th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00005",
+			"actor_id": "u01",
+			"at_seconds": 6.619057820280649,
+			"category": "translation",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Translate into Hindi: The train leaves tomorrow morning."
+				}
+			]
+		},
+		{
+			"id": "r00160",
+			"actor_id": "u05",
+			"at_seconds": 6.666666666666666,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 15 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00006",
+			"actor_id": "u02",
+			"at_seconds": 7.5198641746761155,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function that removes duplicates while preserving order."
+				}
+			]
+		},
+		{
+			"id": "r00050",
+			"actor_id": "u00",
+			"at_seconds": 8.16496580927726,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 13: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00161",
+			"actor_id": "u05",
+			"at_seconds": 8.333333333333334,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 16 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00007",
+			"actor_id": "u04",
+			"at_seconds": 8.808559524913495,
+			"category": "batch_work",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Normalize these product names to lowercase: Copper Cup, Blue Pen, Lamp."
+				}
+			]
+		},
+		{
+			"id": "r00051",
+			"actor_id": "u00",
+			"at_seconds": 10.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 14: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00162",
+			"actor_id": "u05",
+			"at_seconds": 10.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 17 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00008",
+			"actor_id": "u03",
+			"at_seconds": 10.145413058369213,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Give me five practice questions about percentages for my exam."
+				}
+			]
+		},
+		{
+			"id": "r00052",
+			"actor_id": "u00",
+			"at_seconds": 11.547005383792516,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 15 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00009",
+			"actor_id": "u01",
+			"at_seconds": 11.626261705656239,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "How do I test a rate limiter in my own API without calling production?"
+				}
+			]
+		},
+		{
+			"id": "r00163",
+			"actor_id": "u05",
+			"at_seconds": 11.666666666666666,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 18th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00010",
+			"actor_id": "u02",
+			"at_seconds": 12.850778164336633,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Rewrite this clearly: The changes were made by the team yesterday."
+				}
+			]
+		},
+		{
+			"id": "r00053",
+			"actor_id": "u00",
+			"at_seconds": 12.909944487358056,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 16 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00164",
+			"actor_id": "u05",
+			"at_seconds": 13.333333333333332,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 19: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00054",
+			"actor_id": "u00",
+			"at_seconds": 14.142135623730951,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 17 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00011",
+			"actor_id": "u04",
+			"at_seconds": 14.1975122580765,
+			"category": "data",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return JSON with city Pune, country India, and timezone Asia/Kolkata."
+				}
+			]
+		},
+		{
+			"id": "r00165",
+			"actor_id": "u05",
+			"at_seconds": 15.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 20: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00055",
+			"actor_id": "u00",
+			"at_seconds": 15.275252316519467,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 18th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00012",
+			"actor_id": "u03",
+			"at_seconds": 15.438328108493897,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a polite email asking to reschedule my appointment to Friday."
+				}
+			]
+		},
+		{
+			"id": "r00056",
+			"actor_id": "u00",
+			"at_seconds": 16.32993161855452,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 19: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00013",
+			"actor_id": "u01",
+			"at_seconds": 16.512199888101033,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain why changing a Python list while iterating can skip elements."
+				}
+			]
+		},
+		{
+			"id": "r00166",
+			"actor_id": "u05",
+			"at_seconds": 16.666666666666668,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 21 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00057",
+			"actor_id": "u00",
+			"at_seconds": 17.32050807568877,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 20: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00014",
+			"actor_id": "u02",
+			"at_seconds": 17.78075565392741,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain fractions to a beginner using a pizza example."
+				}
+			]
+		},
+		{
+			"id": "r00058",
+			"actor_id": "u00",
+			"at_seconds": 18.257418583505537,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 21 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00167",
+			"actor_id": "u05",
+			"at_seconds": 18.333333333333336,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 22 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00015",
+			"actor_id": "u04",
+			"at_seconds": 18.923869192644165,
+			"category": "planning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Plan three inexpensive vegetarian lunches for a busy work week."
+				}
+			]
+		},
+		{
+			"id": "r00059",
+			"actor_id": "u00",
+			"at_seconds": 19.148542155126762,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 22 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00060",
+			"actor_id": "u00",
+			"at_seconds": 20.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 23 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00168",
+			"actor_id": "u05",
+			"at_seconds": 20.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 23 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00016",
+			"actor_id": "u03",
+			"at_seconds": 20.54331270049558,
+			"category": "summarization",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Summarize this note: The release moved to Monday; tests need review."
+				}
+			]
+		},
+		{
+			"id": "r00061",
+			"actor_id": "u00",
+			"at_seconds": 20.81665999466133,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 24th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00062",
+			"actor_id": "u00",
+			"at_seconds": 21.602468994692867,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 25: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00169",
+			"actor_id": "u05",
+			"at_seconds": 21.666666666666668,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 24th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00017",
+			"actor_id": "u01",
+			"at_seconds": 21.724254604456107,
+			"category": "translation",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Translate into Hindi: The train leaves tomorrow morning."
+				}
+			]
+		},
+		{
+			"id": "r00063",
+			"actor_id": "u00",
+			"at_seconds": 22.360679774997898,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 26: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00018",
+			"actor_id": "u02",
+			"at_seconds": 22.599787072735555,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function that removes duplicates while preserving order."
+				}
+			]
+		},
+		{
+			"id": "r00064",
+			"actor_id": "u00",
+			"at_seconds": 23.094010767585033,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 27 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00170",
+			"actor_id": "u05",
+			"at_seconds": 23.333333333333332,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 25: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00065",
+			"actor_id": "u00",
+			"at_seconds": 23.804761428476166,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 28 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00019",
+			"actor_id": "u04",
+			"at_seconds": 24.01413399884594,
+			"category": "batch_work",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Normalize these product names to lowercase: Copper Cup, Blue Pen, Lamp."
+				}
+			]
+		},
+		{
+			"id": "r00066",
+			"actor_id": "u00",
+			"at_seconds": 24.49489742783178,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 29 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00171",
+			"actor_id": "u05",
+			"at_seconds": 25.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 26: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00067",
+			"actor_id": "u00",
+			"at_seconds": 25.166114784235834,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 30th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00020",
+			"actor_id": "u03",
+			"at_seconds": 25.173669588544772,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Give me five practice questions about percentages for my exam."
+				}
+			]
+		},
+		{
+			"id": "r00068",
+			"actor_id": "u00",
+			"at_seconds": 25.81988897471611,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 31: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00021",
+			"actor_id": "u01",
+			"at_seconds": 26.384571101317245,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "How do I test a rate limiter in my own API without calling production?"
+				}
+			]
+		},
+		{
+			"id": "r00069",
+			"actor_id": "u00",
+			"at_seconds": 26.457513110645905,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 32: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00172",
+			"actor_id": "u05",
+			"at_seconds": 26.666666666666664,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 27 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00070",
+			"actor_id": "u00",
+			"at_seconds": 27.080128015453198,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 33 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00071",
+			"actor_id": "u00",
+			"at_seconds": 27.68874620972692,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 34 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00022",
+			"actor_id": "u02",
+			"at_seconds": 27.977183830629077,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Rewrite this clearly: The changes were made by the team yesterday."
+				}
+			]
+		},
+		{
+			"id": "r00072",
+			"actor_id": "u00",
+			"at_seconds": 28.284271247461902,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 35 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00173",
+			"actor_id": "u05",
+			"at_seconds": 28.333333333333332,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 28 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00023",
+			"actor_id": "u04",
+			"at_seconds": 28.813881422824906,
+			"category": "data",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return JSON with city Pune, country India, and timezone Asia/Kolkata."
+				}
+			]
+		},
+		{
+			"id": "r00073",
+			"actor_id": "u00",
+			"at_seconds": 28.867513459481287,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 36th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00074",
+			"actor_id": "u00",
+			"at_seconds": 29.43920288775949,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 37: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00075",
+			"actor_id": "u00",
+			"at_seconds": 30.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 38: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00174",
+			"actor_id": "u05",
+			"at_seconds": 30.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 29 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00024",
+			"actor_id": "u03",
+			"at_seconds": 30.237454562898336,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a polite email asking to reschedule my appointment to Friday."
+				}
+			]
+		},
+		{
+			"id": "r00076",
+			"actor_id": "u00",
+			"at_seconds": 30.550504633038933,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 39 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00077",
+			"actor_id": "u00",
+			"at_seconds": 31.09126351029605,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 40 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00025",
+			"actor_id": "u01",
+			"at_seconds": 31.474362112802893,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain why changing a Python list while iterating can skip elements."
+				}
+			]
+		},
+		{
+			"id": "r00078",
+			"actor_id": "u00",
+			"at_seconds": 31.622776601683796,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 41 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00175",
+			"actor_id": "u05",
+			"at_seconds": 31.666666666666668,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 30th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00079",
+			"actor_id": "u00",
+			"at_seconds": 32.145502536643185,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 42th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00080",
+			"actor_id": "u00",
+			"at_seconds": 32.65986323710904,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 43: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00026",
+			"actor_id": "u02",
+			"at_seconds": 32.71497232654936,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain fractions to a beginner using a pizza example."
+				}
+			]
+		},
+		{
+			"id": "r00081",
+			"actor_id": "u00",
+			"at_seconds": 33.166247903554,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 44: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00176",
+			"actor_id": "u05",
+			"at_seconds": 33.333333333333336,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 31: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00082",
+			"actor_id": "u00",
+			"at_seconds": 33.665016461206925,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 45 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00027",
+			"actor_id": "u04",
+			"at_seconds": 33.915325542013754,
+			"category": "planning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Plan three inexpensive vegetarian lunches for a busy work week."
+				}
+			]
+		},
+		{
+			"id": "r00083",
+			"actor_id": "u00",
+			"at_seconds": 34.15650255319866,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 46 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00084",
+			"actor_id": "u00",
+			"at_seconds": 34.64101615137754,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 47 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00177",
+			"actor_id": "u05",
+			"at_seconds": 35.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 32: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00028",
+			"actor_id": "u03",
+			"at_seconds": 35.027156526826936,
+			"category": "summarization",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Summarize this note: The release moved to Monday; tests need review."
+				}
+			]
+		},
+		{
+			"id": "r00085",
+			"actor_id": "u00",
+			"at_seconds": 35.11884584284246,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 48th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00086",
+			"actor_id": "u00",
+			"at_seconds": 35.59026084010437,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 49: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00087",
+			"actor_id": "u00",
+			"at_seconds": 36.05551275463989,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 50: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00088",
+			"actor_id": "u00",
+			"at_seconds": 36.51483716701107,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 51 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00029",
+			"actor_id": "u01",
+			"at_seconds": 36.537140549794906,
+			"category": "translation",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Translate into Hindi: The train leaves tomorrow morning."
+				}
+			]
+		},
+		{
+			"id": "r00178",
+			"actor_id": "u05",
+			"at_seconds": 36.66666666666667,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 33 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00089",
+			"actor_id": "u00",
+			"at_seconds": 36.968455021364726,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 52 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00090",
+			"actor_id": "u00",
+			"at_seconds": 37.41657386773941,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 53 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00030",
+			"actor_id": "u02",
+			"at_seconds": 37.578016351783255,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function that removes duplicates while preserving order."
+				}
+			]
+		},
+		{
+			"id": "r00091",
+			"actor_id": "u00",
+			"at_seconds": 37.859388972001824,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 54th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00092",
+			"actor_id": "u00",
+			"at_seconds": 38.297084310253524,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 55: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00179",
+			"actor_id": "u05",
+			"at_seconds": 38.33333333333333,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 34 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00093",
+			"actor_id": "u00",
+			"at_seconds": 38.72983346207417,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 56: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00094",
+			"actor_id": "u00",
+			"at_seconds": 39.15780041490243,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 57 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00031",
+			"actor_id": "u04",
+			"at_seconds": 39.3264346075176,
+			"category": "batch_work",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Normalize these product names to lowercase: Copper Cup, Blue Pen, Lamp."
+				}
+			]
+		},
+		{
+			"id": "r00095",
+			"actor_id": "u00",
+			"at_seconds": 39.58114029012639,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 58 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00096",
+			"actor_id": "u00",
+			"at_seconds": 40.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 59 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00180",
+			"actor_id": "u05",
+			"at_seconds": 40.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 35 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00032",
+			"actor_id": "u03",
+			"at_seconds": 40.049250123799034,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Give me five practice questions about percentages for my exam."
+				}
+			]
+		},
+		{
+			"id": "r00097",
+			"actor_id": "u00",
+			"at_seconds": 40.414518843273804,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 60th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00098",
+			"actor_id": "u00",
+			"at_seconds": 40.8248290463863,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 61: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00099",
+			"actor_id": "u00",
+			"at_seconds": 41.23105625617661,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 62: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00033",
+			"actor_id": "u01",
+			"at_seconds": 41.433236425879436,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "How do I test a rate limiter in my own API without calling production?"
+				}
+			]
+		},
+		{
+			"id": "r00100",
+			"actor_id": "u00",
+			"at_seconds": 41.63331998932266,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 63 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00181",
+			"actor_id": "u05",
+			"at_seconds": 41.666666666666664,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 36th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00101",
+			"actor_id": "u00",
+			"at_seconds": 42.03173404306164,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 64 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00102",
+			"actor_id": "u00",
+			"at_seconds": 42.42640687119285,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 65 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00103",
+			"actor_id": "u00",
+			"at_seconds": 42.81744192888377,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 66th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00034",
+			"actor_id": "u02",
+			"at_seconds": 42.89289987468402,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Rewrite this clearly: The changes were made by the team yesterday."
+				}
+			]
+		},
+		{
+			"id": "r00104",
+			"actor_id": "u00",
+			"at_seconds": 43.20493798938573,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 67: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00182",
+			"actor_id": "u05",
+			"at_seconds": 43.333333333333336,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 37: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00105",
+			"actor_id": "u00",
+			"at_seconds": 43.58898943540674,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 68: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00106",
+			"actor_id": "u00",
+			"at_seconds": 43.9696865275764,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 69 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00035",
+			"actor_id": "u04",
+			"at_seconds": 44.30340734246051,
+			"category": "data",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return JSON with city Pune, country India, and timezone Asia/Kolkata."
+				}
+			]
+		},
+		{
+			"id": "r00107",
+			"actor_id": "u00",
+			"at_seconds": 44.3471156521669,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 70 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00108",
+			"actor_id": "u00",
+			"at_seconds": 44.721359549995796,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 71 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00183",
+			"actor_id": "u05",
+			"at_seconds": 45.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 38: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00109",
+			"actor_id": "u00",
+			"at_seconds": 45.09249752822894,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 72th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00036",
+			"actor_id": "u03",
+			"at_seconds": 45.22602189135436,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a polite email asking to reschedule my appointment to Friday."
+				}
+			]
+		},
+		{
+			"id": "r00110",
+			"actor_id": "u00",
+			"at_seconds": 45.46060565661952,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 73: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00111",
+			"actor_id": "u00",
+			"at_seconds": 45.825756949558404,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 74: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00112",
+			"actor_id": "u00",
+			"at_seconds": 46.188021535170066,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 75 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00037",
+			"actor_id": "u01",
+			"at_seconds": 46.37018036891042,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain why changing a Python list while iterating can skip elements."
+				}
+			]
+		},
+		{
+			"id": "r00113",
+			"actor_id": "u00",
+			"at_seconds": 46.547466812563144,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 76 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00184",
+			"actor_id": "u05",
+			"at_seconds": 46.666666666666664,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 39 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00114",
+			"actor_id": "u00",
+			"at_seconds": 46.9041575982343,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 77 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00115",
+			"actor_id": "u00",
+			"at_seconds": 47.258156262526086,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 78th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00038",
+			"actor_id": "u02",
+			"at_seconds": 47.543471968014835,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain fractions to a beginner using a pizza example."
+				}
+			]
+		},
+		{
+			"id": "r00116",
+			"actor_id": "u00",
+			"at_seconds": 47.60952285695233,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 79: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00117",
+			"actor_id": "u00",
+			"at_seconds": 47.958315233127195,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 80: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00118",
+			"actor_id": "u00",
+			"at_seconds": 48.3045891539648,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 81 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00185",
+			"actor_id": "u05",
+			"at_seconds": 48.333333333333336,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 40 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00119",
+			"actor_id": "u00",
+			"at_seconds": 48.648398397754754,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 82 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00120",
+			"actor_id": "u00",
+			"at_seconds": 48.98979485566356,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 83 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00039",
+			"actor_id": "u04",
+			"at_seconds": 49.163289574104816,
+			"category": "planning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Plan three inexpensive vegetarian lunches for a busy work week."
+				}
+			]
+		},
+		{
+			"id": "r00121",
+			"actor_id": "u00",
+			"at_seconds": 49.32882862316247,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 84th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00122",
+			"actor_id": "u00",
+			"at_seconds": 49.6655480858378,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 85: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00123",
+			"actor_id": "u00",
+			"at_seconds": 50.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 86: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00186",
+			"actor_id": "u05",
+			"at_seconds": 50.0,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 41 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00124",
+			"actor_id": "u00",
+			"at_seconds": 50.33222956847167,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 87 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00040",
+			"actor_id": "u03",
+			"at_seconds": 50.48316771299293,
+			"category": "summarization",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Summarize this note: The release moved to Monday; tests need review."
+				}
+			]
+		},
+		{
+			"id": "r00125",
+			"actor_id": "u00",
+			"at_seconds": 50.66228051190221,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 88 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00126",
+			"actor_id": "u00",
+			"at_seconds": 50.99019513592785,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 89 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00127",
+			"actor_id": "u00",
+			"at_seconds": 51.31601439446884,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 90th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00128",
+			"actor_id": "u00",
+			"at_seconds": 51.63977794943222,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 91: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00187",
+			"actor_id": "u05",
+			"at_seconds": 51.66666666666667,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 42th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00041",
+			"actor_id": "u01",
+			"at_seconds": 51.86576345041297,
+			"category": "translation",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Translate into Hindi: The train leaves tomorrow morning."
+				}
+			]
+		},
+		{
+			"id": "r00129",
+			"actor_id": "u00",
+			"at_seconds": 51.96152422706631,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 92: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00130",
+			"actor_id": "u00",
+			"at_seconds": 52.28129047119374,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 93 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00131",
+			"actor_id": "u00",
+			"at_seconds": 52.59911279353167,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 94 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00132",
+			"actor_id": "u00",
+			"at_seconds": 52.91502622129181,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 95 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00042",
+			"actor_id": "u02",
+			"at_seconds": 53.03457357563446,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function that removes duplicates while preserving order."
+				}
+			]
+		},
+		{
+			"id": "r00133",
+			"actor_id": "u00",
+			"at_seconds": 53.22906474223771,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 96th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00188",
+			"actor_id": "u05",
+			"at_seconds": 53.33333333333333,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 43: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00134",
+			"actor_id": "u00",
+			"at_seconds": 53.54126134736337,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 97: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00135",
+			"actor_id": "u00",
+			"at_seconds": 53.85164807134504,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 98: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00136",
+			"actor_id": "u00",
+			"at_seconds": 54.160256030906396,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 99 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00043",
+			"actor_id": "u04",
+			"at_seconds": 54.29155229172204,
+			"category": "batch_work",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Normalize these product names to lowercase: Copper Cup, Blue Pen, Lamp."
+				}
+			]
+		},
+		{
+			"id": "r00137",
+			"actor_id": "u00",
+			"at_seconds": 54.46711546122731,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 100 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00138",
+			"actor_id": "u00",
+			"at_seconds": 54.772255750516614,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 101 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00189",
+			"actor_id": "u05",
+			"at_seconds": 55.0,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 44: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00139",
+			"actor_id": "u00",
+			"at_seconds": 55.07570547286102,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 102th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00044",
+			"actor_id": "u03",
+			"at_seconds": 55.23757889064947,
+			"category": "learning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Give me five practice questions about percentages for my exam."
+				}
+			]
+		},
+		{
+			"id": "r00140",
+			"actor_id": "u00",
+			"at_seconds": 55.37749241945384,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 103: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00141",
+			"actor_id": "u00",
+			"at_seconds": 55.67764362830022,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 104: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00142",
+			"actor_id": "u00",
+			"at_seconds": 55.97618541248889,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 105 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00143",
+			"actor_id": "u00",
+			"at_seconds": 56.27314338711378,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 106 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00045",
+			"actor_id": "u01",
+			"at_seconds": 56.53338143898028,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "How do I test a rate limiter in my own API without calling production?"
+				}
+			]
+		},
+		{
+			"id": "r00144",
+			"actor_id": "u00",
+			"at_seconds": 56.568542494923804,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 107 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00190",
+			"actor_id": "u05",
+			"at_seconds": 56.666666666666664,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 45 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00145",
+			"actor_id": "u00",
+			"at_seconds": 56.86240703077327,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 108th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00146",
+			"actor_id": "u00",
+			"at_seconds": 57.154760664940824,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 109: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00147",
+			"actor_id": "u00",
+			"at_seconds": 57.445626465380286,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 110: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00148",
+			"actor_id": "u00",
+			"at_seconds": 57.735026918962575,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 111 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00046",
+			"actor_id": "u02",
+			"at_seconds": 58.021319016650466,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Rewrite this clearly: The changes were made by the team yesterday."
+				}
+			]
+		},
+		{
+			"id": "r00149",
+			"actor_id": "u00",
+			"at_seconds": 58.02298395176404,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 112 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00150",
+			"actor_id": "u00",
+			"at_seconds": 58.309518948453004,
+			"category": "math",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Solve this and explain your steps: 113 * 17 + 23."
+				}
+			]
+		},
+		{
+			"id": "r00191",
+			"actor_id": "u05",
+			"at_seconds": 58.333333333333336,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 46 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		},
+		{
+			"id": "r00151",
+			"actor_id": "u00",
+			"at_seconds": 58.59465277082315,
+			"category": "coding",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Write a Python function to find the 114th Fibonacci number. Include tests."
+				}
+			]
+		},
+		{
+			"id": "r00047",
+			"actor_id": "u04",
+			"at_seconds": 58.85165881072255,
+			"category": "data",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return JSON with city Pune, country India, and timezone Asia/Kolkata."
+				}
+			]
+		},
+		{
+			"id": "r00152",
+			"actor_id": "u00",
+			"at_seconds": 58.87840577551898,
+			"category": "knowledge",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Explain concept number 115: how HTTP caching uses ETags."
+				}
+			]
+		},
+		{
+			"id": "r00153",
+			"actor_id": "u00",
+			"at_seconds": 59.16079783099616,
+			"category": "writing",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Produce training example 116: a formal email and an informal rewrite."
+				}
+			]
+		},
+		{
+			"id": "r00154",
+			"actor_id": "u00",
+			"at_seconds": 59.44184833375669,
+			"category": "reasoning",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Generate problem 117 about ratios and provide a detailed worked answer."
+				}
+			]
+		},
+		{
+			"id": "r00155",
+			"actor_id": "u00",
+			"at_seconds": 59.72157622389639,
+			"category": "structured",
+			"messages": [
+				{
+					"role": "user",
+					"content": "Return example 118 as JSON with a question, reasoning, and final answer."
+				}
+			]
+		}
+	],
+	"sha256": "27f2da14fec9848ac8d74b75c9d552f22f824f6cde5020d6ab2a12ef55220da1"
+}

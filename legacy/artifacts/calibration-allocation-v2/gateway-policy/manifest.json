@@ -1,0 +1,985 @@
+{
+	"version": "gateway-clients-v3",
+	"role": "policy_calibration",
+	"seed": 42,
+	"accounts": 125,
+	"concentrated_share": 0.1,
+	"client_shares": {
+		"specialist": 0.05,
+		"repetitive": 0.05,
+		"batch": 0.35000000000000003,
+		"bursty": 0.35000000000000003,
+		"short": 0.2
+	},
+	"generalist_share_requested": 0.1,
+	"generalist_share_achieved": 0.104,
+	"generalist_accounts": 13,
+	"requests_per_account_requested": 100,
+	"specialist_domain_rule": "weighted round-robin by role pool size",
+	"length_distribution": {
+		"minimum": 100,
+		"pareto_shape": 1.5,
+		"maximum": 2000,
+		"short_accounts": "capped at 20"
+	},
+	"account_lengths_requested": {
+		"policy_calibration-gateway-00000": 1832,
+		"policy_calibration-gateway-00001": 150,
+		"policy_calibration-gateway-00002": 20,
+		"policy_calibration-gateway-00003": 388,
+		"policy_calibration-gateway-00004": 164,
+		"policy_calibration-gateway-00005": 249,
+		"policy_calibration-gateway-00006": 324,
+		"policy_calibration-gateway-00007": 174,
+		"policy_calibration-gateway-00008": 20,
+		"policy_calibration-gateway-00009": 103,
+		"policy_calibration-gateway-00010": 145,
+		"policy_calibration-gateway-00011": 156,
+		"policy_calibration-gateway-00012": 20,
+		"policy_calibration-gateway-00013": 105,
+		"policy_calibration-gateway-00014": 113,
+		"policy_calibration-gateway-00015": 114,
+		"policy_calibration-gateway-00016": 182,
+		"policy_calibration-gateway-00017": 20,
+		"policy_calibration-gateway-00018": 120,
+		"policy_calibration-gateway-00019": 211,
+		"policy_calibration-gateway-00020": 117,
+		"policy_calibration-gateway-00021": 182,
+		"policy_calibration-gateway-00022": 20,
+		"policy_calibration-gateway-00023": 297,
+		"policy_calibration-gateway-00024": 272,
+		"policy_calibration-gateway-00025": 215,
+		"policy_calibration-gateway-00026": 218,
+		"policy_calibration-gateway-00027": 131,
+		"policy_calibration-gateway-00028": 20,
+		"policy_calibration-gateway-00029": 121,
+		"policy_calibration-gateway-00030": 113,
+		"policy_calibration-gateway-00031": 486,
+		"policy_calibration-gateway-00032": 20,
+		"policy_calibration-gateway-00033": 109,
+		"policy_calibration-gateway-00034": 128,
+		"policy_calibration-gateway-00035": 119,
+		"policy_calibration-gateway-00036": 272,
+		"policy_calibration-gateway-00037": 20,
+		"policy_calibration-gateway-00038": 865,
+		"policy_calibration-gateway-00039": 108,
+		"policy_calibration-gateway-00040": 139,
+		"policy_calibration-gateway-00041": 160,
+		"policy_calibration-gateway-00042": 20,
+		"policy_calibration-gateway-00043": 131,
+		"policy_calibration-gateway-00044": 166,
+		"policy_calibration-gateway-00045": 104,
+		"policy_calibration-gateway-00046": 319,
+		"policy_calibration-gateway-00047": 108,
+		"policy_calibration-gateway-00048": 20,
+		"policy_calibration-gateway-00049": 135,
+		"policy_calibration-gateway-00050": 101,
+		"policy_calibration-gateway-00051": 236,
+		"policy_calibration-gateway-00052": 20,
+		"policy_calibration-gateway-00053": 309,
+		"policy_calibration-gateway-00054": 118,
+		"policy_calibration-gateway-00055": 185,
+		"policy_calibration-gateway-00056": 123,
+		"policy_calibration-gateway-00057": 20,
+		"policy_calibration-gateway-00058": 495,
+		"policy_calibration-gateway-00059": 176,
+		"policy_calibration-gateway-00060": 243,
+		"policy_calibration-gateway-00061": 388,
+		"policy_calibration-gateway-00062": 20,
+		"policy_calibration-gateway-00063": 128,
+		"policy_calibration-gateway-00064": 1071,
+		"policy_calibration-gateway-00065": 127,
+		"policy_calibration-gateway-00066": 111,
+		"policy_calibration-gateway-00067": 135,
+		"policy_calibration-gateway-00068": 20,
+		"policy_calibration-gateway-00069": 102,
+		"policy_calibration-gateway-00070": 123,
+		"policy_calibration-gateway-00071": 510,
+		"policy_calibration-gateway-00072": 20,
+		"policy_calibration-gateway-00073": 897,
+		"policy_calibration-gateway-00074": 1215,
+		"policy_calibration-gateway-00075": 143,
+		"policy_calibration-gateway-00076": 160,
+		"policy_calibration-gateway-00077": 20,
+		"policy_calibration-gateway-00078": 102,
+		"policy_calibration-gateway-00079": 425,
+		"policy_calibration-gateway-00080": 123,
+		"policy_calibration-gateway-00081": 217,
+		"policy_calibration-gateway-00082": 20,
+		"policy_calibration-gateway-00083": 140,
+		"policy_calibration-gateway-00084": 169,
+		"policy_calibration-gateway-00085": 127,
+		"policy_calibration-gateway-00086": 196,
+		"policy_calibration-gateway-00087": 114,
+		"policy_calibration-gateway-00088": 20,
+		"policy_calibration-gateway-00089": 177,
+		"policy_calibration-gateway-00090": 111,
+		"policy_calibration-gateway-00091": 207,
+		"policy_calibration-gateway-00092": 20,
+		"policy_calibration-gateway-00093": 267,
+		"policy_calibration-gateway-00094": 139,
+		"policy_calibration-gateway-00095": 179,
+		"policy_calibration-gateway-00096": 217,
+		"policy_calibration-gateway-00097": 20,
+		"policy_calibration-gateway-00098": 331,
+		"policy_calibration-gateway-00099": 109,
+		"policy_calibration-gateway-00100": 101,
+		"policy_calibration-gateway-00101": 119,
+		"policy_calibration-gateway-00102": 20,
+		"policy_calibration-gateway-00103": 182,
+		"policy_calibration-gateway-00104": 101,
+		"policy_calibration-gateway-00105": 235,
+		"policy_calibration-gateway-00106": 101,
+		"policy_calibration-gateway-00107": 151,
+		"policy_calibration-gateway-00108": 20,
+		"policy_calibration-gateway-00109": 211,
+		"policy_calibration-gateway-00110": 191,
+		"policy_calibration-gateway-00111": 105,
+		"policy_calibration-gateway-00112": 20,
+		"policy_calibration-gateway-00113": 507,
+		"policy_calibration-gateway-00114": 258,
+		"policy_calibration-gateway-00115": 104,
+		"policy_calibration-gateway-00116": 136,
+		"policy_calibration-gateway-00117": 20,
+		"policy_calibration-gateway-00118": 106,
+		"policy_calibration-gateway-00119": 131,
+		"policy_calibration-gateway-00120": 120,
+		"policy_calibration-gateway-00121": 153,
+		"policy_calibration-gateway-00122": 20,
+		"policy_calibration-gateway-00123": 371,
+		"policy_calibration-gateway-00124": 229
+	},
+	"capacity_limited_accounts": [],
+	"requests": 24103,
+	"domain_requests": {
+		"ag_news": 11005,
+		"gsm8k": 771,
+		"squad": 12327
+	},
+	"domain_unique_prompts": {
+		"squad": 12213,
+		"ag_news": 10257,
+		"gsm8k": 567
+	},
+	"account_domains": {
+		"policy_calibration-gateway-00000": [
+			"squad"
+		],
+		"policy_calibration-gateway-00001": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00002": [
+			"squad"
+		],
+		"policy_calibration-gateway-00003": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00004": [
+			"ag_news",
+			"gsm8k"
+		],
+		"policy_calibration-gateway-00005": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00006": [
+			"squad"
+		],
+		"policy_calibration-gateway-00007": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00008": [
+			"squad"
+		],
+		"policy_calibration-gateway-00009": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00010": [
+			"squad"
+		],
+		"policy_calibration-gateway-00011": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00012": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00013": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00014": [
+			"squad"
+		],
+		"policy_calibration-gateway-00015": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00016": [
+			"squad"
+		],
+		"policy_calibration-gateway-00017": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00018": [
+			"squad"
+		],
+		"policy_calibration-gateway-00019": [
+			"ag_news",
+			"gsm8k"
+		],
+		"policy_calibration-gateway-00020": [
+			"squad"
+		],
+		"policy_calibration-gateway-00021": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00022": [
+			"squad"
+		],
+		"policy_calibration-gateway-00023": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00024": [
+			"squad"
+		],
+		"policy_calibration-gateway-00025": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00026": [
+			"squad"
+		],
+		"policy_calibration-gateway-00027": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00028": [
+			"squad"
+		],
+		"policy_calibration-gateway-00029": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00030": [
+			"squad"
+		],
+		"policy_calibration-gateway-00031": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00032": [
+			"squad"
+		],
+		"policy_calibration-gateway-00033": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00034": [
+			"squad"
+		],
+		"policy_calibration-gateway-00035": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00036": [
+			"squad"
+		],
+		"policy_calibration-gateway-00037": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00038": [
+			"squad"
+		],
+		"policy_calibration-gateway-00039": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00040": [
+			"squad"
+		],
+		"policy_calibration-gateway-00041": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00042": [
+			"squad"
+		],
+		"policy_calibration-gateway-00043": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00044": [
+			"squad"
+		],
+		"policy_calibration-gateway-00045": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00046": [
+			"squad"
+		],
+		"policy_calibration-gateway-00047": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00048": [
+			"squad"
+		],
+		"policy_calibration-gateway-00049": [
+			"gsm8k"
+		],
+		"policy_calibration-gateway-00050": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00051": [
+			"squad"
+		],
+		"policy_calibration-gateway-00052": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00053": [
+			"squad"
+		],
+		"policy_calibration-gateway-00054": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00055": [
+			"squad"
+		],
+		"policy_calibration-gateway-00056": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00057": [
+			"squad"
+		],
+		"policy_calibration-gateway-00058": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00059": [
+			"squad"
+		],
+		"policy_calibration-gateway-00060": [
+			"squad"
+		],
+		"policy_calibration-gateway-00061": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00062": [
+			"squad"
+		],
+		"policy_calibration-gateway-00063": [
+			"ag_news",
+			"gsm8k"
+		],
+		"policy_calibration-gateway-00064": [
+			"squad"
+		],
+		"policy_calibration-gateway-00065": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00066": [
+			"squad"
+		],
+		"policy_calibration-gateway-00067": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00068": [
+			"squad"
+		],
+		"policy_calibration-gateway-00069": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00070": [
+			"squad"
+		],
+		"policy_calibration-gateway-00071": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00072": [
+			"squad"
+		],
+		"policy_calibration-gateway-00073": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00074": [
+			"squad"
+		],
+		"policy_calibration-gateway-00075": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00076": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00077": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00078": [
+			"squad"
+		],
+		"policy_calibration-gateway-00079": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00080": [
+			"squad"
+		],
+		"policy_calibration-gateway-00081": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00082": [
+			"squad"
+		],
+		"policy_calibration-gateway-00083": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00084": [
+			"squad"
+		],
+		"policy_calibration-gateway-00085": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00086": [
+			"squad"
+		],
+		"policy_calibration-gateway-00087": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00088": [
+			"squad"
+		],
+		"policy_calibration-gateway-00089": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00090": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00091": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00092": [
+			"squad"
+		],
+		"policy_calibration-gateway-00093": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00094": [
+			"squad"
+		],
+		"policy_calibration-gateway-00095": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00096": [
+			"squad"
+		],
+		"policy_calibration-gateway-00097": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00098": [
+			"ag_news",
+			"squad"
+		],
+		"policy_calibration-gateway-00099": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00100": [
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00101": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00102": [
+			"ag_news",
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00103": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00104": [
+			"squad"
+		],
+		"policy_calibration-gateway-00105": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00106": [
+			"squad"
+		],
+		"policy_calibration-gateway-00107": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00108": [
+			"gsm8k",
+			"squad"
+		],
+		"policy_calibration-gateway-00109": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00110": [
+			"squad"
+		],
+		"policy_calibration-gateway-00111": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00112": [
+			"squad"
+		],
+		"policy_calibration-gateway-00113": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00114": [
+			"squad"
+		],
+		"policy_calibration-gateway-00115": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00116": [
+			"squad"
+		],
+		"policy_calibration-gateway-00117": [
+			"ag_news",
+			"gsm8k"
+		],
+		"policy_calibration-gateway-00118": [
+			"squad"
+		],
+		"policy_calibration-gateway-00119": [
+			"squad"
+		],
+		"policy_calibration-gateway-00120": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00121": [
+			"squad"
+		],
+		"policy_calibration-gateway-00122": [
+			"ag_news"
+		],
+		"policy_calibration-gateway-00123": [
+			"squad"
+		],
+		"policy_calibration-gateway-00124": [
+			"ag_news"
+		]
+	},
+	"account_lengths": {
+		"policy_calibration-gateway-00000": 1832,
+		"policy_calibration-gateway-00001": 150,
+		"policy_calibration-gateway-00002": 20,
+		"policy_calibration-gateway-00003": 388,
+		"policy_calibration-gateway-00004": 164,
+		"policy_calibration-gateway-00005": 249,
+		"policy_calibration-gateway-00006": 324,
+		"policy_calibration-gateway-00007": 174,
+		"policy_calibration-gateway-00008": 20,
+		"policy_calibration-gateway-00009": 103,
+		"policy_calibration-gateway-00010": 145,
+		"policy_calibration-gateway-00011": 156,
+		"policy_calibration-gateway-00012": 20,
+		"policy_calibration-gateway-00013": 105,
+		"policy_calibration-gateway-00014": 113,
+		"policy_calibration-gateway-00015": 114,
+		"policy_calibration-gateway-00016": 182,
+		"policy_calibration-gateway-00017": 20,
+		"policy_calibration-gateway-00018": 120,
+		"policy_calibration-gateway-00019": 211,
+		"policy_calibration-gateway-00020": 117,
+		"policy_calibration-gateway-00021": 182,
+		"policy_calibration-gateway-00022": 20,
+		"policy_calibration-gateway-00023": 297,
+		"policy_calibration-gateway-00024": 272,
+		"policy_calibration-gateway-00025": 215,
+		"policy_calibration-gateway-00026": 218,
+		"policy_calibration-gateway-00027": 131,
+		"policy_calibration-gateway-00028": 20,
+		"policy_calibration-gateway-00029": 121,
+		"policy_calibration-gateway-00030": 113,
+		"policy_calibration-gateway-00031": 486,
+		"policy_calibration-gateway-00032": 20,
+		"policy_calibration-gateway-00033": 109,
+		"policy_calibration-gateway-00034": 128,
+		"policy_calibration-gateway-00035": 119,
+		"policy_calibration-gateway-00036": 272,
+		"policy_calibration-gateway-00037": 20,
+		"policy_calibration-gateway-00038": 865,
+		"policy_calibration-gateway-00039": 108,
+		"policy_calibration-gateway-00040": 139,
+		"policy_calibration-gateway-00041": 160,
+		"policy_calibration-gateway-00042": 20,
+		"policy_calibration-gateway-00043": 131,
+		"policy_calibration-gateway-00044": 166,
+		"policy_calibration-gateway-00045": 104,
+		"policy_calibration-gateway-00046": 319,
+		"policy_calibration-gateway-00047": 108,
+		"policy_calibration-gateway-00048": 20,
+		"policy_calibration-gateway-00049": 135,
+		"policy_calibration-gateway-00050": 101,
+		"policy_calibration-gateway-00051": 236,
+		"policy_calibration-gateway-00052": 20,
+		"policy_calibration-gateway-00053": 309,
+		"policy_calibration-gateway-00054": 118,
+		"policy_calibration-gateway-00055": 185,
+		"policy_calibration-gateway-00056": 123,
+		"policy_calibration-gateway-00057": 20,
+		"policy_calibration-gateway-00058": 495,
+		"policy_calibration-gateway-00059": 176,
+		"policy_calibration-gateway-00060": 243,
+		"policy_calibration-gateway-00061": 388,
+		"policy_calibration-gateway-00062": 20,
+		"policy_calibration-gateway-00063": 128,
+		"policy_calibration-gateway-00064": 1071,
+		"policy_calibration-gateway-00065": 127,
+		"policy_calibration-gateway-00066": 111,
+		"policy_calibration-gateway-00067": 135,
+		"policy_calibration-gateway-00068": 20,
+		"policy_calibration-gateway-00069": 102,
+		"policy_calibration-gateway-00070": 123,
+		"policy_calibration-gateway-00071": 510,
+		"policy_calibration-gateway-00072": 20,
+		"policy_calibration-gateway-00073": 897,
+		"policy_calibration-gateway-00074": 1215,
+		"policy_calibration-gateway-00075": 143,
+		"policy_calibration-gateway-00076": 160,
+		"policy_calibration-gateway-00077": 20,
+		"policy_calibration-gateway-00078": 102,
+		"policy_calibration-gateway-00079": 425,
+		"policy_calibration-gateway-00080": 123,
+		"policy_calibration-gateway-00081": 217,
+		"policy_calibration-gateway-00082": 20,
+		"policy_calibration-gateway-00083": 140,
+		"policy_calibration-gateway-00084": 169,
+		"policy_calibration-gateway-00085": 127,
+		"policy_calibration-gateway-00086": 196,
+		"policy_calibration-gateway-00087": 114,
+		"policy_calibration-gateway-00088": 20,
+		"policy_calibration-gateway-00089": 177,
+		"policy_calibration-gateway-00090": 111,
+		"policy_calibration-gateway-00091": 207,
+		"policy_calibration-gateway-00092": 20,
+		"policy_calibration-gateway-00093": 267,
+		"policy_calibration-gateway-00094": 139,
+		"policy_calibration-gateway-00095": 179,
+		"policy_calibration-gateway-00096": 217,
+		"policy_calibration-gateway-00097": 20,
+		"policy_calibration-gateway-00098": 331,
+		"policy_calibration-gateway-00099": 109,
+		"policy_calibration-gateway-00100": 101,
+		"policy_calibration-gateway-00101": 119,
+		"policy_calibration-gateway-00102": 20,
+		"policy_calibration-gateway-00103": 182,
+		"policy_calibration-gateway-00104": 101,
+		"policy_calibration-gateway-00105": 235,
+		"policy_calibration-gateway-00106": 101,
+		"policy_calibration-gateway-00107": 151,
+		"policy_calibration-gateway-00108": 20,
+		"policy_calibration-gateway-00109": 211,
+		"policy_calibration-gateway-00110": 191,
+		"policy_calibration-gateway-00111": 105,
+		"policy_calibration-gateway-00112": 20,
+		"policy_calibration-gateway-00113": 507,
+		"policy_calibration-gateway-00114": 258,
+		"policy_calibration-gateway-00115": 104,
+		"policy_calibration-gateway-00116": 136,
+		"policy_calibration-gateway-00117": 20,
+		"policy_calibration-gateway-00118": 106,
+		"policy_calibration-gateway-00119": 131,
+		"policy_calibration-gateway-00120": 120,
+		"policy_calibration-gateway-00121": 153,
+		"policy_calibration-gateway-00122": 20,
+		"policy_calibration-gateway-00123": 371,
+		"policy_calibration-gateway-00124": 229
+	},
+	"client_types": {
+		"batch": 44,
+		"bursty": 44,
+		"short": 25,
+		"specialist": 6,
+		"repetitive": 6
+	},
+	"scored_accounts": 100,
+	"complete_100_request_windows": 199,
+	"multi_window_accounts": 34,
+	"source_documents": 10884,
+	"topic_order": "category",
+	"domain_topic_categories": {
+		"ag_news": [
+			"Business",
+			"Sci/Tech",
+			"Sports",
+			"World"
+		],
+		"gsm8k": [
+			"math"
+		],
+		"squad": [
+			"2008_Summer_Olympics_torch_relay",
+			"51st_state",
+			"Adolescence",
+			"Age_of_Enlightenment",
+			"Aircraft_carrier",
+			"Alexander_Graham_Bell",
+			"Alfred_North_Whitehead",
+			"Alsace",
+			"Ann_Arbor,_Michigan",
+			"Anthropology",
+			"Anti-aircraft_warfare",
+			"Antibiotics",
+			"Architecture",
+			"Arena_Football_League",
+			"Armenia",
+			"Armenians",
+			"Arnold_Schwarzenegger",
+			"Arsenal_F.C.",
+			"Ashkenazi_Jews",
+			"Aspirated_consonant",
+			"Association_football",
+			"Asthma",
+			"Athanasius_of_Alexandria",
+			"Avicenna",
+			"BBC_Television",
+			"Bacteria",
+			"BeiDou_Navigation_Satellite_System",
+			"Bern",
+			"Bill_%26_Melinda_Gates_Foundation",
+			"Bird",
+			"Black_people",
+			"Brigham_Young_University",
+			"British_Empire",
+			"British_Isles",
+			"Buddhism",
+			"Canadian_Armed_Forces",
+			"Canon_law",
+			"Capital_punishment_in_the_United_States",
+			"Carnival",
+			"Catalan_language",
+			"Central_Intelligence_Agency",
+			"Charleston,_South_Carolina",
+			"Chicago_Cubs",
+			"Chihuahua_(state)",
+			"Christian",
+			"Circadian_rhythm",
+			"Communications_in_Somalia",
+			"Computer_security",
+			"Copper",
+			"Copyright_infringement",
+			"Crucifixion_of_Jesus",
+			"Cubism",
+			"Cyprus",
+			"Czech_language",
+			"Dell",
+			"Detroit",
+			"Digestion",
+			"Digimon",
+			"Dominican_Order",
+			"Dwight_D._Eisenhower",
+			"East_India_Company",
+			"Economy_of_Greece",
+			"Edmund_Burke",
+			"Education",
+			"Elizabeth_II",
+			"Empiricism",
+			"Energy",
+			"England_national_football_team",
+			"Estonia",
+			"Estonian_language",
+			"Eton_College",
+			"European_Central_Bank",
+			"FA_Cup",
+			"Federal_Aviation_Administration",
+			"Federal_Bureau_of_Investigation",
+			"Film_speed",
+			"Financial_crisis_of_2007%E2%80%9308",
+			"Florida",
+			"Galicia_(Spain)",
+			"Genome",
+			"Geological_history_of_Earth",
+			"George_VI",
+			"Georgian_architecture",
+			"God",
+			"Gothic_architecture",
+			"Gramophone_record",
+			"Grape",
+			"Great_Plains",
+			"Greece",
+			"Green",
+			"Heresy",
+			"Hokkien",
+			"House_music",
+			"Hunting",
+			"IBM",
+			"IPod",
+			"Identity_(social_science)",
+			"Immaculate_Conception",
+			"Imperial_College_London",
+			"Indigenous_peoples_of_the_Americas",
+			"Intellectual_property",
+			"Israel",
+			"Karl_Popper",
+			"Kievan_Rus%27",
+			"Law_of_the_United_States",
+			"Letter_case",
+			"Liberal_Party_of_Australia",
+			"Light-emitting_diode",
+			"Lighting",
+			"List_of_numbered_streets_in_Manhattan",
+			"Literature",
+			"London",
+			"MP3",
+			"Macintosh",
+			"Madonna_(entertainer)",
+			"Madrasa",
+			"Mali",
+			"Mammal",
+			"Marshall_Islands",
+			"Mary_(mother_of_Jesus)",
+			"Matter",
+			"Melbourne",
+			"Memory",
+			"Mesozoic",
+			"Miami",
+			"Montana",
+			"Mosaic",
+			"Multiracial_American",
+			"Myocardial_infarction",
+			"Namibia",
+			"Nanjing",
+			"Napoleon",
+			"Neolithic",
+			"New_Delhi",
+			"New_Haven,_Connecticut",
+			"New_York_City",
+			"Nigeria",
+			"Nonprofit_organization",
+			"Oklahoma",
+			"Order_of_the_British_Empire",
+			"Orthodox_Judaism",
+			"Pacific_War",
+			"Paper",
+			"Pharmaceutical_industry",
+			"Philadelphia",
+			"Phonology",
+			"Pitch_(music)",
+			"PlayStation_3",
+			"Police",
+			"Political_party",
+			"Political_philosophy",
+			"Pope_Paul_VI",
+			"Predation",
+			"Premier_League",
+			"Prime_minister",
+			"Professional_wrestling",
+			"Protestantism",
+			"Pub",
+			"Punjab,_Pakistan",
+			"Rajasthan",
+			"Raleigh,_North_Carolina",
+			"Red",
+			"Renewable_energy_commercialization",
+			"Republic_of_the_Congo",
+			"Richard_Feynman",
+			"Royal_Institute_of_British_Architects",
+			"Royal_assent",
+			"Russian_Soviet_Federative_Socialist_Republic",
+			"Russian_language",
+			"Sahara",
+			"Samurai",
+			"San_Diego",
+			"Seattle",
+			"Serbo-Croatian",
+			"Seven_Years%27_War",
+			"Sexual_orientation",
+			"Slavs",
+			"Somerset",
+			"Southampton",
+			"Spanish_language_in_the_United_States",
+			"Spectre_(2015_film)",
+			"Steven_Spielberg",
+			"Sumer",
+			"Super_Nintendo_Entertainment_System",
+			"Supreme_court",
+			"Switzerland",
+			"Textual_criticism",
+			"The_Blitz",
+			"Thuringia",
+			"Tibet",
+			"Time",
+			"Translation",
+			"Treaty",
+			"Tristan_da_Cunha",
+			"Tuberculosis",
+			"Tucson,_Arizona",
+			"Turner_Classic_Movies",
+			"Tuvalu",
+			"USB",
+			"Umayyad_Caliphate",
+			"Unicode",
+			"United_States_dollar",
+			"United_States_presidential_election,_2004",
+			"Universal_Studios",
+			"University",
+			"University_of_Kansas",
+			"Vacuum",
+			"Valencia",
+			"Videoconferencing",
+			"Virgil",
+			"Web_browser",
+			"Wood",
+			"Yale_University",
+			"YouTube",
+			"Zinc"
+		]
+	},
+	"specialist_scope": {
+		"ag_news": "topic ordered",
+		"gsm8k": "domain only",
+		"squad": "topic ordered"
+	},
+	"arrival_times": "synthetic, accounts start together",
+	"max_output_tokens": {
+		"ag_news": 16,
+		"gsm8k": 256,
+		"squad": 64
+	},
+	"pool_sha256": {
+		"ag_news": "ea39edc79e40c76e58ee109fdd9d84ac6a9cbc2c3d64d5e398416e5e051b25dd",
+		"gsm8k": "5aa88c15865e8f76e37756ae66a6ca0c1ea7db6beedd746dcc0ea1e1ace56332",
+		"squad": "e02a494b26aed450d02ac662bd415b4e078b92c16b8bdc9ffd219907ad52aebc"
+	},
+	"execution_status": "not_run",
+	"task_manifests": {
+		"ag_news": {
+			"path": "data/tasks/ag_news-split-v2-s42/manifest.json",
+			"sha256": "81abf9d3c1d9be653cd1879554ea2099b6b98e2d799839665cc22ac754cef666",
+			"dataset": {
+				"configuration": null,
+				"license": "unknown",
+				"pool_split": "train",
+				"repository": "fancyzhx/ag_news",
+				"revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+				"test_split": "test"
+			}
+		},
+		"gsm8k": {
+			"path": "data/tasks/gsm8k/manifest.json",
+			"sha256": "14cf6dcffef6ef4afecd9b913fb23393eec6f683ad86be724ecd2a0946e620d4",
+			"dataset": {
+				"configuration": "main",
+				"license": "mit",
+				"pool_split": "train",
+				"repository": "openai/gsm8k",
+				"revision": "740312add88f781978c0658806c59bc2815b9866",
+				"test_split": "test"
+			}
+		},
+		"squad": {
+			"path": "data/tasks/squad-split-v2-s42/manifest.json",
+			"sha256": "27bcb3b04502afbade776d4eb85d7e8f8e7ebb57eec7f2b627926ea6d3af206d",
+			"dataset": {
+				"configuration": "plain_text",
+				"license": "cc-by-sa-4.0",
+				"pool_split": "train",
+				"repository": "rajpurkar/squad",
+				"revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+				"test_split": "validation"
+			}
+		}
+	},
+	"sha256": {
+		"requests.jsonl": "a86746f2b68f4cb1077e4cfe8f8c50c4296eb101fb0197d521293a67b72cdb39"
+	}
+}

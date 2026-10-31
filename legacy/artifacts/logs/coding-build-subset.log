@@ -1,0 +1,162 @@
+• Validating lock
+✓ Validating lock in 29.7ms
+  evaluating file '«nix-internal»/derivation-internal.nix'
+• Configuring shell
+• Configuring cachix
+✓ Configuring cachix in 6.34ms
+• Evaluating shell
+✓ Evaluating shell in 17.7ms (cached)
+✓ Configuring shell in 32.4ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 546µs (cached)
+✓ Loading tasks in 3.85ms
+• Running tasks
+• Running devenv:files:cleanup
+✓ Running devenv:files:cleanup in 15.8ms
+• Running devenv:enterShell
+✓ Running devenv:enterShell in 11.6ms
+✓ Running tasks in 28.0ms
+Resolved 111 packages in 1ms
+Checked 51 packages in 0.47ms
+python3 scripts/pipeline.py start --build-only --tasks coding,gsm8k --coding-pool-size 50000 --coding-workers 16
+[pipeline] runtime: devenv
+[pipeline] installing workspace packages with uv
+Resolved 111 packages in 1ms
+Checked 51 packages in 0.26ms
+[pipeline] installing workspace packages with uv
+Resolved 111 packages in 1ms
+Installed 19 packages in 53ms
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.3
+ + aiosignal==1.4.0
+ + attrs==26.1.0
+ + charset-normalizer==3.5.1
+ + datasets==5.0.1
+ + dill==0.4.1
+ + frozenlist==1.8.0
+ + multidict==6.7.1
+ + multiprocess==0.70.19
+ + pandas==3.0.5
+ + propcache==0.5.2
+ + pyarrow==25.0.1
+ + python-dateutil==2.9.0.post0
+ + requests==2.34.2
+ + six==1.17.0
+ + urllib3==2.7.0
+ + xxhash==4.0.1
+ + yarl==1.24.5
+[start] using the existing gsm8k build in data/tasks/gsm8k
+[start] building coding into data/tasks/coding-subset-50000-s42 (downloads the 
+dataset)
+tasks coding: validating pinned external evaluation references in the sandbox
+<unknown>:4: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:4: SyntaxWarning: "\w" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\w"? A raw string is also an option.
+<unknown>:3: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+<unknown>:3: SyntaxWarning: "\." is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\."? A raw string is also an option.
+tasks coding: preparing a global seeded subset; target 50000 eligible examples; 
+16 sandbox workers
+Downloading data:   0%|          | 0/50 [00:00<?, ?files/s]Downloading data:   2%|▏         | 1/50 [01:41<1:22:58, 101.60s/files]Downloading data:   4%|▍         | 2/50 [02:55<1:10:20, 87.94s/files] Downloading data:   6%|▌         | 3/50 [04:58<1:17:49, 99.35s/files]Downloading data:   8%|▊         | 4/50 [06:38<1:16:25, 99.68s/files]Downloading data:  10%|█         | 5/50 [08:07<1:13:06, 97.49s/files]Downloading data:  12%|█▏        | 6/50 [09:01<1:06:07, 90.17s/files]Downloading data:  14%|█▍        | 7/50 [09:55<1:00:59, 85.10s/files]Downloading data:  16%|█▌        | 8/50 [10:49<56:48, 81.15s/files]  Downloading data:  18%|█▊        | 9/50 [11:44<53:31, 78.33s/files]Downloading data:  20%|██        | 10/50 [12:43<50:55, 76.40s/files]Downloading data:  22%|██▏       | 11/50 [13:45<48:46, 75.04s/files]Downloading data:  24%|██▍       | 12/50 [14:54<47:11, 74.51s/files]Downloading data:  26%|██▌       | 13/50 [16:06<45:51, 74.35s/files]Downloading data:  28%|██▊       | 14/50 [17:29<44:58, 74.96s/files]Downloading data:  30%|███       | 15/50 [18:39<43:31, 74.61s/files]Downloading data:  32%|███▏      | 16/50 [19:50<42:09, 74.41s/files]Downloading data:  34%|███▍      | 17/50 [20:57<40:40, 73.96s/files]Downloading data:  36%|███▌      | 18/50 [22:09<39:22, 73.84s/files]Downloading data:  38%|███▊      | 19/50 [23:10<37:48, 73.17s/files]Downloading data:  40%|████      | 20/50 [24:13<36:20, 72.70s/files]Downloading data:  42%|████▏     | 21/50 [25:25<35:06, 72.63s/files]Downloading data:  44%|████▍     | 22/50 [26:35<33:50, 72.53s/files]Downloading data:  46%|████▌     | 23/50 [27:45<32:35, 72.41s/files]Downloading data:  48%|████▊     | 24/50 [28:56<31:20, 72.34s/files]Downloading data:  50%|█████     | 25/50 [30:06<30:06, 72.24s/files]Downloading data:  52%|█████▏    | 26/50 [31:14<28:50, 72.09s/files]Downloading data:  54%|█████▍    | 27/50 [32:22<27:34, 71.95s/files]Downloading data:  56%|█████▌    | 28/50 [33:31<26:20, 71.82s/files]Downloading data:  58%|█████▊    | 29/50 [34:42<25:07, 71.80s/files]Downloading data:  60%|██████    | 30/50 [35:48<23:52, 71.63s/files]Downloading data:  62%|██████▏   | 31/50 [37:43<23:07, 73.01s/files]Downloading data:  64%|██████▍   | 32/50 [38:59<21:55, 73.11s/files]Downloading data:  66%|██████▌   | 33/50 [40:09<20:41, 73.03s/files]Downloading data:  68%|██████▊   | 34/50 [41:17<19:25, 72.86s/files]Downloading data:  70%|███████   | 35/50 [42:32<18:13, 72.92s/files]Downloading data:  72%|███████▏  | 36/50 [43:36<16:57, 72.68s/files]Downloading data:  74%|███████▍  | 37/50 [44:35<15:40, 72.32s/files]Downloading data:  76%|███████▌  | 38/50 [46:03<14:32, 72.71s/files]Downloading data:  78%|███████▊  | 39/50 [46:59<13:15, 72.30s/files]Downloading data:  80%|████████  | 40/50 [48:06<12:01, 72.17s/files]Downloading data:  82%|████████▏ | 41/50 [49:08<10:47, 71.92s/files]Downloading data:  84%|████████▍ | 42/50 [50:05<09:32, 71.56s/files]Downloading data:  86%|████████▌ | 43/50 [51:07<08:19, 71.34s/files]Downloading data:  88%|████████▊ | 44/50 [52:04<07:06, 71.02s/files]Downloading data:  90%|█████████ | 45/50 [53:04<05:53, 70.77s/files]Downloading data:  92%|█████████▏| 46/50 [54:05<04:42, 70.56s/files]Downloading data:  94%|█████████▍| 47/50 [55:09<03:31, 70.42s/files]Downloading data:  96%|█████████▌| 48/50 [56:11<02:20, 70.24s/files]Downloading data:  98%|█████████▊| 49/50 [57:11<01:10, 70.03s/files]Downloading data: 100%|██████████| 50/50 [58:14<00:00, 69.89s/files]Downloading data: 100%|██████████| 50/50 [58:14<00:00, 69.89s/files]
+Generating train split:   0%|          | 0/5000000 [00:00<?, ? examples/s]Generating train split:   2%|▏         | 100000/5000000 [00:00<00:30, 160235.33 examples/s]Generating train split:   4%|▍         | 200000/5000000 [00:00<00:22, 214214.27 examples/s]Generating train split:   6%|▌         | 300000/5000000 [00:01<00:20, 234255.10 examples/s]Generating train split:   8%|▊         | 400000/5000000 [00:02<00:30, 150062.16 examples/s]Generating train split:  10%|█         | 500000/5000000 [00:03<00:29, 154344.13 examples/s]Generating train split:  12%|█▏        | 600000/5000000 [00:03<00:24, 177197.68 examples/s]Generating train split:  14%|█▍        | 700000/5000000 [00:04<00:25, 171629.56 examples/s]Generating train split:  16%|█▌        | 800000/5000000 [00:05<00:31, 133336.78 examples/s]Generating train split:  18%|█▊        | 900000/5000000 [00:05<00:27, 148110.69 examples/s]Generating train split:  20%|██        | 1000000/5000000 [00:06<00:29, 135840.22 examples/s]Generating train split:  22%|██▏       | 1100000/5000000 [00:07<00:28, 136119.83 examples/s]Generating train split:  24%|██▍       | 1200000/5000000 [00:07<00:27, 139097.97 examples/s]Generating train split:  26%|██▌       | 1300000/5000000 [00:08<00:24, 150286.92 examples/s]Generating train split:  28%|██▊       | 1400000/5000000 [00:08<00:21, 165371.42 examples/s]Generating train split:  30%|███       | 1500000/5000000 [00:09<00:20, 167598.58 examples/s]Generating train split:  32%|███▏      | 1600000/5000000 [00:10<00:20, 162954.40 examples/s]Generating train split:  34%|███▍      | 1700000/5000000 [00:10<00:17, 184182.40 examples/s]Generating train split:  36%|███▌      | 1800000/5000000 [00:10<00:16, 195001.74 examples/s]Generating train split:  38%|███▊      | 1900000/5000000 [00:11<00:15, 197136.31 examples/s]Generating train split:  40%|████      | 2000000/5000000 [00:11<00:13, 215487.75 examples/s]Generating train split:  42%|████▏     | 2100000/5000000 [00:12<00:13, 214293.64 examples/s]Generating train split:  44%|████▍     | 2200000/5000000 [00:13<00:15, 175820.73 examples/s]Generating train split:  46%|████▌     | 2300000/5000000 [00:13<00:13, 198434.71 examples/s]Generating train split:  48%|████▊     | 2400000/5000000 [00:13<00:11, 220193.69 examples/s]Generating train split:  50%|█████     | 2500000/5000000 [00:14<00:13, 185345.67 examples/s]Generating train split:  52%|█████▏    | 2600000/5000000 [00:14<00:11, 212104.04 examples/s]Generating train split:  54%|█████▍    | 2700000/5000000 [00:15<00:10, 225433.73 examples/s]Generating train split:  56%|█████▌    | 2800000/5000000 [00:15<00:09, 229632.65 examples/s]Generating train split:  58%|█████▊    | 2900000/5000000 [00:16<00:09, 211932.20 examples/s]Generating train split:  60%|██████    | 3000000/5000000 [00:16<00:08, 227303.98 examples/s]Generating train split:  62%|██████▏   | 3100000/5000000 [00:17<00:08, 229050.75 examples/s]Generating train split:  64%|██████▍   | 3200000/5000000 [00:17<00:08, 217806.42 examples/s]Generating train split:  66%|██████▌   | 3300000/5000000 [00:18<00:08, 195330.21 examples/s]Generating train split:  68%|██████▊   | 3400000/5000000 [00:18<00:08, 199132.44 examples/s]Generating train split:  70%|███████   | 3500000/5000000 [00:19<00:07, 209872.56 examples/s]Generating train split:  72%|███████▏  | 3600000/5000000 [00:19<00:07, 187309.28 examples/s]Generating train split:  74%|███████▍  | 3700000/5000000 [00:20<00:06, 202587.59 examples/s]Generating train split:  76%|███████▌  | 3800000/5000000 [00:20<00:05, 222631.77 examples/s]Generating train split:  78%|███████▊  | 3900000/5000000 [00:21<00:05, 202375.74 examples/s]Generating train split:  80%|████████  | 4000000/5000000 [00:21<00:04, 216963.37 examples/s]Generating train split:  82%|████████▏ | 4100000/5000000 [00:21<00:03, 230213.22 examples/s]Generating train split:  84%|████████▍ | 4200000/5000000 [00:22<00:03, 212442.27 examples/s]Generating train split:  86%|████████▌ | 4300000/5000000 [00:22<00:03, 229828.08 examples/s]Generating train split:  88%|████████▊ | 4400000/5000000 [00:23<00:02, 258319.26 examples/s]Generating train split:  90%|█████████ | 4500000/5000000 [00:23<00:01, 254542.21 examples/s]Generating train split:  92%|█████████▏| 4600000/5000000 [00:23<00:01, 248187.40 examples/s]Generating train split:  94%|█████████▍| 4700000/5000000 [00:24<00:01, 252694.82 examples/s]Generating train split:  96%|█████████▌| 4800000/5000000 [00:24<00:00, 248120.51 examples/s]Generating train split:  98%|█████████▊| 4900000/5000000 [00:24<00:00, 272448.97 examples/s]Generating train split: 100%|██████████| 5000000/5000000 [00:25<00:00, 270087.81 examples/s]Generating train split: 100%|██████████| 5000000/5000000 [00:25<00:00, 197486.93 examples/s]
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7/lib/python3.14/im │
+│ portlib/metadata/__init__.py:407 in from_name                                │
+│                                                                              │
+│    404 │   │   if not name:                                                  │
+│    405 │   │   │   raise ValueError("A distribution name is required.")      │
+│    406 │   │   try:                                                          │
+│ ❱  407 │   │   │   return next(iter(cls.discover(name=name)))                │
+│    408 │   │   except StopIteration:                                         │
+│    409 │   │   │   raise PackageNotFoundError(name)                          │
+│    410                                                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /home/rajveer/Projects/personal/capstone/packages/distillation/src/distillat │
+│ ion/cli.py:229 in tasks_build_command                                        │
+│                                                                              │
+│   226 │   """                                                                │
+│   227 │   from distillation.tasks import build_task, task_directory          │
+│   228 │                                                                      │
+│ ❱ 229 │   directory = output_dir or task_directory(task,                     │
+│       coding_pool_size=coding_pool_size, seed=seed)                          │
+│   230 │   manifest = build_task(                                             │
+│   231 │   │   task=task,                                                     │
+│   232 │   │   output_dir=directory,                                          │
+│                                                                              │
+│ /home/rajveer/Projects/personal/capstone/packages/distillation/src/distillat │
+│ ion/tasks.py:336 in build_task                                               │
+│                                                                              │
+│   333 │   │   f"coding-subset-{coding_pool_size}-s{seed}"                    │
+│   334 │   │   if task == "coding" and coding_pool_size                       │
+│   335 │   │   else task                                                      │
+│ ❱ 336 │   )                                                                  │
+│   337 │   if task in {"ag_news", "squad"}:                                   │
+│   338 │   │   name = f"{task}-split-v2-s{seed}"                              │
+│   339 │   return root / name                                                 │
+│                                                                              │
+│ /home/rajveer/Projects/personal/capstone/packages/distillation/src/distillat │
+│ ion/coding_task.py:313 in build_coding_task                                  │
+│                                                                              │
+│   310 │   │   │   f"coding: preparing {scope}; target {coding_pool_size or   │
+│       'all'} eligible examples; "                                            │
+│   311 │   │   │   f"{qualification_workers} sandbox workers"                 │
+│   312 │   │   )                                                              │
+│ ❱ 313 │   source, selection = training_source(                               │
+│   314 │   │   TASKS["coding"].dataset, seed, coding_pool_size, rows["train"] │
+│       if rows is not None else None                                          │
+│   315 │   )                                                                  │
+│   316 │   save_json(output_dir / "selection.json", selection)                │
+│                                                                              │
+│ /home/rajveer/Projects/personal/capstone/packages/distillation/src/distillat │
+│ ion/coding_task.py:94 in training_source                                     │
+│                                                                              │
+│    91 │   │   return (dict(row) for row in selected), {                      │
+│    92 │   │   │   "mode": "eligible-subset",                                 │
+│    93 │   │   │   "algorithm": "datasets-global-shuffle-v1",                 │
+│ ❱  94 │   │   │   "datasets_version": version("datasets"),                   │
+│    95 │   │   │   "source_rows": len(dataset),                               │
+│    96 │   │   │   "seed": seed,                                              │
+│    97 │   │   │   "eligible_target": pool_size,                              │
+│                                                                              │
+│ /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7/lib/python3.14/im │
+│ portlib/metadata/__init__.py:987 in version                                  │
+│                                                                              │
+│    984 │   :return: The version string for the package as defined in the     │
+│        package's                                                             │
+│    985 │   │   "Version" metadata key.                                       │
+│    986 │   """                                                               │
+│ ❱  987 │   return distribution(distribution_name).version                    │
+│    988                                                                       │
+│    989                                                                       │
+│    990 _unique = functools.partial(                                          │
+│                                                                              │
+│ /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7/lib/python3.14/im │
+│ portlib/metadata/__init__.py:960 in distribution                             │
+│                                                                              │
+│    957 │   :param distribution_name: The name of the distribution package as │
+│        a string.                                                             │
+│    958 │   :return: A ``Distribution`` instance (or subclass thereof).       │
+│    959 │   """                                                               │
+│ ❱  960 │   return Distribution.from_name(distribution_name)                  │
+│    961                                                                       │
+│    962                                                                       │
+│    963 def distributions(**kwargs) -> Iterable[Distribution]:                │
+│                                                                              │
+│ /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7/lib/python3.14/im │
+│ portlib/metadata/__init__.py:409 in from_name                                │
+│                                                                              │
+│    406 │   │   try:                                                          │
+│    407 │   │   │   return next(iter(cls.discover(name=name)))                │
+│    408 │   │   except StopIteration:                                         │
+│ ❱  409 │   │   │   raise PackageNotFoundError(name)                          │
+│    410 │                                                                     │
+│    411 │   @classmethod                                                      │
+│    412 │   def discover(                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+PackageNotFoundError: No package metadata was found for datasets
+[start] error: distill tasks exited with code 1
+error: recipe `start` failed on line 86 with exit code 1
