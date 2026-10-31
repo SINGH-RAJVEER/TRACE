@@ -109,5 +109,36 @@ def traffic_report(path: Annotated[Path, typer.Option(exists=True)]) -> None:
 	typer.echo(json.dumps(result, indent="\t"))
 
 
+@gateway_app.command("evaluation-report")
+def evaluation_report_command(
+	events: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+) -> None:
+	"""Summarize observed campaign events with unknown values preserved."""
+	from distillation.evaluation_protocol import campaign_report
+
+	rows = [json.loads(line) for line in events.read_text().splitlines() if line.strip()]
+	typer.echo(json.dumps(campaign_report(rows), indent="\t"))
+
+
+@app.command("student-plan")
+def student_plan_command(
+	family: Annotated[list[str], typer.Option("--family", help="Repeat for each student family.")],
+	seed: Annotated[list[int], typer.Option("--seed", help="Repeat for each training seed.")],
+	cost_per_run: Annotated[
+		float, typer.Option(min=0, help="Estimated cost in a consistent currency per run.")
+	],
+	output: Annotated[Path, typer.Option()],
+) -> None:
+	"""Write a learning-curve plan and cost estimate without running training."""
+	from distillation.evaluation_protocol import student_plan
+
+	try:
+		plan = student_plan(family, seed, cost_per_run)
+	except ValueError as error:
+		raise typer.BadParameter(str(error)) from error
+	output.write_text(json.dumps(plan, indent="\t") + "\n")
+	typer.echo(f"runs={len(plan['runs'])} estimated_cost={plan['estimated_cost']} output={output}")
+
+
 if __name__ == "__main__":
 	app()
