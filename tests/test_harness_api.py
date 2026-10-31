@@ -817,6 +817,15 @@ async def test_restart_keeps_account_state_and_redeems_a_proof_once(
 	assert [e["solved"] for e in _events(after_log, "redeem")] == [True, False]
 	with pytest.raises(ValueError, match="another policy or calibration"):
 		_app(artifacts, tmp_path, [-1] * 4, HARNESS_STATE_DB=state)
+	# Legacy state cannot be resumed under the recoverable verification policy.
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(
+			artifacts,
+			tmp_path,
+			[-1, -1, -1, 1e9],
+			HARNESS_STATE_DB=state,
+			HARNESS_POLICY_VERSION="verify-risk-v2",
+		)
 
 
 @pytest.mark.asyncio
