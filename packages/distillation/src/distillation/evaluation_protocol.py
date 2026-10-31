@@ -47,13 +47,18 @@ def campaign_report(events: list[dict[str, Any]]) -> dict[str, Any]:
 		if all(a.get("example_id") for a in released)
 		else None,
 		"first_alert_seconds": first(lambda a: decision(a).get("level", 0) >= 1),
+		# Policy events are keyed by prompt, so a redeemed challenge keeps only its later serve
+		# decision; the per-attempt outcome status still records the challenge itself.
 		"first_restriction_seconds": first(
-			lambda a: decision(a).get("action") in ("throttle", "challenge", "refuse", "block")
+			lambda a: (
+				outcomes.get(a["id"], {}).get("status") in ("challenge", "blocked")
+				or decision(a).get("action") in ("challenge", "refuse")
+			)
 		),
 		"first_refusal_seconds": first(
 			lambda a: (
 				outcomes.get(a["id"], {}).get("status") == "blocked"
-				or decision(a).get("action") in ("refuse", "block")
+				or decision(a).get("action") == "refuse"
 			)
 		),
 		"levels": {
