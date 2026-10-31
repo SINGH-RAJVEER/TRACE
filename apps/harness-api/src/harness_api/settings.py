@@ -21,6 +21,9 @@ class Settings(BaseSettings):
 	)
 	# "direct" replaces the graduated actions with blocking at the L4 threshold (an ablation).
 	actions: Literal["graduated", "direct"] = Field(default="graduated", alias="HARNESS_ACTIONS")
+	policy_version: Literal["legacy-v1", "verify-risk-v2"] = Field(
+		default="legacy-v1", alias="HARNESS_POLICY_VERSION"
+	)
 	l4_action: Literal["refuse", "deceive"] = Field(default="deceive", alias="HARNESS_L4_ACTION")
 	deception_rate: float = Field(default=1.0, ge=0, le=1, alias="HARNESS_DECEPTION_RATE")
 	# Hex secret, at least 16 bytes. Without it, the key file is read, or created on first start.

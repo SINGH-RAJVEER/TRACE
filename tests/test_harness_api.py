@@ -168,6 +168,88 @@ async def _solved(client: httpx.AsyncClient, actor: str, text: str) -> httpx.Res
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("level", "status"), [(1, 200), (2, 200), (3, 428), (4, 428)])
+async def test_verified_risk_actions_at_each_level(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	level: int,
+	status: int,
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[-1.0] * level + [1e10] * (4 - level),
+		HARNESS_POLICY_VERSION="verify-risk-v2",
+		HARNESS_L4_ACTION="refuse",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == status
+		assert teacher.calls == (2 if status == 200 else 1)
+
+
+@pytest.mark.asyncio
+async def test_verified_risk_l4_recovers_one_request_and_respects_cap(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[-1.0] * 4,
+		HARNESS_POLICY_VERSION="verify-risk-v2",
+		HARNESS_L4_ACTION="refuse",
+	)
+	transport = httpx.ASGITransport(app=app)
+	async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == 428
+		challenge = response.json()["challenge"]
+		proof = (
+			f"{challenge['nonce']}:{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+		)
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("two"),
+				headers={"X-Benchmark-Actor": "bob", "X-Harness-Proof": proof},
+			)
+		).status_code == 403
+		# A mismatched redemption consumes the pending request, so obtain a fresh one.
+		response = await client.post(
+			"/v1/teacher/generate", json=_request("three"), headers=headers
+		)
+		challenge = response.json()["challenge"]
+		proof = (
+			f"{challenge['nonce']}:{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+		)
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("three"),
+				headers=headers | {"X-Harness-Proof": proof},
+			)
+		).status_code == 200
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("three"),
+				headers=headers | {"X-Harness-Proof": proof},
+			)
+		).status_code == 403
+		assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_authenticated_coding_endpoint_preserves_code_and_enforces_quota(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
