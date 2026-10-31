@@ -1,3 +1,4 @@
+import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -148,6 +149,33 @@ def test_a_crash_keeps_the_charge_and_frees_the_in_flight_slot(tmp_path: Path) -
 	assert after.refused(31, 1.0) == "budget_tokens"
 	assert after.reserve(30, 1.0) is not None
 	restarted.close()
+
+
+def test_an_existing_state_file_gains_the_budget_columns(tmp_path: Path) -> None:
+	path = tmp_path / "state.sqlite3"
+	with sqlite3.connect(path) as database:
+		database.executescript(
+			"""
+			CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+			INSERT INTO meta VALUES ('scope', 'scope');
+			CREATE TABLE reservations (
+				key TEXT PRIMARY KEY, account TEXT NOT NULL, horizon_start REAL NOT NULL,
+				attempt INTEGER NOT NULL, request_digest TEXT NOT NULL, reserved_at REAL NOT NULL,
+				deceive INTEGER NOT NULL, status TEXT NOT NULL, settled_at REAL,
+				output_tokens INTEGER
+			);
+			INSERT INTO reservations VALUES
+				('old', 'a', 0.0, 1, 'digest', 0.0, 0, 'released', 0.0, 9);
+			"""
+		)
+	database.close()
+
+	upgraded = SQLiteStore(path, "scope")
+	ledger = Ledger(upgraded, BudgetLimits(WEEK, output_tokens=20), horizon=1.0)
+	assert ledger.usage() == (1, 9, 0)
+	assert ledger.reserve(11, 0.0) is not None
+	assert ledger.refused(1, 0.0) == "budget_tokens"
+	upgraded.close()
 
 
 def test_simultaneous_requests_cannot_overspend(tmp_path: Path) -> None:

@@ -303,11 +303,21 @@ CREATE TABLE IF NOT EXISTS reservations (
 	status TEXT NOT NULL,
 	settled_at REAL,
 	output_tokens INTEGER,
-	max_output_tokens INTEGER NOT NULL,
+	max_output_tokens INTEGER NOT NULL DEFAULT 0,
 	idempotency_key TEXT,
-	session TEXT NOT NULL
+	session TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS reservations_horizon ON reservations (account, horizon_start);
+"""
+
+# Columns added since the first ledger, so an existing state file keeps working.
+_ADDED_COLUMNS = {
+	"max_output_tokens": "INTEGER NOT NULL DEFAULT 0",
+	"idempotency_key": "TEXT",
+	"session": "TEXT NOT NULL DEFAULT ''",
+}
+
+_INDEXES = """
 CREATE INDEX IF NOT EXISTS reservations_budget ON reservations (account, reserved_at);
 CREATE INDEX IF NOT EXISTS reservations_open ON reservations (account) WHERE status = 'reserved';
 CREATE UNIQUE INDEX IF NOT EXISTS reservations_idempotency
@@ -485,6 +495,11 @@ class SQLiteStore:
 		self._db.execute("PRAGMA journal_mode = WAL")
 		self._db.execute("PRAGMA synchronous = FULL")
 		self._db.executescript(_SCHEMA)
+		columns = {row[1] for row in self._db.execute("PRAGMA table_info(reservations)")}
+		for name, definition in _ADDED_COLUMNS.items():
+			if name not in columns:
+				self._db.execute(f"ALTER TABLE reservations ADD COLUMN {name} {definition}")
+		self._db.executescript(_INDEXES)
 		with self.transaction() as tx:
 			row = tx.db.execute("SELECT value FROM meta WHERE key = 'scope'").fetchone()
 			if row is None:

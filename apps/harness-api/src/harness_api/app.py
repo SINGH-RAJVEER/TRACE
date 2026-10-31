@@ -108,7 +108,7 @@ def _key(settings: Settings) -> bytes | None:
 
 	A persisted key keeps noise consistent across restarts and keeps watermark tests possible.
 	"""
-	if settings.l4_action != "deceive":
+	if settings.l4_action != "deceive" or settings.policy_version == "verify-risk-v2":
 		return None
 	if settings.deception_key:
 		key = bytes.fromhex(settings.deception_key)
@@ -139,7 +139,9 @@ def _mimic(identifier: str | None) -> str | None:
 
 def _scope(settings: Settings, calibration: Calibration) -> str:
 	"""Everything that gives stored state its meaning: the policy, its actions, and the
-	calibration. Secrets and service addresses are left out."""
+	calibration. Secrets and service addresses are left out, and so are budget limits: they
+	read the ledger without changing what it means, so tightening one keeps an account's history.
+	"""
 	fields = settings.model_dump(
 		include={
 			"policy",
@@ -155,10 +157,10 @@ def _scope(settings: Settings, calibration: Calibration) -> str:
 			"min_interval_seconds",
 		}
 	)
+	# Omitted for the default version so existing legacy state files keep their scope.
+	if settings.policy_version != "legacy-v1":
+		fields["policy_version"] = settings.policy_version
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
-	# The ledger's columns. Budget limits are left out: they read the ledger without changing
-	# what it means, so tightening one must not discard an account's history.
-	fields["ledger"] = 2
 	return canonical_json(fields)
 
 
@@ -224,6 +226,7 @@ def create_app(
 			deception_key=key,
 			actions=config.actions,
 			store=store,
+			policy_version=config.policy_version,
 		)
 	else:
 		policy = make_policy(config.policy, calibration, scorer, store=store)
