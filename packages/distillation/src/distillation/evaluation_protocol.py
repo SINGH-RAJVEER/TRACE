@@ -155,7 +155,13 @@ def cluster_interval(
 	}
 
 
-def compare_conditions(conditions: list[dict[str, Any]], view: str) -> dict[str, Any]:
+def compare_conditions(
+	conditions: list[dict[str, Any]],
+	view: str,
+	*,
+	capacity_evidence: dict[str, Any] | None = None,
+	schedule_sha256: str | None = None,
+) -> dict[str, Any]:
 	"""Require explicitly declared matching dimensions before presenting a comparison."""
 	if len(conditions) < 2:
 		raise ValueError("need at least two conditions")
@@ -176,6 +182,14 @@ def compare_conditions(conditions: list[dict[str, Any]], view: str) -> dict[str,
 	if view not in fields:
 		raise ValueError("unknown comparison view")
 	issues = []
+	from distillation.teacher_capacity import require_capacity_pass
+
+	try:
+		if capacity_evidence is None or not schedule_sha256:
+			raise ValueError("capacity evidence and schedule hash are required")
+		require_capacity_pass(capacity_evidence, schedule_sha256=schedule_sha256)
+	except ValueError:
+		issues.append("teacher_capacity")
 	for field in fields[view]:
 		values = [c.get(field) for c in conditions]
 		if any(v is None for v in values) or any(v != values[0] for v in values[1:]):

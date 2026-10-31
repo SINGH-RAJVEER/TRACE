@@ -279,3 +279,96 @@ def detector_input_command(
 		typer.echo(f"requests={len(converted)} output={output}")
 	except (ValueError, OSError, KeyError, StopIteration) as error:
 		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("teacher-preflight")
+def teacher_preflight_command(
+	input_dir: Annotated[Path, typer.Option(help="Frozen benign gateway schedule directory.")],
+	output: Annotated[Path, typer.Option(help="New JSON evidence file.")],
+	teacher_url: Annotated[str, typer.Option(help="Direct undefended teacher API URL.")],
+	min_offered_rps: Annotated[
+		float, typer.Option(help="Declared minimum offered requests per second.")
+	],
+	min_completed_rps: Annotated[
+		float, typer.Option(help="Declared minimum completed requests per second.")
+	],
+	max_p95_seconds: Annotated[
+		float, typer.Option(help="Maximum schedule-to-response p95 latency.")
+	],
+	max_error_fraction: Annotated[
+		float, typer.Option(help="Maximum fraction of failed responses.")
+	],
+	max_timeout_fraction: Annotated[
+		float, typer.Option(help="Maximum fraction of timed-out responses.")
+	],
+	max_queued_at_end: Annotated[
+		int, typer.Option(help="Maximum queued requests at last arrival.")
+	],
+	max_queue_growth: Annotated[
+		int, typer.Option(help="Maximum queue growth from midpoint to end.")
+	],
+	concurrency: Annotated[int, typer.Option(min=1)] = 4,
+	timeout_seconds: Annotated[float, typer.Option(min=0.001)] = 120,
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+) -> None:
+	"""Measure a direct teacher under a frozen, open-loop benign workload."""
+	import asyncio
+
+	from distillation.gateway_campaign import digest
+	from distillation.teacher_capacity import CapacitySLO, preflight
+
+	try:
+		if output.exists():
+			raise ValueError("output exists; preserve it and choose a new evidence path")
+		manifest = json.loads((input_dir / "manifest.json").read_text())
+		schedule = input_dir / "requests.jsonl"
+		sha = digest(schedule)
+		if sha != manifest["sha256"][schedule.name]:
+			raise ValueError("gateway schedule hash does not match its manifest")
+		slo = CapacitySLO(
+			min_offered_rps,
+			min_completed_rps,
+			max_p95_seconds,
+			max_error_fraction,
+			max_timeout_fraction,
+			max_queued_at_end,
+			max_queue_growth,
+		)
+		result = asyncio.run(
+			preflight(
+				read_jsonl(schedule, GatewayRequest),
+				url=teacher_url,
+				token=token,
+				schedule_sha256=sha,
+				slo=slo,
+				concurrency=concurrency,
+				timeout_seconds=timeout_seconds,
+			)
+		)
+		save_json(output, result)
+		typer.echo(json.dumps(result, indent="\t"))
+		if not result["passed"]:
+			raise typer.Exit(code=1)
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("require-teacher-capacity")
+def require_teacher_capacity_command(
+	evidence: Annotated[Path, typer.Option(help="Teacher preflight JSON evidence.")],
+	input_dir: Annotated[Path, typer.Option(help="Frozen benign schedule directory.")],
+) -> None:
+	"""Fail unless capacity evidence passes for the specified benign schedule."""
+	from distillation.gateway_campaign import digest
+	from distillation.teacher_capacity import require_capacity_pass
+
+	try:
+		manifest = json.loads((input_dir / "manifest.json").read_text())
+		schedule = input_dir / "requests.jsonl"
+		sha = digest(schedule)
+		if sha != manifest["sha256"][schedule.name]:
+			raise ValueError("gateway schedule hash does not match its manifest")
+		require_capacity_pass(json.loads(evidence.read_text()), schedule_sha256=sha)
+		typer.echo("teacher capacity preflight passed")
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None

@@ -120,6 +120,32 @@ def evaluation_report_command(
 	typer.echo(json.dumps(campaign_report(rows), indent="\t"))
 
 
+@gateway_app.command("comparison-report")
+def comparison_report_command(
+	conditions: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	view: Annotated[str, typer.Option()],
+	capacity_evidence: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	benign_schedule: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+) -> None:
+	"""Compare declared conditions only after the teacher capacity gate passes."""
+	import hashlib
+
+	from distillation.evaluation_protocol import compare_conditions
+
+	try:
+		result = compare_conditions(
+			json.loads(conditions.read_text()),
+			view,
+			capacity_evidence=json.loads(capacity_evidence.read_text()),
+			schedule_sha256=hashlib.sha256(benign_schedule.read_bytes()).hexdigest(),
+		)
+	except ValueError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(json.dumps(result, indent="\t"))
+	if not result["comparable"]:
+		raise typer.Exit(1)
+
+
 @app.command("student-plan")
 def student_plan_command(
 	family: Annotated[list[str], typer.Option("--family", help="Repeat for each student family.")],

@@ -53,6 +53,15 @@ class Settings(BaseSettings):
 		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
 	)
 	encoder_device: str | None = Field(default=None, alias="HARNESS_ENCODER_DEVICE")
+	encoder_batch_size: int = Field(default=64, ge=1, alias="HARNESS_ENCODER_BATCH_SIZE")
+	encoder_batch_wait_ms: float = Field(
+		default=0, ge=0, le=1000, alias="HARNESS_ENCODER_BATCH_WAIT_MS"
+	)
+	encoder_queue_capacity: int = Field(default=1024, ge=1, alias="HARNESS_ENCODER_QUEUE_CAPACITY")
+	scoring_mode: Literal["synchronous", "off_path"] = Field(
+		default="synchronous", alias="HARNESS_SCORING_MODE"
+	)
+	scoring_queue_capacity: int = Field(default=128, ge=1, alias="HARNESS_SCORING_QUEUE_CAPACITY")
 	# Victim tokenizer for recounting output tokens. Without it, output token counts are
 	# omitted from every response, so a deceived response cannot be told apart by its count.
 	tokenizer_model: str = Field(default="", alias="HARNESS_TOKENIZER_MODEL")
