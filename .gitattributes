@@ -25,3 +25,4 @@ corpora/** filter=lfs diff=lfs merge=lfs -text
 corpora/README.md !filter !diff !merge text
 readings/v3-2026-10-29-gateway-replay/harness/A2/s42-b6000/full.interrupted-2026-10-31-4/** filter=lfs diff=lfs merge=lfs -text
 readings/v3-2026-10-29-gateway-replay/harness/A7/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/harness/A2/** filter=lfs diff=lfs merge=lfs -text
