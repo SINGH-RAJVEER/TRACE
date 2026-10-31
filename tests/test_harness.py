@@ -176,6 +176,25 @@ def test_calibrations_without_a_mixture_control_load_and_report_no_warning(
 	assert legacy.adequacy(accumulators=("paper",))["detectability_warnings"] == []
 
 
+def test_required_mixture_control_is_recorded_and_fails_closed(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	artifact = calibrated[0].model_copy(deep=True)
+	artifact.config.mixture_control_required = True
+	assert artifact.mixture_control is not None
+	artifact.mixture_control.share_below_null_median = 0.9
+	roundtrip = Calibration.model_validate(artifact.model_dump(mode="json"))
+	report = roundtrip.adequacy(accumulators=("paper",))
+	assert report["mixture_control_required"] is True
+	assert not report["passed"]
+	assert any("required mixture control failed" in reason for reason in report["reasons"])
+	roundtrip.mixture_control = None
+	assert (
+		"required mixture control is missing or has no windows"
+		in roundtrip.adequacy(accumulators=("paper",), allow_resolution_limited=True)["reasons"]
+	)
+
+
 def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
 	calibrated: tuple[Calibration, WindowScorer],
 ) -> None:

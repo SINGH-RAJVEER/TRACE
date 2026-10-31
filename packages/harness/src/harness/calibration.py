@@ -65,6 +65,7 @@ class HarnessConfig(BaseModel):
 	aggregate_alert_rate: float = Field(default=0.05, gt=0, lt=1)
 	seed: int = 42
 	aggregate_enabled: bool = True
+	mixture_control_required: bool = False
 
 
 class BenignRequest(BaseModel):
@@ -78,6 +79,7 @@ class BenignRequest(BaseModel):
 	example_id: str | None = None
 	source_group: str | None = None
 	client_type: str | None = None
+	workload_version: str | None = None
 
 
 class LevelThresholds(BaseModel):
@@ -137,6 +139,7 @@ class Calibration(BaseModel):
 	aggregate_skipped: str | None = None
 	# Missing in artifacts calibrated before the control existed; they report no warning.
 	mixture_control: MixtureControl | None = None
+	input_validation: dict[str, Any] | None = None
 	_aggregate_references: Array | None = PrivateAttr(default=None)
 
 	def adequacy(
@@ -160,6 +163,8 @@ class Calibration(BaseModel):
 		null_windows = self.counts.get("score_calibration_independent_windows", 0)
 		scored = self.counts.get("policy_calibration_scored_horizons", 0)
 		reasons: list[str] = []
+		if self.input_validation is not None and not self.input_validation.get("passed"):
+			reasons.append("workload input validation failed or was overridden")
 		resolution_reasons: list[str] = []
 		if accumulators:
 			if null_windows < minimum_score:
@@ -201,8 +206,6 @@ class Calibration(BaseModel):
 		warnings = resolution_reasons if allow_resolution_limited else []
 		if not allow_resolution_limited:
 			reasons = resolution_reasons + reasons
-		# Detectability is reported, never enforced: it limits what the study can show, not
-		# whether the calibration is valid.
 		detectability: list[str] = []
 		control = self.mixture_control
 		if accumulators and control and control.share_below_null_median >= MIXTURE_WARNING_SHARE:
@@ -212,6 +215,11 @@ class Calibration(BaseModel):
 				f"{control.median_p_value:.3f}); the upper-tail score cannot flag traffic that "
 				"resembles the benign mixture"
 			)
+		if accumulators and self.config.mixture_control_required:
+			if control is None or control.windows <= 0:
+				reasons.append("required mixture control is missing or has no windows")
+			elif detectability:
+				reasons.append("required mixture control failed: " + detectability[0])
 		return {
 			"rule": "calibration-resolution-v2",
 			"status": "invalid" if reasons else "resolution-limited" if warnings else "adequate",
@@ -225,6 +233,7 @@ class Calibration(BaseModel):
 			"minimum_policy_horizons": minimum_policy,
 			"nonoverlapping_score_windows": null_windows,
 			"detectability_warnings": detectability,
+			"mixture_control_required": self.config.mixture_control_required,
 			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
 			"scored_policy_horizons": scored,
 			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
@@ -428,7 +437,12 @@ def mixture_control(
 
 
 def requests_sha256(requests: list[BenignRequest]) -> str:
-	payload = "\n".join(request.model_dump_json() for request in requests)
+	payload = "\n".join(
+		request.model_dump_json(
+			exclude={"workload_version"} if request.workload_version is None else set()
+		)
+		for request in requests
+	)
 	return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -456,8 +470,19 @@ def calibrate(
 	score_calibration: list[BenignRequest],
 	policy_calibration: list[BenignRequest],
 	log: Callable[[str], None] | None = None,
+	input_validation: dict[str, Any] | None = None,
 ) -> tuple[Calibration, Array]:
 	"""Build the calibration artifact and the reference windows it scores against."""
+
+	if (
+		any(
+			row.workload_version == "gateway-clients-v5"
+			for role in (fitting, score_calibration, policy_calibration)
+			for row in role
+		)
+		and input_validation is None
+	):
+		raise ValueError("v5 workload requires input validation")
 
 	def report(message: str) -> None:
 		if log:
@@ -560,6 +585,7 @@ def calibrate(
 		encoder=encoder.identity(),
 		serialization=SERIALIZATION,
 		horizon_policy=HORIZON_POLICY,
+		input_validation=input_validation,
 		sigma=sigma,
 		calibration_scores=null_scores,
 		thresholds={},
