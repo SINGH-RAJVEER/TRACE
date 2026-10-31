@@ -1187,3 +1187,324 @@ async def test_pending_key_is_conservative_across_worker_restart(
 		task.cancel()
 		with pytest.raises(asyncio.CancelledError):
 			await task
+
+
+async def test_encoder_microbatching_serves_concurrent_requests(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, log = _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_ENCODER_BATCH_WAIT_MS=10,
+		HARNESS_ENCODER_BATCH_SIZE=8,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		responses = await asyncio.gather(
+			*(
+				client.post(
+					"/v1/teacher/generate",
+					json=_request(f"test {i}"),
+					headers={"X-Benchmark-Actor": f"actor-{i}"},
+				)
+				for i in range(4)
+			)
+		)
+	assert [response.status_code for response in responses] == [200] * 4
+	assert teacher.calls == 4
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	assert events[0]["event"] == "encoder_config"
+	assert events[0]["batch_wait_ms"] == 10
+
+
+async def test_off_path_rollover_and_release_accounting(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = [-1, -1, -1, -1]
+	calibration.config.horizon_seconds = 10
+	started, resume = threading.Event(), threading.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	class DelayedScorer:
+		window_size = scorer.window_size
+		score = staticmethod(delayed)
+
+		def witness(self, window: Array) -> Array:
+			return scorer.witness(window)
+
+	log = tmp_path / "off-path.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_TEST_CLOCK=True,
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=DelayedScorer(),
+		aggregate_scorer=aggregate,  # type: ignore[arg-type]
+		clock=lambda: 2,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a", "X-Harness-Time": "1"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("b"), headers=headers)
+		).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("c"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("d"),
+				headers=headers | {"X-Harness-Time": "20"},
+			)
+		).status_code == 200
+		resume.set()
+	# Shutdown drains the queue, including the stale score.
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	score_event = next(e for e in events if e["event"] == "off_path_score")
+	assert score_event["applied"] is False
+	assert score_event["released_responses"] == 3
+	assert score_event["total_released_tokens"] == 3
+
+
+async def test_off_path_queue_full_fails_closed(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	started, resume = threading.Event(), threading.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	log = tmp_path / "full.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_SCORING_QUEUE_CAPACITY=1,
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for i in range(2):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(str(i)), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		for i in range(2, 5):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(str(i)), headers=headers)
+			).status_code == 200
+		full = await client.post("/v1/teacher/generate", json=_request("5"), headers=headers)
+		assert full.status_code == 503
+		assert full.json()["detail"]["code"] == "scoring_unavailable"
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("6"), headers=headers)
+		).status_code == 503
+		resume.set()
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	assert any(event["event"] == "off_path_queue_error" for event in events)
+	assert any(event["event"] == "off_path_score_error" for event in events)
+
+
+async def test_off_path_cancellation_and_unknown_usage(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	score_started, resume = threading.Event(), threading.Event()
+	teacher_started = asyncio.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		score_started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	class BlockingTeacher(Teacher):
+		async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+			if request.messages[-1].content == "cancel":
+				teacher_started.set()
+				await asyncio.Event().wait()
+			generation = await super().generate(request)
+			generation.usage = TokenUsage()
+			return generation
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	log = tmp_path / "cancel.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=BlockingTeacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for text in ("first", "second"):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(score_started.wait, 2)
+		request = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("cancel"), headers=headers)
+		)
+		await asyncio.wait_for(teacher_started.wait(), 2)
+		request.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await request
+		resume.set()
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	score_event = next(e for e in events if e["event"] == "off_path_score")
+	assert score_event["released_responses"] == 1
+	assert score_event["unknown_token_responses"] == 1
+	assert score_event["total_released_tokens"] is None
+	assert score_event["inflight_at_enforcement"] == 0
+
+
+async def test_off_path_late_escalation(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	from harness_api.app import DecisionLog
+
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = [-1, -1, -1, -1]
+	started, resume = threading.Event(), threading.Event()
+	applied = asyncio.Event()
+	original_score, original_write = scorer.score, DecisionLog.write
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original_score(*args, **kwargs))
+
+	def observe(self: DecisionLog, event: str, **fields: Any) -> None:
+		original_write(self, event, **fields)
+		if event == "off_path_score":
+			applied.set()
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	monkeypatch.setattr(DecisionLog, "write", observe)
+	log = tmp_path / "late.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for text in ("first", "second"):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("overshoot"), headers=headers)
+		).status_code == 200
+		resume.set()
+		await asyncio.wait_for(applied.wait(), 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("blocked"), headers=headers)
+		).status_code == 403
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	event = next(e for e in events if e["event"] == "off_path_score")
+	assert event["escalated"] is True
+	assert event["released_responses"] == 2
+	assert event["total_released_tokens"] == 2
+
+
+def test_off_path_scoring_rejects_a_durable_state_file(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	with pytest.raises(ValueError, match="HARNESS_STATE_DB"):
+		_app(
+			artifacts,
+			tmp_path,
+			[-1] * 4,
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		)
