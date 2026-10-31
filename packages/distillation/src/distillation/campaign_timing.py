@@ -72,7 +72,9 @@ def campaign_timing(
 	levels: dict[str, Any] = {}
 	for target in range(1, 5):
 		reach = next((a for a in ordered if (level(a) or -1) >= target), None)
-		before: dict[str, dict[str, int]] = defaultdict(lambda: {"responses": 0, "tokens": 0})
+		before: dict[str, dict[str, int]] = defaultdict(
+			lambda: {"responses": 0, "tokens": 0, "unknown_tokens": 0}
+		)
 		for attempt in ordered:
 			outcome = outcomes.get(attempt["id"], {})
 			if outcome.get("status") != "received":
@@ -81,7 +83,10 @@ def campaign_timing(
 				continue
 			row = before[attempt.get("domain") or "unknown"]
 			row["responses"] += 1
-			row["tokens"] += int(outcome.get("output_tokens") or 0)
+			if outcome.get("output_tokens") is None:
+				row["unknown_tokens"] += 1
+			else:
+				row["tokens"] += int(outcome["output_tokens"])
 		levels[f"L{target}"] = {
 			"reached": reach is not None,
 			"censored": reach is None,
