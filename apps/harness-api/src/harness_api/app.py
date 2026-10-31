@@ -55,6 +55,7 @@ from harness.store import (
 	MemoryStore,
 	Outcome,
 	Reservation,
+	RollingBudget,
 	Settlement,
 	SQLiteStore,
 	StateStore,
@@ -82,6 +83,9 @@ def decision_header(decision: Decision) -> str:
 	if decision.action == "refuse":
 		return "block"
 	return "allow" if decision.level < 2 else "throttle"
+
+
+ROLLING_REFUSAL = (429, "the account's rolling budget is used up", "block")
 
 
 def _error(status: int, code: str, message: str, decision: str | None) -> JSONResponse:
@@ -142,15 +146,8 @@ def _mimic(identifier: str | None) -> str | None:
 	return head + secrets.token_hex((len(tail) + 1) // 2)[: len(tail)]
 
 
-def _scope(
-	settings: Settings,
-	calibration: Calibration,
-	scorer: WindowScorer,
-	aggregate_scorer: WindowScorer | None,
-	deception_key: bytes | None,
-) -> str:
-	"""Everything that gives stored state its meaning: the policy, its actions, and the
-	calibration. Secrets and service addresses are left out."""
+def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, Any]:
+	"""The policy, its actions and limits, and the calibration behind a decision."""
 	fields = settings.model_dump(
 		include={
 			"policy",
@@ -175,7 +172,27 @@ def _scope(
 	# Omitted for the default version so existing legacy state files keep their scope.
 	if settings.policy_version != "legacy-v1":
 		fields["policy_version"] = settings.policy_version
+	# Likewise omitted when unset, so a file written without rolling limits keeps its scope.
+	if settings.rolling_request_budget or settings.rolling_token_budget:
+		fields["rolling"] = [
+			settings.rolling_window_seconds,
+			settings.rolling_request_budget,
+			settings.rolling_token_budget,
+		]
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
+	return fields
+
+
+def _scope(
+	settings: Settings,
+	calibration: Calibration,
+	scorer: WindowScorer,
+	aggregate_scorer: WindowScorer | None,
+	deception_key: bytes | None,
+) -> str:
+	"""Everything that gives stored state its meaning: the policy, its actions, and the
+	calibration. Secrets and service addresses are left out."""
+	fields = _policy_fields(settings, calibration)
 	fields["references"] = hashlib.sha256(scorer.references.tobytes()).hexdigest()
 	fields["scorer"] = [scorer.sigma, scorer.scales]
 	fields["deception_key"] = hashlib.sha256(deception_key).hexdigest() if deception_key else None
@@ -242,6 +259,19 @@ def create_app(
 		SQLiteStore(config.state_db, _scope(config, calibration, scorer, aggregate_scorer, key))
 		if config.state_db is not None
 		else MemoryStore()
+	)
+	# Binds every logged event to the exact policy and calibration behind it.
+	policy_revision = hashlib.sha256(
+		canonical_json(_policy_fields(config, calibration)).encode()
+	).hexdigest()
+	rolling = (
+		RollingBudget(
+			config.rolling_window_seconds,
+			config.rolling_request_budget,
+			config.rolling_token_budget,
+		)
+		if config.rolling_request_budget or config.rolling_token_budget
+		else None
 	)
 	queue: asyncio.Queue[ScoreWindow | None] = asyncio.Queue(maxsize=config.scoring_queue_capacity)
 	score_worker: asyncio.Task[None] | None = None
@@ -528,11 +558,13 @@ def create_app(
 			principal_budget=config.output_token_budget,
 			organization_budget=config.organization_token_budget,
 			in_flight_limit=config.in_flight_limit,
+			rolling=rolling,
 		)
 		if reason is not None:
 			messages = {
 				"organization_required": (403, "account has no organization", "block"),
 				"token_budget_exceeded": (429, "output token entitlement exhausted", "block"),
+				"rolling_budget_exceeded": ROLLING_REFUSAL,
 				"in_flight_limit": (429, "too many requests in flight", "throttle"),
 				"already_released": (409, "this admission was already released", None),
 			}
@@ -676,6 +708,7 @@ def create_app(
 				status=status,
 				output_tokens=tokens if status == "released" else None,
 				deceive=decision.deceive,
+				policy_revision=policy_revision,
 				request_digest=reservation.request_digest,
 				benchmark_request=benchmark_request,
 			)
@@ -851,6 +884,35 @@ def create_app(
 				reservation,
 				idempotency_key,
 			)
+		# A spent rolling budget is cheap to read, so it costs no embedding or policy state.
+		spent = None
+		if rolling is not None:
+			with store.transaction() as tx:
+				if rolling.exceeded(tx, account, request.max_output_tokens, now):
+					code = "rolling_budget_exceeded"
+					spent = _error(ROLLING_REFUSAL[0], code, ROLLING_REFUSAL[1], ROLLING_REFUSAL[2])
+					remember(tx, account, idempotency_key, digest, now, spent)
+		if spent is not None:
+			log.write(
+				"decision",
+				time=now,
+				account=account,
+				attempt=None,
+				horizon=None,
+				level=4,
+				action="refuse",
+				reason=None,
+				policy_revision=policy_revision,
+				deceive=False,
+				window_completed=False,
+				p_value=None,
+				statistic=None,
+				witness=[],
+				request_digest=digest,
+				benchmark_request=x_benchmark_request,
+				entitlement="rolling_budget_exceeded",
+			)
+			return spent
 		embedding = None
 		if needs_embeddings and encoder is not None:
 			try:
@@ -931,6 +993,8 @@ def create_app(
 			horizon=decision.horizon,
 			level=decision.level,
 			action=decision.action,
+			reason=decision.reason,
+			policy_revision=policy_revision,
 			deceive=decision.deceive,
 			window_completed=decision.window_completed,
 			p_value=decision.p_value,

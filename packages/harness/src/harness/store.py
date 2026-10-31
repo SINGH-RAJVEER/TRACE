@@ -20,6 +20,10 @@ outstanding or after a failure or cancellation, which are never refunded. An out
 reservation holds a concurrency slot until its lease ends; a live worker cannot release after
 that (`settle` refuses), so a crashed reservation frees its slot without letting two workers
 emit under it. It keeps its token charge in the horizon it was admitted in.
+
+An optional rolling budget reads the same charges over a fixed span of time rather than a
+horizon, so a horizon renewal does not refill it. Noise releases no teacher output, so it draws
+nothing from a rolling budget.
 """
 
 import base64
@@ -143,6 +147,21 @@ class IdempotencyRecord:
 	outcome: Outcome | None = None
 
 
+@dataclass(frozen=True)
+class RollingBudget:
+	"""What one account may acquire in any span of `window_seconds`, whatever the horizon."""
+
+	window_seconds: float
+	requests: int | None = None
+	tokens: int | None = None
+
+	def exceeded(self, tx: Transaction, account: str, reserved_tokens: int, now: float) -> bool:
+		used = tx.rolling_exposure(account, now - self.window_seconds)
+		return (self.requests is not None and used.requests >= self.requests) or (
+			self.tokens is not None and used.tokens + reserved_tokens > self.tokens
+		)
+
+
 def admission_key(account: str, horizon_start: float, attempt: int) -> str:
 	return json.dumps([account, horizon_start, attempt])
 
@@ -172,6 +191,7 @@ class Transaction(Protocol):
 	def reservation(self, key: str) -> Reservation | None: ...
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
 	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
+	def rolling_exposure(self, account: str, since: float) -> Exposure: ...
 	def organization(self, name: str) -> float | None: ...
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
@@ -197,6 +217,7 @@ def reserve_entitlement(
 	principal_budget: int | None,
 	organization_budget: int | None,
 	in_flight_limit: int | None,
+	rolling: RollingBudget | None = None,
 ) -> tuple[Reservation | None, str | None]:
 	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
 	organization = reservation.organization
@@ -222,6 +243,10 @@ def reserve_entitlement(
 		and org_usage.tokens + reservation.reserved_tokens > organization_budget
 	):
 		return None, "token_budget_exceeded"
+	if rolling is not None and rolling.exceeded(
+		tx, reservation.account, reservation.reserved_tokens, now
+	):
+		return None, "rolling_budget_exceeded"
 	if in_flight_limit is not None and account_usage.in_flight >= in_flight_limit:
 		return None, "in_flight_limit"
 	reservation = replace(reservation, organization_horizon=org_horizon)
@@ -318,6 +343,14 @@ class _MemoryTransaction:
 			if owner == name and (horizon == horizon_start or row.status == "reserved"):
 				rows.append(row)
 		return _exposure(rows, now)
+
+	def rolling_exposure(self, account: str, since: float) -> Exposure:
+		rows = [
+			row
+			for row in self.store.reservations.values()
+			if row.account == account and row.reserved_at > since and not row.deceive
+		]
+		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
 
 	def organization(self, name: str) -> float | None:
 		return self.store.organizations.get(name)
@@ -451,6 +484,7 @@ CREATE TABLE IF NOT EXISTS reservations (
 	output_tokens INTEGER
 );
 CREATE INDEX IF NOT EXISTS reservations_horizon ON reservations (account, horizon_start);
+CREATE INDEX IF NOT EXISTS reservations_rolling ON reservations (account, reserved_at);
 CREATE TABLE IF NOT EXISTS organizations (name TEXT PRIMARY KEY, horizon_start REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS idempotency (
 	account TEXT NOT NULL,
@@ -621,6 +655,15 @@ class _SQLiteTransaction:
 			(name, horizon_start),
 		).fetchall()
 		return _exposure([_reservation(row) for row in rows], now)
+
+	def rolling_exposure(self, account: str, since: float) -> Exposure:
+		requests, tokens = self.db.execute(
+			"SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'released' THEN "
+			"COALESCE(output_tokens, reserved_tokens) ELSE reserved_tokens END), 0) "
+			"FROM reservations WHERE account = ? AND reserved_at > ? AND deceive = 0",
+			(account, since),
+		).fetchone()
+		return Exposure(requests, tokens, 0)
 
 	def organization(self, name: str) -> float | None:
 		row = self.db.execute(
