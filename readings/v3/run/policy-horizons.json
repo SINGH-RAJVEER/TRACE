@@ -1,9 +1,3 @@
-{
-	"attempts": 10000,
-	"seconds": 86400.0,
-	"campaign_budget_replenished_on_reset": false,
-	"horizon_policy": "time-reset-attempt-cap-v1",
-	"reset": "elapsed_time",
-	"attempt_limit_action": "refuse_until_time_reset",
-	"allow_policy_capped": false
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:f60e04cae22a9117bebddb1bf3b9fb04d768a6fdf1e93c4229c4816e7c532482
+size 249
