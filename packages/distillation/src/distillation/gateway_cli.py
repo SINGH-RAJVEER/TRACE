@@ -199,28 +199,105 @@ def external_command(
 		raise typer.BadParameter(str(error)) from None
 
 
+def _served_policy(url: str) -> str | None:
+	"""The policy a harness gateway reports, or None for a teacher that reports none."""
+	import httpx
+
+	try:
+		response = httpx.get(f"{url.rstrip('/')}/healthz", timeout=10)
+		policy = response.json().get("policy") if response.is_success else None
+	except httpx.HTTPError, ValueError, AttributeError:
+		return None
+	return policy if isinstance(policy, str) else None
+
+
 @app.command("collect")
 def collect_command(
 	input_dir: Annotated[Path, typer.Option(help="Immutable gateway schedule directory.")],
 	output: Annotated[Path, typer.Option()],
+	policy: Annotated[
+		str,
+		typer.Option(
+			help="Policy the gateway serves for this arm: mmd, quota, rate, allow, or none "
+			"for a direct teacher. mmd arms must pass the detectability gate."
+		),
+	],
 	teacher_url: str = "http://127.0.0.1:8003",
 	keys_file: Path | None = None,
 	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
 	terms_review_id: Annotated[str, typer.Option(envvar="TEACHER_TERMS_REVIEW_ID")] = "",
 	decision_log: Path | None = None,
 	concurrency: Annotated[int, typer.Option(min=1)] = 4,
+	calibration: Annotated[
+		Path | None,
+		typer.Option(file_okay=False, help="The frozen calibration the gateway serves."),
+	] = None,
+	benign_test: Annotated[
+		Path | None,
+		typer.Option(dir_okay=False, help="Held-out benign detector input, never calibrated on."),
+	] = None,
+	gate_accumulator: Annotated[
+		list[str] | None,
+		typer.Option(help="MMD arm of the study to replay; repeat for each. Any one passes."),
+	] = None,
+	embedding_cache: Annotated[
+		Path, typer.Option(file_okay=False, help="Gate embedding cache, outside frozen inputs.")
+	] = Path("artifacts/embedding-cache"),
+	allow_undetected: Annotated[
+		bool,
+		typer.Option(help="Run an undetected mmd arm anyway, recorded as a quota comparison."),
+	] = False,
 ) -> None:
-	"""Execute a schedule with one global HTTP budget and one combined response ledger."""
+	"""Execute a schedule with one global HTTP budget and one combined response ledger.
+
+	Before an mmd arm, the frozen schedule and the held-out benign accounts are replayed
+	offline through the calibration. The campaign is refused unless some declared MMD arm
+	escalates the attacker beyond those accounts; passing is not evidence of effectiveness.
+	"""
 	import asyncio
 
 	from distillation.collection import CollectionOptions
+	from distillation.detectability_gate import (
+		DEFAULT_ACCUMULATORS,
+		UndetectedError,
+		detectability,
+		gate,
+	)
 	from distillation.gateway_campaign import collect_gateway, digest
 
 	try:
+		if policy not in {"mmd", "quota", "rate", "allow", "none"}:
+			raise ValueError("policy must be mmd, quota, rate, allow, or none")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
 		schedule = input_dir / "requests.jsonl"
 		if digest(schedule) != manifest["sha256"][schedule.name]:
 			raise ValueError("gateway schedule hash does not match its manifest")
+		served = _served_policy(teacher_url)
+		if served is not None and served != policy:
+			raise ValueError(f"the gateway serves {served}, not the declared {policy} policy")
+		record = None
+		if policy == "mmd":
+			if calibration is None or benign_test is None:
+				raise ValueError("an mmd arm needs --calibration and --benign-test for its gate")
+			if embedding_cache.resolve().is_relative_to(output.resolve()):
+				raise ValueError("the embedding cache must not live inside the run directory")
+			try:
+				record = gate(
+					detectability(
+						calibration_dir=calibration,
+						schedule_dir=input_dir,
+						benign_test=benign_test,
+						accumulators=tuple(gate_accumulator or DEFAULT_ACCUMULATORS),
+						embedding_cache=embedding_cache,
+					),
+					allow_undetected=allow_undetected,
+				)
+			except UndetectedError as error:
+				typer.echo(json.dumps(error.report["arms"], indent="\t"), err=True)
+				typer.echo(str(error), err=True)
+				raise typer.Exit(code=1) from None
+			if record["reading"] == "quota comparison":
+				typer.echo("detectability gate overridden: reporting a quota comparison", err=True)
 		keys = json.loads(keys_file.read_text()) if keys_file else {"default": token}
 		result = asyncio.run(
 			collect_gateway(
@@ -234,6 +311,7 @@ def collect_command(
 				attempt_budget=manifest["attempt_budget"],
 				deadline_seconds=manifest["deadline_seconds"],
 				decision_log=decision_log,
+				detectability=record,
 			)
 		)
 		from distillation.campaign_timing import campaign_timing

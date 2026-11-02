@@ -25,6 +25,7 @@ from distillation.campaign import (
 	event_summary,
 )
 from distillation.collection import CollectionOptions, _collect_one
+from distillation.detectability_gate import contract_record
 from distillation.io import append_jsonl, read_jsonl
 from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver
 from distillation.schemas import GatewayRequest, LedgerRecord
@@ -46,11 +47,14 @@ async def collect_gateway(
 	solver_workers: int = 4,
 	decision_log: Path | None = None,
 	transport: httpx.AsyncBaseTransport | None = None,
+	detectability: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	"""One in-flight request per account; HTTP failures and proofs spend the global budget.
 
 	Completed artifacts are verified before reuse. An interrupted campaign cannot restart
 	with fresh policy state or replenish its spent allowance in the same output directory.
+	A protected arm passes its detectability gate record, which binds the contract and is
+	saved beside it; unprotected arms keep their earlier contracts.
 	"""
 	if solver_workers < 1:
 		raise ValueError("solver workers must be positive")
@@ -81,6 +85,8 @@ async def collect_gateway(
 		"credential_sha256": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in keys.items()},
 		"decision_log": str(decision_log) if decision_log else None,
 	}
+	if detectability is not None:
+		contract["detectability"] = contract_record(detectability)
 	contract_hash = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
 	summary_path = output / "campaign.json"
 	ledger, events_path = output / "ledger.jsonl", output / "campaign.events.jsonl"
@@ -97,6 +103,8 @@ async def collect_gateway(
 		raise ValueError("interrupted gateway campaign: preserve artifacts and use a new directory")
 	await AsyncPath(output).mkdir(parents=True, exist_ok=False)
 	save_json(output / "contract.json", contract)
+	if detectability is not None:
+		save_json(output / "detectability.json", detectability)
 	ledger.touch()
 	events_path.touch()
 	allowance = CampaignAllowance(attempt_budget, exhausted=asyncio.Event())
@@ -219,5 +227,8 @@ async def collect_gateway(
 		"challenge_seconds": sum(c.challenge_seconds for c in clients),
 		"sha256": {"ledger": digest(ledger), "events": digest(events_path)},
 	}
+	if detectability is not None:
+		summary["reading"] = detectability["reading"]
+		summary["allow_undetected"] = detectability["allow_undetected"]
 	save_json(summary_path, summary)
 	return summary
