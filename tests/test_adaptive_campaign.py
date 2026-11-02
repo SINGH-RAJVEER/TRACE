@@ -365,3 +365,43 @@ def test_cli_passes_online_contract_to_collection(
 	assert help_result.exit_code == 0
 	assert "A8" in help_result.output
 	assert "--topic-sorted" in help_result.output
+
+
+@pytest.mark.asyncio
+async def test_alternative_teacher_shares_http_budget_and_records_contract(tmp_path: Path) -> None:
+	rows, manifest = campaign_schedule(
+		pools=_pools(5), caps=CAPS, attack="A1", budget=9, interval_seconds=0
+	)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	teacher = Teacher()
+	hosts: list[str] = []
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		hosts.append(request.url.host)
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://primary",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=4,
+		alternative_url="http://alternative",
+		alternative_share=0.5,
+		transport=httpx.MockTransport(respond),
+		selector_seed=42,
+	)
+	contract = json.loads((output / "contract.json").read_text())
+	assert contract["alternative_teacher"]["share"] == 0.5
+	assert contract["alternative_teacher"]["seed"] == 42
+	assert result["queries"] == len(hosts) == 4
+	ledger = read_jsonl(output / "ledger.jsonl", LedgerRecord)
+	assert [record.teacher.endpoint.removeprefix("http://") for record in ledger] == hosts
+	assert set(hosts) == {"primary", "alternative"}
+	assert manifest["attempt_budget"] == 9

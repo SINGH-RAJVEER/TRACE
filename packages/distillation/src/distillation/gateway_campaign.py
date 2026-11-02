@@ -53,6 +53,8 @@ async def collect_gateway(
 	uncertainty_hook: UncertaintyHook | None = None,
 	uncertainty_hook_id: str | None = None,
 	detectability: dict[str, Any] | None = None,
+	alternative_url: str | None = None,
+	alternative_share: float = 0.0,
 ) -> dict[str, Any]:
 	"""One in-flight request per account; HTTP failures and proofs spend the global budget.
 
@@ -61,6 +63,8 @@ async def collect_gateway(
 	A protected arm passes its detectability gate record, which binds the contract and is
 	saved beside it; unprotected arms keep their earlier contracts.
 	"""
+	if not 0 <= alternative_share <= 1 or bool(alternative_url) != bool(alternative_share):
+		raise ValueError("alternative teacher URL and positive share must be supplied together")
 	if solver_workers < 1:
 		raise ValueError("solver workers must be positive")
 	variants = variants or {}
@@ -104,6 +108,14 @@ async def collect_gateway(
 		contract["variants"] = variants
 		contract["selector_seed"] = selector_seed
 		contract["uncertainty_hook_id"] = uncertainty_hook_id
+	if alternative_url:
+		contract["alternative_teacher"] = {
+			"url": alternative_url,
+			"share": alternative_share,
+			"assignment": "sha256(seed:request_id) threshold",
+			"seed": selector_seed,
+			"offline_compute": "none",
+		}
 	if detectability is not None:
 		contract["detectability"] = contract_record(detectability)
 	contract_hash = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
@@ -142,25 +154,38 @@ async def collect_gateway(
 	semaphore = asyncio.Semaphore(options.concurrency)
 	terminations: dict[str, str] = {}
 	failures: dict[str, int] = defaultdict(int)
-	teachers: dict[str, ProtectedTeacher] = {}
+	teachers: dict[tuple[str, str], ProtectedTeacher] = {}
 
 	async def worker(account: str, requests: list[GatewayRequest]) -> None:
-		if account not in teachers:
-			teacher = ProtectedTeacher(
-				url, keys.get(account, keys.get("default", "")), transport=transport, solver=solver
-			)
-			teachers[account] = teacher
-			clients.append(teacher)
-			teacher.account_limit = account_limit
-			teacher.account = account
-			teacher.events, teacher.event_path = events, events_path
-			teacher.contract = contract_hash
-			teacher.allowance, teacher.max_requests = allowance, attempt_budget
-			teacher.started, teacher.deadline = started, started + deadline_seconds
-		teacher = teachers[account]
 		consecutive = failures[account]
 		terminations[account] = "prompts_exhausted"
 		for row in sorted(requests, key=lambda r: r.time):
+			fraction = (
+				int.from_bytes(
+					hashlib.sha256(f"{selector_seed}:{row.request_id}".encode()).digest(), "big"
+				)
+				/ 2**256
+			)
+			selected_url = (
+				alternative_url if alternative_url and fraction < alternative_share else url
+			)
+			teacher_key = (account, selected_url)
+			if teacher_key not in teachers:
+				teacher = ProtectedTeacher(
+					selected_url,
+					keys.get(account, keys.get("default", "")),
+					transport=transport,
+					solver=solver,
+				)
+				teachers[teacher_key] = teacher
+				clients.append(teacher)
+				teacher.account_limit = account_limit
+				teacher.account = account
+				teacher.events, teacher.event_path = events, events_path
+				teacher.contract = contract_hash
+				teacher.allowance, teacher.max_requests = allowance, attempt_budget
+				teacher.started, teacher.deadline = started, started + deadline_seconds
+			teacher = teachers[teacher_key]
 			if allowance.used >= attempt_budget:
 				terminations[account] = "attempt_budget"
 				break
@@ -203,6 +228,8 @@ async def collect_gateway(
 					break
 			else:
 				record.attempt_id = teacher.last_event_id
+				if alternative_url:
+					record.teacher.endpoint = selected_url
 				append_jsonl(ledger, [record])
 				consecutive = 0
 

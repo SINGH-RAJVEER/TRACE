@@ -245,6 +245,13 @@ def collect_command(
 		),
 	],
 	teacher_url: str = "http://127.0.0.1:8003",
+	alternative_url: Annotated[
+		str | None, typer.Option(help="Second teacher URL for direct-teacher mixing.")
+	] = None,
+	alternative_share: Annotated[
+		float,
+		typer.Option(min=0, max=1, help="Deterministic share assigned to the second teacher."),
+	] = 0.0,
 	keys_file: Path | None = None,
 	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
 	terms_review_id: Annotated[str, typer.Option(envvar="TEACHER_TERMS_REVIEW_ID")] = "",
@@ -297,6 +304,8 @@ def collect_command(
 	from distillation.gateway_campaign import collect_gateway, digest
 
 	try:
+		if alternative_url and policy != "none":
+			raise ValueError("alternative teacher mixing requires --policy none")
 		if policy not in {"mmd", "quota", "rate", "allow", "none"}:
 			raise ValueError("policy must be mmd, quota, rate, allow, or none")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
@@ -346,6 +355,8 @@ def collect_command(
 				variants=manifest.get("variants"),
 				selector_seed=manifest.get("seed", 42),
 				detectability=record,
+				alternative_url=alternative_url,
+				alternative_share=alternative_share,
 			)
 		)
 		from distillation.campaign_timing import campaign_timing
