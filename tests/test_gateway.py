@@ -363,14 +363,17 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
 	)
 	assert result.exit_code == 0, result.output
 	assert json.loads(result.output)["generalist_share_achieved"] == 0.4
-	assert json.loads(result.output)["topic_order"] == "category"
+	assert json.loads(result.output)["topic_order"] == (
+		"category-balanced selection, topic-ordered account blocks"
+	)
 	assert json.loads(result.output)["specialist_scope"]["gsm8k"] == "domain only"
 	assert json.loads(result.output)["specialist_scope"]["ag_news"] == "topic ordered"
 	rows = read_jsonl(tmp_path / "benign" / "requests.jsonl", GatewayRequest)
 	for account in {row.account for row in rows}:
 		account_rows = [row for row in rows if row.account == account]
 		if account_rows[0].domain_profile == "specialist" and account_rows[0].domain != "gsm8k":
-			assert {int(row.prompt.source.source_id) % 2 for row in account_rows} == {0}
+			topics = [int(row.prompt.source.source_id) % 2 for row in account_rows]
+			assert topics == sorted(topics)
 	result = runner.invoke(
 		app,
 		[

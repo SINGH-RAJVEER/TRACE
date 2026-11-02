@@ -236,18 +236,25 @@ def mixed_clients(
 	):
 		raise ValueError("missing topic reference for a benign prompt")
 	domains = sorted(pools)
-	ordered = {
-		domain: sorted(
-			pool,
-			key=lambda prompt: (
-				references[prompt.example_id].category
-				if references is not None
-				else (prompt.source.corpus, prompt.source.group_id or ""),
-				hashlib.sha256(f"{seed}:{prompt.example_id}".encode()).digest(),
-			),
+	# Select balanced prefixes, then arrange each account into concentrated topic blocks.
+	from distillation.profiles import TopicSampler, topic_coverage
+
+	def topic(prompt: PromptRecord) -> str:
+		return (
+			references[prompt.example_id].category
+			if references is not None
+			else f"{prompt.source.corpus}:{prompt.source.group_id or ''}"
 		)
-		for domain, pool in pools.items()
-	}
+
+	ordered = {}
+	for domain, pool in pools.items():
+		sampler = TopicSampler(pool, topic, seed)
+		selected = []
+		for _ in pool:
+			prompt = sampler.draw()
+			assert prompt is not None
+			selected.append(prompt)
+		ordered[domain] = selected
 	rng = random.Random(f"{seed}:gateway-clients")
 	generalist_count = math.floor(accounts * generalist_share + 0.5)
 	generalists = set(rng.sample(range(accounts), generalist_count))
@@ -310,6 +317,7 @@ def mixed_clients(
 			chunk.append(ordered[domain][cursors[domain]])
 			cursors[domain] += 1
 			step += 1
+		chunk.sort(key=lambda prompt: (prompt.task, topic(prompt)))
 		if kind == "repetitive":
 			chunk = [prompt for prompt in chunk for _ in range(3)][:target]
 		for offset, prompt in enumerate(chunk):
@@ -366,7 +374,14 @@ def mixed_clients(
 		"source_documents": len(
 			{(r.prompt.source.corpus, r.prompt.source.group_id) for r in requests}
 		),
-		"topic_order": "category" if references is not None else "source group",
+		"topic_order": "category-balanced selection, topic-ordered account blocks",
+		"topic_coverage": {
+			domain: topic_coverage(
+				Counter(topic(p) for p in pool),
+				Counter(topic(p) for p in ordered[domain][: cursors[domain]]),
+			)
+			for domain, pool in sorted(pools.items())
+		},
 		"domain_topic_categories": {
 			domain: sorted({references[p.example_id].category for p in pool})
 			for domain, pool in sorted(pools.items())
