@@ -14,6 +14,7 @@ import httpx
 from anyio import Path as AsyncPath
 from harness.calibration import HORIZON_POLICY
 
+from distillation.adaptive import CoverageSelector, UncertaintyHook
 from distillation.benchmarks.models import save_json
 from distillation.campaign import (
 	MAX_CONSECUTIVE_FAILURES,
@@ -46,6 +47,10 @@ async def collect_gateway(
 	solver_workers: int = 4,
 	decision_log: Path | None = None,
 	transport: httpx.AsyncBaseTransport | None = None,
+	variants: dict[str, Any] | None = None,
+	selector_seed: int = 42,
+	uncertainty_hook: UncertaintyHook | None = None,
+	uncertainty_hook_id: str | None = None,
 ) -> dict[str, Any]:
 	"""One in-flight request per account; HTTP failures and proofs spend the global budget.
 
@@ -54,6 +59,16 @@ async def collect_gateway(
 	"""
 	if solver_workers < 1:
 		raise ValueError("solver workers must be positive")
+	variants = variants or {}
+	online = bool(variants.get("online"))
+	account_limit = variants.get("per_account_limit")
+	if account_limit is not None and (type(account_limit) is not int or account_limit < 1):
+		raise ValueError("per-account HTTP limit must be positive")
+	round_size = variants.get("round_size", 16)
+	if type(round_size) is not int or round_size < 1:
+		raise ValueError("round size must be positive")
+	if uncertainty_hook is not None and (not online or not uncertainty_hook_id):
+		raise ValueError("uncertainty hook requires A8 and a reproducible hook identity")
 	rows = read_jsonl(schedule, GatewayRequest)
 	if not rows or attempt_budget < 1 or not 0 < deadline_seconds < float("inf"):
 		raise ValueError("a gateway campaign needs requests and finite positive budgets")
@@ -81,6 +96,10 @@ async def collect_gateway(
 		"credential_sha256": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in keys.items()},
 		"decision_log": str(decision_log) if decision_log else None,
 	}
+	if variants:
+		contract["variants"] = variants
+		contract["selector_seed"] = selector_seed
+		contract["uncertainty_hook_id"] = uncertainty_hook_id
 	contract_hash = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
 	summary_path = output / "campaign.json"
 	ledger, events_path = output / "ledger.jsonl", output / "campaign.events.jsonl"
@@ -114,18 +133,24 @@ async def collect_gateway(
 		groups[row.account].append(row)
 	semaphore = asyncio.Semaphore(options.concurrency)
 	terminations: dict[str, str] = {}
+	failures: dict[str, int] = defaultdict(int)
+	teachers: dict[str, ProtectedTeacher] = {}
 
 	async def worker(account: str, requests: list[GatewayRequest]) -> None:
-		teacher = ProtectedTeacher(
-			url, keys.get(account, keys.get("default", "")), transport=transport, solver=solver
-		)
-		clients.append(teacher)
-		teacher.account = account
-		teacher.events, teacher.event_path = events, events_path
-		teacher.contract = contract_hash
-		teacher.allowance, teacher.max_requests = allowance, attempt_budget
-		teacher.started, teacher.deadline = started, started + deadline_seconds
-		consecutive = 0
+		if account not in teachers:
+			teacher = ProtectedTeacher(
+				url, keys.get(account, keys.get("default", "")), transport=transport, solver=solver
+			)
+			teachers[account] = teacher
+			clients.append(teacher)
+			teacher.account_limit = account_limit
+			teacher.account = account
+			teacher.events, teacher.event_path = events, events_path
+			teacher.contract = contract_hash
+			teacher.allowance, teacher.max_requests = allowance, attempt_budget
+			teacher.started, teacher.deadline = started, started + deadline_seconds
+		teacher = teachers[account]
+		consecutive = failures[account]
 		terminations[account] = "prompts_exhausted"
 		for row in sorted(requests, key=lambda r: r.time):
 			if allowance.used >= attempt_budget:
@@ -150,7 +175,13 @@ async def collect_gateway(
 						lambda: None,
 					)
 			except BudgetExhausted:
-				terminations[account] = "deadline" if teacher.remaining() <= 0 else "attempt_budget"
+				terminations[account] = (
+					"deadline"
+					if teacher.remaining() <= 0
+					else "account_limit"
+					if account_limit and allowance.used < attempt_budget
+					else "attempt_budget"
+				)
 				break
 			except PolicyRefusal:
 				consecutive = 0
@@ -167,7 +198,92 @@ async def collect_gateway(
 				append_jsonl(ledger, [record])
 				consecutive = 0
 
-	tasks = [asyncio.create_task(worker(account, requests)) for account, requests in groups.items()]
+		failures[account] = consecutive
+
+	async def adaptive_worker() -> None:
+		selector = CoverageSelector(rows, selector_seed)
+		round_index, cursor = 0, 0
+		next_at = 0.0
+		interval = rows[1].time - rows[0].time if len(rows) > 1 else 0.0
+		previous_feedback: list[dict[str, Any]] = []
+		while (
+			selector.pending
+			and allowance.used < attempt_budget
+			and time.monotonic() < started + deadline_seconds
+		):
+			batch, scores = (
+				selector.select(
+					min(round_size, attempt_budget - allowance.used),
+					read_jsonl(ledger, LedgerRecord),
+					previous_feedback,
+					uncertainty_hook,
+				)
+				if online
+				else ([selector.pending.pop(next(iter(selector.pending)))], {})
+			)
+			event = {
+				"event": "selection_round",
+				"round": round_index,
+				"at_seconds": time.monotonic() - started,
+				"selected_ids": [r.request_id for r in batch],
+				"scores": scores,
+				"feedback": list(previous_feedback),
+				"uncertainty_scores": dict(selector.uncertainty),
+				"attempts_spent": allowance.used,
+				"released_example_ids": [r.example_id for r in read_jsonl(ledger, LedgerRecord)],
+				"contract": contract_hash,
+			}
+			with events_path.open("a") as stream:
+				stream.write(json.dumps(event) + "\n")
+			events.append(event)
+			feedback_start = len(events)
+			for row in batch:
+				account = row.account
+				if account_limit:
+					while (
+						sum(
+							e["event"] == "attempt" and e.get("account") == rows[cursor].account
+							for e in events
+						)
+						>= account_limit
+					):
+						cursor += 1
+						if cursor >= len(rows):
+							return
+					account = rows[cursor].account
+				await worker(
+					account, [row.model_copy(update={"account": account, "time": next_at})]
+				)
+				next_at = time.monotonic() - started + interval
+				if terminations[account] in {"deadline", "attempt_budget", "service_failures"}:
+					return
+			# Only HTTP-visible outcomes enter the selector; never policy sidecar decisions.
+			previous_feedback.extend(
+				{
+					key: e[key]
+					for key in ("event", "domain", "status", "latency_seconds", "http_status")
+					if key in e
+				}
+				for e in events[feedback_start:]
+				if e["event"] == "outcome"
+			)
+			round_index += 1
+		if not terminations:
+			terminations[rows[0].account] = "prompts_exhausted"
+		if terminations:
+			last_account = next(reversed(terminations))
+			if allowance.used >= attempt_budget:
+				terminations[last_account] = "attempt_budget"
+			elif time.monotonic() >= started + deadline_seconds:
+				terminations[last_account] = "deadline"
+
+	tasks = (
+		[asyncio.create_task(adaptive_worker())]
+		if online or account_limit
+		else [
+			asyncio.create_task(worker(account, requests)) for account, requests in groups.items()
+		]
+	)
 	try:
 		await asyncio.gather(*tasks)
 		elapsed = time.monotonic() - started
