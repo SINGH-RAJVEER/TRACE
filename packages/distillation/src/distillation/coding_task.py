@@ -23,11 +23,16 @@ from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenS
 from distillation.io import canonical_json
 from distillation.schemas import Message, PromptRecord, PromptSource
 from distillation.tasks import (
+	ATTACKER_PARTITIONS,
 	ROLES,
 	TASKS,
+	AttackerPartition,
 	DatasetSpec,
 	_role,
 	_suite,
+	attacker_file,
+	attacker_partition,
+	partition_manifest,
 )
 
 EVALUATION = DatasetSpec(
@@ -335,18 +340,23 @@ def build_coding_task(
 	)
 	save_json(qualified / "manifest.json", qualification)
 	counts: Counter[str] = Counter()
+	partition_counts: Counter[AttackerPartition] = Counter()
 	development: list[tuple[int, str, BenchmarkItem]] = []
 	spec = TASKS["coding"]
 	with ExitStack() as stack:
 		outputs = {}
 		for role in ROLES:
-			if role == "development":
+			if role in {"development", "attacker"}:
 				continue
-			path = output_dir / (
-				"attacker.jsonl" if role == "attacker" else f"legitimate/{role}.jsonl"
-			)
+			path = output_dir / f"legitimate/{role}.jsonl"
 			path.parent.mkdir(parents=True, exist_ok=True)
 			outputs[role] = stack.enter_context(path.open("w", encoding="utf-8"))
+		attackers = {
+			partition: stack.enter_context(
+				(output_dir / attacker_file(partition)).open("w", encoding="utf-8")
+			)
+			for partition in ATTACKER_PARTITIONS
+		}
 		gold = stack.enter_context((output_dir / "gold-answers.jsonl").open("w", encoding="utf-8"))
 		references = stack.enter_context(
 			(output_dir / "legitimate-references.json").open("w", encoding="utf-8")
@@ -384,8 +394,10 @@ def build_coding_task(
 					).hexdigest(),
 				),
 			)
-			outputs[role].write(prompt.model_dump_json() + "\n")
 			if role == "attacker":
+				partition = attacker_partition(seed, "coding", group)
+				partition_counts[partition] += 1
+				attackers[partition].write(prompt.model_dump_json() + "\n")
 				gold.write(
 					json.dumps(
 						{
@@ -396,6 +408,7 @@ def build_coding_task(
 					+ "\n"
 				)
 			else:
+				outputs[role].write(prompt.model_dump_json() + "\n")
 				references.write(
 					separator + json.dumps(identifier) + ":" + _item(example).model_dump_json()
 				)
@@ -405,6 +418,8 @@ def build_coding_task(
 		raise ValueError(
 			"coding corpus cannot supply every study role; inspect qualification exclusions"
 		)
+	# Coding groups are specification hashes, so each prompt is its own source group.
+	partitioned = partition_manifest(dict(partition_counts), dict(partition_counts))
 	development_suite = _suite(
 		"coding",
 		"train",
@@ -442,6 +457,7 @@ def build_coding_task(
 		"qualification_rows": qualification["counts"]["raw"],
 		"roles": {role: counts[role] for role in ROLES},
 		"groups": {role: counts[role] for role in ROLES},
+		"attacker_partitions": partitioned,
 		"filtered": {
 			key: value
 			for key, value in qualification["counts"].items()
@@ -472,6 +488,7 @@ def build_coding_task(
 	if log:
 		log(
 			f"coding: {sum(counts.values())} qualified examples; "
-			f"{counts['attacker']} attacker prompts"
+			f"{partition_counts['exploratory']} exploratory and "
+			f"{partition_counts['confirmatory']} confirmatory attacker prompts"
 		)
 	return manifest

@@ -40,8 +40,9 @@ def tasks_build_command(
 ) -> None:
 	"""Split one task's pinned dataset into the paper's pools and freeze its suites.
 
-	Writes attacker.jsonl, gold-answers.jsonl, legitimate/*.jsonl, development-suite.json,
-	test-suite.json, and manifest.json into --output-dir. Default directories are data/news,
+	Writes the exploratory attacker.jsonl, the sealed attacker-confirmatory.jsonl,
+	gold-answers.jsonl, legitimate/*.jsonl, development-suite.json, test-suite.json, and
+	manifest.json into --output-dir. Default directories are data/news,
 	data/question_answering, and data/math; coding uses its pool size and seed in its name.
 	"""
 	from distillation.tasks import build_task, task_directory

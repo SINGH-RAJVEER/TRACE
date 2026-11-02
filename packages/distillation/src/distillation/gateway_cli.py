@@ -11,7 +11,14 @@ from distillation.benchmarks.models import save_json
 from distillation.io import read_jsonl, write_jsonl
 from distillation.schedules import campaign_schedule
 from distillation.schemas import GatewayRequest, PromptRecord
-from distillation.tasks import LEGITIMATE_ROLES, TASKS, task_directory
+from distillation.tasks import (
+	ATTACKER_PARTITIONS,
+	LEGITIMATE_ROLES,
+	TASKS,
+	AttackerPartition,
+	attacker_file,
+	task_directory,
+)
 from distillation.workloads import (
 	DEFAULT_CONCENTRATED_SHARE,
 	DEFAULT_LENGTH_TAIL,
@@ -24,7 +31,12 @@ app = typer.Typer(no_args_is_help=True)
 
 
 def _pools(
-	tasks_dir: Path, domains: str, role: str, *, external: bool = False
+	tasks_dir: Path,
+	domains: str,
+	role: str,
+	*,
+	external: bool = False,
+	partition: AttackerPartition = "exploratory",
 ) -> tuple[dict[str, list[PromptRecord]], dict[str, int], dict[str, Any]]:
 	names = [name.strip() for name in domains.split(",")]
 	if len(set(names)) != len(names) or len(names) < 2 or set(names) - TASKS.keys():
@@ -42,11 +54,15 @@ def _pools(
 			"sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
 			"dataset": manifest.get("dataset"),
 		}
-		path = (
-			directory / "attacker.jsonl"
-			if role == "attacker"
-			else directory / "legitimate" / f"{role}.jsonl"
-		)
+		path = directory / "legitimate" / f"{role}.jsonl"
+		if role == "attacker" and not external:
+			if "attacker_partitions" not in manifest:
+				raise ValueError(
+					f"{directory} predates sealed attacker partitions; rebuild it with "
+					"`distill tasks build`"
+				)
+			path = directory / attacker_file(partition)
+			provenance[domain]["attacker_partition"] = partition
 		if external:
 			path = directory / "external" / "attacker.jsonl"
 			pinned = directory / "external" / "manifest.json"
@@ -140,6 +156,13 @@ def schedule_command(
 	budget: Annotated[int, typer.Option(min=1, help="Campaign-wide HTTP attempt limit.")] = 12_000,
 	tasks_dir: Path = Path("data"),
 	domains: str = "ag_news,squad,gsm8k,coding",
+	partition: Annotated[
+		str,
+		typer.Option(
+			help="Attacker partition: exploratory for development campaigns, confirmatory only "
+			"for a preregistered evaluation."
+		),
+	] = "exploratory",
 	campaign_id: str = "campaign",
 	accounts: Annotated[
 		int | None, typer.Option(min=1, help="Total accounts; defaults to 6 for A5, 1 for A1/A2.")
@@ -177,9 +200,16 @@ def schedule_command(
 	from distillation.schedules import EXTERNAL_ATTACKS, Attack
 
 	try:
+		if partition not in ATTACKER_PARTITIONS:
+			raise ValueError(f"partition must be one of {', '.join(ATTACKER_PARTITIONS)}")
+		sealed = partition
 		external = attack in EXTERNAL_ATTACKS
-		pools, caps, provenance = _pools(tasks_dir, domains, "attacker", external=external)
-		cover = _pools(tasks_dir, domains, "attacker")[0] if attack == "A3" else None
+		pools, caps, provenance = _pools(
+			tasks_dir, domains, "attacker", external=external, partition=sealed
+		)
+		cover = (
+			_pools(tasks_dir, domains, "attacker", partition=sealed)[0] if attack == "A3" else None
+		)
 		requests, manifest = campaign_schedule(
 			pools=pools,
 			caps=caps,
@@ -199,6 +229,7 @@ def schedule_command(
 			round_size=round_size,
 		)
 		manifest["task_manifests"] = provenance
+		manifest["attacker_partition"] = sealed
 		_write(output, requests, manifest)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None

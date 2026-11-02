@@ -208,6 +208,39 @@ def _role(seed: int, task: str, group: str) -> Role:
 	raise AssertionError("role shares must cover the hash range")
 
 
+# Attacker source groups are sealed into two disjoint partitions. Exploratory prompts serve
+# development campaigns and detector selection; confirmatory prompts stay unqueried until a
+# preregistered evaluation, so inspected campaigns never count as untouched tests.
+AttackerPartition = Literal["exploratory", "confirmatory"]
+ATTACKER_PARTITIONS: tuple[AttackerPartition, ...] = ("exploratory", "confirmatory")
+ATTACKER_PARTITION_VERSION = "attacker-partition-v1"
+CONFIRMATORY_SHARE = 0.5
+
+
+def attacker_partition(seed: int, task: str, group: str) -> AttackerPartition:
+	"""Assign each complete attacker source group to one partition."""
+	value = _digest(seed, "attacker-partition", task, group) % 1_000_000
+	return "confirmatory" if value < round(CONFIRMATORY_SHARE * 1_000_000) else "exploratory"
+
+
+def attacker_file(partition: AttackerPartition) -> str:
+	return "attacker.jsonl" if partition == "exploratory" else "attacker-confirmatory.jsonl"
+
+
+def partition_manifest(
+	counts: dict[AttackerPartition, int], groups: dict[AttackerPartition, int]
+) -> dict[str, Any]:
+	if not all(counts.get(partition) for partition in ATTACKER_PARTITIONS):
+		raise ValueError("attacker pool cannot supply both exploratory and confirmatory prompts")
+	return {
+		"version": ATTACKER_PARTITION_VERSION,
+		"confirmatory_share": CONFIRMATORY_SHARE,
+		"files": {partition: attacker_file(partition) for partition in ATTACKER_PARTITIONS},
+		"prompts": {partition: counts[partition] for partition in ATTACKER_PARTITIONS},
+		"groups": {partition: groups.get(partition, 0) for partition in ATTACKER_PARTITIONS},
+	}
+
+
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
 	if len(text) <= limit:
 		return text, False
@@ -416,7 +449,21 @@ def build_task(
 
 	output_dir.mkdir(parents=True, exist_ok=True)
 	attacker = by_role.get("attacker", [])
-	write_jsonl(output_dir / "attacker.jsonl", [record(example, "train") for example in attacker])
+	partitions: dict[AttackerPartition, list[TaskExample]] = {p: [] for p in ATTACKER_PARTITIONS}
+	for example in attacker:
+		partitions[attacker_partition(seed, task, example.group)].append(example)
+	partitioned = partition_manifest(
+		{partition: len(examples) for partition, examples in partitions.items()},
+		{
+			partition: len({example.group for example in examples})
+			for partition, examples in partitions.items()
+		},
+	)
+	for partition, examples in partitions.items():
+		write_jsonl(
+			output_dir / attacker_file(partition),
+			[record(example, "train") for example in examples],
+		)
 	write_jsonl(
 		output_dir / "gold-answers.jsonl",
 		[
@@ -491,6 +538,7 @@ def build_task(
 		"groups": {
 			role: len({example.group for example in by_role.get(role, [])}) for role in ROLES
 		},
+		"attacker_partitions": partitioned,
 		"development_suite_items": len(development_suite.items),
 		"test_suite_items": len(test_suite.items),
 		"truncated": dict(truncated),
@@ -512,16 +560,17 @@ def budget_run(
 	seed: int,
 	output_dir: Path,
 	ledger_path: Path | None = None,
+	partition: AttackerPartition = "exploratory",
 ) -> dict[str, Any]:
-	"""Take the first `budget` attacker prompts in a seeded order, so budgets nest per seed.
+	"""Take the first `budget` partition prompts in a seeded order, so budgets nest per seed.
 
 	Writes prompts.jsonl and the matching gold-train.jsonl. With a ledger, also writes the
 	subset of its records for these prompts, in prompt order, counts prompts it lacks, and
 	refuses records collected with a different output limit from the task's.
 	"""
-	pool = read_jsonl(task_dir / "attacker.jsonl", PromptRecord)
+	pool = read_jsonl(task_dir / attacker_file(partition), PromptRecord)
 	if not 1 <= budget <= len(pool):
-		raise ValueError(f"budget must be between 1 and the attacker pool size, {len(pool)}")
+		raise ValueError(f"budget must be between 1 and the {partition} pool size, {len(pool)}")
 	ordered = sorted(pool, key=lambda prompt: _digest(seed, "order", prompt.example_id))
 	selected = ordered[:budget]
 	gold = {
@@ -543,6 +592,7 @@ def budget_run(
 		"task_dir": str(task_dir),
 		"budget": budget,
 		"seed": seed,
+		"partition": partition,
 		"pool": len(pool),
 	}
 	if ledger_path:

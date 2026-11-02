@@ -316,7 +316,13 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
 			)
 		)
 		(directory / "manifest.json").write_text(
-			json.dumps({"task": domain, "max_output_tokens": caps[domain]})
+			json.dumps(
+				{
+					"task": domain,
+					"max_output_tokens": caps[domain],
+					"attacker_partitions": {"version": "attacker-partition-v1"},
+				}
+			)
 		)
 	runner = CliRunner()
 	common = ["--tasks-dir", str(tmp_path / "tasks")]
