@@ -42,14 +42,15 @@ from distillation.schemas import (
 from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
-from harness.calibration import Calibration, load_aggregate, load_calibration
+from harness.calibration import Calibration, load_aggregate, load_calibration, load_shadow
 from harness.deception import noise
 from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
-from harness.policy import Decision, MMDPolicy, Policy, ScoreWindow
+from harness.policy import Decision, MMDPolicy, Policy, ScoreWindow, request_digest
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
+from harness.shadow import ShadowMonitor
 from harness.store import (
 	IdempotencyRecord,
 	MemoryStore,
@@ -331,7 +332,20 @@ def create_app(
 		else None
 	)
 	needs_embeddings = config.policy == "mmd" or monitor is not None
-	if encoder is None and needs_embeddings:
+	shadow: ShadowMonitor | None = None
+	if config.shadow_scorers:
+		if calibration.shadow is None:
+			raise ValueError("HARNESS_SHADOW_SCORERS needs a calibration fitted with --shadow")
+		if calibration.shadow._centroids is None:
+			load_shadow(config.calibration_dir, calibration)
+		shadow = ShadowMonitor(
+			calibration.shadow,
+			task=served_task,
+			window_size=calibration.config.window_size,
+			scales=calibration.config.scales,
+			distinct_prompts=calibration.config.distinct_prompts,
+		)
+	if encoder is None and (needs_embeddings or shadow is not None):
 		from harness.encoder import BGEEncoder
 
 		encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
@@ -438,6 +452,28 @@ def create_app(
 				)
 			finally:
 				queue.task_done()
+
+	def observe_shadow(
+		decision: Decision, text: str, embedding: Any, digest: str
+	) -> dict[str, Any] | None:
+		"""Shadow scores after the admission committed, without yielding to the event loop, so
+		a cancellation cannot fall between the commit and the decision log or release. A
+		failure is logged, never raised, so the shadow scorers cannot change any response."""
+		assert shadow is not None
+		if embedding is None:
+			return None
+		try:
+			return shadow.observe(
+				decision.account, decision.horizon, text, embedding, request_digest(text)
+			)
+		except Exception as error:
+			log.write(
+				"shadow_error",
+				account=decision.account,
+				request_digest=digest,
+				error=type(error).__name__,
+			)
+			return None
 
 	@asynccontextmanager
 	async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -927,6 +963,21 @@ def create_app(
 			except Exception:
 				log.write("encoder_error", account=account, request_digest=digest)
 				return _error(503, "encoder_error", "encoder failed", None)
+		if shadow is not None and embedding is None and encoder is not None:
+			# Shadow-only encoding happens before anything commits; a failure only skips it.
+			try:
+				shadow_text = detector_text(served_task, text)
+				embedding_for_shadow = (await asyncio.to_thread(encoder.encode, [shadow_text]))[0]
+			except Exception as error:
+				log.write(
+					"shadow_error",
+					account=account,
+					request_digest=digest,
+					error=type(error).__name__,
+				)
+				embedding_for_shadow = None
+		else:
+			embedding_for_shadow = embedding
 		if score_failure:
 			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		reservation = None
@@ -985,6 +1036,12 @@ def create_app(
 				metrics["admissions"] += 1
 		if alert is not None:
 			log.write("aggregate", **asdict(alert))
+		# Present only with shadow scorers enabled, so other decision logs keep their schema.
+		shadow_fields = (
+			{"shadow": observe_shadow(decision, text, embedding_for_shadow, digest)}
+			if shadow is not None
+			else {}
+		)
 		log.write(
 			"decision",
 			time=now,
@@ -1008,6 +1065,7 @@ def create_app(
 			entitlement=None
 			if rejection is None
 			else json.loads(bytes(rejection.body))["detail"]["code"],
+			**shadow_fields,
 		)
 		if rejection is not None:
 			return rejection

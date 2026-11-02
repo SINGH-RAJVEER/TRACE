@@ -4,11 +4,21 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from harness.calibration import BenignRequest, Calibration
+import numpy as np
+
+from harness.calibration import BenignRequest, Calibration, horizon_indices
 from harness.encoder import Encoder
-from harness.mmd import WindowScorer
-from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
+from harness.mmd import Array, WindowScorer
+from harness.policy import (
+	AllowPolicy,
+	MMDPolicy,
+	Policy,
+	QuotaPolicy,
+	RatePolicy,
+	request_digest,
+)
 from harness.serialization import detector_text
+from harness.shadow import ShadowMonitor, assign, request_domain
 from harness.store import StateStore
 
 
@@ -169,4 +179,96 @@ def replay(
 			for level in range(1, 5)
 		},
 		"output": str(output),
+	}
+
+
+def shadow_check(
+	*,
+	calibration: Calibration,
+	requests: list[BenignRequest],
+	embeddings: Array,
+	reorder: Literal["none", "topic"] = "none",
+) -> dict[str, Any]:
+	"""Replay requests through the shadow scorers only and summarize both scores per horizon.
+
+	`embeddings` holds one row per request. With reorder="topic", each account horizon is sent
+	grouped by domain and then by coverage cell, as the order-only evasion probes did, while
+	keeping its original arrival times. Coverage must not change; conditional windows may.
+	No policy runs, so no level or action is produced.
+	"""
+	shadow = calibration.shadow
+	if shadow is None:
+		raise ValueError("the calibration has no shadow scorers; recalibrate with --shadow")
+	config = calibration.config
+	monitor = ShadowMonitor(
+		shadow,
+		task=config.task,
+		window_size=config.window_size,
+		scales=config.scales,
+		distinct_prompts=config.distinct_prompts,
+	)
+	cells = assign(embeddings, monitor.centroids)
+	units: list[dict[str, Any]] = []
+	for members in horizon_indices(requests, config.horizon_seconds, config.horizon_attempts):
+		if reorder == "topic":
+			members = sorted(
+				members,
+				key=lambda i: (request_domain(config.task, requests[i].text), int(cells[i]), i),
+			)
+		account = requests[members[0]].account
+		horizon = float(len(units))
+		report: dict[str, Any] = {}
+		windows: dict[str, list[dict[str, Any]]] = {}
+		for index in members:
+			report = monitor.observe(
+				account,
+				horizon,
+				requests[index].text,
+				embeddings[index],
+				request_digest(requests[index].text),
+			)
+			if report["conditional"] is not None:
+				windows.setdefault(report["conditional"]["domain"], []).append(
+					report["conditional"]
+				)
+		units.append(
+			{
+				"account": account,
+				"requests": len(members),
+				"coverage": report["coverage"],
+				"conditional": {
+					domain: _window_summary(rows) for domain, rows in sorted(windows.items())
+				},
+			}
+		)
+		monitor.accounts.pop(account, None)
+	return {
+		"version": shadow.version,
+		"reorder": reorder,
+		"requests": len(requests),
+		"horizons": len(units),
+		"minimum_null": shadow.minimum_null,
+		"domains": {
+			domain: {
+				"null_windows": len(fitted.null_scores),
+				"independent_windows": fitted.independent_windows,
+				"abstain": fitted.abstain,
+			}
+			for domain, fitted in shadow.domains.items()
+		},
+		"units": units,
+	}
+
+
+def _window_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+	scored = [row for row in rows if row["abstain"] is None]
+	p_values = sorted(row["p_value"] for row in scored)
+	scores = sorted(row["score"] for row in scored)
+	return {
+		"windows": len(rows),
+		"abstain": rows[0]["abstain"] if not scored else None,
+		"p_value_min_median_max": [p_values[0], float(np.median(p_values)), p_values[-1]]
+		if p_values
+		else None,
+		"score_median": float(np.median(scores)) if scores else None,
 	}

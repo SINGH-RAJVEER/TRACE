@@ -75,6 +75,10 @@ class Settings(BaseSettings):
 		default=None, gt=0, alias="HARNESS_ROLLING_TOKEN_BUDGET"
 	)
 
+	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
+	# only: no level, action, or response depends on them. Not part of the policy revision.
+	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
+
 	decision_log: Path = Field(
 		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
 	)

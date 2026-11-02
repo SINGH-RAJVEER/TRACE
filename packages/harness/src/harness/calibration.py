@@ -21,6 +21,7 @@ from harness.accumulators import DEFAULT_ACCUMULATORS, AccumulatorSpec
 from harness.encoder import Encoder
 from harness.mmd import SCALES, Array, WindowScorer, median_bandwidth
 from harness.serialization import SERIALIZATION, Task, detector_text
+from harness.shadow import ShadowCalibration, ShadowConfig, calibrate_shadow
 
 LEVELS = 4
 HORIZON_POLICY = "time-reset-attempt-cap-v1"
@@ -153,6 +154,9 @@ class Calibration(BaseModel):
 	# Missing in artifacts calibrated before the control existed; they report no warning.
 	mixture_control: MixtureControl | None = None
 	input_validation: dict[str, Any] | None = None
+	# Shadow scorers from `calibrate --shadow`. Left out of the dump when absent, so a legacy
+	# artifact serializes, and hashes into policy revisions and state scopes, as before.
+	shadow: ShadowCalibration | None = Field(default=None, exclude_if=lambda value: value is None)
 	_aggregate_references: Array | None = PrivateAttr(default=None)
 
 	def _level_report(
@@ -406,6 +410,21 @@ def interleave(
 	return order, "round_robin"
 
 
+def horizon_indices(
+	requests: list[BenignRequest], seconds: float, attempts: int
+) -> list[list[int]]:
+	"""Row indices of each account horizon, in order, without the attempts past the cap."""
+	rows: dict[str, list[int]] = {}
+	for index, request in enumerate(requests):
+		rows.setdefault(request.account, []).append(index)
+	result: list[list[int]] = []
+	for account, stream in account_streams(requests).items():
+		indices = iter(rows[account])
+		for horizon in horizons(stream, seconds):
+			result.append([next(indices) for _ in horizon][:attempts])
+	return result
+
+
 def complete_windows(count: int, size: int, stride: int | None = None) -> list[range]:
 	return [range(start, start + size) for start in range(0, count - size + 1, stride or size)]
 
@@ -558,8 +577,13 @@ def calibrate(
 	policy_calibration: list[BenignRequest],
 	log: Callable[[str], None] | None = None,
 	input_validation: dict[str, Any] | None = None,
+	shadow: ShadowConfig | None = None,
 ) -> tuple[Calibration, Array]:
-	"""Build the calibration artifact and the reference windows it scores against."""
+	"""Build the calibration artifact and the reference windows it scores against.
+
+	With `shadow`, also fit the shadow scorers from the fitting and score-calibration roles.
+	They are telemetry only and leave every other field of the artifact unchanged.
+	"""
 
 	if (
 		any(
@@ -750,6 +774,25 @@ def calibrate(
 		calibration, scorer, score_calibration, null_embedded
 	)
 	_calibrate_aggregate(calibration, fitted, sigma, score_calibration, null_embedded, report)
+	if shadow is not None:
+		report("fitting shadow scorers")
+		calibration.shadow = calibrate_shadow(
+			settings=shadow,
+			task=config.task,
+			window_size=size,
+			reference_windows=config.reference_windows,
+			bandwidth_sample=config.bandwidth_sample,
+			scales=config.scales,
+			horizon_streams=lambda rows: horizon_indices(
+				list(rows), config.horizon_seconds, config.horizon_attempts
+			),
+			fitting=fitting,
+			fitted=fitted,
+			score_calibration=score_calibration,
+			null_embedded=null_embedded,
+			seed=config.seed,
+			distinct_prompts=config.distinct_prompts,
+		)
 	calibration.encoder = encoder.identity()
 	calibration.sha256 = {
 		"fitting": requests_sha256(fitting),
@@ -818,6 +861,11 @@ def save_calibration(directory: Path, calibration: Calibration, references: Arra
 		calibration.sha256["aggregate_references"] = hashlib.sha256(
 			(directory / "aggregate_references.npy").read_bytes()
 		).hexdigest()
+	if calibration.shadow is not None:
+		np.savez(directory / "shadow.npz", allow_pickle=False, **calibration.shadow.arrays())
+		calibration.sha256["shadow"] = hashlib.sha256(
+			(directory / "shadow.npz").read_bytes()
+		).hexdigest()
 	(directory / "calibration.json").write_text(
 		json.dumps(calibration.model_dump(mode="json"), indent="\t") + "\n", encoding="utf-8"
 	)
@@ -851,3 +899,15 @@ def load_aggregate(directory: Path, calibration: Calibration) -> WindowScorer | 
 	):
 		raise ValueError("aggregate reference windows differ from the calibration artifact")
 	return WindowScorer(np.load(path), calibration.sigma, calibration.config.scales)
+
+
+def load_shadow(directory: Path, calibration: Calibration) -> ShadowCalibration | None:
+	"""The shadow scorers with their arrays attached, or None when calibration skipped them."""
+	if calibration.shadow is None:
+		return None
+	path = directory / "shadow.npz"
+	if hashlib.sha256(path.read_bytes()).hexdigest() != calibration.sha256.get("shadow"):
+		raise ValueError("shadow arrays differ from the calibration artifact")
+	with np.load(path) as arrays:
+		calibration.shadow.attach({name: arrays[name] for name in arrays.files})
+	return calibration.shadow
