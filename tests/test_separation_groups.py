@@ -33,3 +33,14 @@ def test_split_rejects_unusable_source_groups() -> None:
 
 	with pytest.raises(ValueError, match="source-group search"):
 		split_windows([["a"], ["a"], ["b"], ["b"]], [0, 0, 1, 1])
+
+
+def test_split_balances_the_smaller_class() -> None:
+	from harness.separation_split import split_windows
+
+	sources = [[f"b{i}"] for i in range(40)] + [[f"a{i}"] for i in range(6)]
+	labels = [0] * 40 + [1] * 6
+	train, test = split_windows(sources, labels, minimum_per_class=2)
+	assert sum(labels[i] for i in train) >= 2 and sum(labels[i] for i in test) >= 2
+	with pytest.raises(ValueError, match="source-group search"):
+		split_windows(sources, labels, minimum_per_class=4)

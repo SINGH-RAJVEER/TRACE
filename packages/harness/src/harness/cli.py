@@ -597,3 +597,96 @@ def review_decide(
 			db.execute("ROLLBACK")
 			raise typer.BadParameter(str(error)) from error
 		typer.echo(result)
+
+
+@app.command("separation")
+def separation_command(
+	benign: Annotated[
+		list[Path],
+		typer.Option(exists=True, dir_okay=False, help="Benign development role; repeatable."),
+	],
+	attack: Annotated[
+		list[str], typer.Option(help="NAME=PATH of a gateway schedule or ledger; repeatable.")
+	],
+	output: Annotated[Path, typer.Option(file_okay=False)],
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
+	calibration_dir: Annotated[
+		Path | None,
+		typer.Option(
+			"--calibration", exists=True, file_okay=False, help="Pooled MMD baseline references."
+		),
+	] = None,
+	topic_fitting: Annotated[
+		Path | None,
+		typer.Option(exists=True, dir_okay=False, help="Requests for the topic cells' k-means."),
+	] = None,
+	order: Annotated[str, typer.Option(help="schedule, topic, or both")] = "both",
+	window_size: int = 100,
+	source_key: Annotated[
+		str, typer.Option(help="group_id, source_id, or content_sha256")
+	] = "group_id",
+	topic_cells: int = 8,
+	permutations: int = 999,
+	bootstrap: int = 2000,
+	seed: int = 42,
+	device: str | None = None,
+) -> None:
+	"""Development-only separation study: C2ST, learned MMD, pooled MMD and volume features.
+
+	Writes report.json and summary.md. Results are development evidence and never feed
+	calibration or enforcement. Locked benign_test inputs are refused.
+	"""
+	from harness.separation import StudyConfig, run_study, summary_markdown
+
+	attacks: list[tuple[str, Path]] = []
+	for value in attack:
+		name, separator, path = value.partition("=")
+		if not separator or not name or not Path(path).is_file():
+			raise typer.BadParameter(f"attack must be NAME=PATH of an existing file: {value}")
+		attacks.append((name, Path(path)))
+	paths = [*benign, *(p for _, p in attacks), *([topic_fitting] if topic_fitting else [])]
+	if any("benign_test" in part for p in paths for part in p.parts):
+		raise typer.BadParameter("the separation study must not read benign_test")
+	orders: dict[str, list[Literal["schedule", "topic"]]] = {
+		"schedule": ["schedule"],
+		"topic": ["topic"],
+		"both": ["schedule", "topic"],
+	}
+	if order not in orders:
+		raise typer.BadParameter("order must be schedule, topic, or both")
+	if output.exists() and any(output.iterdir()):
+		raise typer.BadParameter("output directory already has files")
+	config = StudyConfig.model_validate(
+		{
+			"window_size": window_size,
+			"source_key": source_key,
+			"topic_cells": topic_cells,
+			"permutations": permutations,
+			"bootstrap": bootstrap,
+			"seed": seed,
+		}
+	)
+	scorer = None
+	if calibration_dir is not None:
+		calibration, fixed = load_calibration(calibration_dir)
+		scorer = (fixed, calibration.config.distinct_prompts)
+	report = run_study(
+		benign=benign,
+		attacks=attacks,
+		encoder=make_encoder(embeddings, device),
+		config=config,
+		orders=orders[order],
+		scorer=scorer,
+		topic_fitting=topic_fitting,
+	)
+	output.mkdir(parents=True, exist_ok=True)
+	with (output / "report.json").open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(report, indent="\t") + "\n")
+	with (output / "summary.md").open("x", encoding="utf-8") as sink:
+		sink.write(summary_markdown(report))
+	typer.echo(f"{report['decision']} ({output / 'summary.md'})")
