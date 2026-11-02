@@ -26,3 +26,11 @@ corpora/README.md !filter !diff !merge text
 readings/v3-2026-10-29-gateway-replay/harness/A2/s42-b6000/full.interrupted-2026-10-31-4/** filter=lfs diff=lfs merge=lfs -text
 readings/v3-2026-10-29-gateway-replay/harness/A7/** filter=lfs diff=lfs merge=lfs -text
 readings/v3-2026-10-29-gateway-replay/harness/A2/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/students/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/harness/A1/s42-b6000/full/campaign-timing.json filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/schedules/*/s1-b6000/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/schedules/*/s20-b6000/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/development/requests.jsonl filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/calibration-adequacy.v3-A1-A7.json filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/run/status/** filter=lfs diff=lfs merge=lfs -text
+readings/v3-2026-10-29-gateway-replay/run/tasks/** filter=lfs diff=lfs merge=lfs -text

@@ -1,6 +1,6 @@
 # v3: harness-protected campaigns on the bounded gateway study (from 2026-10-29)
 
-This is the continuation of the shared gateway study documented in [v2](../v2-2026-10-21-gateway-bounded-v1/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: the [protected campaigns](#protected-campaigns) below are complete for A1 only, and student training and evaluation are pending.
+This is the continuation of the shared gateway study documented in [v2](../v2-2026-10-21-gateway-bounded-v1/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: protected campaigns are complete for A1 and A7, students are trained and scored for A1 only (see [A1 students](#a1-students)), and the run stopped on 2026-11-01 before scoring the A7 students (see [Run stop on 2026-11-01](#run-stop-on-2026-11-01)).
 
 ## Scope change on 2026-10-30
 
@@ -149,4 +149,37 @@ Per-request campaign files (`attempts.jsonl`, `campaign.events.jsonl`), account 
 
 ## A7 protected campaign (full)
 
-Recorded automatically when the campaign finished on 2026-10-31 at 18:39 UTC: received 6000, blocked 0, challenged 0, failed 0, 6.20 h, released output tokens 630460; highest level L0; 60 scored windows, min p 0.935. Files are under [harness/A7/s42-b6000/full/](harness/A7/s42-b6000/full/) in Git LFS; account credentials are not published. Student training and evaluation for this campaign had not run when this was written.
+Recorded automatically when the campaign finished on 2026-10-31 at 18:39 UTC: received 6000, blocked 0, challenged 0, failed 0, 6.20 h, released output tokens 630460; highest level L0; 60 scored windows, min p 0.935. Files are under [harness/A7/s42-b6000/full/](harness/A7/s42-b6000/full/) in Git LFS; account credentials are not published. Student training and evaluation for this campaign had not run when this was written. The decision log and the benign utility pass were still being written when the campaign summary appeared, so `decisions.jsonl` was refreshed and `utility.json` added on 2026-11-02. Live benign utility under `full` during the A7 run: 6,359 of 24,047 served, completion rate 0.264, unconditional utility 0.232, served-only quality 0.878, matching the A1 `full` pass.
+
+## A1 students
+
+All students are Qwen3.5-2B-Base with a LoRA adapter trained on the selected recipe (learning rate 1e-4, three epochs), scored on the frozen test suites between 2026-10-31 19:56 and 2026-11-01 06:52 UTC. Scores are percentages: AG News accuracy (7,600 items), SQuAD F1 (10,570), GSM8K accuracy (1,319) and coding pass rate (539). Teacher is the served `Qwen3.5-9B`; "teacher (after)" is the same teacher scored again after the campaigns.
+
+| Model | Training data | AG News | SQuAD | GSM8K | Coding |
+|---|---|---:|---:|---:|---:|
+| Base student | — | 65.29 | 82.53 | 38.59 | 46.94 |
+| Teacher | — | 85.38 | 88.82 | 23.50 | 76.25 |
+| Teacher (after) | — | 85.09 | 88.91 | 23.50 | 75.88 |
+| Gold | 6,000 reference answers | 89.53 | 92.57 | 60.96 | 50.28 |
+| Undefended | 4,817 usable v2 A1 responses | 85.70 | 87.14 | 27.29 | 49.35 |
+| `full` | 4,830 usable `full` responses | 85.26 | 87.95 | 27.75 | 48.98 |
+| `full`, matched prefix | 4,814 undefended responses matched to `full` token volume by prefix | 85.82 | 87.50 | 29.04 | 50.09 |
+| `full`, matched volume | 4,813 undefended responses matched to `full` token volume | 85.63 | 87.67 | 26.84 | 50.09 |
+
+The `full` harness never escalated the A1 attacker, so its student is within about one point of the undefended student in every domain. Distillation transfers on AG News (+20 pp over the base student) and slightly on SQuAD; on GSM8K every teacher-trained student falls below the base student, because the teacher itself scores 23.5% with responses capped at 256 tokens.
+
+Files are under [students/](students/) in Git LFS: `A1/s42-b6000/{teacher,undefended,gold,full,full/matched-prefix,full/matched-volume}`, and the base student's benchmark runs under `base-student/s42-b6000/`. Each student directory holds `scores.json` (with per-item samples), the training set and manifest, prompt inventory and usability reviews, evaluation configs, per-domain benchmark outputs and the final adapter (`adapter_config.json`, `adapter_model.safetensors`, training manifest and run record). Intermediate checkpoints, optimizer state and tokenizer copies are not published. The matched controls also keep `control.json` and the matched ledger. The ledgers of the undefended campaigns are in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/).
+
+## Run stop on 2026-11-01
+
+After the A7 protected campaign the run evaluated the A7 teacher (`students/A7/s42-b6000/teacher/`) and trained the undefended A7 student on 4,446 usable responses (adapter under `students/A7/s42-b6000/undefended/`). It then stopped at 08:10 UTC with `distill benchmark exited with code 1`, because a held-out benchmark question appeared in the A7 training set (`train.jsonl` line 2,420, a SetFit/bbc-news prompt). No A7 student scores exist. The final run status is `run/status/status.json`.
+
+## Other files added on 2026-11-02
+
+- `schedules/{A1,A2,A5,A7}/{s1,s20}-b6000/`: the v2 seed-1 and seed-20 inventories and request schedules, which the narrowed protocol no longer uses.
+- `harness/A1/s42-b6000/full/campaign-timing.json`: per-phase timing of the A1 `full` campaign.
+- `development/requests.jsonl`: the development campaign's request schedule.
+- [calibration-adequacy.v3-A1-A7.json](calibration-adequacy.v3-A1-A7.json): the adequacy check as rewritten by the A1/A7 relaunch, which lists only the `full` arm.
+- `run/status/`: the run's status files, including those of the interrupted and killed attempts.
+- `run/tasks/`: each task's gateway and development evaluation configs.
+
