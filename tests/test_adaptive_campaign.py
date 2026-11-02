@@ -405,3 +405,270 @@ async def test_alternative_teacher_shares_http_budget_and_records_contract(tmp_p
 	assert [record.teacher.endpoint.removeprefix("http://") for record in ledger] == hosts
 	assert set(hosts) == {"primary", "alternative"}
 	assert manifest["attempt_budget"] == 9
+
+
+def test_a8_candidate_inventory_bytes_match_main() -> None:
+	rows, manifest = campaign_schedule(pools=_pools(5), caps=CAPS, attack="A8", budget=9)
+	payload = canonical_json([[r.model_dump(mode="json") for r in rows], manifest]).encode()
+	assert (
+		hashlib.sha256(payload).hexdigest()
+		== "a06dc8effe0596bae6f1d38ec93074a121a338fe6412bdbb6579e30e52d89a1c"
+	)
+
+
+@pytest.mark.parametrize(
+	"option", ["paraphrase", "user_prefix", "assistant_prefill", "human_bursts"]
+)
+def test_schedule_transforms_are_opt_in_and_declared(option: str) -> None:
+	from distillation.attack_transforms import offline_rewrite, transform_inventory
+
+	rows, _ = campaign_schedule(pools=_pools(5), caps=CAPS, attack="A1", budget=9)
+	kwargs = {
+		"paraphrase": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
+		"user_prefix": {"user_prefix": "Answer briefly."},
+		"assistant_prefill": {"assistant_prefill": "The answer is"},
+		"human_bursts": {"bursts": True},
+	}[option]
+	transformed, settings = transform_inventory(rows, **kwargs)
+	assert len(transformed) == len(rows)
+	assert settings
+	assert [r.request_id for r in transformed] == [r.request_id for r in rows]
+	assert [r.model_dump() for r in transform_inventory(rows, **kwargs)[0]] == [
+		r.model_dump() for r in transformed
+	]
+	if option == "assistant_prefill":
+		assert transformed[0].prompt.prompt[-1].role == "assistant"
+	if option == "user_prefix":
+		assert transformed[0].prompt.prompt[0].content.startswith("Answer briefly.")
+	if option == "human_bursts":
+		assert transformed[6].time - transformed[5].time >= 600
+
+
+@pytest.mark.asyncio
+async def test_verifier_and_selective_retry_share_budget(tmp_path: Path) -> None:
+	from distillation.benchmarks.models import BenchmarkItem
+
+	rows, _ = campaign_schedule(
+		pools=_pools(2), caps=CAPS, attack="A1", budget=3, interval_seconds=0
+	)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	items = [
+		BenchmarkItem(
+			id=r.prompt.example_id,
+			benchmark="fixture",
+			category="fixture",
+			question="fixture",
+			messages=r.prompt.prompt,
+			metric="label_accuracy",
+			answer="correct",
+			choices=["correct", "wrong"],
+		)
+		for r in rows
+	]
+	verifier = tmp_path / "verifier.jsonl"
+	write_jsonl(verifier, items)
+	teacher = Teacher()
+	calls = 0
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		nonlocal calls
+		calls += 1
+		generation = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		generation.message.content = "wrong" if calls == 1 else "correct"
+		return httpx.Response(200, json=generation.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=2,
+		verifier_file=verifier,
+		selective_retries=1,
+		transport=httpx.MockTransport(respond),
+	)
+	assert calls == result["queries"] == 2
+	assert result["ledger_records"] == 1
+	contract = json.loads((output / "contract.json").read_text())
+	assert contract["response_selection"]["selective_retries"] == 1
+	assert (
+		contract["response_selection"]["verifier_sha256"]
+		== hashlib.sha256(verifier.read_bytes()).hexdigest()
+	)
+
+
+@pytest.mark.asyncio
+async def test_session_replay_consumes_shared_budget_without_entering_ledger(
+	tmp_path: Path,
+) -> None:
+	from distillation.attack_transforms import replay_sessions
+
+	rows, _ = campaign_schedule(
+		pools=_pools(4), caps=CAPS, attack="A1", budget=6, interval_seconds=0
+	)
+	benign = []
+	for index, row in enumerate(rows[:2]):
+		prompt = row.prompt.model_copy(update={"example_id": f"cover-{index}"})
+		benign.append(
+			row.model_copy(
+				update={"request_id": f"cover-{index}", "prompt": prompt, "account": "cover"}
+			)
+		)
+	combined, replay_ids = replay_sessions(rows, benign, 2)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, combined)
+	teacher = Teacher()
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=6,
+		variants={"session_replay": {"request_ids": replay_ids, "sha256": "fixture"}},
+		transport=httpx.MockTransport(respond),
+	)
+	assert result["queries"] == 6
+	assert result["ledger_records"] == 4
+	assert (
+		json.loads((output / "contract.json").read_text())["variants"]["session_replay"][
+			"request_ids"
+		]
+		== replay_ids
+	)
+
+
+@pytest.mark.asyncio
+async def test_batched_requests_charge_once_and_retain_members(tmp_path: Path) -> None:
+	from distillation.attack_transforms import batch_inventory
+
+	rows, _ = campaign_schedule(
+		pools=_pools(4), caps=CAPS, attack="A2", budget=6, interval_seconds=0
+	)
+	batched, members = batch_inventory(rows, 2)
+	assert members
+	assert all(row.max_output_tokens <= CAPS[row.domain] for row in batched)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, batched)
+	teacher = Teacher()
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		result.message.content = json.dumps(["answer", "answer"])
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=1,
+		variants={"batching": {"size": 2, "members": members}},
+		transport=httpx.MockTransport(respond),
+	)
+	assert result["queries"] == 1
+	assert result["ledger_records"] == 2
+	assert json.loads((output / "contract.json").read_text())["variants"]["batching"]["size"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+	"variant", ["rewriter", "user_prefix", "assistant_prefill", "arrival_pattern"]
+)
+async def test_schedule_variant_contract_and_http_budget(tmp_path: Path, variant: str) -> None:
+	from distillation.attack_transforms import offline_rewrite, transform_inventory
+
+	rows, _ = campaign_schedule(
+		pools=_pools(3), caps=CAPS, attack="A1", budget=3, interval_seconds=0
+	)
+	settings = {
+		"rewriter": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
+		"user_prefix": {"user_prefix": "Answer briefly."},
+		"assistant_prefill": {"assistant_prefill": "Answer:"},
+		"arrival_pattern": {"bursts": True},
+	}[variant]
+	rows, declared = transform_inventory(rows, **settings)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	teacher = Teacher()
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=1,
+		variants=declared,
+		transport=httpx.MockTransport(respond),
+	)
+	assert result["queries"] == 1
+	assert (
+		json.loads((output / "contract.json").read_text())["variants"][variant] == declared[variant]
+	)
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_retry_records_scorer_and_spends_budget(tmp_path: Path) -> None:
+	rows, _ = campaign_schedule(
+		pools=_pools(2), caps=CAPS, attack="A1", budget=3, interval_seconds=0
+	)
+	schedule = tmp_path / "requests.jsonl"
+	write_jsonl(schedule, rows)
+	teacher = Teacher()
+	calls = 0
+
+	async def respond(request: httpx.Request) -> httpx.Response:
+		nonlocal calls
+		calls += 1
+		result = await teacher.generate(
+			TeacherGenerationRequest.model_validate_json(request.content)
+		)
+		result.message.content = "uncertain" if calls == 1 else "confident"
+		return httpx.Response(200, json=result.model_dump(mode="json"))
+
+	output = tmp_path / "run"
+	result = await collect_gateway(
+		schedule=schedule,
+		output=output,
+		url="http://fixture",
+		keys={"default": "fixture"},
+		options=CollectionOptions(terms_review_id="fixture"),
+		attempt_budget=2,
+		selective_retries=1,
+		confidence_scorer=lambda record: (
+			0.1 if record.completion[0].content == "uncertain" else 0.9
+		),
+		confidence_scorer_id="fixture:confidence",
+		confidence_threshold=0.5,
+		transport=httpx.MockTransport(respond),
+	)
+	assert calls == result["queries"] == 2
+	assert result["ledger_records"] == 1
+	selection = json.loads((output / "contract.json").read_text())["response_selection"]
+	assert selection["confidence_scorer"] == "fixture:confidence"
+	assert selection["confidence_threshold"] == 0.5
