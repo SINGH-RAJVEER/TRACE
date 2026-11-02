@@ -17,6 +17,7 @@ The noise response template is local to each worker.
 
 import asyncio
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -42,6 +43,7 @@ from distillation.schemas import (
 from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
+from harness import review
 from harness.calibration import Calibration, load_aggregate, load_calibration, load_shadow
 from harness.deception import noise
 from harness.encoder import Encoder
@@ -67,6 +69,7 @@ from harness.store import (
 	reserve_entitlement,
 	rolling_refusal,
 )
+from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
 
@@ -292,7 +295,11 @@ def create_app(
 		# Queued windows live in this process, so a restart would silently drop their evidence.
 		raise ValueError("off-path scoring keeps queued windows in memory; unset HARNESS_STATE_DB")
 	store: StateStore = (
-		SQLiteStore(config.state_db, _scope(config, calibration, scorer, aggregate_scorer, key))
+		SQLiteStore(
+			config.state_db,
+			_scope(config, calibration, scorer, aggregate_scorer, key),
+			review_enabled=config.review_enabled,
+		)
 		if config.state_db is not None
 		else MemoryStore()
 	)
@@ -679,6 +686,52 @@ def create_app(
 			headers=record.outcome.headers,
 		)
 
+	def review_response(
+		tx: Transaction,
+		response: JSONResponse,
+		account: str,
+		organization: str | None,
+		digest: str,
+		now: float,
+		code: str,
+		horizon: float | None = None,
+		reset_at: float | None = None,
+		scope: str = "account",
+		window: float | None = None,
+	) -> JSONResponse:
+		if not config.review_enabled:
+			return response
+		assert hasattr(tx, "db")
+		ref = review.open_appeal(
+			tx.db,
+			account=account,
+			organization=organization,
+			code=code,
+			scope=scope,
+			reset_at=reset_at,
+			horizon=horizon,
+			window_seconds=window,
+			now=now,
+			digest=digest,
+		)
+		body = json.loads(bytes(response.body))
+		body["detail"].update(
+			{
+				"limit_code": code,
+				"scope": "principal" if scope == "account" else scope,
+				"reset_at": reset_at,
+				"appeal_ref": ref,
+			}
+		)
+		status = response.status_code
+		headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+		if code in config.review_verify_codes and status != 428:
+			status = 428
+			body["detail"]["message"] = "verification review required"
+			body["action"] = "verify"
+			headers["x-harness-decision"] = "throttle"
+		return JSONResponse(body, status_code=status, headers=headers)
+
 	def reserve(
 		tx: Transaction,
 		decision: Decision,
@@ -730,7 +783,58 @@ def create_app(
 				"already_released": (409, "this admission was already released", None),
 			}
 			status_code, message, decision_header_value = messages[reason]
-			return None, _error(status_code, reason, message, decision_header_value)
+			response = _error(status_code, reason, message, decision_header_value)
+			scope = (
+				"organization" if reason == "organization_rolling_budget_exceeded" else "account"
+			)
+			org_horizon = tx.organization(organization) if organization else None
+			if (
+				reason == "token_budget_exceeded"
+				and organization
+				and config.organization_token_budget is not None
+			):
+				org_start = (
+					org_horizon
+					if org_horizon is not None
+					and now - org_horizon < calibration.config.horizon_seconds
+					else now
+				)
+				used = tx.exposure("organization", organization, org_start, now)
+				credit = tx.credits("organization", organization, "horizon", now, org_start, None)
+				principal_used = tx.exposure("account", decision.account, decision.horizon, now)
+				principal_credit = tx.credits(
+					"account", decision.account, "horizon", now, decision.horizon, None
+				)
+				principal_exceeded = config.output_token_budget is not None and (
+					principal_used.tokens + request.max_output_tokens
+					> config.output_token_budget + principal_credit.tokens
+				)
+				if not principal_exceeded and (
+					used.tokens + request.max_output_tokens
+					> config.organization_token_budget + credit.tokens
+				):
+					scope = "organization"
+				org_horizon = org_start
+			window = config.rolling_window_seconds if "rolling_budget" in reason else None
+			horizon = (
+				(org_horizon if scope == "organization" else decision.horizon)
+				if reason == "token_budget_exceeded"
+				else None
+			)
+			reset = horizon + calibration.config.horizon_seconds if horizon is not None else None
+			return None, review_response(
+				tx,
+				response,
+				decision.account,
+				organization,
+				digest,
+				now,
+				reason,
+				horizon,
+				reset,
+				scope,
+				window,
+			)
 		assert reserved_row is not None
 		if idem is not None:
 			tx.put_idempotency(IdempotencyRecord(decision.account, idem, digest, now))
@@ -931,6 +1035,51 @@ def create_app(
 			generation.usage = TokenUsage(output_tokens=tokens if token_counter else None)
 		return JSONResponse(generation.model_dump(mode="json"), headers=headers), tokens
 
+	class ReviewDecision(BaseModel):
+		action: str
+		operator: str
+		reason: str
+		requests: int = Field(default=0, ge=0)
+		tokens: int = Field(default=0, ge=0)
+		expires_at: float | None = None
+
+	def admin_authorized(key: str | None) -> bool:
+		return bool(
+			config.review_enabled
+			and config.review_admin_key
+			and key
+			and hmac.compare_digest(key, config.review_admin_key)
+		)
+
+	@app.get("/admin/reviews")
+	async def review_list(x_harness_admin_key: str | None = Header(default=None)) -> Any:
+		if not admin_authorized(x_harness_admin_key):
+			return _error(401, "unauthorized", "admin key required", None)
+		with store.transaction() as tx:
+			assert hasattr(tx, "db")
+			return review.list_appeals(tx.db)
+
+	@app.get("/admin/reviews/{ref}")
+	async def review_show(ref: str, x_harness_admin_key: str | None = Header(default=None)) -> Any:
+		if not admin_authorized(x_harness_admin_key):
+			return _error(401, "unauthorized", "admin key required", None)
+		with store.transaction() as tx:
+			assert hasattr(tx, "db")
+			return review.show(tx.db, ref) or _error(404, "not_found", "unknown appeal", None)
+
+	@app.post("/admin/reviews/{ref}/decisions")
+	async def review_decide(
+		ref: str, body: ReviewDecision, x_harness_admin_key: str | None = Header(default=None)
+	) -> Any:
+		if not admin_authorized(x_harness_admin_key):
+			return _error(401, "unauthorized", "admin key required", None)
+		try:
+			with store.transaction() as tx:
+				assert hasattr(tx, "db")
+				return {"id": review.decide(tx.db, ref, **body.model_dump())}
+		except ValueError as error:
+			return _error(400, "invalid_decision", str(error), None)
+
 	@app.get("/healthz")
 	async def health() -> dict[str, str]:
 		return {"status": "ready", "policy": config.policy}
@@ -1064,12 +1213,26 @@ def create_app(
 			domain=domain,
 		)
 		with store.transaction() as tx:
+			# Admission drops an unlinked principal's organization; the early check matches it.
+			if tx.unlinked(account, organization):
+				candidate = replace(candidate, organization=None)
 			code = rolling_refusal(
 				tx, candidate, now, rolling, organization_rolling, supervision, tier
 			)
 			if code is not None:
 				status_code, message, header = ROLLING_REFUSALS[code]
 				spent = _error(status_code, code, message, header)
+				spent = review_response(
+					tx,
+					spent,
+					account,
+					candidate.organization,
+					digest,
+					now,
+					code,
+					scope="organization" if code.startswith("organization_") else "account",
+					window=config.rolling_window_seconds,
+				)
 				remember(tx, account, idempotency_key, digest, now, spent)
 		if spent is not None:
 			log.write(
@@ -1125,6 +1288,7 @@ def create_app(
 			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		reservation = None
 		rejection = None
+		policy_result = None
 		alert = None
 		# A failed off-path submission rolls the whole admission back.
 		try:
@@ -1166,6 +1330,10 @@ def create_app(
 				decision = policy.admit_in_transaction(
 					tx, account, text, now, embedding=embedding, binding=binding
 				)
+				if decision.action == "refuse" and tx.allowance(
+					account, decision.reason or "blocked", now, request.max_output_tokens
+				):
+					decision = replace(decision, action="serve", release_at=now)
 				if (
 					monitor
 					and embedding is not None
@@ -1204,11 +1372,31 @@ def create_app(
 						# Replace the held metadata in the same transaction as the reservation.
 						tx.delete_challenge(challenge.nonce)
 						tx.put_challenge(challenge, held_data)
-						remember(
-							tx, account, idempotency_key, digest, now, policy_response(decision)
+						policy_result = review_response(
+							tx,
+							policy_response(decision),
+							account,
+							organization,
+							digest,
+							now,
+							decision.reason or "challenge_required",
+							decision.horizon,
+							decision.horizon + calibration.config.horizon_seconds,
 						)
+						remember(tx, account, idempotency_key, digest, now, policy_result)
 				else:
-					remember(tx, account, idempotency_key, digest, now, policy_response(decision))
+					policy_result = review_response(
+						tx,
+						policy_response(decision),
+						account,
+						organization,
+						digest,
+						now,
+						decision.reason or "blocked",
+						decision.horizon,
+						decision.horizon + calibration.config.horizon_seconds,
+					)
+					remember(tx, account, idempotency_key, digest, now, policy_result)
 		except ScoringUnavailable:
 			log.write("off_path_queue_error", account=account, request_digest=digest)
 			return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
@@ -1251,7 +1439,8 @@ def create_app(
 		if rejection is not None:
 			return rejection
 		if decision.action != "serve":
-			return policy_response(decision)
+			assert policy_result is not None
+			return policy_result
 		assert reservation is not None
 		return await release(
 			http_request,
