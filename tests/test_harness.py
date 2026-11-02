@@ -17,6 +17,7 @@ from harness.calibration import (
 	calibrate,
 	fit_threshold,
 	load_calibration,
+	load_shadow,
 	nested_thresholds,
 	peak_per_minute,
 	pooled_accounts,
@@ -25,7 +26,9 @@ from harness.calibration import (
 from harness.mmd import Array, WindowScorer, kernel, mmd2_unbiased
 from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
 from harness.pow import solve
-from harness.replay import replay
+from harness.replay import replay, shadow_check
+from harness.serialization import gateway_turn
+from harness.shadow import ShadowConfig, ShadowMonitor, rarefied
 from harness.store import MemoryStore, Reservation, SQLiteStore
 
 DIMENSION = 8
@@ -732,3 +735,132 @@ def test_release_ledger_settles_once_and_keeps_unsettled_reservations(
 		assert (usage.released, usage.reserved, usage.acquired, usage.output_tokens) == (1, 1, 2, 7)
 		assert not tx.reserve(crashed)
 		assert tx.usage("a", 100.0).acquired == 0
+
+
+def _gateway(
+	prefix: str, plan: dict[str, tuple[str, ...]], per_account: int
+) -> list[BenignRequest]:
+	"""Gateway requests per account, cycling through each account's domains."""
+	return [
+		BenignRequest(
+			account=f"{prefix}-{account}",
+			text=gateway_turn(domains[i % len(domains)], f"{prefix} {account} {i}"),
+			time=float(i),
+			source_group=f"{prefix}-{account}-{i}",
+		)
+		for account, domains in plan.items()
+		for i in range(per_account)
+	]
+
+
+@pytest.fixture(scope="module")
+def shadowed() -> tuple[Calibration, Array]:
+	"""Many ag_news specialists, one squad specialist, and two generalists."""
+	plan = {f"news{a}": ("ag_news",) for a in range(6)} | {
+		"qa": ("squad",),
+		"broad0": ("ag_news", "squad"),
+		"broad1": ("ag_news", "squad"),
+	}
+	score = _gateway("score", plan, 20)
+	# The single squad specialist holds one window, too few to rank at the target.
+	score = [row for row in score if row.account != "score-qa" or (row.time or 0.0) < 10]
+	return calibrate(
+		config=HarnessConfig(
+			task="gateway", window_size=10, reference_windows=3, bandwidth_sample=60
+		),
+		encoder=FakeEncoder(),
+		fitting=_gateway("fit", {f"f{a}": ("ag_news", "squad") for a in range(4)}, 40),
+		score_calibration=score,
+		policy_calibration=_gateway("policy", {f"p{a}": ("ag_news",) for a in range(20)}, 20),
+		shadow=ShadowConfig(target=0.2, cells=8, checkpoints=(5, 10, 20)),
+	)
+
+
+def test_legacy_artifacts_load_and_serialize_without_shadow_fields(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	legacy = calibrated[0]
+	assert legacy.shadow is None
+	# Absent shadow fields leave the dump, and every hash taken of it, as it was.
+	assert "shadow" not in legacy.model_dump_json()
+	save_calibration(tmp_path, legacy.model_copy(deep=True), calibrated[1].references)
+	loaded, _ = load_calibration(tmp_path)
+	assert loaded.model_dump_json() == legacy.model_dump_json()
+	assert load_shadow(tmp_path, loaded) is None and "shadow" not in loaded.sha256
+
+
+def test_shadow_scorers_round_trip_and_never_set_thresholds(
+	shadowed: tuple[Calibration, Array], tmp_path: Path
+) -> None:
+	calibration, references = shadowed
+	plain, _ = calibrate(
+		config=calibration.config,
+		encoder=FakeEncoder(),
+		fitting=_gateway("fit", {f"f{a}": ("ag_news", "squad") for a in range(4)}, 40),
+		score_calibration=_gateway("score", {"news0": ("ag_news",)}, 20),
+		policy_calibration=_gateway("policy", {f"p{a}": ("ag_news",) for a in range(20)}, 20),
+	)
+	assert plain.shadow is None
+	save_calibration(tmp_path, calibration.model_copy(deep=True), references)
+	loaded, _ = load_calibration(tmp_path)
+	shadow = load_shadow(tmp_path, loaded)
+	assert shadow is not None and calibration.shadow is not None
+	assert shadow.model_dump() == calibration.shadow.model_dump()
+	assert np.array_equal(shadow.arrays()["centroids"], calibration.shadow.arrays()["centroids"])
+	assert loaded.thresholds == calibration.thresholds
+
+
+def test_conditional_scorer_abstains_on_a_tiny_null(shadowed: tuple[Calibration, Array]) -> None:
+	calibration = shadowed[0]
+	shadow = calibration.shadow
+	assert shadow is not None and shadow.minimum_null == 4
+	assert shadow.domains["ag_news"].abstain is None
+	assert shadow.domains["ag_news"].independent_windows == 12
+	squad = shadow.domains["squad"]
+	assert squad.independent_windows == 1 and squad.abstain is not None
+	monitor = ShadowMonitor(
+		shadow, task="gateway", window_size=10, scales=calibration.config.scales
+	)
+	results = {}
+	for domain in ("ag_news", "squad"):
+		for i in range(10):
+			text = gateway_turn(domain, f"probe {domain} {i}")
+			embedding = FakeEncoder().encode([f"{domain}\nprobe {domain} {i}"])[0]
+			report = monitor.observe("probe", 0.0, text, embedding, text)
+		results[domain] = report["conditional"]
+	assert results["ag_news"]["abstain"] is None
+	assert 0 < results["ag_news"]["p_value"] <= 1
+	assert results["squad"]["p_value"] is None and results["squad"]["score"] is None
+	assert "needs 4" in results["squad"]["abstain"]
+
+
+def test_reordering_a_fixed_prompt_set_leaves_coverage_unchanged(
+	shadowed: tuple[Calibration, Array],
+) -> None:
+	calibration = shadowed[0]
+	assert calibration.shadow is not None
+	rows = _gateway("probe", {"a": ("ag_news", "squad")}, 60)
+	# Repeats count once, wherever they arrive.
+	rows += rows[:15]
+	embeddings = FakeEncoder().encode([row.text for row in rows])
+	logged = shadow_check(calibration=calibration, requests=rows, embeddings=embeddings)
+	sorted_ = shadow_check(
+		calibration=calibration, requests=rows, embeddings=embeddings, reorder="topic"
+	)
+	permutation = np.random.default_rng(3).permutation(len(rows))
+	shuffled = shadow_check(
+		calibration=calibration,
+		requests=[rows[i].model_copy(update={"time": float(n)}) for n, i in enumerate(permutation)],
+		embeddings=embeddings[permutation],
+	)
+	coverage = logged["units"][0]["coverage"]
+	assert coverage["distinct"] == 60 and coverage["profile"] == "multi_domain"
+	assert sorted_["units"][0]["coverage"] == coverage
+	assert shuffled["units"][0]["coverage"] == coverage
+	# Every profile is ranked or abstains with a reason; the generalist null is too small.
+	ranks = coverage["ranks"]
+	assert ranks["all"]["checkpoint"] == 20 and ranks["all"]["p_value"] is not None
+	assert ranks["multi_domain"]["p_value"] is None and ranks["multi_domain"]["abstain"]
+	# Rarefaction is exact: a full-size subset occupies every cell.
+	assert rarefied([3, 1, 2], 6) == pytest.approx(3.0)
+	assert rarefied([1, 1], 1) == pytest.approx(1.0)

@@ -1649,3 +1649,53 @@ async def test_spent_organization_rolling_budget_refuses_every_member_before_emb
 		"organization_required",
 	]
 	assert decisions[2]["attempt"] is None and decisions[4]["attempt"] is not None
+
+
+@pytest.mark.asyncio
+async def test_shadow_scorers_log_without_changing_any_decision(tmp_path: Path) -> None:
+	from harness.shadow import ShadowConfig
+
+	requests = [BenignRequest(account=f"a{i // 20}", text=f"q {i}") for i in range(400)]
+	calibration, references = calibrate(
+		config=HarnessConfig(
+			window_size=2,
+			reference_windows=2,
+			bandwidth_sample=20,
+			aggregate_window_size=10,
+			aggregate_reference_windows=2,
+		),
+		encoder=Encoder(),
+		fitting=requests[:100],
+		score_calibration=requests[100:200],
+		policy_calibration=requests[200:],
+		shadow=ShadowConfig(target=0.2, cells=4, checkpoints=(2, 5)),
+	)
+	assert calibration._aggregate_references is not None
+	shadowed = (
+		calibration,
+		WindowScorer(references, calibration.sigma),
+		WindowScorer(calibration._aggregate_references, calibration.sigma),
+	)
+	logs = []
+	for enabled in (False, True):
+		app, _, log = _app(shadowed, tmp_path, [-1, -1, -1, 1e9], HARNESS_SHADOW_SCORERS=enabled)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://test"
+		) as client:
+			for i in range(12):
+				await client.post(
+					"/v1/teacher/generate",
+					json=_request(f"probe {i % 9}"),
+					headers={"X-Benchmark-Actor": "alice"},
+				)
+		logs.append(_events(log, "decision"))
+	plain, shadow = logs
+	fields = ("attempt", "level", "action", "reason", "p_value", "statistic")
+	assert [[e[f] for f in fields] for e in plain] == [[e[f] for f in fields] for e in shadow]
+	assert all("shadow" not in event for event in plain)
+	assert {e["action"] for e in plain} == {"serve", "challenge"}
+
+	coverage = [event["shadow"]["coverage"] for event in shadow]
+	# Nine distinct prompts: the three repeats add requests but no coverage.
+	assert [c["distinct"] for c in coverage] == [min(i + 1, 9) for i in range(12)]
+	assert sum(event["shadow"]["conditional"] is not None for event in shadow) == 6

@@ -5,8 +5,9 @@ import json
 import os
 import secrets
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
+import numpy as np
 import typer
 
 from harness.calibration import (
@@ -14,11 +15,15 @@ from harness.calibration import (
 	HarnessConfig,
 	calibrate,
 	load_calibration,
+	load_shadow,
 	pooled_accounts,
 	save_calibration,
 )
-from harness.replay import replay
-from harness.serialization import Task
+from harness.encoder import Encoder
+from harness.mmd import Array
+from harness.replay import replay, shadow_check
+from harness.serialization import Task, detector_text, gateway_turn
+from harness.shadow import ShadowConfig
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 KEY_ENV = "HARNESS_DECEPTION_KEY"
@@ -50,6 +55,66 @@ def read_requests(path: Path) -> list[BenignRequest]:
 		return [BenignRequest.model_validate_json(line) for line in source if line.strip()]
 
 
+def read_any_requests(path: Path) -> list[BenignRequest]:
+	"""BenignRequest lines, or gateway schedule lines converted as `detector-input` does."""
+	rows: list[BenignRequest] = []
+	with path.open(encoding="utf-8") as source:
+		for line in source:
+			if not line.strip():
+				continue
+			value = json.loads(line)
+			if "prompt" not in value:
+				rows.append(BenignRequest.model_validate(value))
+				continue
+			prompt = value["prompt"]
+			turn = next(m["content"] for m in reversed(prompt["prompt"]) if m["role"] == "user")
+			rows.append(
+				BenignRequest(
+					account=value["account"],
+					text=gateway_turn(prompt["task"], turn),
+					time=value.get("time"),
+					example_id=prompt.get("example_id"),
+					client_type=value.get("client_type"),
+				)
+			)
+	return rows
+
+
+class CachedEncoder:
+	"""Precomputed embeddings keyed by the SHA-256 hex of each detector text.
+
+	The npz holds `keys` and `vectors`, as the audit's embedding cache does, so offline checks
+	run without the BGE model. A missing text is an error, never a silent substitute.
+	"""
+
+	def __init__(self, path: Path) -> None:
+		with np.load(path) as data:
+			self.index = {str(key): row for row, key in enumerate(data["keys"])}
+			self.vectors = np.asarray(data["vectors"], dtype=np.float64)
+		self.path = path
+
+	def encode(self, texts: list[str]) -> Array:
+		try:
+			rows = [self.index[hashlib.sha256(text.encode()).hexdigest()] for text in texts]
+		except KeyError as error:
+			raise ValueError(f"{self.path} has no embedding for a requested text") from error
+		return self.vectors[rows]
+
+	def identity(self) -> dict[str, Any]:
+		return {
+			"model": "cached",
+			"sha256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
+		}
+
+
+def make_encoder(embeddings: Path | None, device: str | None) -> Encoder:
+	if embeddings is not None:
+		return CachedEncoder(embeddings)
+	from harness.encoder import BGEEncoder
+
+	return BGEEncoder(device=device)
+
+
 @app.command("calibrate")
 def calibrate_command(
 	fitting: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
@@ -68,14 +133,24 @@ def calibrate_command(
 	allow_invalid_workload: bool = False,
 	seed: int = 42,
 	device: str | None = None,
+	shadow: Annotated[
+		bool, typer.Option(help="Also fit the shadow scorers; telemetry only, no thresholds.")
+	] = False,
+	shadow_target: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.05,
+	shadow_cells: Annotated[int, typer.Option(min=2)] = 128,
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
 ) -> None:
 	"""Fit references, window p-values, and level thresholds on three benign request files.
 
 	Each file holds BenignRequest JSON lines: account, text, and optional time in seconds.
-	The three files must be disjoint; no attack traffic is used.
+	The three files must be disjoint; no attack traffic is used. Without --shadow the artifact
+	is the same as before the shadow scorers existed.
 	"""
-	from harness.encoder import BGEEncoder
-
 	paths = {
 		"reference_fit": fitting,
 		"score_calibration": score_calibration,
@@ -124,12 +199,13 @@ def calibrate_command(
 			seed=seed,
 			mixture_control_required=mixture_control_required,
 		),
-		encoder=BGEEncoder(device=device),
+		encoder=make_encoder(embeddings, device),
 		fitting=rows["reference_fit"],
 		score_calibration=rows["score_calibration"],
 		policy_calibration=rows["policy_development"],
 		log=lambda message: typer.echo(f"calibrate: {message}", err=True),
 		input_validation=validation,
+		shadow=ShadowConfig(target=shadow_target, cells=shadow_cells) if shadow else None,
 	)
 	calibration.input_validation = validation
 	save_calibration(output_dir, calibration, references)
@@ -199,6 +275,44 @@ def replay_command(
 		actions=ladder,
 	)
 	typer.echo(json.dumps(summary, indent="\t"))
+
+
+@app.command("shadow-check")
+def shadow_check_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+	reorder: Annotated[
+		str, typer.Option(help="none, or topic: group each horizon by domain and cell")
+	] = "none",
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
+	device: str | None = None,
+) -> None:
+	"""Replay a request file through the shadow scorers only and report both scores.
+
+	Accepts BenignRequest lines or gateway schedule lines. No policy runs. This is an offline
+	development check: it does not measure false positives or confirm detection.
+	"""
+	if reorder not in {"none", "topic"}:
+		raise typer.BadParameter("reorder must be none or topic")
+	order: Literal["none", "topic"] = "topic" if reorder == "topic" else "none"
+	calibration, _ = load_calibration(calibration_dir)
+	if load_shadow(calibration_dir, calibration) is None:
+		raise typer.BadParameter("the calibration has no shadow scorers; recalibrate with --shadow")
+	rows = read_any_requests(requests)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	report = shadow_check(calibration=calibration, requests=rows, embeddings=vectors, reorder=order)
+	text = json.dumps(report, indent="\t")
+	if output:
+		output.parent.mkdir(parents=True, exist_ok=True)
+		output.write_text(text + "\n", encoding="utf-8")
+	typer.echo(text)
 
 
 @app.command("watermark")
