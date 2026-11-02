@@ -82,6 +82,11 @@ class Settings(BaseSettings):
 		default=None, gt=0, alias="HARNESS_ORGANIZATION_ROLLING_TOKEN_BUDGET"
 	)
 
+	# Review is opt-in and requires a durable state database.
+	review_enabled: bool = Field(default=False, alias="HARNESS_REVIEW_ENABLED")
+	review_admin_key: str = Field(default="", alias="HARNESS_REVIEW_ADMIN_KEY")
+	review_verify_codes: set[str] = Field(default_factory=set, alias="HARNESS_REVIEW_VERIFY_CODES")
+
 	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
 	# only: no level, action, or response depends on them. Not part of the policy revision.
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
@@ -110,6 +115,10 @@ class Settings(BaseSettings):
 
 	@model_validator(mode="after")
 	def coding_l4(self) -> Settings:
+		if self.review_enabled and self.state_db is None:
+			raise ValueError("review requires HARNESS_STATE_DB")
+		if self.review_verify_codes and not self.review_enabled:
+			raise ValueError("review verification requires HARNESS_REVIEW_ENABLED")
 		if self.task in {"coding", "gateway"} and "l4_action" not in self.model_fields_set:
 			self.l4_action = "refuse"
 		if self.task in {"coding", "gateway"} and self.l4_action != "refuse":

@@ -1699,3 +1699,97 @@ async def test_shadow_scorers_log_without_changing_any_decision(tmp_path: Path) 
 	# Nine distinct prompts: the three repeats add requests but no coverage.
 	assert [c["distinct"] for c in coverage] == [min(i + 1, 9) for i in range(12)]
 	assert sum(event["shadow"]["conditional"] is not None for event in shadow) == 6
+
+
+@pytest.mark.asyncio
+async def test_review_api_and_verification(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, _, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="separate-key",
+		HARNESS_ROLLING_REQUEST_BUDGET=1,
+		HARNESS_REVIEW_VERIFY_CODES=["rolling_budget_exceeded"],
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == 428
+		detail = response.json()["detail"]
+		assert detail["limit_code"] == "rolling_budget_exceeded" and detail["scope"] == "principal"
+		assert (await client.get("/admin/reviews")).status_code == 401
+		admin = {"X-Harness-Admin-Key": "separate-key"}
+		ref = detail["appeal_ref"]
+		assert (await client.get(f"/admin/reviews/{ref}", headers=admin)).status_code == 200
+		decision = {
+			"action": "restore",
+			"operator": "op",
+			"reason": "reviewed",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		assert (
+			await client.post(f"/admin/reviews/{ref}/decisions", json=decision, headers=admin)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("four"), headers=headers)
+		).status_code == 428
+
+
+@pytest.mark.asyncio
+async def test_review_grant_allows_only_one_policy_refusal(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds[0] = 0
+	app, _, _ = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="admin",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		first = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		assert first.status_code == 403
+		ref = first.json()["detail"]["appeal_ref"]
+		decision = {
+			"action": "grant",
+			"operator": "op",
+			"reason": "verified",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		response = await client.post(
+			f"/admin/reviews/{ref}/decisions",
+			json=decision,
+			headers={"X-Harness-Admin-Key": "admin"},
+		)
+		assert response.status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 403

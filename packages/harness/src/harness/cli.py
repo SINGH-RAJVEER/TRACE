@@ -421,3 +421,73 @@ def adequacy_command(
 		target.write("\n")
 	if not report["passed"]:
 		raise typer.Exit(code=1)
+
+
+review_app = typer.Typer(no_args_is_help=True)
+app.add_typer(review_app, name="review")
+
+
+def _review_db(path: Path) -> Any:
+	import sqlite3
+
+	if not path.is_file():
+		raise typer.BadParameter("state database does not exist")
+	db = sqlite3.connect(path, isolation_level=None)
+	if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'review_appeals'").fetchone():
+		db.close()
+		raise typer.BadParameter("review is not enabled in this database")
+	return db
+
+
+@review_app.command("list")
+def review_list(state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")]) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		typer.echo(json.dumps(review.list_appeals(db), indent=4))
+
+
+@review_app.command("show")
+def review_show(
+	ref: str, state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")]
+) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		result = review.show(db, ref)
+		if result is None:
+			raise typer.BadParameter("unknown appeal")
+		typer.echo(json.dumps(result, indent=4))
+
+
+@review_app.command("decide")
+def review_decide(
+	ref: str,
+	action: Annotated[str, typer.Option()],
+	operator: Annotated[str, typer.Option()],
+	reason: Annotated[str, typer.Option()],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	requests: int = 0,
+	tokens: int = 0,
+	expires_at: float | None = None,
+) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		try:
+			db.execute("BEGIN IMMEDIATE")
+			result = review.decide(
+				db,
+				ref,
+				action=action,
+				operator=operator,
+				reason=reason,
+				requests=requests,
+				tokens=tokens,
+				expires_at=expires_at,
+			)
+			db.execute("COMMIT")
+		except ValueError as error:
+			db.execute("ROLLBACK")
+			raise typer.BadParameter(str(error)) from error
+		typer.echo(result)

@@ -162,8 +162,9 @@ class RollingBudget:
 
 	def exceeded(self, tx: Transaction, name: str, reserved_tokens: int, now: float) -> bool:
 		used = tx.rolling_exposure(name, now - self.window_seconds, self.scope)
-		return (self.requests is not None and used.requests >= self.requests) or (
-			self.tokens is not None and used.tokens + reserved_tokens > self.tokens
+		credit = tx.credits(self.scope, name, "rolling", now, None, self.window_seconds)
+		return (self.requests is not None and used.requests >= self.requests + credit.requests) or (
+			self.tokens is not None and used.tokens + reserved_tokens > self.tokens + credit.tokens
 		)
 
 
@@ -194,6 +195,17 @@ class Transaction(Protocol):
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
 	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
 	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure: ...
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure: ...
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool: ...
+	def unlinked(self, account: str, organization: str | None) -> bool: ...
 	def organization(self, name: str) -> float | None: ...
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
@@ -224,9 +236,15 @@ def reserve_entitlement(
 ) -> tuple[Reservation | None, str | None]:
 	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
 	organization = reservation.organization
+	unlinked = tx.unlinked(reservation.account, organization)
+	if unlinked:
+		organization = None
+		reservation = replace(reservation, organization=None)
 	if (
-		organization_budget is not None or organization_rolling is not None
-	) and organization is None:
+		(organization_budget is not None or organization_rolling is not None)
+		and organization is None
+		and not unlinked
+	):
 		return None, "organization_required"
 	org_horizon = None
 	if organization is not None:
@@ -241,11 +259,17 @@ def reserve_entitlement(
 	)
 	if (
 		principal_budget is not None
-		and account_usage.tokens + reservation.reserved_tokens > principal_budget
+		and account_usage.tokens + reservation.reserved_tokens
+		> principal_budget
+		+ tx.credits(
+			"account", reservation.account, "horizon", now, reservation.horizon_start, None
+		).tokens
 	) or (
 		org_usage is not None
 		and organization_budget is not None
-		and org_usage.tokens + reservation.reserved_tokens > organization_budget
+		and org_usage.tokens + reservation.reserved_tokens
+		> organization_budget
+		+ tx.credits("organization", organization or "", "horizon", now, org_horizon, None).tokens
 	):
 		return None, "token_budget_exceeded"
 	if rolling is not None and rolling.exceeded(
@@ -364,6 +388,23 @@ class _MemoryTransaction:
 			and not row.deceive
 		]
 		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
+
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		return Exposure(0, 0, 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return False
 
 	def organization(self, name: str) -> float | None:
 		return self.store.organizations.get(name)
@@ -568,8 +609,9 @@ def _outcome(text: str | None) -> Outcome | None:
 
 
 class _SQLiteTransaction:
-	def __init__(self, connection: sqlite3.Connection) -> None:
+	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
+		self.review_enabled = review_enabled
 
 	def account(self, name: str) -> AccountState | None:
 		row = self.db.execute("SELECT state FROM accounts WHERE name = ?", (name,)).fetchone()
@@ -679,6 +721,61 @@ class _SQLiteTransaction:
 		).fetchone()
 		return Exposure(requests, tokens, 0)
 
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		if not self.review_enabled:
+			return Exposure(0, 0, 0)
+		row = self.db.execute(
+			"SELECT COALESCE(SUM(c.requests), 0), COALESCE(SUM(c.tokens), 0) FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+			"WHERE appeal_id = d.appeal_id) "
+			"AND scope = ? AND name = ? AND kind = ? AND starts_at <= ? AND expires_at > ? "
+			"AND ((kind = 'rolling' AND window_seconds = ?) OR (kind = 'horizon' AND horizon = ?))",
+			(scope, name, kind, now, now, window, horizon),
+		).fetchone()
+		return Exposure(row[0], row[1], 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		if not self.review_enabled:
+			return False
+		rows = self.db.execute(
+			"SELECT c.requests, c.tokens, c.starts_at FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"JOIN review_appeals a ON a.id = d.appeal_id "
+			"WHERE c.kind = 'policy' AND c.name = ? AND a.code = ? "
+			"AND c.starts_at <= ? AND c.expires_at > ? "
+			"AND d.rowid = (SELECT MAX(rowid) FROM review_decisions WHERE appeal_id = d.appeal_id)",
+			(account, code, now, now),
+		).fetchall()
+		for requests, allowance_tokens, start in rows:
+			used = self.rolling_exposure(account, start - 1e-9)
+			if (not requests or used.requests < requests) and (
+				not allowance_tokens or used.tokens + tokens <= allowance_tokens
+			):
+				return True
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return bool(
+			self.review_enabled
+			and organization
+			and self.db.execute(
+				"SELECT 1 FROM review_unlinks u JOIN review_decisions d ON d.id = u.decision_id "
+				"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+				"WHERE appeal_id = d.appeal_id) "
+				"AND account = ? AND organization = ? LIMIT 1",
+				(account, organization),
+			).fetchone()
+		)
+
 	def organization(self, name: str) -> float | None:
 		row = self.db.execute(
 			"SELECT horizon_start FROM organizations WHERE name = ?", (name,)
@@ -759,9 +856,12 @@ class SQLiteStore:
 	another scope fails, so a new arm cannot inherit an old arm's counters.
 	"""
 
-	def __init__(self, path: Path, scope: str, *, timeout_seconds: float = 30.0) -> None:
+	def __init__(
+		self, path: Path, scope: str, *, timeout_seconds: float = 30.0, review_enabled: bool = False
+	) -> None:
 		path.parent.mkdir(parents=True, exist_ok=True)
 		self.path = path
+		self.review_enabled = review_enabled
 		self._db = sqlite3.connect(
 			path, isolation_level=None, check_same_thread=False, timeout=timeout_seconds
 		)
@@ -792,12 +892,17 @@ class SQLiteStore:
 				"use a new state file for each arm"
 			)
 
+		if review_enabled:
+			from harness.review import initialize
+
+			initialize(self._db)
+
 	@contextmanager
 	def transaction(self) -> Iterator[_SQLiteTransaction]:
 		with self._lock:
 			self._db.execute("BEGIN IMMEDIATE")
 			try:
-				yield _SQLiteTransaction(self._db)
+				yield _SQLiteTransaction(self._db, self.review_enabled)
 			except BaseException:
 				self._db.execute("ROLLBACK")
 				raise
