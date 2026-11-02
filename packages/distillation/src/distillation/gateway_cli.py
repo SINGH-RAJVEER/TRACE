@@ -133,7 +133,8 @@ def schedule_command(
 		str,
 		typer.Option(
 			help="A1 multiplexed, A2 domain-sequential, A3 cover traffic, A4 slow (A1 at the "
-			"given interval), A5 Sybil per domain, A6 Sybil random, A7 independent sources."
+			"given interval), A5 Sybil per domain, A6 Sybil random, A7 independent sources, "
+			"A8 online observable-feedback coverage."
 		),
 	],
 	budget: Annotated[int, typer.Option(min=1, help="Campaign-wide HTTP attempt limit.")] = 12_000,
@@ -148,9 +149,25 @@ def schedule_command(
 	cover_share: Annotated[
 		float, typer.Option(min=0, max=1, help="A3 share of the budget spent on cover.")
 	] = 0.5,
+	topic_sorted: Annotated[
+		bool, typer.Option(help="Domain-blocked lexical topic reordering.")
+	] = False,
+	deduplicate: Annotated[bool, typer.Option(help="Remove duplicate request messages.")] = False,
+	answer_only: Annotated[
+		bool, typer.Option(help="Use answer-only requests for supported templates.")
+	] = False,
+	per_account_limit: Annotated[
+		int | None,
+		typer.Option(
+			min=1, help="Rotate at this HTTP attempt limit, including proofs and failures."
+		),
+	] = None,
+	round_size: Annotated[
+		int, typer.Option(min=1, help="A8 queries selected per feedback round.")
+	] = 16,
 	seed: int = 42,
 ) -> None:
-	"""Generate a fixed campaign inventory with one budget shared by all its accounts.
+	"""Freeze a campaign inventory or A8 candidates for online collection.
 
 	A3 and A7 read TASK/external/attacker.jsonl, built by `distill gateway external`; A3 draws
 	its cover traffic from the task attacker pools.
@@ -175,6 +192,11 @@ def schedule_command(
 			deadline_seconds=deadline_seconds,
 			cover_pools=cover,
 			cover_share=cover_share,
+			topic_sorted=topic_sorted,
+			deduplicate=deduplicate,
+			answer_only=answer_only,
+			per_account_limit=per_account_limit,
+			round_size=round_size,
 		)
 		manifest["task_manifests"] = provenance
 		_write(output, requests, manifest)
@@ -210,7 +232,7 @@ def collect_command(
 	decision_log: Path | None = None,
 	concurrency: Annotated[int, typer.Option(min=1)] = 4,
 ) -> None:
-	"""Execute a schedule with one global HTTP budget and one combined response ledger."""
+	"""Execute a schedule or A8 online rounds with one global HTTP budget and response ledger."""
 	import asyncio
 
 	from distillation.collection import CollectionOptions
@@ -234,11 +256,18 @@ def collect_command(
 				attempt_budget=manifest["attempt_budget"],
 				deadline_seconds=manifest["deadline_seconds"],
 				decision_log=decision_log,
+				variants=manifest.get("variants"),
+				selector_seed=manifest.get("seed", 42),
 			)
 		)
 		from distillation.campaign_timing import campaign_timing
 
-		save_json(output / "campaign-timing.json", campaign_timing(output, schedule=schedule))
+		variants = manifest.get("variants", {})
+		online_timing = variants.get("online") or variants.get("per_account_limit")
+		save_json(
+			output / "campaign-timing.json",
+			campaign_timing(output, schedule=None if online_timing else schedule),
+		)
 		typer.echo(json.dumps(result, indent="\t"))
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None

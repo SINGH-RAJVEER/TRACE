@@ -10,12 +10,14 @@ from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from rich.markup import escape
 
 from distillation.gateway_cli import app as gateway_app
+from distillation.learning_curve_cli import app as learning_curve_app
 from distillation.progress import console
 
 app = typer.Typer(no_args_is_help=True)
 tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(gateway_app, name="gateway")
+app.add_typer(learning_curve_app, name="learning-curve")
 traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
 

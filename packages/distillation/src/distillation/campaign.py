@@ -88,6 +88,7 @@ class ProtectedTeacher:
 		self.last_event_id = ""
 		self.prompt_request_id = ""
 		self.allowance: CampaignAllowance | None = None
+		self.account_limit: int | None = None
 		self.account = ""
 		self.domain = ""
 		self.scheduled_id = ""
@@ -109,6 +110,13 @@ class ProtectedTeacher:
 			if self.allowance
 			else sum(event["event"] == "attempt" for event in self.events)
 		)
+		account_spent = (
+			sum(e["event"] == "attempt" and e.get("account") == self.account for e in self.events)
+			if self.account_limit is not None
+			else 0
+		)
+		if self.account_limit is not None and account_spent >= self.account_limit:
+			raise BudgetExhausted
 		if count >= self.max_requests or self.remaining() <= 0:
 			raise BudgetExhausted
 		if self.allowance:

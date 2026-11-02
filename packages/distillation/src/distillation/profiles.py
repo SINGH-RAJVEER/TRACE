@@ -1,10 +1,7 @@
 """Client-profile benign workloads with topic-proportional sampling (gateway-clients-v5).
 
-The v3 generator (`workloads.mixed_clients`) sorts each domain pool by topic and consumes it
-through one cursor, so a role whose pool exceeds its demand uses only its first topics. Here
-every draw comes from the topic furthest below its pool share, so the prompts a role uses keep
-its pool's topic mix whatever the demand, and accounts follow declared client profiles. v3
-stays the default for frozen reproductions.
+Both generators select by topic deficit before arranging concentrated accounts into topic
+blocks. Changed inventories require fresh run directories and recalibration.
 """
 
 import hashlib
@@ -41,9 +38,9 @@ MIN_TOPIC_COVERAGE = 0.9
 class Profile:
 	"""A declared legitimate use: domain scope, topic behavior, repetition, and timing.
 
-	`broad` draws each prompt from the domain topic furthest below its share; `block` stays on
-	one topic until it is exhausted; `document` asks 3 to 15 questions about one source
-	document before moving on. Gaps are uniform in seconds; `batch` requests arrive at the
+	`broad` draws each prompt from the domain topic furthest below its share.
+	`block` and `document` group selected prompts by topic
+	within each user stream. Gaps are uniform in seconds; `batch` requests arrive at the
 	gap, then pause. Accounts start at a seeded time of day in `start`.
 	"""
 
@@ -255,6 +252,8 @@ def topic_coverage(
 		"expected_topics": len(expected),
 		"covered_expected_topics": covered,
 		"max_share_deviation": deviation,
+		"pool_category_counts": dict(sorted(pool.items())),
+		"used_category_counts": {name: used.get(name, 0) for name in sorted(pool)},
 		# Per-topic shares only where they are few enough to read.
 		"topic_shares": {
 			name: {"pool": count / pool_total, "used": used.get(name, 0) / used_total}
@@ -271,8 +270,6 @@ def topic_coverage(
 @dataclass
 class _User:
 	domains: list[str]
-	topic: dict[str, str | None] = field(default_factory=dict)
-	left: int = 0
 	step: int = 0
 	units: list[tuple[PromptRecord, int]] = field(default_factory=list)
 
@@ -387,15 +384,8 @@ def profile_clients(
 			return False
 		domain = available[user.step % len(available)]
 		sampler = samplers[domain]
-		current = user.topic.get(domain)
-		if profile.topics == "document" and user.left <= 0:
-			current, user.left = None, account.rng.randint(3, 15)
-		if profile.topics == "broad" or not sampler.open(current, account.index):
-			current = sampler.topic(account.index)
-		prompt = sampler.draw(current, account.index)
+		prompt = sampler.draw(owner=account.index)
 		assert prompt is not None
-		user.topic[domain] = topic(prompt)
-		user.left -= 1
 		user.step += 1
 		repeats = account.rng.randint(*profile.repeats)
 		user.units.append((prompt, repeats))
@@ -432,6 +422,8 @@ def profile_clients(
 		for number, user in enumerate(account.users):
 			at = start + (account.rng.uniform(0, 4 * HOUR) if number else 0.0)
 			sent = 0
+			if profile.topics != "broad":
+				user.units.sort(key=lambda unit: (unit[0].task, topic(unit[0])))
 			for prompt, repeats in user.units:
 				for _ in range(repeats):
 					if sent:
@@ -471,6 +463,7 @@ def profile_clients(
 		length_tail=length_tail,
 		max_requests_per_account=max_requests_per_account,
 		samplers=samplers,
+		references=references,
 		account_users=account_users,
 	)
 
@@ -488,6 +481,7 @@ def profile_manifest(
 	length_tail: float | None,
 	max_requests_per_account: int,
 	samplers: Mapping[str, TopicSampler],
+	references: Mapping[str, BenchmarkItem],
 	account_users: Mapping[str, int],
 ) -> dict[str, Any]:
 	by_account: dict[str, list[GatewayRequest]] = defaultdict(list)
@@ -545,7 +539,13 @@ def profile_manifest(
 		),
 		"topic_order": "largest deficit against the pool's topic shares",
 		"topic_coverage": {
-			domain: topic_coverage(sampler.pool, sampler.used())
+			domain: topic_coverage(
+				sampler.pool,
+				Counter(
+					references[key].category
+					for key in {r.prompt.example_id for r in requests if r.domain == domain}
+				),
+			)
 			for domain, sampler in sorted(samplers.items())
 		},
 		"arrival_times": "synthetic seconds from midnight; profiles declare start and spacing",

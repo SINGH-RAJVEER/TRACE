@@ -1,54 +1,15 @@
 """Profile generation, role separation and legacy workload regression."""
 
-import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from distillation.benchmarks.models import BenchmarkItem
-from distillation.io import read_jsonl, write_jsonl
+from distillation.io import write_jsonl
 from distillation.profiles import TopicSampler, profile_clients
 from distillation.role_workflow import SourceItem, build_roles, screen
-from distillation.schemas import PromptRecord
-from distillation.tasks import task_directory
-from distillation.workloads import mixed_clients, task_references
-from workload_fixtures import CAPS4, prompt_record, task_tree
-
-
-def test_legacy_workload_golden(tmp_path: Path) -> None:
-	task_tree(tmp_path, 500, roles=("fitting",))
-	pools = {
-		domain: read_jsonl(
-			task_directory(domain, root=tmp_path) / "legitimate" / "fitting.jsonl", PromptRecord
-		)
-		for domain in CAPS4
-	}
-	refs = {
-		key: item
-		for domain in CAPS4
-		for key, item in task_references(task_directory(domain, root=tmp_path)).items()
-	}
-	rows, manifest = mixed_clients(
-		pools=pools,
-		caps=CAPS4,
-		role="fitting",
-		accounts=25,
-		generalist_share=0.3,
-		requests_per_account=20,
-		seed=7,
-		references=refs,
-		concentrated=0.4,
-		length_tail=None,
-	)
-	payload = "".join(row.model_dump_json(by_alias=True) + "\n" for row in rows)
-	assert (
-		hashlib.sha256(payload.encode()).hexdigest()
-		== "685fe1d4360c050885581b7c8e04ae631e6b539ecae4b0fbf1caaad285c5d57f"
-	)
-	assert (
-		hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
-		== "d6fcaa7c9e44a2ded4cac407c2391c7f002867af8c23aa575066e85ad5cff676"
-	)
+from distillation.workloads import mixed_clients
+from workload_fixtures import CAPS4, prompt_record
 
 
 def source_item(domain: str, index: int) -> SourceItem:
@@ -117,7 +78,7 @@ def test_profile_generator_exercises_all_profiles() -> None:
 	assert len({row.client_type for row in rows}) == 8
 	assert all(length == 30 for length in manifest["account_lengths"].values())
 	assert manifest["topic_coverage"]["ag_news"]["passed"]
-	assert not manifest["topic_coverage"]["squad"]["passed"]
+	assert manifest["topic_coverage"]["squad"]["passed"]
 
 
 def test_build_and_validate_pipeline_fixture(
@@ -229,3 +190,71 @@ def test_build_and_validate_pipeline_fixture(
 	)
 	assert result.exit_code != 0
 	assert "detector inputs differ" in result.output
+
+
+@pytest.mark.parametrize("version", ["v3", "v5"])
+@pytest.mark.parametrize(
+	"role", ["fitting", "score_calibration", "policy_calibration", "benign_test"]
+)
+def test_partial_workloads_balance_categories_and_keep_topic_blocks(
+	version: str, role: str
+) -> None:
+	from collections import Counter, defaultdict
+
+	from distillation.tasks import LEGITIMATE_ROLES
+
+	items = [source_item(domain, index) for domain in CAPS4 for index in range(1000)]
+	# Unequal category shares exercise proportional selection rather than equal cycling.
+	for index, item in enumerate(items):
+		item.reference.category = f"topic-{min(index % 10, 3)}"
+	pools = {d: [i.prompt for i in items if i.prompt.task == d] for d in CAPS4}
+	refs = {i.prompt.example_id: i.reference for i in items}
+	if version == "v3":
+		rows, manifest = mixed_clients(
+			role=role,
+			pools=pools,
+			caps=CAPS4,
+			accounts=24,
+			references=refs,
+			requests_per_account=40,
+			length_tail=None,
+		)
+	else:
+		roles = ("reference_fit", "score_calibration", "policy_development", "locked_test")
+		rows, manifest = profile_clients(
+			role=roles[LEGITIMATE_ROLES.index(role)],
+			pools=pools,
+			caps=CAPS4,
+			accounts=24,
+			references=refs,
+			requests_per_account=40,
+			length_tail=None,
+		)
+	for domain, pool in pools.items():
+		used = {r.prompt.example_id for r in rows if r.domain == domain}
+		counts = Counter(refs[key].category for key in used)
+		expected = Counter(refs[p.example_id].category for p in pool)
+		assert 0 < len(used) < len(pool)
+		for category, count in expected.items():
+			assert abs(counts[category] / len(used) - count / len(pool)) <= 0.03
+		coverage = manifest["topic_coverage"][domain]
+		assert coverage["used_category_counts"] == dict(counts)
+		assert coverage["pool_category_counts"] == dict(expected)
+	by_account = defaultdict(list)
+	for row in rows:
+		by_account[row.account].append(row)
+	for account_rows in by_account.values():
+		if account_rows[0].client_type == "specialist":
+			topics = [refs[r.prompt.example_id].category for r in account_rows]
+			assert topics == sorted(topics)
+
+
+def test_changed_workload_cannot_overwrite_frozen_inventory(tmp_path: Path) -> None:
+	from distillation.gateway_cli import _write
+
+	output = tmp_path / "frozen"
+	_write(output, [], {"version": "old"})
+	before = {p.name: p.read_bytes() for p in output.iterdir()}
+	with pytest.raises(FileExistsError):
+		_write(output, [], {"version": "changed"})
+	assert {p.name: p.read_bytes() for p in output.iterdir()} == before

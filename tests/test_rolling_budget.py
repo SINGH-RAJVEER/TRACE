@@ -23,9 +23,19 @@ def store(request: pytest.FixtureRequest, tmp_path: Path) -> StateStore:
 
 
 def _admit(
-	store: StateStore, budget: RollingBudget, attempt: int, tokens: int, now: float
+	store: StateStore,
+	budget: RollingBudget | None,
+	attempt: int,
+	tokens: int,
+	now: float,
+	*,
+	account: str = "a",
+	organization: str | None = None,
+	organization_budget: RollingBudget | None = None,
 ) -> tuple[Reservation | None, str | None]:
-	row = Reservation("a", now, attempt, "digest", now, reserved_tokens=tokens)
+	row = Reservation(
+		account, now, attempt, "digest", now, reserved_tokens=tokens, organization=organization
+	)
 	with store.transaction() as tx:
 		return reserve_entitlement(
 			tx,
@@ -36,6 +46,7 @@ def _admit(
 			organization_budget=None,
 			in_flight_limit=None,
 			rolling=budget,
+			organization_rolling=organization_budget,
 		)
 
 
@@ -74,12 +85,48 @@ def test_rolling_tokens_use_the_ledger_charges(store: StateStore) -> None:
 
 
 def test_noise_draws_nothing_from_a_rolling_budget(store: StateStore) -> None:
-	noise = Reservation("a", 0.0, 1, "digest", 0.0, deceive=True, reserved_tokens=10)
+	noise = Reservation(
+		"a", 0.0, 1, "digest", 0.0, deceive=True, reserved_tokens=10, organization="org"
+	)
 	with store.transaction() as tx:
 		assert tx.reserve(noise)
 		assert tx.settle(noise.key, "released", 0.0, None)
 		exposure = tx.rolling_exposure("a", -1.0)
+		shared = tx.rolling_exposure("org", -1.0, "organization")
 	assert (exposure.requests, exposure.tokens) == (0, 0)
+	assert (shared.requests, shared.tokens) == (0, 0)
+
+
+def test_an_organization_rolling_budget_is_shared_by_its_principals(store: StateStore) -> None:
+	shared = RollingBudget(WEEK, tokens=100, scope="organization")
+	own = RollingBudget(WEEK, requests=1)
+
+	def admit(account: str, organization: str | None, now: float) -> str | None:
+		row, reason = _admit(
+			store,
+			own,
+			1,
+			40,
+			now,
+			account=account,
+			organization=organization,
+			organization_budget=shared,
+		)
+		if row is not None:
+			_release(store, row, 40, now)
+		return reason
+
+	assert admit("a", "org", 0.0) is None
+	assert admit("b", "org", DAY) is None
+	# Each new principal is under its own limit, but the organization's is spent.
+	assert admit("c", "org", 2 * DAY) == "organization_rolling_budget_exceeded"
+	# With both spent, the principal limit is reported.
+	assert admit("a", "org", 2 * DAY) == "rolling_budget_exceeded"
+	assert admit("d", "other", 2 * DAY) is None
+	assert admit("e", None, 2 * DAY) == "organization_required"
+	# A horizon renewal does not refill it; the first charge ageing out does.
+	assert admit("c", "org", WEEK - 1) == "organization_rolling_budget_exceeded"
+	assert admit("c", "org", WEEK + 1) is None
 
 
 def test_every_restriction_names_its_cause() -> None:

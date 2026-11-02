@@ -85,7 +85,14 @@ def decision_header(decision: Decision) -> str:
 	return "allow" if decision.level < 2 else "throttle"
 
 
-ROLLING_REFUSAL = (429, "the account's rolling budget is used up", "block")
+ROLLING_REFUSALS = {
+	"rolling_budget_exceeded": (429, "the account's rolling budget is used up", "block"),
+	"organization_rolling_budget_exceeded": (
+		429,
+		"the organization's rolling budget is used up",
+		"block",
+	),
+}
 
 
 def _error(status: int, code: str, message: str, decision: str | None) -> JSONResponse:
@@ -179,6 +186,12 @@ def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, An
 			settings.rolling_request_budget,
 			settings.rolling_token_budget,
 		]
+	if settings.organization_rolling_request_budget or settings.organization_rolling_token_budget:
+		fields["organization_rolling"] = [
+			settings.rolling_window_seconds,
+			settings.organization_rolling_request_budget,
+			settings.organization_rolling_token_budget,
+		]
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
 	return fields
 
@@ -271,6 +284,16 @@ def create_app(
 			config.rolling_token_budget,
 		)
 		if config.rolling_request_budget or config.rolling_token_budget
+		else None
+	)
+	organization_rolling = (
+		RollingBudget(
+			config.rolling_window_seconds,
+			config.organization_rolling_request_budget,
+			config.organization_rolling_token_budget,
+			scope="organization",
+		)
+		if config.organization_rolling_request_budget or config.organization_rolling_token_budget
 		else None
 	)
 	queue: asyncio.Queue[ScoreWindow | None] = asyncio.Queue(maxsize=config.scoring_queue_capacity)
@@ -559,12 +582,13 @@ def create_app(
 			organization_budget=config.organization_token_budget,
 			in_flight_limit=config.in_flight_limit,
 			rolling=rolling,
+			organization_rolling=organization_rolling,
 		)
 		if reason is not None:
 			messages = {
 				"organization_required": (403, "account has no organization", "block"),
 				"token_budget_exceeded": (429, "output token entitlement exhausted", "block"),
-				"rolling_budget_exceeded": ROLLING_REFUSAL,
+				**ROLLING_REFUSALS,
 				"in_flight_limit": (429, "too many requests in flight", "throttle"),
 				"already_released": (409, "this admission was already released", None),
 			}
@@ -885,12 +909,26 @@ def create_app(
 				idempotency_key,
 			)
 		# A spent rolling budget is cheap to read, so it costs no embedding or policy state.
+		# A principal without an organization is left to admission, which refuses it.
 		spent = None
-		if rolling is not None:
+		code = None
+		if rolling is not None or organization_rolling is not None:
 			with store.transaction() as tx:
-				if rolling.exceeded(tx, account, request.max_output_tokens, now):
+				if rolling is not None and rolling.exceeded(
+					tx, account, request.max_output_tokens, now
+				):
 					code = "rolling_budget_exceeded"
-					spent = _error(ROLLING_REFUSAL[0], code, ROLLING_REFUSAL[1], ROLLING_REFUSAL[2])
+				elif (
+					organization_rolling is not None
+					and organization is not None
+					and organization_rolling.exceeded(
+						tx, organization, request.max_output_tokens, now
+					)
+				):
+					code = "organization_rolling_budget_exceeded"
+				if code is not None:
+					status_code, message, header = ROLLING_REFUSALS[code]
+					spent = _error(status_code, code, message, header)
 					remember(tx, account, idempotency_key, digest, now, spent)
 		if spent is not None:
 			log.write(
@@ -910,7 +948,7 @@ def create_app(
 				witness=[],
 				request_digest=digest,
 				benchmark_request=x_benchmark_request,
-				entitlement="rolling_budget_exceeded",
+				entitlement=code,
 			)
 			return spent
 		embedding = None
