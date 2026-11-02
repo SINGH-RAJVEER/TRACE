@@ -6,7 +6,3 @@ justfile text eol=lf
 readings/**/*.jsonl filter=lfs diff=lfs merge=lfs -text
 readings/**/*.json filter=lfs diff=lfs merge=lfs -text
 readings/**/*.npy filter=lfs diff=lfs merge=lfs -text
-data/coding-subset-50000-s42-fresh-20261031-run3/** filter=lfs diff=lfs merge=lfs -text
-data/news/** filter=lfs diff=lfs merge=lfs -text
-data/math/** filter=lfs diff=lfs merge=lfs -text
-data/question_answering/** filter=lfs diff=lfs merge=lfs -text
