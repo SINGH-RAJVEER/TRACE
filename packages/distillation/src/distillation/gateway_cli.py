@@ -165,6 +165,35 @@ def schedule_command(
 	round_size: Annotated[
 		int, typer.Option(min=1, help="A8 queries selected per feedback round.")
 	] = 16,
+	paraphrase: Annotated[
+		bool, typer.Option(help="Apply the deterministic offline text rewriter.")
+	] = False,
+	user_prefix: Annotated[
+		str | None, typer.Option(help="Prepend this instruction to user messages.")
+	] = None,
+	assistant_prefill: Annotated[
+		str | None, typer.Option(help="Append an assistant prefill when the endpoint supports it.")
+	] = None,
+	human_bursts: Annotated[
+		bool, typer.Option(help="Use seeded sessions and diurnal idle gaps.")
+	] = False,
+	batch_size: Annotated[
+		int,
+		typer.Option(
+			min=1,
+			max=4,
+			help="Items per JSON-array request for compatible templates; 1 disables batching.",
+		),
+	] = 1,
+	replay_file: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Benign GatewayRequest JSONL to replay as cover."
+		),
+	] = None,
+	replay_budget: Annotated[
+		int, typer.Option(min=0, help="Maximum HTTP slots assigned to whole benign sessions.")
+	] = 0,
 	seed: int = 42,
 ) -> None:
 	"""Freeze a campaign inventory or A8 candidates for online collection.
@@ -198,6 +227,67 @@ def schedule_command(
 			per_account_limit=per_account_limit,
 			round_size=round_size,
 		)
+		if paraphrase or user_prefix is not None or assistant_prefill is not None or human_bursts:
+			from distillation.attack_transforms import offline_rewrite, transform_inventory
+
+			if human_bursts and (attack == "A8" or per_account_limit):
+				raise ValueError("human bursts require a fixed schedule without online rotation")
+			requests, settings = transform_inventory(
+				requests,
+				rewriter=offline_rewrite if paraphrase else None,
+				rewriter_id="offline-phrases-v1" if paraphrase else None,
+				user_prefix=user_prefix,
+				assistant_prefill=assistant_prefill,
+				bursts=human_bursts,
+				seed=seed,
+			)
+			manifest.setdefault("variants", {}).update(settings)
+		if batch_size > 1:
+			from distillation.attack_transforms import batch_inventory
+
+			if attack == "A8" or per_account_limit or replay_file or assistant_prefill:
+				raise ValueError(
+					"batching requires fixed single-user-message schedules "
+					"without replay or rotation"
+				)
+			requests, members = batch_inventory(requests, batch_size)
+			manifest.setdefault("variants", {})["batching"] = {
+				"size": batch_size,
+				"format": "json-array-v1",
+				"members": members,
+				"offline_compute": "JSON parsing",
+			}
+			manifest["planned_queries"] = len(requests)
+			manifest["candidate_count"] = len(requests)
+		if bool(replay_file) != bool(replay_budget):
+			raise ValueError("replay file and positive replay budget must be supplied together")
+		if replay_file:
+			from distillation.attack_transforms import replay_sessions
+
+			if attack == "A8" or per_account_limit or human_bursts:
+				raise ValueError(
+					"session replay requires a fixed schedule without rotation or bursts"
+				)
+			requests, replay_ids = replay_sessions(
+				requests, read_jsonl(replay_file, GatewayRequest), replay_budget
+			)
+			manifest.setdefault("variants", {})["session_replay"] = {
+				"sha256": hashlib.sha256(replay_file.read_bytes()).hexdigest(),
+				"request_ids": replay_ids,
+				"budget": replay_budget,
+				"offline_compute": "none",
+			}
+			manifest["planned_queries"] = len(requests)
+			manifest["candidate_count"] = len(requests)
+			manifest["domain_allocation"] = {
+				d: sum(r.domain == d for r in requests)
+				for d in sorted({r.domain for r in requests})
+			}
+			manifest["accounts"] = sorted({r.account for r in requests})
+			manifest["account_domains"] = {
+				a: sorted({r.domain for r in requests if r.account == a})
+				for a in manifest["accounts"]
+			}
 		manifest["task_manifests"] = provenance
 		_write(output, requests, manifest)
 	except (ValueError, OSError, KeyError) as error:
@@ -245,6 +335,37 @@ def collect_command(
 		),
 	],
 	teacher_url: str = "http://127.0.0.1:8003",
+	alternative_url: Annotated[
+		str | None, typer.Option(help="Second teacher URL for direct-teacher mixing.")
+	] = None,
+	alternative_share: Annotated[
+		float,
+		typer.Option(min=0, max=1, help="Deterministic share assigned to the second teacher."),
+	] = 0.0,
+	confidence_scorer: Annotated[
+		str | None,
+		typer.Option(
+			help="Offline module:function scoring a ledger record with confidence in [0, 1]."
+		),
+	] = None,
+	confidence_threshold: Annotated[
+		float | None,
+		typer.Option(
+			min=0, max=1, help="Retry or drop responses below this offline confidence score."
+		),
+	] = None,
+	verifier_file: Annotated[
+		Path | None,
+		typer.Option(
+			help="BenchmarkItem JSONL keyed by example ID for offline answer verification."
+		),
+	] = None,
+	selective_retries: Annotated[
+		int,
+		typer.Option(
+			min=0, help="Retry failed or rejected items, spending the shared HTTP budget."
+		),
+	] = 0,
 	keys_file: Path | None = None,
 	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
 	terms_review_id: Annotated[str, typer.Option(envvar="TEACHER_TERMS_REVIEW_ID")] = "",
@@ -297,6 +418,8 @@ def collect_command(
 	from distillation.gateway_campaign import collect_gateway, digest
 
 	try:
+		if alternative_url and policy != "none":
+			raise ValueError("alternative teacher mixing requires --policy none")
 		if policy not in {"mmd", "quota", "rate", "allow", "none"}:
 			raise ValueError("policy must be mmd, quota, rate, allow, or none")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
@@ -330,6 +453,16 @@ def collect_command(
 				raise typer.Exit(code=1) from None
 			if record["reading"] == "quota comparison":
 				typer.echo("detectability gate overridden: reporting a quota comparison", err=True)
+		scorer = None
+		if confidence_scorer:
+			from importlib import import_module
+
+			module, separator, name = confidence_scorer.partition(":")
+			if not separator or not module or not name:
+				raise ValueError("confidence scorer must use module:function syntax")
+			scorer = getattr(import_module(module), name)
+			if not callable(scorer):
+				raise ValueError("confidence scorer must be callable")
 		keys = json.loads(keys_file.read_text()) if keys_file else {"default": token}
 		result = asyncio.run(
 			collect_gateway(
@@ -346,6 +479,13 @@ def collect_command(
 				variants=manifest.get("variants"),
 				selector_seed=manifest.get("seed", 42),
 				detectability=record,
+				alternative_url=alternative_url,
+				alternative_share=alternative_share,
+				verifier_file=verifier_file,
+				selective_retries=selective_retries,
+				confidence_scorer=scorer,
+				confidence_scorer_id=confidence_scorer,
+				confidence_threshold=confidence_threshold,
 			)
 		)
 		from distillation.campaign_timing import campaign_timing
