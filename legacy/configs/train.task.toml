@@ -1,0 +1,41 @@
+# Paper task training recipe (Section IV-B). Copy per task, seed, and budget, changing the
+# dataset path and output_dir. See docs/paper-tasks.md.
+# The paper's victim is Qwen3.5-9B in non-thinking mode and its student Qwen3.5-2B-Base.
+base_model = "Qwen/Qwen3.5-2B-Base"
+base_revision = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+# Victim responses for one budget, prepared from TASK_DIR/runs/sSEED-bBUDGET/ledger.jsonl.
+# Use gold-train.jsonl in the same directory for the gold-label reference student.
+dataset_path = "data/tasks/ag_news-split-v2-s42/runs/s42-b2000/train.jsonl"
+# No validation set: victim responses for it would spend attacker budget. The epoch count is
+# chosen on the gold-scored development suite instead.
+output_dir = "artifacts/tasks/ag_news/s42-b2000/attacker"
+eos_token = "<|im_end|>"
+chat_template_kwargs = { enable_thinking = false }
+max_length = 2048
+# Selected per task and student size from {1e-4, 2e-4} and {1, 2, 3} on the development suite,
+# then frozen across defense conditions.
+learning_rate = 2e-4
+epochs = 3.0
+# Effective batch size 16.
+per_device_batch_size = 4
+gradient_accumulation_steps = 4
+warmup_ratio = 0.03
+logging_steps = 10
+save_steps = 100
+eval_strategy = "epoch"
+select_best_checkpoint = false
+save_total_limit = 2
+seed = 42
+precision = "bf16"
+qlora = false
+loss_type = "nll"
+attn_implementation = "sdpa"
+optimizer = "auto"
+activation_offloading = "auto"
+gradient_checkpointing = true
+selective_gradient_checkpointing = false
+lora_rank = 16
+lora_alpha = 32
+lora_dropout = 0.05
+# The paper adapts every linear layer of the student's text model.
+target_modules = "all-linear"

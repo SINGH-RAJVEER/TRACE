@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_collection_bounds_concurrency_and_flushes_before_other_workers_finish __
+tests/test_pipeline.py:694: in test_collection_bounds_concurrency_and_flushes_before_other_workers_finish
+    assert started == ["Question slow", "Question fast"] and active == 2
+E   AssertionError: assert (['Question sl...stion queued'] == ['Question sl...uestion fast']
+E     
+E     Left contains one more item: 'Question queued'
+E     Use -v to get more diff)
+=========================== short test summary info ============================
+FAILED tests/test_pipeline.py::test_collection_bounds_concurrency_and_flushes_before_other_workers_finish
+1 failed in 0.28s

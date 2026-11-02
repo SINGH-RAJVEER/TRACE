@@ -1,0 +1,70 @@
+{
+	"version": 1,
+	"id": "ebab6eda916a4cd4a69568418e4394d0",
+	"experiment": "Coding integration fixture",
+	"slot": "teacher",
+	"started_at": "2026-10-19T12:05:35.442057Z",
+	"completed_at": "2026-10-19T12:05:35.810226Z",
+	"suite_sha256": "3796b5e77a02b60e81b07edeb6067a4be7564ca5737b2098284c396244c7a125",
+	"scorer_version": "generated-answer-v1",
+	"generation": {
+		"max_output_tokens": 1024,
+		"seed": 42,
+		"temperature": 0,
+		"enable_thinking": false
+	},
+	"model": {
+		"backend": "teacher_api",
+		"model": "fixture",
+		"revision": "fixture",
+		"base_url": "http://fixture",
+		"api_key_env": "",
+		"adapter_path": null,
+		"tokenizer_model": null,
+		"tokenizer_revision": null,
+		"chat_template_path": null,
+		"eos_token": null,
+		"precision": "bf16",
+		"load_in_4bit": false,
+		"device": "auto",
+		"timeout_seconds": 120.0
+	},
+	"training_sha256": {},
+	"artifact_sha256": {},
+	"packages": {
+		"distillation-core": "0.1.0",
+		"coding-task": "0.1.0",
+		"numpy": "2.5.2",
+		"httpx": "0.28.1"
+	},
+	"platform": "Linux-7.2.10-x86_64-with-glibc2.44",
+	"code_revision": "e05cfa99f84ff89e64351c0307124ec84c017c33",
+	"demo": true,
+	"samples": [
+		{
+			"item_id": "coding:test:Fixture/double",
+			"benchmark": "coding",
+			"category": "Fixture/double",
+			"response": "```python\ndef double(x): return x * 2\n```",
+			"prediction": "def double(x): return x * 2",
+			"correct": true,
+			"f1": null,
+			"status": "ok",
+			"latency_seconds": 0.0001015140001072723,
+			"usage": {
+				"input_tokens": null,
+				"output_tokens": null
+			},
+			"finish_reason": "stop",
+			"request_id": null,
+			"served_model": "fixture",
+			"functional_trace": {
+				"valid": true,
+				"calls": 1,
+				"inputs_sha256": "2c8fffbb903fb2ec58859197e8f9a31d9222b83e342caa0d32b1072226fe2e64",
+				"outputs_sha256": "de93cf9fd97f99645f11a23b45b3dabeea33a9dc757e651ca0fc24b427cb31e9"
+			}
+		}
+	],
+	"dimensions": {}
+}

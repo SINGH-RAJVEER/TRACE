@@ -1,0 +1,54 @@
+{
+	"available": {
+		"test": 7600,
+		"train": 120000
+	},
+	"dataset": {
+		"configuration": null,
+		"license": "unknown",
+		"pool_split": "train",
+		"repository": "fancyzhx/ag_news",
+		"revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+		"test_split": "test"
+	},
+	"development_suite_items": 1000,
+	"filtered": {
+		"duplicate_prompt": 151,
+		"test_overlap": 10
+	},
+	"groups": {
+		"attacker": 53893,
+		"benign_test": 10950,
+		"development": 11848,
+		"fitting": 21558,
+		"policy_calibration": 10836,
+		"score_calibration": 10754
+	},
+	"max_output_tokens": 16,
+	"metric": "label_accuracy",
+	"roles": {
+		"attacker": 53893,
+		"benign_test": 10950,
+		"development": 11848,
+		"fitting": 21558,
+		"policy_calibration": 10836,
+		"score_calibration": 10754
+	},
+	"seed": 42,
+	"sha256": {
+		"attacker.jsonl": "cbd1f3ef7cf32cbd65405db6bb9a8ec43a7418fe430a41bfcdc46024b817bad4",
+		"development-suite.json": "db33671c3a4a4996d3d00c9cc85a3810716868fe67737520da2d08bb32a3d952",
+		"gold-answers.jsonl": "12f8daf47603cb66462428f6f6fbef5743749040e0c3e4705c5c2a15ab91108f",
+		"legitimate/benign_test.jsonl": "a2345d93d5f4620058a7f90f31ee7799cfd8cabfcf4f3ae75297955e6f858f70",
+		"legitimate/fitting.jsonl": "0219c2233f4986b211abd7b11b19f24cc46ccc631c4c85cb5f5cdbec82549443",
+		"legitimate/policy_calibration.jsonl": "21689eccec4bc35cfd22d2747c75d40739b2938d87b74ecdd68e797df86bc009",
+		"legitimate/score_calibration.jsonl": "86ebe902a6a93191fe91692229361ee74b31563605cc3a9a65bd1c02992f65ac",
+		"test-suite.json": "8dbc32b338865754b50a2457fc0a02982a2be4ef9600a63d844403294d47f291"
+	},
+	"task": "ag_news",
+	"test_suite_items": 7600,
+	"truncated": {
+		"test": 0,
+		"train": 0
+	}
+}

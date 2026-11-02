@@ -1,0 +1,26 @@
+{
+	"checked_at": "2026-10-16T07:10:09.044839+00:00",
+	"tasks": {
+		"ag_news": {
+			"records": 50,
+			"target": 20585,
+			"finish_reasons": {
+				"stop": 50
+			},
+			"quality": {
+				"pending": 50
+			},
+			"valid_label_format": 50
+		},
+		"squad": {
+			"records": 33,
+			"target": 19509,
+			"finish_reasons": {
+				"stop": 33
+			},
+			"quality": {
+				"pending": 33
+			}
+		}
+	}
+}

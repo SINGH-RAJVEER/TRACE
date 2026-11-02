@@ -1,0 +1,32 @@
+{
+	"source": "/tmp/capstone-e2e/data/prompts",
+	"profiles": {
+		"quick": {
+			"total": 7208,
+			"splits": {
+				"train": 6952,
+				"validation": 256
+			},
+			"prompts_sha256": "d64ade4c27fd1111362cd08ff5e6f504c87de112e7e10288ded7a852663b63b6"
+		},
+		"standard": {
+			"total": 36104,
+			"splits": {
+				"train": 34740,
+				"validation": 1364
+			},
+			"prompts_sha256": "f3ff4ba8ef375cadb841d5036299ec00064949efe2bd22df9c6c11acc83ccb6b"
+		},
+		"full": {
+			"total": 75944,
+			"splits": {
+				"train": 73147,
+				"validation": 2797
+			},
+			"prompts_sha256": "0280defdb3c97bc98f89d3761797dfdf6897a1db41590a42da0160822ca14e82"
+		}
+	},
+	"active_profile": "standard",
+	"teacher_ledger_restored": false,
+	"teacher_ledger_note": "The surviving e2e teacher ledger contains simulated responses and was not copied."
+}

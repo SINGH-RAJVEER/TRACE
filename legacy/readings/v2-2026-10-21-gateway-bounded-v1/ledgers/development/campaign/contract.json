@@ -1,0 +1,29 @@
+{
+	"version": "gateway-execution-v2",
+	"horizon_policy": "time-reset-attempt-cap-v1",
+	"solver": {
+		"version": "process-sha256-v1",
+		"workers": 4,
+		"chunk_hashes": 4096
+	},
+	"schedule_sha256": "3d7b9baf50f618c02b6ba8cf2f06234c610bb57c48ce0f58309de94e1b7ce916",
+	"options": {
+		"terms_review_id": "self-hosted",
+		"temperature": 0.0,
+		"top_p": null,
+		"top_k": null,
+		"max_output_tokens": 1024,
+		"seed": 42,
+		"enable_thinking": false,
+		"concurrency": 8,
+		"max_attempts": 3,
+		"include_test": false
+	},
+	"attempt_budget": 2000,
+	"deadline_seconds": 86400.0,
+	"url": "http://127.0.0.1:8000",
+	"credential_sha256": {
+		"default": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	},
+	"decision_log": null
+}

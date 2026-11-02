@@ -1,0 +1,31 @@
+{
+	"policy": "mmd",
+	"accumulator": "paper",
+	"actions": "graduated",
+	"thresholds": "calibrated",
+	"requests": 10950,
+	"horizons": 134,
+	"unscored_horizons": 110,
+	"windows": 86,
+	"l4_action": "refuse",
+	"deceived": 0,
+	"implemented_levels": [
+		1,
+		2,
+		3,
+		4
+	],
+	"reached": {
+		"L1": 12,
+		"L2": 7,
+		"L3": 2,
+		"L4": 2
+	},
+	"reached_rate": {
+		"L1": 0.08955223880597014,
+		"L2": 0.05223880597014925,
+		"L3": 0.014925373134328358,
+		"L4": 0.014925373134328358
+	},
+	"output": "artifacts/task-diagnostic-v2/concentrated-0/ag_news/benign-test/full.decisions.jsonl"
+}
