@@ -60,9 +60,12 @@ from harness.store import (
 	Settlement,
 	SQLiteStore,
 	StateStore,
+	SupervisionBudget,
+	TierBudget,
 	Transaction,
 	admission_key,
 	reserve_entitlement,
+	rolling_refusal,
 )
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
@@ -87,6 +90,8 @@ def decision_header(decision: Decision) -> str:
 
 
 ROLLING_REFUSALS = {
+	"supervision_budget_exceeded": (429, "supervision budget is used up", "block"),
+	"tier_budget_exceeded": (429, "tier budget is used up", "block"),
 	"rolling_budget_exceeded": (429, "the account's rolling budget is used up", "block"),
 	"organization_rolling_budget_exceeded": (
 		429,
@@ -193,6 +198,23 @@ def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, An
 			settings.organization_rolling_request_budget,
 			settings.organization_rolling_token_budget,
 		]
+	if settings.rolling_supervision_budget is not None:
+		assert settings.supervision_weights_file is not None
+		fields["supervision"] = [
+			settings.rolling_window_seconds,
+			settings.rolling_supervision_budget,
+			settings.supervision_repeat_factor,
+			hashlib.sha256(settings.supervision_weights_file.read_bytes()).hexdigest(),
+		]
+	if settings.trust_tiers:
+		fields["trust_tiers"] = [
+			settings.new_tier_fraction,
+			settings.new_tier_min_age_seconds,
+			settings.new_tier_min_releases,
+			hashlib.sha256(settings.accounts_file.read_bytes()).hexdigest()
+			if settings.accounts_file
+			else None,
+		]
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
 	return fields
 
@@ -297,6 +319,80 @@ def create_app(
 		if config.organization_rolling_request_budget or config.organization_rolling_token_budget
 		else None
 	)
+	supervision = None
+	if config.rolling_supervision_budget is not None:
+		assert config.supervision_weights_file is not None
+		data = json.loads(config.supervision_weights_file.read_text())
+		weights = data.get("weights")
+		domains = set(config.gateway_caps) if config.task == "gateway" else {config.task}
+		if (
+			data.get("version") != 1
+			or not isinstance(weights, dict)
+			or not domains <= weights.keys()
+			or any(
+				isinstance(value, bool)
+				or not isinstance(value, (int, float))
+				or not math.isfinite(value)
+				or value <= 0
+				for value in weights.values()
+			)
+		):
+			raise ValueError(
+				"weights must be version 1 with positive finite weights for every domain"
+			)
+		supervision = SupervisionBudget(
+			config.rolling_window_seconds,
+			config.rolling_supervision_budget,
+			weights,
+			config.supervision_repeat_factor,
+		)
+	tier = None
+	if config.trust_tiers:
+		tiers: dict[str, str] = {}
+		contracts: dict[str, RollingBudget] = {}
+		entries = (
+			json.loads(config.accounts_file.read_text()).values() if config.accounts_file else []
+		)
+		for entry in entries:
+			if isinstance(entry, str):
+				entry = {"principal": entry}
+			principal = entry["principal"]
+			level = entry.get("tier", "new")
+			if level not in {"new", "established", "verified"} or (
+				principal in tiers and tiers[principal] != level
+			):
+				raise ValueError("invalid or inconsistent principal tier")
+			tiers[principal] = level
+			contract = entry.get("contractual_rolling_budget")
+			if contract is not None:
+				org = entry.get("organization")
+				if (
+					level != "verified"
+					or not org
+					or not isinstance(contract, dict)
+					or set(contract) - {"requests", "tokens"}
+					or not contract
+					or any(type(v) is not int or v <= 0 for v in contract.values())
+				):
+					raise ValueError(
+						"contract requires a verified organization and positive limits"
+					)
+				budget = RollingBudget(
+					config.rolling_window_seconds,
+					contract.get("requests"),
+					contract.get("tokens"),
+					scope="organization",
+				)
+				if org in contracts and contracts[org] != budget:
+					raise ValueError("inconsistent organization contract")
+				contracts[org] = budget
+		tier = TierBudget(
+			config.new_tier_fraction,
+			config.new_tier_min_age_seconds,
+			config.new_tier_min_releases,
+			tiers,
+			contracts,
+		)
 	queue: asyncio.Queue[ScoreWindow | None] = asyncio.Queue(maxsize=config.scoring_queue_capacity)
 	score_worker: asyncio.Task[None] | None = None
 	score_failure: list[str] = []
@@ -592,6 +688,7 @@ def create_app(
 		organization: str | None,
 		idem: str | None,
 		proof: bool = False,
+		domain: str = "text",
 	) -> tuple[Reservation | None, JSONResponse | None]:
 		old = previous(tx, decision.account, idem, digest, proof=proof)
 		if old is not None:
@@ -605,6 +702,8 @@ def create_app(
 			deceive=decision.deceive,
 			reserved_tokens=request.max_output_tokens,
 			organization=organization,
+			domain=domain,
+			clean=decision.level == 0,
 			expires_at=now + config.reservation_lease_seconds
 			if config.in_flight_limit is not None
 			else None,
@@ -619,6 +718,8 @@ def create_app(
 			in_flight_limit=config.in_flight_limit,
 			rolling=rolling,
 			organization_rolling=organization_rolling,
+			supervision=supervision,
+			tier=tier,
 		)
 		if reason is not None:
 			messages = {
@@ -721,6 +822,8 @@ def create_app(
 				if (
 					config.output_token_budget is not None
 					or config.organization_token_budget is not None
+					or supervision is not None
+					or tier is not None
 				) and (tokens is None or tokens < 0 or tokens > reservation.reserved_tokens):
 					response = _error(
 						502,
@@ -948,24 +1051,26 @@ def create_app(
 		# A principal without an organization is left to admission, which refuses it.
 		spent = None
 		code = None
-		if rolling is not None or organization_rolling is not None:
-			with store.transaction() as tx:
-				if rolling is not None and rolling.exceeded(
-					tx, account, request.max_output_tokens, now
-				):
-					code = "rolling_budget_exceeded"
-				elif (
-					organization_rolling is not None
-					and organization is not None
-					and organization_rolling.exceeded(
-						tx, organization, request.max_output_tokens, now
-					)
-				):
-					code = "organization_rolling_budget_exceeded"
-				if code is not None:
-					status_code, message, header = ROLLING_REFUSALS[code]
-					spent = _error(status_code, code, message, header)
-					remember(tx, account, idempotency_key, digest, now, spent)
+		domain = x_gateway_domain if served_task == "gateway" else served_task
+		assert domain is not None
+		candidate = Reservation(
+			account,
+			now,
+			0,
+			digest,
+			now,
+			reserved_tokens=request.max_output_tokens,
+			organization=organization,
+			domain=domain,
+		)
+		with store.transaction() as tx:
+			code = rolling_refusal(
+				tx, candidate, now, rolling, organization_rolling, supervision, tier
+			)
+			if code is not None:
+				status_code, message, header = ROLLING_REFUSALS[code]
+				spent = _error(status_code, code, message, header)
+				remember(tx, account, idempotency_key, digest, now, spent)
 		if spent is not None:
 			log.write(
 				"decision",
@@ -1027,6 +1132,37 @@ def create_app(
 				prior = previous(tx, account, idempotency_key, digest)
 				if prior is not None:
 					return prior
+				code = (
+					rolling_refusal(
+						tx, candidate, now, rolling, organization_rolling, supervision, tier
+					)
+					if supervision is not None or tier is not None
+					else None
+				)
+				if code is not None:
+					status_code, message, header = ROLLING_REFUSALS[code]
+					refusal = _error(status_code, code, message, header)
+					remember(tx, account, idempotency_key, digest, now, refusal)
+					log.write(
+						"decision",
+						time=now,
+						account=account,
+						attempt=None,
+						horizon=None,
+						level=4,
+						action="refuse",
+						reason=None,
+						policy_revision=policy_revision,
+						deceive=False,
+						window_completed=False,
+						p_value=None,
+						statistic=None,
+						witness=[],
+						request_digest=digest,
+						benchmark_request=x_benchmark_request,
+						entitlement=code,
+					)
+					return refusal
 				decision = policy.admit_in_transaction(
 					tx, account, text, now, embedding=embedding, binding=binding
 				)
@@ -1048,7 +1184,14 @@ def create_app(
 					tx.put_aggregate_alert(index, asdict(alert))
 				if decision.action in {"serve", "challenge"}:
 					reservation, rejection = reserve(
-						tx, decision, request, digest, now, organization, idempotency_key
+						tx,
+						decision,
+						request,
+						digest,
+						now,
+						organization,
+						idempotency_key,
+						domain=domain,
 					)
 					if rejection is not None:
 						remember(tx, account, idempotency_key, digest, now, rejection)

@@ -82,6 +82,22 @@ class Settings(BaseSettings):
 		default=None, gt=0, alias="HARNESS_ORGANIZATION_ROLLING_TOKEN_BUDGET"
 	)
 
+	rolling_supervision_budget: float | None = Field(
+		default=None, gt=0, allow_inf_nan=False, alias="HARNESS_ROLLING_SUPERVISION_BUDGET"
+	)
+	supervision_weights_file: Path | None = Field(
+		default=None, alias="HARNESS_SUPERVISION_WEIGHTS_FILE"
+	)
+	supervision_repeat_factor: float = Field(
+		default=1, ge=0, le=1, alias="HARNESS_SUPERVISION_REPEAT_FACTOR"
+	)
+	trust_tiers: bool = Field(default=False, alias="HARNESS_TRUST_TIERS")
+	new_tier_fraction: float = Field(default=0.5, gt=0, le=1, alias="HARNESS_NEW_TIER_FRACTION")
+	new_tier_min_age_seconds: float = Field(
+		default=604800, ge=0, allow_inf_nan=False, alias="HARNESS_NEW_TIER_MIN_AGE_SECONDS"
+	)
+	new_tier_min_releases: int = Field(default=10, ge=1, alias="HARNESS_NEW_TIER_MIN_RELEASES")
+
 	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
 	# only: no level, action, or response depends on them. Not part of the policy revision.
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
@@ -122,4 +138,6 @@ class Settings(BaseSettings):
 			raise ValueError(
 				"gateway mode requires positive caps for at least two supported domains"
 			)
+		if (self.rolling_supervision_budget is None) != (self.supervision_weights_file is None):
+			raise ValueError("supervision budget and weights file must be configured together")
 		return self
