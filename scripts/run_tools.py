@@ -219,7 +219,7 @@ def export(run: Path, readings: Path, requested: str) -> None:
 	readme.write_text(
 		f"# {name}: run {run_id}\n\n"
 		f"**Status:** {status}. **Code:** `{commit}`. **Steps:** {first} to {last} UTC.\n\n"
-		"Exported by `scripts/start.sh` from `artifacts/runs/" + run_id + "`. Write the results, "
+		f"Exported by `scripts/start.sh` from `{run}`. Write the results, "
 		"limitations and stop cause here before committing.\n\n"
 		"## Settings\n\n```\n" + config + "```\n\n"
 		"## Campaign outcomes\n\n" + (table or "No campaign reached an outcome.\n") + "\n"

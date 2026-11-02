@@ -53,9 +53,12 @@ exec > >(tee -a "$RUN/run.log") 2>&1
 
 note() { echo "[$(date -u +'%F %T') UTC] $*"; }
 PIDS=()
+# Wait only for started services: a bare `wait` would also wait for the run-log tee, which
+# cannot exit before this script does.
 cleanup() {
 	for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null; done
-	wait 2>/dev/null
+	for pid in "${PIDS[@]}"; do wait "$pid" 2>/dev/null; done
+	PIDS=()
 }
 # Runs that reached the teacher are exported to readings/, complete or not; earlier failures are
 # offline preparation only and can be exported by hand with `just reading RUN_ID`.
