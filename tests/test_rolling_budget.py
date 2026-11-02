@@ -140,3 +140,48 @@ def test_every_restriction_names_its_cause() -> None:
 	rate = RatePolicy(1, 100, 10)
 	rate.admit("a", "q", 0)
 	assert rate.admit("a", "q", 1).reason == "rate"
+
+
+def test_supervision_weights_repeats_and_raw_limit(store: StateStore) -> None:
+	from harness.store import SupervisionBudget, rolling_refusal
+
+	weighted = SupervisionBudget(WEEK, 25, {"text": 2.0}, 0.25)
+	raw = RollingBudget(WEEK, requests=2)
+	first = Reservation("a", 0, 1, "same", 0, reserved_tokens=10)
+	with store.transaction() as tx:
+		assert rolling_refusal(tx, first, 0, raw, None, weighted, None) is None
+		assert tx.reserve(first)
+		assert tx.settle(first.key, "released", 0, 10)
+		repeat = Reservation("a", 0, 2, "same", 1, reserved_tokens=10)
+		assert rolling_refusal(tx, repeat, 1, raw, None, weighted, None) is None
+		assert tx.reserve(repeat)
+		other = Reservation("a", 0, 3, "other", 2, reserved_tokens=1)
+		assert (
+			rolling_refusal(tx, other, 2, None, None, weighted, None)
+			== "supervision_budget_exceeded"
+		)
+		assert rolling_refusal(tx, other, 2, raw, None, None, None) == "rolling_budget_exceeded"
+
+
+def test_tier_promotion_and_contract(store: StateStore) -> None:
+	from harness.store import TierBudget, rolling_refusal
+
+	base = RollingBudget(WEEK, requests=4)
+	shared = RollingBudget(WEEK, requests=1, scope="organization")
+	contract = RollingBudget(WEEK, requests=3, scope="organization")
+	tier = TierBudget(0.5, 10, 2, {}, {"org": contract})
+	with store.transaction() as tx:
+		for attempt in (1, 2):
+			row = Reservation("a", 0, attempt, str(attempt), 0, organization="org")
+			assert rolling_refusal(tx, row, 0, base, shared, None, tier) is None
+			assert tx.reserve(row)
+			assert tx.settle(row.key, "released", 0, 1)
+		third = Reservation("a", 0, 3, "3", 1, organization="org")
+		assert rolling_refusal(tx, third, 1, base, shared, None, tier) == "tier_budget_exceeded"
+		assert rolling_refusal(tx, third, 10, base, shared, None, tier) is None
+		assert tx.reserve(third)
+		fourth = Reservation("a", 0, 4, "4", 10, organization="org")
+		assert (
+			rolling_refusal(tx, fourth, 10, base, shared, None, tier)
+			== "organization_rolling_budget_exceeded"
+		)

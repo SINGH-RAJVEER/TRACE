@@ -83,6 +83,8 @@ class Reservation:
 	# End of the lease: past it the reservation holds no slot and can no longer be released.
 	# None never expires.
 	expires_at: float | None = None
+	domain: str = "text"
+	clean: bool = True
 
 	@property
 	def key(self) -> str:
@@ -167,6 +169,91 @@ class RollingBudget:
 		)
 
 
+@dataclass(frozen=True)
+class SupervisionBudget:
+	window_seconds: float
+	limit: float
+	weights: dict[str, float]
+	repeat_factor: float
+
+	def exceeded(self, tx: Transaction, row: Reservation, now: float) -> bool:
+		rows = tx.reservations_for(row.account, now - self.window_seconds)
+		seen: dict[str, list[float]] = {}
+		total = 0.0
+		for item in sorted(rows, key=lambda item: item.reserved_at):
+			if item.deceive:
+				continue
+			repeated = any(t <= item.reserved_at for t in seen.get(item.request_digest, []))
+			factor = self.repeat_factor if repeated else 1.0
+			total += self.weights[item.domain] * item.charged_tokens * factor
+			if item.status == "released" and item.settled_at is not None:
+				seen.setdefault(item.request_digest, []).append(item.settled_at)
+		repeated = any(t <= now for t in seen.get(row.request_digest, []))
+		factor = self.repeat_factor if repeated else 1.0
+		return total + self.weights[row.domain] * row.reserved_tokens * factor > self.limit
+
+
+@dataclass(frozen=True)
+class TierBudget:
+	fraction: float
+	minimum_age: float
+	minimum_releases: int
+	tiers: dict[str, str]
+	contracts: dict[str, RollingBudget]
+
+	def is_new(self, tx: Transaction, account: str, now: float) -> bool:
+		if self.tiers.get(account, "new") != "new":
+			return False
+		rows = tx.reservations_for(account)
+		if not rows:
+			return True
+		return not (
+			now - min(row.reserved_at for row in rows) >= self.minimum_age
+			and sum(row.status == "released" and not row.deceive and row.clean for row in rows)
+			>= self.minimum_releases
+		)
+
+
+def rolling_refusal(
+	tx: Transaction,
+	row: Reservation,
+	now: float,
+	rolling: RollingBudget | None,
+	organization_rolling: RollingBudget | None,
+	supervision: SupervisionBudget | None,
+	tier: TierBudget | None,
+) -> str | None:
+	if rolling is not None and rolling.exceeded(tx, row.account, row.reserved_tokens, now):
+		return "rolling_budget_exceeded"
+	if tier is not None and tier.is_new(tx, row.account, now) and rolling is not None:
+		reduced = RollingBudget(
+			rolling.window_seconds,
+			math.floor(rolling.requests * tier.fraction) if rolling.requests is not None else None,
+			math.floor(rolling.tokens * tier.fraction) if rolling.tokens is not None else None,
+		)
+		if reduced.exceeded(tx, row.account, row.reserved_tokens, now):
+			return "tier_budget_exceeded"
+	if supervision is not None:
+		if tier is not None and tier.is_new(tx, row.account, now):
+			reduced_supervision = replace(supervision, limit=supervision.limit * tier.fraction)
+			if reduced_supervision.exceeded(tx, row, now):
+				return "tier_budget_exceeded"
+		if supervision.exceeded(tx, row, now):
+			return "supervision_budget_exceeded"
+	shared = (
+		tier.contracts.get(row.organization, organization_rolling)
+		if tier and row.organization
+		else organization_rolling
+	)
+	if (
+		shared is not None
+		and row.organization is not None
+		and shared.exceeded(tx, row.organization, row.reserved_tokens, now)
+	):
+		return "organization_rolling_budget_exceeded"
+	return None
+
+
 def admission_key(account: str, horizon_start: float, attempt: int) -> str:
 	return json.dumps([account, horizon_start, attempt])
 
@@ -194,6 +281,7 @@ class Transaction(Protocol):
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
 	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
 	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure: ...
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]: ...
 	def organization(self, name: str) -> float | None: ...
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
@@ -221,6 +309,8 @@ def reserve_entitlement(
 	in_flight_limit: int | None,
 	rolling: RollingBudget | None = None,
 	organization_rolling: RollingBudget | None = None,
+	supervision: SupervisionBudget | None = None,
+	tier: TierBudget | None = None,
 ) -> tuple[Reservation | None, str | None]:
 	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
 	organization = reservation.organization
@@ -248,16 +338,9 @@ def reserve_entitlement(
 		and org_usage.tokens + reservation.reserved_tokens > organization_budget
 	):
 		return None, "token_budget_exceeded"
-	if rolling is not None and rolling.exceeded(
-		tx, reservation.account, reservation.reserved_tokens, now
-	):
-		return None, "rolling_budget_exceeded"
-	if (
-		organization_rolling is not None
-		and organization is not None
-		and organization_rolling.exceeded(tx, organization, reservation.reserved_tokens, now)
-	):
-		return None, "organization_rolling_budget_exceeded"
+	reason = rolling_refusal(tx, reservation, now, rolling, organization_rolling, supervision, tier)
+	if reason is not None:
+		return None, reason
 	if in_flight_limit is not None and account_usage.in_flight >= in_flight_limit:
 		return None, "in_flight_limit"
 	reservation = replace(reservation, organization_horizon=org_horizon)
@@ -364,6 +447,13 @@ class _MemoryTransaction:
 			and not row.deceive
 		]
 		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		return [
+			row
+			for row in self.store.reservations.values()
+			if row.account == account and (since is None or row.reserved_at > since)
+		]
 
 	def organization(self, name: str) -> float | None:
 		return self.store.organizations.get(name)
@@ -522,11 +612,14 @@ _ADDED_COLUMNS = {
 	"organization": "TEXT",
 	"organization_horizon": "REAL",
 	"expires_at": "REAL",
+	"domain": "TEXT NOT NULL DEFAULT 'text'",
+	"clean": "INTEGER NOT NULL DEFAULT 1",
 }
 
 _RESERVATION_COLUMNS = (
 	"account, horizon_start, attempt, request_digest, reserved_at, deceive, status, "
-	"settled_at, output_tokens, reserved_tokens, organization, organization_horizon, expires_at"
+	"settled_at, output_tokens, reserved_tokens, organization, organization_horizon, "
+	"expires_at, domain, clean"
 )
 
 
@@ -545,6 +638,8 @@ def _reservation(row: tuple[Any, ...]) -> Reservation:
 		organization,
 		organization_horizon,
 		expires_at,
+		domain,
+		clean,
 	) = row
 	return Reservation(
 		account=account,
@@ -560,6 +655,8 @@ def _reservation(row: tuple[Any, ...]) -> Reservation:
 		organization=organization,
 		organization_horizon=organization_horizon,
 		expires_at=expires_at,
+		domain=domain,
+		clean=bool(clean),
 	)
 
 
@@ -610,7 +707,7 @@ class _SQLiteTransaction:
 	def reserve(self, reservation: Reservation) -> bool:
 		cursor = self.db.execute(
 			f"INSERT INTO reservations (key, {_RESERVATION_COLUMNS}) "
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
 			(
 				reservation.key,
 				reservation.account,
@@ -626,6 +723,8 @@ class _SQLiteTransaction:
 				reservation.organization,
 				reservation.organization_horizon,
 				reservation.expires_at,
+				reservation.domain,
+				int(reservation.clean),
 			),
 		)
 		return cursor.rowcount == 1
@@ -678,6 +777,14 @@ class _SQLiteTransaction:
 			(name, since),
 		).fetchone()
 		return Exposure(requests, tokens, 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		rows = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations WHERE account = ? "
+			"AND (? IS NULL OR reserved_at > ?)",
+			(account, since, since),
+		).fetchall()
+		return [_reservation(row) for row in rows]
 
 	def organization(self, name: str) -> float | None:
 		row = self.db.execute(
