@@ -32,7 +32,7 @@ Estimated output-token share by domain, using the audit's per-domain mean attack
 
 ## Would a 10,000-prompt budget help?
 
-A balanced 10,000-prompt campaign requests 2,500 prompts per domain, against 1,500 at 6,000. The repository default is already 12,000 HTTP attempts.
+A balanced 10,000-prompt campaign requests 2,500 prompts per domain, against 1,500 at 6,000. The repository default was 12,000 HTTP attempts when these notes were written. It is now 6,000, split evenly, following the recommendation below.
 
 - **Detection.** No change is expected. Per-window evidence for a broad, same-distribution campaign is near zero, so additional windows do not accumulate risk.
 - **Quota.** The 1,215-request quota still releases 1,215 responses; a larger budget only adds refusals. An evenly split multi-account campaign needs ceil(10,000 / 1,215) = 9 accounts instead of 5.

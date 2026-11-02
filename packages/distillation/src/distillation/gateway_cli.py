@@ -153,7 +153,14 @@ def schedule_command(
 			"A8 online observable-feedback coverage."
 		),
 	],
-	budget: Annotated[int, typer.Option(min=1, help="Campaign-wide HTTP attempt limit.")] = 12_000,
+	budget: Annotated[
+		int,
+		typer.Option(
+			min=1,
+			help="Campaign-wide HTTP attempt limit. The default splits evenly into 1,500 prompts "
+			"per domain, matching the v3 A1 campaign and fitting both GSM8K partitions.",
+		),
+	] = 6_000,
 	tasks_dir: Path = Path("data"),
 	domains: str = "ag_news,squad,gsm8k,coding",
 	partition: Annotated[

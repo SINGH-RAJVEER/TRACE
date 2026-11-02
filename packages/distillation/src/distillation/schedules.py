@@ -272,7 +272,12 @@ def _select(
 	for domain, count in allocation.items():
 		pool = sorted(pools[domain], key=lambda prompt: prompt.example_id)
 		if count > len(pool):
-			raise ValueError(f"domain allocation exceeds {domain} pool size {len(pool)}")
+			# Name the binding pool and the largest even split, rather than skewing the mix.
+			fits = len(allocation) * min(len(pools[name]) for name in allocation)
+			raise ValueError(
+				f"{label} allocation requests {count} {domain} prompts, but the {domain} pool "
+				f"holds {len(pool)}; an even split over these pools fits at most {fits}"
+			)
 		random.Random(f"{seed}:{label}:{domain}").shuffle(pool)
 		selected[domain] = pool[:count]
 	return selected

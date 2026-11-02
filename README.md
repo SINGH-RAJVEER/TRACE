@@ -2,7 +2,7 @@
 
 This workspace evaluates how an account-level harness restricts access to a teacher model across extraction strategies and corpora, and how it affects legitimate clients. It measures requests, released responses and tokens, escalation, and service costs.
 
-The supported domains are AG News, SQuAD, GSM8K, and coding. Campaign schedules cover multiplexing, sequential domains, cover traffic, slow collection, account splitting, and independent sources. The default campaign budget is 12,000 HTTP attempts.
+The supported domains are AG News, SQuAD, GSM8K, and coding. Campaign schedules cover multiplexing, sequential domains, cover traffic, slow collection, account splitting, and independent sources. The default campaign budget is 6,000 HTTP attempts, split evenly across domains.
 
 ## Setup
 

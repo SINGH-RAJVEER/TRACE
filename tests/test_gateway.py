@@ -226,7 +226,7 @@ def test_concentrated_share_sets_the_benign_client_mix() -> None:
 
 def test_gateway_rejects_unusable_pools_and_impossible_allocations() -> None:
 	pools = _pools(10)
-	with pytest.raises(ValueError, match="pool size"):
+	with pytest.raises(ValueError, match="an even split over these pools fits at most"):
 		campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=31)
 	with pytest.raises(ValueError, match="at least one account per domain"):
 		campaign_schedule(pools=pools, caps=CAPS, attack="A5", budget=12, accounts=2)
@@ -653,12 +653,12 @@ def test_detector_input_preserves_gateway_serialization_and_checks_hash(tmp_path
 	)
 
 
-def test_gateway_schedule_defaults_to_12000_attempts(
+def test_gateway_schedule_defaults_to_an_even_6000_attempts(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
 	from distillation import gateway_cli
 
-	pools = _pools(4_000)
+	pools = _pools(2_000)
 	captured: dict[str, object] = {}
 	monkeypatch.setattr(gateway_cli, "_pools", lambda *args, **kwargs: (pools, CAPS, {}))
 
@@ -671,6 +671,13 @@ def test_gateway_schedule_defaults_to_12000_attempts(
 		app, ["schedule", "--attack", "A1", "--output", str(tmp_path / "campaign")]
 	)
 	assert result.exit_code == 0, result.output
-	assert captured["attempt_budget"] == 12_000
-	assert captured["request_count"] == 12_000
-	assert captured["domain_allocation"] == {domain: 4_000 for domain in CAPS}
+	assert captured["attempt_budget"] == 6_000
+	assert captured["request_count"] == 6_000
+	assert captured["domain_allocation"] == {domain: 2_000 for domain in CAPS}
+
+
+def test_uneven_pools_name_the_short_domain_instead_of_skewing_the_mix() -> None:
+	pools = _pools(100)
+	pools["gsm8k"] = pools["gsm8k"][:40]
+	with pytest.raises(ValueError, match="gsm8k pool holds 40; an even split .* at most 120"):
+		campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=150)
