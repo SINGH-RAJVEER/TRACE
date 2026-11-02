@@ -34,6 +34,10 @@ v2's development sweep trained six shared students. AG News is the only domain w
 
 The v4 run trained a student adapter, but has no held-out evaluation, so there are no measured v4 distillation-gain, defense-effect, or student utility results. The same holds for v5 until its held-out evaluation finishes.
 
+## Raw run files
+
+[`raw-2026-11-02/`](raw-2026-11-02/) holds, in Git LFS and under their original paths, every file from the run machine's `artifacts/`, `data/` and `outputs/` that no branch held on 2026-11-02. Its `MANIFEST.tsv` maps all 1,585 files to where each is stored, so the large per-request files listed in the run READMEs are now versioned too. Intermediate training-checkpoint state and gateway credentials are not committed.
+
 ## Adding a run
 
 Name the directory `vN-YYYY-MM-DD-<run-dir name>`, increasing `N`, and add a row to both tables above. Record every reading the run produced, including partial and failed stages, with the code commit, the full protocol, a UTC timeline, the stop cause, and SHA-256 digests of the source artifacts. Report escalation rates over scored accounts as well as over all accounts, and label simulated or demo outputs (such as `outputs/tasks-demo`, which `just benchmark-demo` creates) as not measured.
