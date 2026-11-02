@@ -1699,3 +1699,205 @@ async def test_shadow_scorers_log_without_changing_any_decision(tmp_path: Path) 
 	# Nine distinct prompts: the three repeats add requests but no coverage.
 	assert [c["distinct"] for c in coverage] == [min(i + 1, 9) for i in range(12)]
 	assert sum(event["shadow"]["conditional"] is not None for event in shadow) == 6
+
+
+@pytest.mark.asyncio
+async def test_supervision_budget_refuses_before_embedding_and_changes_scope(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	weights = tmp_path / "weights.json"
+	weights.write_text(json.dumps({"version": 1, "weights": {"text": 2}}))
+	app, teacher, log = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ROLLING_SUPERVISION_BUDGET=1,
+		HARNESS_SUPERVISION_WEIGHTS_FILE=weights,
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		response = await _ask_at(client, "hello", 0)
+	assert response.json()["detail"]["code"] == "supervision_budget_exceeded"
+	assert teacher.calls == 0
+	decisions = [json.loads(line) for line in log.read_text().splitlines()]
+	assert decisions[-1]["attempt"] is None
+	weights.write_text(json.dumps({"version": 1, "weights": {"text": 3}}))
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(
+			artifacts,
+			tmp_path,
+			HARNESS_ROLLING_SUPERVISION_BUDGET=1,
+			HARNESS_SUPERVISION_WEIGHTS_FILE=weights,
+		)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_tier_fraction_promotes_from_durable_history(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = dict(
+		HARNESS_ROLLING_REQUEST_BUDGET=4,
+		HARNESS_TRUST_TIERS=True,
+		HARNESS_NEW_TIER_FRACTION=0.5,
+		HARNESS_NEW_TIER_MIN_AGE_SECONDS=10,
+		HARNESS_NEW_TIER_MIN_RELEASES=2,
+	)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, **options)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		assert (await _ask_at(client, "first", 0)).status_code == 200
+		assert (await _ask_at(client, "second", 1)).status_code == 200
+		refused = await _ask_at(client, "third", 2)
+		assert refused.json()["detail"]["code"] == "tier_budget_exceeded"
+	assert teacher.calls == 2
+	assert json.loads(log.read_text().splitlines()[-1])["attempt"] is None
+	restarted, _, _ = _rolling_app(artifacts, tmp_path, **options)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+	) as client:
+		assert (await _ask_at(client, "third", 10)).status_code == 200
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=4)
+
+
+@pytest.mark.asyncio
+async def test_verified_organization_contract_overrides_shared_limit(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {
+					"principal": "a",
+					"organization": "org",
+					"tier": "verified",
+					"contractual_rolling_budget": {"requests": 2},
+				},
+				hashlib.sha256(b"b").hexdigest(): {
+					"principal": "b",
+					"organization": "org",
+					"tier": "established",
+				},
+			}
+		)
+	)
+	app, teacher, _ = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_TRUST_TIERS=True,
+		HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=1,
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		responses = []
+		for key in ("a", "b", "a"):
+			responses.append(
+				await client.post(
+					"/v1/teacher/generate",
+					json=_request(key),
+					headers={"Authorization": f"Bearer {key}", "X-Harness-Time": "1"},
+				)
+			)
+	assert [response.status_code for response in responses] == [200, 200, 429]
+	assert responses[-1].json()["detail"]["code"] == "organization_rolling_budget_exceeded"
+	assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_review_api_and_verification(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, _, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="separate-key",
+		HARNESS_ROLLING_REQUEST_BUDGET=1,
+		HARNESS_REVIEW_VERIFY_CODES=["rolling_budget_exceeded"],
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == 428
+		detail = response.json()["detail"]
+		assert detail["limit_code"] == "rolling_budget_exceeded" and detail["scope"] == "principal"
+		assert (await client.get("/admin/reviews")).status_code == 401
+		admin = {"X-Harness-Admin-Key": "separate-key"}
+		ref = detail["appeal_ref"]
+		assert (await client.get(f"/admin/reviews/{ref}", headers=admin)).status_code == 200
+		decision = {
+			"action": "restore",
+			"operator": "op",
+			"reason": "reviewed",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		assert (
+			await client.post(f"/admin/reviews/{ref}/decisions", json=decision, headers=admin)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("four"), headers=headers)
+		).status_code == 428
+
+
+@pytest.mark.asyncio
+async def test_review_grant_allows_only_one_policy_refusal(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds[0] = 0
+	app, _, _ = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="admin",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		first = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		assert first.status_code == 403
+		ref = first.json()["detail"]["appeal_ref"]
+		decision = {
+			"action": "grant",
+			"operator": "op",
+			"reason": "verified",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		response = await client.post(
+			f"/admin/reviews/{ref}/decisions",
+			json=decision,
+			headers={"X-Harness-Admin-Key": "admin"},
+		)
+		assert response.status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 403

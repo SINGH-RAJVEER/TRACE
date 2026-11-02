@@ -83,6 +83,8 @@ class Reservation:
 	# End of the lease: past it the reservation holds no slot and can no longer be released.
 	# None never expires.
 	expires_at: float | None = None
+	domain: str = "text"
+	clean: bool = True
 
 	@property
 	def key(self) -> str:
@@ -162,9 +164,95 @@ class RollingBudget:
 
 	def exceeded(self, tx: Transaction, name: str, reserved_tokens: int, now: float) -> bool:
 		used = tx.rolling_exposure(name, now - self.window_seconds, self.scope)
-		return (self.requests is not None and used.requests >= self.requests) or (
-			self.tokens is not None and used.tokens + reserved_tokens > self.tokens
+		credit = tx.credits(self.scope, name, "rolling", now, None, self.window_seconds)
+		return (self.requests is not None and used.requests >= self.requests + credit.requests) or (
+			self.tokens is not None and used.tokens + reserved_tokens > self.tokens + credit.tokens
 		)
+
+
+@dataclass(frozen=True)
+class SupervisionBudget:
+	window_seconds: float
+	limit: float
+	weights: dict[str, float]
+	repeat_factor: float
+
+	def exceeded(self, tx: Transaction, row: Reservation, now: float) -> bool:
+		rows = tx.reservations_for(row.account, now - self.window_seconds)
+		seen: dict[str, list[float]] = {}
+		total = 0.0
+		for item in sorted(rows, key=lambda item: item.reserved_at):
+			if item.deceive:
+				continue
+			repeated = any(t <= item.reserved_at for t in seen.get(item.request_digest, []))
+			factor = self.repeat_factor if repeated else 1.0
+			total += self.weights[item.domain] * item.charged_tokens * factor
+			if item.status == "released" and item.settled_at is not None:
+				seen.setdefault(item.request_digest, []).append(item.settled_at)
+		repeated = any(t <= now for t in seen.get(row.request_digest, []))
+		factor = self.repeat_factor if repeated else 1.0
+		return total + self.weights[row.domain] * row.reserved_tokens * factor > self.limit
+
+
+@dataclass(frozen=True)
+class TierBudget:
+	fraction: float
+	minimum_age: float
+	minimum_releases: int
+	tiers: dict[str, str]
+	contracts: dict[str, RollingBudget]
+
+	def is_new(self, tx: Transaction, account: str, now: float) -> bool:
+		if self.tiers.get(account, "new") != "new":
+			return False
+		rows = tx.reservations_for(account)
+		if not rows:
+			return True
+		return not (
+			now - min(row.reserved_at for row in rows) >= self.minimum_age
+			and sum(row.status == "released" and not row.deceive and row.clean for row in rows)
+			>= self.minimum_releases
+		)
+
+
+def rolling_refusal(
+	tx: Transaction,
+	row: Reservation,
+	now: float,
+	rolling: RollingBudget | None,
+	organization_rolling: RollingBudget | None,
+	supervision: SupervisionBudget | None,
+	tier: TierBudget | None,
+) -> str | None:
+	if rolling is not None and rolling.exceeded(tx, row.account, row.reserved_tokens, now):
+		return "rolling_budget_exceeded"
+	if tier is not None and tier.is_new(tx, row.account, now) and rolling is not None:
+		reduced = RollingBudget(
+			rolling.window_seconds,
+			math.floor(rolling.requests * tier.fraction) if rolling.requests is not None else None,
+			math.floor(rolling.tokens * tier.fraction) if rolling.tokens is not None else None,
+		)
+		if reduced.exceeded(tx, row.account, row.reserved_tokens, now):
+			return "tier_budget_exceeded"
+	if supervision is not None:
+		if tier is not None and tier.is_new(tx, row.account, now):
+			reduced_supervision = replace(supervision, limit=supervision.limit * tier.fraction)
+			if reduced_supervision.exceeded(tx, row, now):
+				return "tier_budget_exceeded"
+		if supervision.exceeded(tx, row, now):
+			return "supervision_budget_exceeded"
+	shared = (
+		tier.contracts.get(row.organization, organization_rolling)
+		if tier and row.organization
+		else organization_rolling
+	)
+	if (
+		shared is not None
+		and row.organization is not None
+		and shared.exceeded(tx, row.organization, row.reserved_tokens, now)
+	):
+		return "organization_rolling_budget_exceeded"
+	return None
 
 
 def admission_key(account: str, horizon_start: float, attempt: int) -> str:
@@ -194,6 +282,18 @@ class Transaction(Protocol):
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
 	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
 	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure: ...
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]: ...
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure: ...
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool: ...
+	def unlinked(self, account: str, organization: str | None) -> bool: ...
 	def organization(self, name: str) -> float | None: ...
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
@@ -221,12 +321,20 @@ def reserve_entitlement(
 	in_flight_limit: int | None,
 	rolling: RollingBudget | None = None,
 	organization_rolling: RollingBudget | None = None,
+	supervision: SupervisionBudget | None = None,
+	tier: TierBudget | None = None,
 ) -> tuple[Reservation | None, str | None]:
 	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
 	organization = reservation.organization
+	unlinked = tx.unlinked(reservation.account, organization)
+	if unlinked:
+		organization = None
+		reservation = replace(reservation, organization=None)
 	if (
-		organization_budget is not None or organization_rolling is not None
-	) and organization is None:
+		(organization_budget is not None or organization_rolling is not None)
+		and organization is None
+		and not unlinked
+	):
 		return None, "organization_required"
 	org_horizon = None
 	if organization is not None:
@@ -241,23 +349,22 @@ def reserve_entitlement(
 	)
 	if (
 		principal_budget is not None
-		and account_usage.tokens + reservation.reserved_tokens > principal_budget
+		and account_usage.tokens + reservation.reserved_tokens
+		> principal_budget
+		+ tx.credits(
+			"account", reservation.account, "horizon", now, reservation.horizon_start, None
+		).tokens
 	) or (
 		org_usage is not None
 		and organization_budget is not None
-		and org_usage.tokens + reservation.reserved_tokens > organization_budget
+		and org_usage.tokens + reservation.reserved_tokens
+		> organization_budget
+		+ tx.credits("organization", organization or "", "horizon", now, org_horizon, None).tokens
 	):
 		return None, "token_budget_exceeded"
-	if rolling is not None and rolling.exceeded(
-		tx, reservation.account, reservation.reserved_tokens, now
-	):
-		return None, "rolling_budget_exceeded"
-	if (
-		organization_rolling is not None
-		and organization is not None
-		and organization_rolling.exceeded(tx, organization, reservation.reserved_tokens, now)
-	):
-		return None, "organization_rolling_budget_exceeded"
+	reason = rolling_refusal(tx, reservation, now, rolling, organization_rolling, supervision, tier)
+	if reason is not None:
+		return None, reason
 	if in_flight_limit is not None and account_usage.in_flight >= in_flight_limit:
 		return None, "in_flight_limit"
 	reservation = replace(reservation, organization_horizon=org_horizon)
@@ -364,6 +471,30 @@ class _MemoryTransaction:
 			and not row.deceive
 		]
 		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		return [
+			row
+			for row in self.store.reservations.values()
+			if row.account == account and (since is None or row.reserved_at > since)
+		]
+
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		return Exposure(0, 0, 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return False
 
 	def organization(self, name: str) -> float | None:
 		return self.store.organizations.get(name)
@@ -522,11 +653,14 @@ _ADDED_COLUMNS = {
 	"organization": "TEXT",
 	"organization_horizon": "REAL",
 	"expires_at": "REAL",
+	"domain": "TEXT NOT NULL DEFAULT 'text'",
+	"clean": "INTEGER NOT NULL DEFAULT 1",
 }
 
 _RESERVATION_COLUMNS = (
 	"account, horizon_start, attempt, request_digest, reserved_at, deceive, status, "
-	"settled_at, output_tokens, reserved_tokens, organization, organization_horizon, expires_at"
+	"settled_at, output_tokens, reserved_tokens, organization, organization_horizon, "
+	"expires_at, domain, clean"
 )
 
 
@@ -545,6 +679,8 @@ def _reservation(row: tuple[Any, ...]) -> Reservation:
 		organization,
 		organization_horizon,
 		expires_at,
+		domain,
+		clean,
 	) = row
 	return Reservation(
 		account=account,
@@ -560,6 +696,8 @@ def _reservation(row: tuple[Any, ...]) -> Reservation:
 		organization=organization,
 		organization_horizon=organization_horizon,
 		expires_at=expires_at,
+		domain=domain,
+		clean=bool(clean),
 	)
 
 
@@ -568,8 +706,9 @@ def _outcome(text: str | None) -> Outcome | None:
 
 
 class _SQLiteTransaction:
-	def __init__(self, connection: sqlite3.Connection) -> None:
+	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
+		self.review_enabled = review_enabled
 
 	def account(self, name: str) -> AccountState | None:
 		row = self.db.execute("SELECT state FROM accounts WHERE name = ?", (name,)).fetchone()
@@ -610,7 +749,7 @@ class _SQLiteTransaction:
 	def reserve(self, reservation: Reservation) -> bool:
 		cursor = self.db.execute(
 			f"INSERT INTO reservations (key, {_RESERVATION_COLUMNS}) "
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
 			(
 				reservation.key,
 				reservation.account,
@@ -626,6 +765,8 @@ class _SQLiteTransaction:
 				reservation.organization,
 				reservation.organization_horizon,
 				reservation.expires_at,
+				reservation.domain,
+				int(reservation.clean),
 			),
 		)
 		return cursor.rowcount == 1
@@ -678,6 +819,69 @@ class _SQLiteTransaction:
 			(name, since),
 		).fetchone()
 		return Exposure(requests, tokens, 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		rows = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations WHERE account = ? "
+			"AND (? IS NULL OR reserved_at > ?)",
+			(account, since, since),
+		).fetchall()
+		return [_reservation(row) for row in rows]
+
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		if not self.review_enabled:
+			return Exposure(0, 0, 0)
+		row = self.db.execute(
+			"SELECT COALESCE(SUM(c.requests), 0), COALESCE(SUM(c.tokens), 0) FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+			"WHERE appeal_id = d.appeal_id) "
+			"AND scope = ? AND name = ? AND kind = ? AND starts_at <= ? AND expires_at > ? "
+			"AND ((kind = 'rolling' AND window_seconds = ?) OR (kind = 'horizon' AND horizon = ?))",
+			(scope, name, kind, now, now, window, horizon),
+		).fetchone()
+		return Exposure(row[0], row[1], 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		if not self.review_enabled:
+			return False
+		rows = self.db.execute(
+			"SELECT c.requests, c.tokens, c.starts_at FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"JOIN review_appeals a ON a.id = d.appeal_id "
+			"WHERE c.kind = 'policy' AND c.name = ? AND a.code = ? "
+			"AND c.starts_at <= ? AND c.expires_at > ? "
+			"AND d.rowid = (SELECT MAX(rowid) FROM review_decisions WHERE appeal_id = d.appeal_id)",
+			(account, code, now, now),
+		).fetchall()
+		for requests, allowance_tokens, start in rows:
+			used = self.rolling_exposure(account, start - 1e-9)
+			if (not requests or used.requests < requests) and (
+				not allowance_tokens or used.tokens + tokens <= allowance_tokens
+			):
+				return True
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return bool(
+			self.review_enabled
+			and organization
+			and self.db.execute(
+				"SELECT 1 FROM review_unlinks u JOIN review_decisions d ON d.id = u.decision_id "
+				"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+				"WHERE appeal_id = d.appeal_id) "
+				"AND account = ? AND organization = ? LIMIT 1",
+				(account, organization),
+			).fetchone()
+		)
 
 	def organization(self, name: str) -> float | None:
 		row = self.db.execute(
@@ -759,9 +963,12 @@ class SQLiteStore:
 	another scope fails, so a new arm cannot inherit an old arm's counters.
 	"""
 
-	def __init__(self, path: Path, scope: str, *, timeout_seconds: float = 30.0) -> None:
+	def __init__(
+		self, path: Path, scope: str, *, timeout_seconds: float = 30.0, review_enabled: bool = False
+	) -> None:
 		path.parent.mkdir(parents=True, exist_ok=True)
 		self.path = path
+		self.review_enabled = review_enabled
 		self._db = sqlite3.connect(
 			path, isolation_level=None, check_same_thread=False, timeout=timeout_seconds
 		)
@@ -792,12 +999,17 @@ class SQLiteStore:
 				"use a new state file for each arm"
 			)
 
+		if review_enabled:
+			from harness.review import initialize
+
+			initialize(self._db)
+
 	@contextmanager
 	def transaction(self) -> Iterator[_SQLiteTransaction]:
 		with self._lock:
 			self._db.execute("BEGIN IMMEDIATE")
 			try:
-				yield _SQLiteTransaction(self._db)
+				yield _SQLiteTransaction(self._db, self.review_enabled)
 			except BaseException:
 				self._db.execute("ROLLBACK")
 				raise
