@@ -352,6 +352,8 @@ def test_cli_passes_online_contract_to_collection(
 			str(inventory),
 			"--output",
 			str(tmp_path / "run"),
+			"--policy",
+			"none",
 		],
 	)
 	assert result.exit_code == 0, result.output
