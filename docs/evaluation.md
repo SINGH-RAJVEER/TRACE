@@ -136,6 +136,56 @@ The current local role pools are insufficient for this fresh reference build: th
 
 A local development-only replay used the materialized frozen v3 score-calibration and A1/A7 schedules with the existing `artifacts/mmd-audit/cache/detector.npz` cache from the primary checkout. It used no teacher, no `benign_test`, and no threshold tuning. The same-profile multi-domain null contains only 13 account horizons: all new session, novelty and volume ranks abstain for A1, topic-sorted A1 and A7, and the fused evidence is neutral at 1.0. The upper-tail rank floor is 1/14, about 0.0714, and the two-sided floor is 2/14, about 0.1429. Public-corpus matching was unavailable because no registered external index was present; there was no local exported A8 schedule or benign linkage truth. Local ignored reports, raw feature values, input hashes and the replay script are under `artifacts/detection-signals-development/`. These are development observations, not detection confirmation. Real-user session validity, a fixed independent cluster null for non-neutral linkage fusion, A8 replay and an efficiency-loss study remain open.
 
-### Source-connected development splits
+### Development-only separation study
 
-`harness.separation_split.split_windows` groups windows connected by any shared source identifier before assigning groups to a development train or test split. Transitive overlaps remain together. It requires both labels in each split and reports an error if its seeded search does not find such an assignment. This helper does not run a separation study or establish that balancing controls are adequate.
+`harness separation` asks whether attack windows remain distinguishable from benign account windows once task-domain mix, topic mix, window size and client timing are balanced. It is development evidence only. Nothing it produces feeds calibration, thresholds, budgets or enforcement, and it refuses any input path containing `benign_test`.
+
+```sh
+devenv shell -- uv run harness separation \
+	--benign readings/v3/benign/score_calibration/requests.jsonl \
+	--attack A1=readings/v3/schedules/A1/s42-b6000/requests.jsonl \
+	--attack A7=readings/v3/schedules/A7/s42-b6000/requests.jsonl \
+	--embeddings /path/to/detector.npz --calibration readings/v3/calibration \
+	--topic-fitting readings/v3/benign/fitting/requests.jsonl \
+	--output artifacts/separation-development/score-w100
+```
+
+Inputs are gateway schedule lines, campaign ledger lines (one principal in file order) or gateway BenignRequest lines. `--benign` repeats and pools roles. Without `--embeddings`, the pinned BGE encoder embeds each distinct detector text once; the cache format is the one `shadow-check --embeddings` reads. `--calibration` supplies the existing pooled MMD as the baseline and requires the calibration's window size; without it, the baseline uses 20 training-split benign windows as references with a median bandwidth. Topic cells come from seeded k-means (`--topic-cells`, default 8) on `--topic-fitting`, or on the benign inputs when that is omitted. The output directory receives `report.json` and `summary.md` and must be new or empty.
+
+A window is `--window-size` consecutive requests from one account (default 100, the deployed window). Every window is one sample. Content sources are `corpus:<--source-key>` (default `group_id`, so SQuAD questions about one article share a source). Benign windows are also connected through their account. An attack schedule is one principal, so its prompts are first divided into two source-disjoint pools, which become separate components. `split_windows` then assigns connected components to train and test. It keeps at least two windows of each class per side and prefers the assignment whose worse class is closest to the requested test fraction. Each attack runs in schedule order and topic-sorted order (`--order`), using the `evidence-check --reorder topic` sort key with the original time slots.
+
+Controls rebuild attack windows from that split's attack prompts, so source disjointness is preserved and checked. Each built window copies one benign window from the same split: `domain` copies the per-position domain, `topic` the per-position (domain, topic cell), `size` the repeat structure and so the distinct-prompt count, `client` the timestamps, and `all` combines them. Prompts are drawn in pool order, so a topic-sorted pool produces topic-concentrated windows. A benign window whose requirements the remaining pool cannot meet is dropped, so matched counts shrink; they are reported per control.
+
+Tests are fitted on training windows and evaluated once on test windows:
+
+- `c2st_logistic` and `c2st_mlp`: classifier two-sample tests on the window mean embedding plus within-window dispersion. The logistic ridge is selected on an inner source-disjoint split of the training windows; the MLP uses one tanh layer on 16 training-split principal components.
+- `learned_mmd`: a Gaussian kernel whose bandwidth multiple and feature weighting (uniform or training-split mean differences) maximize the training statistic's permutation z-score, then a held-out MMD permutation test. Its AUC uses the training witness.
+- `pooled_mmd_baseline`: the existing window score, with its direction chosen on training windows.
+- `volume_session`: distinct share, prompt-length moments, domain count and entropy, and inter-arrival gap and duration statistics. Client labels, profiles, output caps and identifiers are excluded. Generator timestamps make timing features separate trivially unless the `client` control is applied.
+
+Each test reports held-out AUC, a 95% percentile interval from a bootstrap that resamples source groups within each class, and a permutation p-value over test labels with fixed predictions (the learned MMD uses its MMD statistic). The interval is undefined, never replaced by a window-level interval, when a class has fewer than two test groups. Window-level permutation treats windows as exchangeable and can be optimistic when windows share sources. `retained` is the fraction of the unbalanced AUC above 0.5 that remains under a control.
+
+The decision rule is fixed in code. A comparison survives when, under `all`, a semantic test (the two C2STs or learned MMD) has p below 0.05/3 and an interval that does not include 0.5. An undefined interval does not veto survival. Source corpus is not a matching factor. The report gives the share of attack prompts whose (domain, corpus) pair appears in the benign inputs. A comparison is marked inadequate when that share is below one half (`corpus not balanceable`), when the smaller matched test class has fewer than 20 windows, or when a semantic interval is undefined; an inadequate disappearance reflects low power and is not a stop signal by itself. An attacker can reorder prompts without extra queries, so an attack survives only if every tested order survives. The overall line is `separation survives balancing` if any attack survives and `separation disappears after balancing` otherwise. The summary names the attacks that drive the line and gives each test's `retained` share per control.
+
+The source-connected grouping is `harness.separation_groups.connected_source_groups`: windows sharing any source identifier, including transitive overlaps, stay together. The helper reports an error when its seeded search finds no usable assignment.
+
+#### Development evidence, 2026-11-02
+
+Frozen v3 roles and schedules with the cached detector embeddings from the primary checkout, which was read only. No teacher, no `benign_test`, no threshold tuning; topic cells fitted on the `fitting` role. Commands are in the ignored `artifacts/separation-development/run.sh`, with reports beside it. Split seed 42 unless stated; the attacker side is one principal per schedule however many windows it contributes.
+
+Every run's overall line is `separation survives balancing`, and every run's summary names A7 as the reason. A7 is drawn from external corpora (BBC News, NewsQA, Calc-math_qa, self-oss-instruct). None of its prompts shares a (domain, corpus) pair with the benign roles, so every A7 result is marked `corpus not balanceable`. Its surviving C2ST and learned-MMD AUCs of 0.86–1.00 show corpus provenance, which these controls cannot remove. They are not evidence of separation that survives corpus balancing.
+
+Matched `all` results for A1 and the attack-level verdict. Each cell gives held-out AUC, clustered 95% CI where informative, and permutation p; Bonferroni alpha is 0.0167:
+
+| Run | Matched (schedule / sorted) | Schedule order: C2ST logistic, C2ST MLP, learned MMD | Topic-sorted: C2ST logistic, C2ST MLP, learned MMD | A1 verdict |
+|---|---|---|---|---|
+| score_calibration, W=100 | 19 / 11 | 0.80 [0.61, 0.94] p .001; 0.83 p .001; 0.89 p .075 | 0.69 [0.42, 0.92] p .063; 0.65 p .122; 0.81 p .343 | disappears, inadequate |
+| policy_calibration, W=100 | 18 / 17 | 0.77 p .003; 0.78 p .004; 0.91 p .009 | 0.69 p .032; 0.70 p .024; 0.97 p .084 | disappears, inadequate |
+| score_calibration, W=100, `content_sha256` | 21 / 13 | 0.65 p .061; 0.80 [0.66, 0.92] p .002; 0.88 p .053 | 0.71 p .036; 0.68 p .052; 0.73 p .496 | disappears, inadequate |
+| score_calibration, W=50, seed 42 | 42 / 42 | 0.58 p .109; 0.63 p .017; 0.75 p .075 | 0.50 p .491; 0.59 p .066; 0.68 p .249 | disappears, adequate |
+| seed 43 | 44 / 25 | 0.56 p .176; 0.61 p .047; 0.80 p .023 | 0.50 p .498; 0.72 [0.56, 0.86] p .006; 0.49 p .925 | disappears, adequate |
+| seed 44 | 25 / 24 | 0.71 [0.57, 0.84] p .010; 0.77 p .002; 0.60 p .923 | 0.56 p .259; 0.72 [0.57, 0.86] p .002; 0.69 p .956 | survives, adequate |
+| seed 45 | 45 / 20 | 0.73 p .001; 0.75 p .001; 0.85 p .002 | 0.72 [0.52, 0.90] p .009; 0.73 p .006; 0.72 p .614 | survives, adequate |
+| seed 46 | 50 / 57 | 0.68 p .004; 0.69 p .002; 0.76 p .042 | 0.62 p .010; 0.61 [0.45, 0.77] p .026; 0.80 p .033 | disappears, adequate |
+
+Without balancing, volume features separate every comparison (AUC 0.96–1.00), largely from generator timing. Semantic tests give mixed results. Under `group_id`, the unbalanced A1 test attack windows form a single source group, so their intervals are undefined, because SQuAD article titles connect every interleaved window. On the score-calibration role, the unbalanced A1 C2STs score below 0.5 (0.37 and 0.35). After balancing, A1 retains modest semantic separation, typically AUC 0.6–0.8, and the pooled MMD baseline stays at 0.54–0.84. The fixed rule gives a split-dependent verdict. At W=100 every topic-sorted set is under the 20-window adequacy minimum. At W=50, A1's worst-order verdict is `disappears` for split seeds 42, 43 and 46 and `survives` for 44 and 45; topic-sorted A1 survives in 3 of 5 seeds through the MLP alone. This development evidence therefore does not cleanly trigger the stop rule for A1. The residual signal is weak, unstable across splits and may reflect topic structure finer than the eight cells used for matching. It does not support further semantic architecture investment either. The next development step is finer topic matching with larger attack pools and more split seeds. A7-style campaigns need benign roles that include their corpora before balancing can say anything. These are development observations on synthetic workloads with one principal per attack, not detection confirmation. Window-level permutation p-values can be optimistic when windows share sources; the clustered intervals are the dependence-aware measure.
