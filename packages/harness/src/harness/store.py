@@ -22,8 +22,8 @@ that (`settle` refuses), so a crashed reservation frees its slot without letting
 emit under it. It keeps its token charge in the horizon it was admitted in.
 
 An optional rolling budget reads the same charges over a fixed span of time rather than a
-horizon, so a horizon renewal does not refill it. Noise releases no teacher output, so it draws
-nothing from a rolling budget.
+horizon, so a horizon renewal does not refill it. It applies to one principal or to one declared
+organization. Noise releases no teacher output, so it draws nothing from a rolling budget.
 """
 
 import base64
@@ -147,16 +147,21 @@ class IdempotencyRecord:
 	outcome: Outcome | None = None
 
 
+Scope = Literal["account", "organization"]
+
+
 @dataclass(frozen=True)
 class RollingBudget:
-	"""What one account may acquire in any span of `window_seconds`, whatever the horizon."""
+	"""What one account, or one organization, may acquire in any span of `window_seconds`,
+	whatever the horizon."""
 
 	window_seconds: float
 	requests: int | None = None
 	tokens: int | None = None
+	scope: Scope = "account"
 
-	def exceeded(self, tx: Transaction, account: str, reserved_tokens: int, now: float) -> bool:
-		used = tx.rolling_exposure(account, now - self.window_seconds)
+	def exceeded(self, tx: Transaction, name: str, reserved_tokens: int, now: float) -> bool:
+		used = tx.rolling_exposure(name, now - self.window_seconds, self.scope)
 		return (self.requests is not None and used.requests >= self.requests) or (
 			self.tokens is not None and used.tokens + reserved_tokens > self.tokens
 		)
@@ -174,9 +179,6 @@ def _exposure(rows: list[Reservation], now: float) -> Exposure:
 	)
 
 
-Scope = Literal["account", "organization"]
-
-
 class Transaction(Protocol):
 	def account(self, name: str) -> AccountState | None: ...
 	def put_account(self, name: str, state: AccountState) -> None: ...
@@ -191,7 +193,7 @@ class Transaction(Protocol):
 	def reservation(self, key: str) -> Reservation | None: ...
 	def usage(self, account: str, horizon_start: float) -> Usage: ...
 	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
-	def rolling_exposure(self, account: str, since: float) -> Exposure: ...
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure: ...
 	def organization(self, name: str) -> float | None: ...
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
@@ -218,10 +220,13 @@ def reserve_entitlement(
 	organization_budget: int | None,
 	in_flight_limit: int | None,
 	rolling: RollingBudget | None = None,
+	organization_rolling: RollingBudget | None = None,
 ) -> tuple[Reservation | None, str | None]:
 	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
 	organization = reservation.organization
-	if organization_budget is not None and organization is None:
+	if (
+		organization_budget is not None or organization_rolling is not None
+	) and organization is None:
 		return None, "organization_required"
 	org_horizon = None
 	if organization is not None:
@@ -247,6 +252,12 @@ def reserve_entitlement(
 		tx, reservation.account, reservation.reserved_tokens, now
 	):
 		return None, "rolling_budget_exceeded"
+	if (
+		organization_rolling is not None
+		and organization is not None
+		and organization_rolling.exceeded(tx, organization, reservation.reserved_tokens, now)
+	):
+		return None, "organization_rolling_budget_exceeded"
 	if in_flight_limit is not None and account_usage.in_flight >= in_flight_limit:
 		return None, "in_flight_limit"
 	reservation = replace(reservation, organization_horizon=org_horizon)
@@ -344,11 +355,13 @@ class _MemoryTransaction:
 				rows.append(row)
 		return _exposure(rows, now)
 
-	def rolling_exposure(self, account: str, since: float) -> Exposure:
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure:
 		rows = [
 			row
 			for row in self.store.reservations.values()
-			if row.account == account and row.reserved_at > since and not row.deceive
+			if (row.account if scope == "account" else row.organization) == name
+			and row.reserved_at > since
+			and not row.deceive
 		]
 		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
 
@@ -656,12 +669,13 @@ class _SQLiteTransaction:
 		).fetchall()
 		return _exposure([_reservation(row) for row in rows], now)
 
-	def rolling_exposure(self, account: str, since: float) -> Exposure:
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure:
+		owner = "account" if scope == "account" else "organization"
 		requests, tokens = self.db.execute(
 			"SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'released' THEN "
 			"COALESCE(output_tokens, reserved_tokens) ELSE reserved_tokens END), 0) "
-			"FROM reservations WHERE account = ? AND reserved_at > ? AND deceive = 0",
-			(account, since),
+			f"FROM reservations WHERE {owner} = ? AND reserved_at > ? AND deceive = 0",
+			(name, since),
 		).fetchone()
 		return Exposure(requests, tokens, 0)
 
@@ -763,6 +777,10 @@ class SQLiteStore:
 			tx.db.execute(
 				"CREATE INDEX IF NOT EXISTS reservations_organization "
 				"ON reservations (organization, organization_horizon)"
+			)
+			tx.db.execute(
+				"CREATE INDEX IF NOT EXISTS reservations_organization_rolling "
+				"ON reservations (organization, reserved_at)"
 			)
 			row = tx.db.execute("SELECT value FROM meta WHERE key = 'scope'").fetchone()
 			if row is None:

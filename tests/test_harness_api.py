@@ -1582,3 +1582,70 @@ async def test_rolling_settings_change_the_state_scope_only_when_set(
 	_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_WINDOW_SECONDS=3600)
 	with pytest.raises(ValueError, match="another policy"):
 		_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=2)
+
+
+@pytest.mark.asyncio
+async def test_spent_organization_rolling_budget_refuses_every_member_before_embedding(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	encoded: list[str] = []
+	original = Encoder.encode
+
+	def counted(self: Encoder, texts: list[str]) -> Array:
+		encoded.extend(texts)
+		return original(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", counted)
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {"principal": "a", "organization": "org"},
+				hashlib.sha256(b"b").hexdigest(): {"principal": "b", "organization": "org"},
+				hashlib.sha256(b"c").hexdigest(): "c",
+			}
+		)
+	)
+	app, teacher, log = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=2,
+	)
+
+	async def ask(client: httpx.AsyncClient, key: str, text: str, now: float) -> httpx.Response:
+		return await client.post(
+			"/v1/teacher/generate",
+			json=_request(text),
+			headers={"Authorization": f"Bearer {key}", "X-Harness-Time": str(now)},
+		)
+
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = [
+			await ask(client, "a", "q 0", 10.0),
+			await ask(client, "b", "q 1", 10.0),
+			await ask(client, "b", "q 2", 10.0),
+			await ask(client, "a", "next day", 10.0 + 90_000),
+			await ask(client, "c", "no organization", 10.0),
+		]
+	assert [r.status_code for r in responses] == [200, 200, 429, 429, 403]
+	assert responses[2].json()["detail"]["code"] == "organization_rolling_budget_exceeded"
+	assert responses[2].headers["x-harness-decision"] == "block"
+	assert responses[4].json()["detail"]["code"] == "organization_required"
+	# The two refused members cost no embedding; the unmapped principal is refused at admission.
+	assert teacher.calls == 2 and len(encoded) == 3
+	decisions = _events(log, "decision")
+	assert [e["entitlement"] for e in decisions] == [
+		None,
+		None,
+		"organization_rolling_budget_exceeded",
+		"organization_rolling_budget_exceeded",
+		"organization_required",
+	]
+	assert decisions[2]["attempt"] is None and decisions[4]["attempt"] is not None
