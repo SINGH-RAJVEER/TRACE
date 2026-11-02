@@ -421,3 +421,109 @@ def adequacy_command(
 		target.write("\n")
 	if not report["passed"]:
 		raise typer.Exit(code=1)
+
+
+@app.command("evidence-calibrate")
+def evidence_calibrate_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	score_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+) -> None:
+	"""Fit separate opt-in evidence nulls using only the declared score-calibration role."""
+	from harness.corpus import CorpusIndex
+	from harness.evidence import file_hash, fit_evidence
+
+	calibration, _ = load_calibration(calibration_dir)
+	rows = read_any_requests(score_calibration)
+	from harness.calibration import requests_sha256
+
+	if requests_sha256(rows) != calibration.sha256.get("score_calibration"):
+		raise typer.BadParameter("input must be the calibration's declared score_calibration role")
+	load_shadow(calibration_dir, calibration)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
+	null = fit_evidence(rows, vectors, calibration, corpus)
+	artifact = {
+		"version": "evidence-v1",
+		"role": "score_calibration",
+		"requests_sha256": file_hash(score_calibration),
+		"calibration_sha256": file_hash(calibration_dir / "calibration.json"),
+		"encoder": encoder.identity(),
+		"null": null.model_dump(mode="json"),
+	}
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(artifact, indent="\t") + "\n")
+
+
+@app.command("corpus-index")
+def corpus_index_command(
+	sources: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+) -> None:
+	"""Index an operator's JSON mapping of pinned source labels to prompt strings."""
+	from harness.corpus import CorpusIndex
+
+	if output.exists():
+		raise typer.BadParameter("corpus index output already exists")
+	index = CorpusIndex.from_sources(json.loads(sources.read_text()))
+	index.save(output)
+	typer.echo(json.dumps({"sha256": index.digest, "output": str(output)}))
+
+
+@app.command("evidence-check")
+def evidence_check_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	evidence: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	links: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	reorder: str = "none",
+	device: str | None = None,
+) -> None:
+	"""Offline account and optional cluster evidence for benign or A1-A8 schedule files."""
+	from harness.corpus import CorpusIndex
+	from harness.evidence import check_evidence, file_hash
+	from harness.signals import SignalCalibration
+
+	if reorder not in {"none", "topic"}:
+		raise typer.BadParameter("reorder must be none or topic")
+	calibration, _ = load_calibration(calibration_dir)
+	artifact = json.loads(evidence.read_text())
+	if artifact["calibration_sha256"] != file_hash(calibration_dir / "calibration.json"):
+		raise typer.BadParameter("evidence was fitted against a different calibration")
+	load_shadow(calibration_dir, calibration)
+	null = SignalCalibration.model_validate(artifact["null"])
+	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
+	rows = read_any_requests(requests)
+	encoder = make_encoder(embeddings, device)
+	if encoder.identity() != artifact["encoder"]:
+		raise typer.BadParameter("evidence encoder differs from the calibrated encoder")
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	report = check_evidence(rows, vectors, calibration, null, corpus, reorder)
+	if calibration.shadow is not None:
+		load_shadow(calibration_dir, calibration)
+		report["existing_shadow"] = shadow_check(
+			calibration=calibration,
+			requests=rows,
+			embeddings=vectors,
+			reorder="topic" if reorder == "topic" else "none",
+		)
+	if links:
+		from harness.evidence import cluster_evidence
+
+		report["clusters"] = cluster_evidence(
+			rows, vectors, calibration, null, json.loads(links.read_text()), corpus
+		)
+	text = json.dumps(report, indent="\t")
+	if output:
+		output.parent.mkdir(parents=True, exist_ok=True)
+		with output.open("x", encoding="utf-8") as sink:
+			sink.write(text + "\n")
+	typer.echo(text)

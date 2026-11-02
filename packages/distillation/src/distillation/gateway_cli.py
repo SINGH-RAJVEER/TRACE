@@ -564,3 +564,68 @@ def profile_validate_command(
 			raise typer.Exit(code=1)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("session-benign")
+def session_benign_command(
+	output: Annotated[Path, typer.Option()],
+	role: str = "score_calibration",
+	tasks_dir: Path = Path("data"),
+	domains: str = "ag_news,squad,gsm8k,coding",
+	specialist_windows: Annotated[int, typer.Option(min=19)] = 20,
+	generalist_horizons: Annotated[int, typer.Option(min=150)] = 150,
+	window_size: Annotated[int, typer.Option(min=2)] = 100,
+	horizon_size: Annotated[int, typer.Option(min=2)] = 100,
+	seed: int = 42,
+) -> None:
+	"""Generate source-disjoint synthetic sessions for a fresh shadow calibration."""
+	from distillation.session_workloads import session_clients
+
+	try:
+		pools, caps, provenance = _pools(tasks_dir, domains, role)
+		requests, manifest = session_clients(
+			pools=pools,
+			caps=caps,
+			role=role,
+			specialist_windows=specialist_windows,
+			generalist_horizons=generalist_horizons,
+			window_size=window_size,
+			horizon_size=horizon_size,
+			seed=seed,
+			references={
+				key: item
+				for domain in pools
+				for key, item in task_references(task_directory(domain, root=tasks_dir)).items()
+			},
+		)
+		manifest["task_manifests"] = provenance
+		_write(output, requests, manifest)
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None
+
+
+@app.command("external-corpus-index")
+def external_corpus_index_command(
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	tasks_dir: Path = Path("data"),
+	domains: str = "ag_news,squad,gsm8k,coding",
+) -> None:
+	"""Register the manifest-verified pinned external A3/A7 prompt pools offline."""
+	from harness.corpus import CorpusIndex
+
+	if output.exists():
+		raise typer.BadParameter("corpus index output already exists")
+	try:
+		pools, _, provenance = _pools(tasks_dir, domains, "attacker", external=True)
+		sources = {
+			f"{domain}:{provenance[domain]['external']['sha256']}": [
+				next(m.content for m in reversed(p.prompt) if m.role == "user") for p in pool
+			]
+			for domain, pool in pools.items()
+		}
+		index = CorpusIndex.from_sources(sources)
+		output.parent.mkdir(parents=True, exist_ok=True)
+		index.save(output)
+		typer.echo(json.dumps({"sha256": index.digest, "sources": provenance}))
+	except (ValueError, OSError, KeyError) as error:
+		raise typer.BadParameter(str(error)) from None

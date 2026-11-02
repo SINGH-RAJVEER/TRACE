@@ -56,6 +56,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+# Frozen study outputs include historical scripts; preserve them byte-for-byte.
+extend-exclude = ["readings"]
 # The launcher bootstrap runs on any system Python before the workspace environment exists.
 per-file-target-version = { "scripts/*.py" = "py39" }
 

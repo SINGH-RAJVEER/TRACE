@@ -864,3 +864,117 @@ def test_reordering_a_fixed_prompt_set_leaves_coverage_unchanged(
 	# Rarefaction is exact: a full-size subset occupies every cell.
 	assert rarefied([3, 1, 2], 6) == pytest.approx(3.0)
 	assert rarefied([1, 1], 1) == pytest.approx(1.0)
+
+
+def test_offline_evidence_isolated_from_policy_and_legacy_artifact(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	from harness.evidence import check_evidence, fit_evidence
+
+	calibration, scorer = calibrated
+	before = calibration.model_dump_json()
+	rows = _benign("score-evidence", 40, 10)
+	vectors = FakeEncoder().encode([row.text for row in rows])
+	null = fit_evidence(rows, vectors, calibration)
+	plain = MMDPolicy(calibration, scorer)
+	observed = MMDPolicy(calibration, scorer)
+	report = check_evidence(rows, vectors, calibration, null)
+	for i, row in enumerate(rows):
+		assert plain.admit(
+			row.account, row.text, row.time or 0, embedding=vectors[i]
+		) == observed.admit(row.account, row.text, row.time or 0, embedding=vectors[i])
+	assert report["horizons"] == 40
+	assert "fusion" in report["units"][0]["signals"]
+	assert calibration.model_dump_json() == before
+	assert calibration.shadow is None
+
+
+def test_evidence_cli_round_trip_and_role_guard(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import json
+
+	from harness.calibration import requests_sha256
+	from harness.cli import app
+	from typer.testing import CliRunner
+
+	calibration, scorer = calibrated
+	calibration = calibration.model_copy(deep=True)
+	rows = _benign("evidence", 40, 10)
+	calibration.sha256["score_calibration"] = requests_sha256(rows)
+	save_calibration(tmp_path / "cal", calibration, scorer.references)
+	path = tmp_path / "score.jsonl"
+	path.write_text("\n".join(row.model_dump_json() for row in rows) + "\n")
+	monkeypatch.setattr("harness.cli.make_encoder", lambda *args: FakeEncoder())
+	runner = CliRunner()
+	evidence = tmp_path / "evidence.json"
+	result = runner.invoke(
+		app,
+		[
+			"evidence-calibrate",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--score-calibration",
+			str(path),
+			"--output",
+			str(evidence),
+		],
+	)
+	assert result.exit_code == 0, result.output + str(result.exception)
+	result = runner.invoke(
+		app,
+		[
+			"evidence-check",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--evidence",
+			str(evidence),
+			"--requests",
+			str(path),
+		],
+	)
+	assert result.exit_code == 0, result.output + str(result.exception)
+	assert json.loads(result.output)["horizons"] == 40
+	path.write_text(rows[0].model_dump_json() + "\n")
+	result = runner.invoke(
+		app,
+		[
+			"evidence-calibrate",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--score-calibration",
+			str(path),
+			"--output",
+			str(tmp_path / "bad.json"),
+		],
+	)
+	assert result.exit_code != 0
+	assert not (tmp_path / "bad.json").exists()
+
+
+def test_cluster_evidence_reports_pooled_scores_without_policy_changes(
+	shadowed: tuple[Calibration, Array],
+) -> None:
+	from harness.evidence import cluster_evidence, fit_evidence
+
+	calibration, _ = shadowed
+	before = calibration.model_dump_json()
+	rows = _gateway("cluster", {"one": ("ag_news",), "two": ("squad",)}, 10)
+	vectors = FakeEncoder().encode([row.text for row in rows])
+	null = fit_evidence(rows, vectors, calibration)
+	report = cluster_evidence(
+		rows,
+		vectors,
+		calibration,
+		null,
+		{
+			"organizations": {"cluster-one": "org", "cluster-two": "org"},
+			"benign_truth": {"cluster-one": "one", "cluster-two": "two"},
+		},
+	)
+	assert report["enforcement"] is False
+	assert report["benign_link_errors"]["false_merges"] == 1
+	cluster = report["clusters"][0]
+	assert cluster["ranks"]["coverage"] is not None
+	assert cluster["ranks"]["signals"]["metrics"]["novelty_mean_nn"]["value"] is not None
+	assert calibration.model_dump_json() == before
