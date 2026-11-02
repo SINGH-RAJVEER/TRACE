@@ -12,6 +12,14 @@ teacher:
 harness:
 	uv run --extra embed harness-api
 
+# Run the whole study end to end, logging under artifacts/runs/RUN_ID; rerun an ID to resume.
+start run_id="":
+	bash scripts/start.sh {{run_id}}
+
+# Copy a run's evidence into readings/ (next free vN unless a name is given), minus secrets.
+reading run_id name="":
+	uv run --frozen python scripts/run_tools.py export artifacts/runs/{{run_id}} readings {{name}}
+
 test:
 	uv run pytest
 
