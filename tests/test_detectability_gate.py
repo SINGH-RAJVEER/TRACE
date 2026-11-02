@@ -11,7 +11,13 @@ import pytest
 from distillation import campaign_timing, detectability_gate, gateway_campaign, gateway_cli
 from distillation.benchmarks.models import save_json
 from distillation.collection import CollectionOptions
-from distillation.detectability_gate import CachedEncoder, contract_record, detectability, gate
+from distillation.detectability_gate import (
+	CachedEncoder,
+	contract_record,
+	detectability,
+	gate,
+	schedule_requests,
+)
 from distillation.gateway_campaign import collect_gateway
 from distillation.gateway_cli import app
 from distillation.io import write_jsonl
@@ -25,7 +31,7 @@ from distillation.schemas import (
 from distillation.tasks import AG_NEWS_PROMPT
 from harness.calibration import BenignRequest, HarnessConfig, calibrate, save_calibration
 from harness.mmd import Array
-from harness.serialization import gateway_turn
+from harness.serialization import detector_text, gateway_turn
 from test_harness_api import Teacher
 from typer.testing import CliRunner
 
@@ -182,7 +188,9 @@ def offline_cli(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 	monkeypatch.setattr(
 		detectability_gate,
 		"bge_cache",
-		lambda directory, calibration: CachedEncoder(directory, {"model": "marker"}, MarkerEncoder),
+		lambda directory, calibration, archives: CachedEncoder(
+			directory, {"model": "marker"}, MarkerEncoder, archives
+		),
 	)
 	return captured
 
@@ -230,6 +238,21 @@ async def test_override_records_a_quota_comparison_in_the_campaign_contract(
 	# A rerun reads only cached embeddings and binds the same contract, so resume still works.
 	again = gate(detectability(**inputs, encoder=OfflineEncoder()), allow_undetected=True)
 	assert contract_record(again) == contract_record(record)
+	# Embeddings archived by an earlier audit also spare the encoder, through a fresh cache.
+	attack, _ = schedule_requests(frozen["undetected"])
+	held_out = [BenignRequest.model_validate_json(line) for line in frozen["benign_test"].open()]
+	texts = [detector_text("gateway", row.text) for row in attack + held_out]
+	np.savez(
+		tmp_path / "audit.npz",
+		keys=np.array([hashlib.sha256(text.encode()).hexdigest() for text in texts]),
+		vectors=MarkerEncoder().encode(texts),
+	)
+	archived = detectability(
+		**inputs | {"embedding_cache": tmp_path / "fresh"},
+		encoder=OfflineEncoder(),
+		embedding_archives=(tmp_path / "audit.npz",),
+	)
+	assert contract_record(gate(archived, allow_undetected=True)) == contract_record(record)
 	teacher = Teacher()
 
 	async def respond(request: httpx.Request) -> httpx.Response:

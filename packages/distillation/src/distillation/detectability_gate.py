@@ -50,16 +50,25 @@ class CachedEncoder:
 	"""Content-addressed embeddings on disk, keyed by encoder identity and the exact texts.
 
 	The wrapped encoder is built only on a miss, so a fully cached gate never loads a model.
-	Files are written once through a temporary name and never overwritten.
+	Files are written once through a temporary name and never overwritten. On a miss, texts
+	already in a read-only archive are taken from it: an `.npz` of `keys`, the SHA-256 hex of
+	each detector text, and `vectors`, as the v4 offline audit wrote. An archive records no
+	encoder identity, so it must come from the calibration's own encoder.
 	"""
 
 	def __init__(
-		self, directory: Path, identity: dict[str, Any], load: Callable[[], Encoder]
+		self,
+		directory: Path,
+		identity: dict[str, Any],
+		load: Callable[[], Encoder],
+		archives: tuple[Path, ...] = (),
 	) -> None:
 		self.directory = directory
 		self._identity = {k: v for k, v in identity.items() if k not in _COUNTERS}
 		self._load = load
 		self._encoder: Encoder | None = None
+		self._archives = archives
+		self._archived: dict[str, Array] | None = None
 		self.hits = 0
 		self.misses = 0
 
@@ -76,9 +85,7 @@ class CachedEncoder:
 			rows: Array = np.load(path)
 			return rows
 		self.misses += 1
-		if self._encoder is None:
-			self._encoder = self._load()
-		rows = self._encoder.encode(texts)
+		rows = self._compute(texts)
 		self.directory.mkdir(parents=True, exist_ok=True)
 		handle, temporary = tempfile.mkstemp(dir=self.directory, suffix=".npy.tmp")
 		try:
@@ -90,13 +97,41 @@ class CachedEncoder:
 			raise
 		return rows
 
+	def _compute(self, texts: list[str]) -> Array:
+		if self._archived is None:
+			self._archived = {}
+			for archive in self._archives:
+				with np.load(archive) as data:
+					self._archived.update(zip(data["keys"].tolist(), data["vectors"], strict=True))
+		known: dict[str, Array] = {}
+		for text in texts:
+			row = self._archived.get(hashlib.sha256(text.encode()).hexdigest())
+			if row is not None:
+				known[text] = row
+		missing = [text for text in dict.fromkeys(texts) if text not in known]
+		if missing and not known:
+			return self._encoder_now().encode(texts)
+		if missing:
+			known.update(zip(missing, self._encoder_now().encode(missing), strict=True))
+		return np.stack([known[text] for text in texts]).astype(np.float64)
+
+	def _encoder_now(self) -> Encoder:
+		if self._encoder is None:
+			self._encoder = self._load()
+		return self._encoder
+
 	def identity(self) -> dict[str, Any]:
 		return dict(self._identity)
 
 
-def bge_cache(directory: Path, calibration: Calibration) -> CachedEncoder:
+def bge_cache(
+	directory: Path, calibration: Calibration, archives: tuple[Path, ...] = ()
+) -> CachedEncoder:
 	"""The calibration's own BGE model and revision, on CPU, behind the embedding cache."""
 	recorded = calibration.encoder
+	absent = [name for name in ("model", "revision") if not recorded.get(name)]
+	if absent:
+		raise ValueError(f"the calibration records no encoder {' or '.join(absent)}")
 	identity = {
 		"model": recorded.get("model"),
 		"revision": recorded.get("revision"),
@@ -116,7 +151,7 @@ def bge_cache(directory: Path, calibration: Calibration) -> CachedEncoder:
 			device="cpu",
 		)
 
-	return CachedEncoder(directory, identity, load)
+	return CachedEncoder(directory, identity, load, archives)
 
 
 def schedule_requests(input_dir: Path) -> tuple[list[BenignRequest], dict[str, Any]]:
@@ -174,6 +209,7 @@ def detectability(
 	accumulators: tuple[str, ...] = DEFAULT_ACCUMULATORS,
 	encoder: Encoder | None = None,
 	embedding_cache: Path = DEFAULT_EMBEDDING_CACHE,
+	embedding_archives: tuple[Path, ...] = (),
 ) -> dict[str, Any]:
 	"""Replay the attacker and held-out benign accounts under each declared MMD arm.
 
@@ -201,10 +237,10 @@ def detectability(
 	if fitted:
 		raise ValueError(f"the held-out benign file is the calibration's {', '.join(fitted)} role")
 	if encoder is None:
-		cached = bge_cache(embedding_cache, calibration)
+		cached = bge_cache(embedding_cache, calibration, embedding_archives)
 	else:
 		inner = encoder
-		cached = CachedEncoder(embedding_cache, inner.identity(), lambda: inner)
+		cached = CachedEncoder(embedding_cache, inner.identity(), lambda: inner, embedding_archives)
 	size = calibration.config.window_size
 	target = calibration.config.level_targets[0]
 	arms = {}

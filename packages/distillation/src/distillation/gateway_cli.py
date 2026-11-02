@@ -243,6 +243,15 @@ def collect_command(
 	embedding_cache: Annotated[
 		Path, typer.Option(file_okay=False, help="Gate embedding cache, outside frozen inputs.")
 	] = Path("artifacts/embedding-cache"),
+	embedding_archive: Annotated[
+		list[Path] | None,
+		typer.Option(
+			exists=True,
+			dir_okay=False,
+			help="Read-only .npz of detector-text SHA-256 keys and vectors from the "
+			"calibration's encoder; repeat for each.",
+		),
+	] = None,
 	allow_undetected: Annotated[
 		bool,
 		typer.Option(help="Run an undetected mmd arm anyway, recorded as a quota comparison."),
@@ -289,6 +298,7 @@ def collect_command(
 						benign_test=benign_test,
 						accumulators=tuple(gate_accumulator or DEFAULT_ACCUMULATORS),
 						embedding_cache=embedding_cache,
+						embedding_archives=tuple(embedding_archive or ()),
 					),
 					allow_undetected=allow_undetected,
 				)
