@@ -50,7 +50,10 @@ class PathScoring(BaseModel):
 			raise ValueError("scores must be finite")
 		weights = self.weights or (1.0,) * len(self.streams)
 		# Adding zero folds -0.0 into 0.0 so equal scores serialize identically.
-		return max(w * float(v) for w, v in zip(weights, scores, strict=True)) + 0.0
+		score = max(w * float(v) for w, v in zip(weights, scores, strict=True)) + 0.0
+		if not math.isfinite(score):
+			raise ValueError("weighted score must be finite")
+		return score
 
 	def path_maximum(self, path: Iterable[Look], horizon: int) -> float:
 		"""The maximum look score over a whole permitted path of at most `horizon` looks."""
@@ -62,8 +65,31 @@ class PathScoring(BaseModel):
 		return max(values)
 
 
+def _input_hash(
+	alpha: float, horizon: int, stratum: str, scoring: PathScoring, maxima: Sequence[float]
+) -> str:
+	payload = json.dumps(
+		{
+			"alpha": alpha,
+			"horizon": horizon,
+			"stratum": stratum,
+			"scoring": scoring.model_dump(),
+			"maxima": list(maxima),
+		},
+		sort_keys=True,
+		separators=(",", ":"),
+		allow_nan=False,
+	).encode()
+	return hashlib.sha256(payload).hexdigest()
+
+
 class PathCalibration(BaseModel):
-	"""Frozen calibration for one declared campaign stratum, scoring and horizon."""
+	"""Frozen calibration for one declared campaign stratum, scoring and horizon.
+
+	Construction and loading recompute `input_hash`, so an artifact whose scoring, maxima or
+	settings were edited after fitting is rejected. The hash cannot show that hand-built
+	maxima came from real benign paths; produce calibrations only with fit_path_calibration.
+	"""
 
 	model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -90,6 +116,9 @@ class PathCalibration(BaseModel):
 			raise ValueError("abstention must match calibration resolution")
 		if self.abstained != (self.abstention_reason is not None):
 			raise ValueError("an abstention requires a reason")
+		expected = _input_hash(self.alpha, self.horizon, self.stratum, self.scoring, self.maxima)
+		if self.input_hash != expected:
+			raise ValueError("input hash differs from the calibration's scoring and maxima")
 		return self
 
 
@@ -111,18 +140,6 @@ def fit_path_calibration(
 	maxima = tuple(sorted(scoring.path_maximum(path, horizon) for path in paths))
 	n = len(maxima)
 	abstained = 1 / (n + 1) > alpha
-	payload = json.dumps(
-		{
-			"alpha": alpha,
-			"horizon": horizon,
-			"stratum": stratum,
-			"scoring": scoring.model_dump(),
-			"maxima": maxima,
-		},
-		sort_keys=True,
-		separators=(",", ":"),
-		allow_nan=False,
-	).encode()
 	return PathCalibration(
 		scoring=scoring,
 		alpha=alpha,
@@ -130,7 +147,7 @@ def fit_path_calibration(
 		maxima=maxima,
 		n=n,
 		stratum=stratum,
-		input_hash=hashlib.sha256(payload).hexdigest(),
+		input_hash=_input_hash(alpha, horizon, stratum, scoring, maxima),
 		abstained=abstained,
 		abstention_reason="insufficient campaigns for alpha" if abstained else None,
 	)

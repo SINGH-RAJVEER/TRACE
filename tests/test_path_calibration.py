@@ -129,3 +129,18 @@ def test_matched_observable_paths() -> None:
 	first, second = PathState(calibration), PathState(calibration)
 	for score in [1, 3, 25, 0]:
 		assert first.observe([score]) == second.observe([score])
+
+
+def test_artifact_edits_and_overflowing_scores_are_rejected() -> None:
+	weighted = PathScoring(name="two-v1", streams=("a", "b"), weights=(1.0, 0.5))
+	fitted = fit_path_calibration(
+		[[[0, 0]]] * 99, scoring=weighted, alpha=0.01, horizon=1, stratum="a"
+	)
+	tampered = fitted.model_dump_json().replace("0.5", "2.0")
+	with pytest.raises(ValueError, match="input hash"):
+		PathCalibration.model_validate_json(tampered)
+	with pytest.raises(ValueError, match="input hash"):
+		PathCalibration(**{**fitted.model_dump(), "input_hash": "anything"})
+	huge = PathScoring(name="huge-v1", streams=("s",), weights=(1e308,))
+	with pytest.raises(ValueError, match="finite"):
+		huge.look([2.0])
