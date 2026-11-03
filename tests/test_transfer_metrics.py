@@ -62,7 +62,7 @@ def test_bootstrap_resamples_whole_families() -> None:
 		"defended": {"a": flags(1, 4), "b": flags(1, 2)},
 	}
 	report = transfer_report(correct, seed=3)
-	# Resampling families gives 25% mass each on {a,a}, {a,b} and {b,b}; resampling
+	# Resampling families gives 25%, 50% and 25% mass on {a,a}, {a,b} and {b,b}; resampling
 	# the six items independently would almost never reach an accuracy of zero.
 	assert report["raw"]["overall_interval"]["teacher"] == [0.0, 1.0]
 	family = transfer_report(correct, weighting="family")
@@ -71,15 +71,41 @@ def test_bootstrap_resamples_whole_families() -> None:
 
 
 def test_seeded_and_paired() -> None:
+	# Families differ widely in difficulty, but every family gains exactly two items from
+	# base to clean, so only paired resampling gives a degenerate clean-gain interval.
+	base = [0, 2, 4, 6, 8]
 	correct = {
-		role: {f"f{i}": flags((i + shift) % 7, 6) for i in range(8)}
-		for role, shift in {"teacher": 5, "base": 0, "clean": 3, "defended": 2}.items()
+		role: {f"f{i}": flags(min(10, k + shift), 10) for i, k in enumerate(base)}
+		for role, shift in {"teacher": 4, "base": 0, "clean": 2, "defended": 1}.items()
 	}
 	first = transfer_report(correct, seed=11, replicates=300)
+	assert first["clean_gain"]["interval"] == pytest.approx([0.2, 0.2])
+	low, high = first["raw"]["overall_interval"]["base"]
+	assert high - low > 0.2
 	assert first == transfer_report(correct, seed=11, replicates=300)
-	assert first != transfer_report(correct, seed=12, replicates=300)
+	varied = {
+		role: {f"f{i}": flags((i * 7 + shift) % 11, 10) for i in range(40)}
+		for role, shift in {"teacher": 6, "base": 0, "clean": 3, "defended": 2}.items()
+	}
+	intervals = [
+		transfer_report(varied, seed=seed, replicates=300)["raw"]["overall_interval"]
+		for seed in (11, 12)
+	]
+	assert intervals[0] != intervals[1]
 	with pytest.raises(ValueError):
 		transfer_report(correct, replicates=10)
+
+
+def test_inclusive_thresholds_at_exact_boundaries() -> None:
+	at_headroom = transfer_report(uniform(90, 80, 85, 82, items=100))
+	assert at_headroom["headroom"]["usable"]
+	at_gain = transfer_report(uniform(90, 30, 35, 33, items=100))
+	assert at_gain["clean_gain"]["usable"]
+	at_effect = transfer_report(uniform(90, 30, 70, 65, items=100))["decision"]
+	assert at_effect["effect_met"] and at_effect["meets_target"]
+	at_fraction = transfer_report(uniform(90, 4, 12, 10, items=100), min_clean_gain=0.05)
+	assert at_fraction["suppression"]["value"] == pytest.approx(0.25)
+	assert at_fraction["decision"]["suppression_met"]
 
 
 def test_decision_rule() -> None:
@@ -116,3 +142,11 @@ def test_input_validation() -> None:
 		transfer_report({**good, "clean": {**good["clean"], "f0": flags(3, 5)}})
 	with pytest.raises(ValueError, match="two task families"):
 		transfer_report(uniform(9, 3, 7, 5, families=1))
+	for name in ("min_headroom", "min_clean_gain", "min_effect", "min_suppression_fraction"):
+		with pytest.raises(ValueError, match="finite"):
+			transfer_report(good, **{name: float("nan")})
+	for runs in ([good], "seed", {}):
+		with pytest.raises(ValueError, match="runs"):
+			transfer_report_seeds(runs)  # type: ignore[arg-type]
+	with pytest.raises(ValueError, match="mapping"):
+		transfer_report({**good, "clean": [True]})  # type: ignore[dict-item]

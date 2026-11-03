@@ -7,6 +7,7 @@ number of items; position within a family identifies the item, so the four roles
 Accuracies are fractions in [0, 1] and all thresholds are fractions (0.10 is ten points).
 """
 
+import math
 import random
 import statistics
 from collections.abc import Mapping, Sequence
@@ -16,6 +17,13 @@ ROLES = ("teacher", "base", "clean", "defended")
 Correct = Mapping[str, Mapping[str, Sequence[bool]]]
 Weighting = Literal["item", "family"]
 SINGLE_SEED = "Development evidence: a single training seed."
+# Accuracy differences are float sums, so 0.9 - 0.8 lands just below 0.1. Inclusive
+# thresholds compare with this slack, far below any one-item change in accuracy.
+TOLERANCE = 1e-9
+
+
+def _at_least(value: float, minimum: float) -> bool:
+	return value >= minimum - TOLERANCE
 
 
 def _bounds(samples: list[float]) -> list[float]:
@@ -26,8 +34,12 @@ def _bounds(samples: list[float]) -> list[float]:
 
 
 def _validate(correct: Correct) -> list[str]:
+	if not isinstance(correct, Mapping):
+		raise ValueError("correct must map each role to a mapping of task families")
 	if set(correct) != set(ROLES):
 		raise ValueError(f"roles must be exactly {', '.join(ROLES)}")
+	if not all(isinstance(correct[role], Mapping) for role in ROLES):
+		raise ValueError("correct must map each role to a mapping of task families")
 	families = sorted(correct["teacher"])
 	if len(families) < 2:
 		raise ValueError("need at least two task families")
@@ -36,6 +48,8 @@ def _validate(correct: Correct) -> list[str]:
 			raise ValueError("every role must cover the same task families")
 		for family in families:
 			items = correct[role][family]
+			if isinstance(items, str | bytes) or not isinstance(items, Sequence):
+				raise ValueError("each task family needs a list of correctness flags")
 			if not items or len(items) != len(correct["teacher"][family]):
 				raise ValueError("every role needs the same nonzero item count in each family")
 			if any(type(v) not in (bool, int) or v not in (0, 1) for v in items):
@@ -71,7 +85,7 @@ def _gate(estimate: float, interval: list[float], minimum: float, what: str) -> 
 		reason = f"{what} interval includes zero"
 	elif estimate <= 0:
 		reason = f"{what} is not positive"
-	elif estimate < minimum:
+	elif not _at_least(estimate, minimum):
 		reason = f"{what} {estimate:.4f} is below the minimum {minimum}"
 	return {
 		"estimate": estimate,
@@ -120,6 +134,9 @@ def transfer_report(
 		raise ValueError("need at least 100 bootstrap replicates")
 	if weighting not in ("item", "family"):
 		raise ValueError("weighting must be item or family")
+	thresholds = (min_headroom, min_clean_gain, min_effect, min_suppression_fraction)
+	if not all(isinstance(t, int | float) and math.isfinite(t) for t in thresholds):
+		raise ValueError("thresholds must be finite numbers")
 	families = _validate(correct)
 	sizes = [len(correct["teacher"][f]) for f in families]
 	if weighting == "item":
@@ -167,15 +184,17 @@ def transfer_report(
 	effect = point["effect"]
 	effect_interval = _bounds(get("effect"))
 	fraction_met = (
-		None if suppression["value"] is None else suppression["value"] >= min_suppression_fraction
+		None
+		if suppression["value"] is None
+		else _at_least(suppression["value"], min_suppression_fraction)
 	)
 	fraction_lower = (
 		None
 		if suppression["value"] is None
-		else suppression["interval"][0] >= min_suppression_fraction
+		else _at_least(suppression["interval"][0], min_suppression_fraction)
 	)
-	effect_met = effect >= min_effect
-	effect_lower = effect_interval[0] >= min_effect
+	effect_met = _at_least(effect, min_effect)
+	effect_lower = _at_least(effect_interval[0], min_effect)
 	by_family = {
 		f: {"items": n, **{r: sum(correct[r][f]) / n for r in ROLES}}
 		for f, n in zip(families, sizes, strict=True)
@@ -229,8 +248,8 @@ def transfer_report_seeds(runs: Mapping[str, Correct], **options: Any) -> dict[s
 	``runs`` maps a training-seed label to a ``correct`` mapping. Seed variability is the spread
 	of per-seed point estimates; it is not mixed into the within-seed bootstrap intervals.
 	"""
-	if not runs:
-		raise ValueError("need at least one training seed")
+	if not isinstance(runs, Mapping) or not runs:
+		raise ValueError("runs must map at least one training-seed label to its results")
 	reports = {label: transfer_report(correct, **options) for label, correct in runs.items()}
 	rows = list(reports.values())
 	quantities: dict[str, dict[str, float | None]] = {
