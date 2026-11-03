@@ -339,7 +339,8 @@ for attack in $ATTACKS; do
 			finish 1 "campaign $attack/$arm failed; see $LOGS/$name.log"
 		else
 			"${UV[@]}" distill gateway evaluation-report \
-				--events "$dir/campaign/campaign.events.jsonl" > "$dir/evaluation-report.json" 2>&1
+				--events "$dir/campaign/campaign.events.jsonl" > "$dir/evaluation-report.json" \
+				2>> "$LOGS/$name.log"
 			"${TOOLS[@]}" summary "$dir/campaign/campaign.json" > "$dir/outcome"
 			note "campaign $attack/$arm done: $(cat "$dir/outcome")"
 		fi

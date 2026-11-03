@@ -8,7 +8,7 @@ These come from a review of the evaluation methodology on 2026-11-02. They are l
 
 - [ ] Write a new protocol file for the next study, with the seeds, attacks (including A8 and the adaptive variants) and arms it will actually run, before any of them run.
 - [ ] Run each attack and arm at every declared seed on the exploratory partition, using fresh state files and output directories.
-- [ ] Record every run, including interrupted and refused ones, in the results index (item 5).
+- [ ] Record every run, including interrupted and refused ones, in the results index (item 5). `just reading` now does this for every arm of an exported run, so this is done once the runs exist.
 - [ ] Use separate real credentials for the multi-account A5 and A6 campaigns and for account rotation. A shared token only tests local bookkeeping.
 
 Done when every declared cell has a completed run or a recorded reason why it has none.
@@ -47,20 +47,21 @@ The multi-domain null has 13 account horizons, so the session, novelty and volum
 
 Results are kept as prose tables in `docs/evaluation.md` and `docs/harness.md`. Their supporting reports are in the gitignored `artifacts/` directory, which is missing from this checkout.
 
-- [ ] Add an append-only results index under `readings/` (for example `readings/index.jsonl`) with one row per run, keyed by contract hash. Each row should record the commit, attack, schedule hash, partition, seed, policy, calibration hash, accumulator, budget, completed or interrupted status, development or confirmatory status, and headline metrics.
-- [ ] Add a command that appends a row from a run directory (contract, `campaign.json`, `detectability.json`, `evaluation-report` output) and refuses duplicate contract hashes.
+- [x] Add a results index with one row per arm. Done: `readings/index.tsv`, written by `just reading` through `packages/distillation/src/distillation/results_index.py`. It is TSV because `readings/**/*.json` and `*.jsonl` are stored in Git LFS. Rows are keyed by run, kind, attack and arm rather than contract hash, so gate-refused and interrupted arms, which may have no contract, still get a row; duplicate contract hashes are refused.
+- [ ] Backfill the historical v3 A1 arms into the index, labelled as backfill, with unrecorded fields left empty.
 - [ ] Freeze the 2026-11-02 separation study and the shadow-check outputs into a versioned reading, with input hashes and the run script, so the numbers in the docs can be reproduced from the repo.
 - [ ] Generate the result tables in the docs from the index, and keep `docs/` for method rather than data.
-- [ ] Record per-file SHA-256 manifests for each new reading, as `readings/v4/verified-20261031/verification-manifest.json` does.
+- [x] Record per-file SHA-256 manifests for each new reading. Done: `just reading` writes `SHA256SUMS`.
 
 ## 6. Correct stale budget references
 
 The code default is 6,000 HTTP attempts, split evenly into 1,500 prompts per domain (`gateway_cli.py:163`).
 
-- [ ] `docs/evaluation.md:11` says the default budget is 12,000 HTTP attempts.
-- [ ] `docs/evaluation.md:15` uses `--budget 12000` in the A8 example.
-- [ ] `docs/evaluation.md:48` says the default needs 3,000 distinct eligible prompts per domain.
-- [ ] `evaluation_protocol.py:8` sets `CHECKPOINTS` up to 12,000. This is above the campaign budget. Decide whether the 6,000 and 12,000 checkpoints should stay, and update `docs/evaluation.md:70` and its tests to match.
+- [x] `docs/evaluation.md:13` called session replay and selective retries planned experiments; they are implemented collection options.
+- [x] `docs/evaluation.md:11` says the default budget is 12,000 HTTP attempts. Fixed to 6,000.
+- [x] `docs/evaluation.md:15` uses `--budget 12000` in the A8 example. Changed to 6000.
+- [x] `docs/evaluation.md:48` says the default needs 3,000 distinct eligible prompts per domain. Fixed to 1,500.
+- [ ] `evaluation_protocol.py:8` sets `CHECKPOINTS` up to 12,000. This is above the campaign budget. Decide whether the 6,000 and 12,000 checkpoints should stay, and update `docs/evaluation.md:70` and its tests to match. Open: the checkpoints also apply to the supervised gold controls, which the campaign budget does not limit, so this needs your decision.
 
 ---
 

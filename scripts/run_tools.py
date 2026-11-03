@@ -5,7 +5,8 @@ caps MANIFEST                            print a benign schedule's per-domain ou
 accounts DIR REQUESTS...                 write DIR/credentials.json (mode 600) and accounts.json
 utility SCHEDULE TASKS KEYS OUTPUT URL N measure benign utility through a running harness
 summary CAMPAIGN_JSON                    print a one-line campaign summary
-export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets
+export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets,
+                                         and replace its rows in READINGS/index.tsv
 """
 
 import asyncio
@@ -192,6 +193,9 @@ def export(run: Path, readings: Path, requested: str) -> None:
 		else "unknown"
 	)
 	config = attempts[-1].with_name("config.env").read_text() if attempts else ""
+	from distillation.results_index import run_rows, update_index
+
+	indexed = update_index(readings / "index.tsv", run_rows(run, name, commit))
 	summary_table = (run / "summary.tsv").read_text() if (run / "summary.tsv").exists() else ""
 	record.write_text(
 		json.dumps(
@@ -236,7 +240,9 @@ def export(run: Path, readings: Path, requested: str) -> None:
 		"Not exported: client credentials, harness state databases, the deception key, vLLM "
 		"and teacher-API logs, and regenerable detector inputs.\n"
 	)
-	print(f"{destination} ({status}, {len(files)} files)")
+	print(
+		f"{destination} ({status}, {len(files)} files); readings/index.tsv has {len(indexed)} rows"
+	)
 
 
 def main() -> None:
