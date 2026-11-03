@@ -30,7 +30,13 @@ def acquisition_manifest_command(
 		list[Path],
 		typer.Option("--ledger", exists=True, dir_okay=False, help="Repeat for each ledger."),
 	],
-	response_policy: Annotated[str, typer.Option(help="Identifier such as clean or protected-v1.")],
+	response_policy: Annotated[
+		str,
+		typer.Option(
+			help="Identifier such as clean or protected-v1. Use clean only for responses "
+			"delivered unmodified; the label is your assertion and is not verified."
+		),
+	],
 	output: Annotated[Path, typer.Option(help="New manifest file; never overwritten.")],
 	accepted_only: Annotated[
 		bool,

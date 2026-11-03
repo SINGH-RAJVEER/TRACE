@@ -313,3 +313,40 @@ def test_outputs_are_never_overwritten(ledgers: list[Path], tmp_path: Path) -> N
 	path.write_text("{truncated")
 	result = runner.invoke(app, [*select, "--budget", "1", "--seed", "1"])
 	assert result.exit_code == 2 and "not valid manifest JSON" in result.output
+
+
+def test_temporary_files_cannot_overwrite_or_linger(tmp_path: Path, monkeypatch: Any) -> None:
+	import os
+
+	from distillation.acquisition_manifest import write_new
+
+	frozen = tmp_path / "frozen.json"
+	frozen.write_text("frozen")
+	# A planted symlink at a guessable temporary name no longer redirects the write.
+	for pid in range(os.getpid() - 2, os.getpid() + 3):
+		(tmp_path / f".out.json.{pid}.tmp").symlink_to(frozen)
+	write_new(tmp_path / "out.json", "new")
+	assert frozen.read_text() == "frozen" and (tmp_path / "out.json").read_text() == "new"
+
+	def broken_link(*args: Any) -> None:
+		raise OSError("no hard links")
+
+	monkeypatch.setattr(os, "link", broken_link)
+	with pytest.raises(ManifestError, match="exclusively"):
+		write_new(tmp_path / "other.json", "text")
+	assert not list(tmp_path.glob(".other.json.*"))
+
+
+def test_large_integer_settings_stay_distinct(tmp_path: Path) -> None:
+	rows = [
+		record("s0", parameters={**PARAMETERS, "seed": 9007199254740992}),
+		record("s1", parameters={**PARAMETERS, "seed": 9007199254740993}),
+	]
+	with pytest.raises(ManifestError, match="not frozen"):
+		build_manifest([ledger(tmp_path / "s.jsonl", rows)], response_policy="clean")
+
+
+def test_unknown_split_is_refused(ledgers: list[Path]) -> None:
+	manifest = build_manifest(ledgers, response_policy="clean")
+	with pytest.raises(ManifestError, match="split"):
+		select_rows(manifest, by="tokens", budget=10, seed=1, split="trian")

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,8 +21,10 @@ from distillation.schemas import LedgerRecord
 
 MANIFEST_VERSION = "acquisition-manifest-v1"
 # The only policy whose ledger output tokens are what the client received; a transformed
-# policy needs its own verified delivered count before it can be token-budgeted.
+# policy needs its own verified delivered count before it can be token-budgeted. The label is
+# the operator's assertion that responses were delivered unmodified; nothing here verifies it.
 CLEAN_POLICY = "clean"
+SPLITS = ("train", "validation", "test")
 _POLICY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHOWN = 5
 
@@ -114,12 +117,18 @@ def _check_unique(rows: list[dict[str, Any]]) -> None:
 		raise ManifestError(f"same prompt under different example IDs: {_capped(collisions)}")
 
 
+def _number(value: Any) -> Any:
+	"""Integral numbers compare as exact integers, so 0, 0.0 and -0.0 match while large seeds
+	keep full precision; other floats compare as themselves."""
+	if isinstance(value, float) and value.is_integer():
+		return int(value)
+	return value
+
+
 def _comparable(teacher: dict[str, Any]) -> str:
-	"""Settings as compared: numbers by value, so 0, 0.0 and -0.0 are one temperature."""
+	"""Settings as compared: numbers by value, without losing integer precision."""
 	parameters = {
-		key: float(value) + 0.0
-		if isinstance(value, int | float) and not isinstance(value, bool)
-		else value
+		key: value if isinstance(value, bool) else _number(value)
 		for key, value in teacher["parameters"].items()
 	}
 	return canonical_json({**teacher, "parameters": parameters})
@@ -214,18 +223,24 @@ def _totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def write_new(output: Path, text: str) -> None:
 	"""Publish a complete file at a path that must not exist yet, atomically.
 
-	The text goes to a private temporary file that is then hard-linked into place; linking
-	fails if the destination exists, even when it appears after any earlier check.
+	The text goes to a new, randomly named temporary file created exclusively beside the
+	output, which is then hard-linked into place; linking fails if the destination exists, even
+	when it appears after any earlier check. The filesystem must support hard links; without
+	them the write is refused rather than falling back to a replacing rename.
 	"""
 	output.parent.mkdir(parents=True, exist_ok=True)
-	temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
-	temporary.write_text(text)
+	descriptor, name = tempfile.mkstemp(dir=output.parent, prefix=f".{output.name}.", suffix=".tmp")
+	temporary = Path(name)
 	try:
+		with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+			handle.write(text)
 		os.link(temporary, output)
 	except FileExistsError as error:
 		raise ManifestError(f"{output} already exists; outputs are never overwritten") from error
+	except OSError as error:
+		raise ManifestError(f"cannot publish {output} exclusively: {error}") from error
 	finally:
-		temporary.unlink()
+		temporary.unlink(missing_ok=True)
 
 
 def write_manifest(manifest: dict[str, Any], output: Path) -> None:
@@ -281,6 +296,8 @@ def select_rows(
 	"""
 	if by not in ("queries", "tokens"):
 		raise ManifestError("select by 'queries' or 'tokens'")
+	if split not in SPLITS:
+		raise ManifestError(f"split must be one of {', '.join(SPLITS)}")
 	if budget < 1:
 		raise ManifestError("the budget must be at least 1")
 	if by == "tokens" and manifest["response_policy"] != CLEAN_POLICY:
