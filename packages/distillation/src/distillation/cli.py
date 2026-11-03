@@ -20,6 +20,73 @@ app.add_typer(gateway_app, name="gateway")
 app.add_typer(learning_curve_app, name="learning-curve")
 traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
+acquisition_app = typer.Typer(no_args_is_help=True)
+app.add_typer(acquisition_app, name="acquisition")
+
+
+@acquisition_app.command("manifest")
+def acquisition_manifest_command(
+	ledger: Annotated[
+		list[Path],
+		typer.Option("--ledger", exists=True, dir_okay=False, help="Repeat for each ledger."),
+	],
+	response_policy: Annotated[str, typer.Option(help="Identifier such as clean or protected-v1.")],
+	output: Annotated[Path, typer.Option(help="New manifest file; never overwritten.")],
+	accepted_only: Annotated[
+		bool,
+		typer.Option(help="Drop rows not accepted, after validating all rows; counts are kept."),
+	] = False,
+) -> None:
+	"""Write a versioned manifest of the cached teacher responses in one or more ledgers."""
+	from distillation.acquisition_manifest import ManifestError, build_manifest, write_manifest
+
+	try:
+		manifest = build_manifest(
+			ledger, response_policy=response_policy, accepted_only=accepted_only
+		)
+		write_manifest(manifest, output)
+	except ManifestError as error:
+		raise typer.BadParameter(str(error)) from error
+	totals = manifest["totals"]
+	typer.echo(
+		f"examples={totals['examples']} unknown_token_rows={totals['unknown_token_rows']} "
+		f"digest={manifest['digest']} output={output}"
+	)
+
+
+@acquisition_app.command("select")
+def acquisition_select_command(
+	manifest: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	by: Annotated[str, typer.Option(help="queries or tokens")],
+	budget: Annotated[int, typer.Option(min=1)],
+	seed: Annotated[int, typer.Option()],
+	include_unaccepted: Annotated[
+		bool, typer.Option(help="Also draw rows whose quality status is not accepted.")
+	] = False,
+	require_ledgers: Annotated[
+		bool, typer.Option(help="Fail when a ledger file is missing instead of skipping its check.")
+	] = False,
+	output: Annotated[Path | None, typer.Option(help="Also write the selection here.")] = None,
+) -> None:
+	"""Select example IDs for an equal-query or equal-delivered-token budget, by seed."""
+	from distillation.acquisition_manifest import ManifestError, load_manifest, select_rows
+
+	if by not in ("queries", "tokens"):
+		raise typer.BadParameter("--by must be queries or tokens")
+	try:
+		selection = select_rows(
+			load_manifest(manifest, require_ledgers=require_ledgers),
+			by="queries" if by == "queries" else "tokens",
+			budget=budget,
+			seed=seed,
+			include_unaccepted=include_unaccepted,
+		)
+	except ManifestError as error:
+		raise typer.BadParameter(str(error)) from error
+	text = json.dumps(selection, indent="\t")
+	if output is not None:
+		output.write_text(text + "\n")
+	typer.echo(text)
 
 
 @tasks_app.command("build")
