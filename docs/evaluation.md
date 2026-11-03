@@ -124,6 +124,20 @@ Summary requires all planned scores and writes `summary.json`. It reports per-se
 
 The optional runner uses the [Qwen3.5 text-only model class](https://huggingface.co/docs/transformers/en/model_doc/qwen3_5) and follows the [TRL SFT prompt/completion contract](https://huggingface.co/docs/trl/main/sft_trainer). Record and qualify the installed training-library versions on the GPU host before treating its scores as experimental evidence.
 
+### Student transfer metrics
+
+`distillation.transfer_metrics` computes the student-capability metrics from per-item correctness without any model, and `distill learning-curve transfer --results FILE` prints the same report. The input maps each role (`teacher`, `base`, `clean`, `defended`) to task families and each family to a list of correctness flags; every role must list the same families with the same item count, so items are paired by position. A top-level `{"runs": {seed: ...}}` supplies several training seeds.
+
+Report the raw accuracies first, overall and per task family: `A_T`, `A_B`, `A_C` (student trained on clean teacher outputs) and `A_D` (student trained on protected outputs). Normalized transfer is `R_C = (A_C - A_B) / (A_T - A_B)` and `R_D = (A_D - A_B) / (A_T - A_B)`. Transfer suppression is `S = 1 - (A_D - A_B) / (A_C - A_B)`. Nothing is clipped: negative `S`, `R` above 1 and students beating the teacher are valid outcomes.
+
+A ratio is reported only when its denominator is convincing; otherwise the value is null with a reason. `R_C` and `R_D` need a teacher-base headroom whose interval excludes zero and which is at least `min_headroom` (default 0.10). `S` needs a clean gain whose interval excludes zero and which is at least `min_clean_gain` (default 0.05). Accuracies and thresholds are fractions.
+
+Intervals are percentile bootstraps that resample task families with replacement, keeping each family's items together and the four roles paired, so the uncertainty of the denominators propagates into `R` and `S`. Replicates with a non-positive denominator are left out of that ratio's interval and the count used is reported. The bootstrap is seeded and deterministic, and treats families, not items, as the independent units. Accuracy pools items by default; `weighting="family"` gives each family equal weight.
+
+Training seeds are not part of the bootstrap. With several seeds the report gives one bootstrap per seed plus the spread (values, mean, min, max, standard deviation) of the per-seed point estimates, separately. A single seed is labelled development evidence.
+
+The candidate defense meets the target if `A_C - A_D >= min_effect` (default 0.05) or `S >= min_suppression_fraction` (default 0.25). Both thresholds are preregistered study choices passed explicitly, never inferred from data; the report gives the interval of each quantity and also whether the target is met at the interval's lower bound.
+
 ### Development-only shadow evidence study
 
 The opt-in session, novelty, public-corpus, cluster and fusion commands are described in `docs/harness.md`. Their output is telemetry only. No new signal changes a policy level, action, response or budget. Keep fitting, score-calibration, policy-development and locked benign-test roles source-disjoint. `evidence-calibrate` checks the score file against the calibration's recorded role digest; this protects against accidentally using a different role, but cannot certify that the operator originally supplied independent source roles.

@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -75,3 +75,36 @@ def index(
 	except ValueError as error:
 		raise typer.BadParameter(str(error)) from error
 	typer.echo(f"{results}: {len(rows)} student rows for {output}")
+
+
+@app.command("transfer")
+def transfer(
+	results: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	min_headroom: float = 0.10,
+	min_clean_gain: float = 0.05,
+	min_effect: float = 0.05,
+	min_suppression_fraction: float = 0.25,
+	replicates: int = 2000,
+	seed: int = 42,
+) -> None:
+	"""Report transfer metrics from per-item correctness (role -> family -> flags)."""
+	from distillation.transfer_metrics import transfer_report, transfer_report_seeds
+
+	options: dict[str, Any] = {
+		"min_headroom": min_headroom,
+		"min_clean_gain": min_clean_gain,
+		"min_effect": min_effect,
+		"min_suppression_fraction": min_suppression_fraction,
+		"replicates": replicates,
+		"seed": seed,
+	}
+	try:
+		data = json.loads(results.read_text())
+		report = (
+			transfer_report_seeds(data["runs"], **options)
+			if set(data) == {"runs"}
+			else transfer_report(data, **options)
+		)
+	except (ValueError, KeyError, TypeError) as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(json.dumps(report, indent="\t"))
