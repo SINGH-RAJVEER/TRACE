@@ -69,9 +69,9 @@ The code default is 6,000 HTTP attempts, split evenly into 1,500 prompts per dom
 
 ---
 
-# Proposed improvements from `research/`
+# Proposed improvements from the earlier `research/` notes
 
-Every proposal from the research report "Build defenses around acquired model capability" (cutoff 2026-10-31) and its three notes: `frontier-practice.md`, `detection-research.md` and `output-architecture.md`. The `research/` directory was removed after this list was completed; it is present in git history at commit `5da3d98d`, including the full annotated source register. Each item cites the report section or note it came from. The research describes designs, not measured improvements. Source IDs used below are listed with links in "Sources cited" at the end.
+Every proposal from the research report "Build defenses around acquired model capability" (cutoff 2026-10-31) and its three notes: `frontier-practice.md`, `detection-research.md` and `output-architecture.md`. That earlier `research/` directory was removed after this list was completed (the current `research/` folder is unrelated and covered by the research plan below); it is present in git history at commit `5da3d98d`, including the full annotated source register. Each item cites the report section or note it came from. The research describes designs, not measured improvements. Source IDs used below are listed with links in "Sources cited" at the end.
 
 Items already present in the repository are checked, with a pointer to where. Items that are partly present stay unchecked, and their note says what is missing. The research was written against commit `43464d2e` and refers to paths such as `legacy/packages/distillation/src/distillation/gateway_study.py` that no longer exist in this checkout.
 
@@ -345,6 +345,172 @@ Report: "Resource planning should narrow the study before buying compute"; `outp
 - [ ] Phase D, 2 or more weeks: held-out simultaneous benign and attack runs, deployment shadow measurements and appeals review.
 - [ ] Select policies offline on development data, then train students only for the strongest baselines and the final candidate. Use early checkpoints to decide whether a larger campaign is informative. Never use early final-test student results to select the policy.
 - [ ] Benchmark training on the actual hardware rather than assuming that a 24 GB or 80 GB card fits a configuration.
+
+# Research plan from `research/` (2026-11-03)
+
+Every proposal in `research/ANTI_DISTILLATION_RESEARCH.md` and its three notes, `research/notes/detection.md`, `research/notes/defenses.md` and `research/notes/repository_and_evaluation.md`, arranged in the order the research says to run them. The research describes designs and hypotheses, not measured TRACE results; the numbers it quotes are published paper results. Proposed thresholds (a 10-point headroom gate, a 5-point or 25% suppression target, a 2-point legitimate-loss budget, window sizes 32, 64 and 128) are starting choices to preregister, not established values.
+
+Phases 0 to 3 are the single-GPU pilot, about three to seven days once throughput is measured. Phases 4 and 5 are CPU work on the detector and can run alongside. Phase 6 integrates only what passed. Phase 7 is the conditional second week. Phase 8 holds lower-priority arms.
+
+## 23. Phase 0: confirm the hardware and the task (day 1)
+
+Source: "Serialize model work and measure the actual machine"; `repository_and_evaluation.md` day 1.
+
+- [ ] Confirm the GPU model, VRAM, driver and training-library versions. `nvidia-smi` exited 139 during the research, so nothing is known yet. Do not assume a card from its marketing name or from `estimated_gpu_hours`, which is planning metadata tested by a CPU fixture.
+- [ ] Run a short throughput and peak-memory pilot for the teacher and the student at realistic context lengths before committing to 1,000 full examples.
+- [ ] Pick one objective task: GSM8K-style numeric reasoning first, coding with sandboxed tests second. AG News qualifies plumbing only.
+- [ ] Pin a student of about 2B parameters (the existing Qwen3.5-2B-Base) and a fresh source family that no earlier study has examined.
+- [ ] Evaluate the frozen base and the teacher on the same 300 to 500 held-out problems for development, and reserve a separate confirmatory set.
+- [ ] Continue only if the teacher beats the base by a preregistered margin, proposed 10 points, with an interval that excludes zero. Otherwise change the domain or the base.
+
+Done when the machine, the task, the student and the teacher-base headroom are recorded.
+
+## 24. Phase 1: show that clean distillation works (days 1 to 3)
+
+Source: "First establish that the chosen student can learn"; `repository_and_evaluation.md` days 1 to 3; `defenses.md` "What should TRACE actually test first?" step 1.
+
+- [ ] Version a math (and later coding) learning-curve recipe with answer parsing, evaluation and generation lengths suited to the task. The current runner is AG News only, assumes a model class, uses a 16-token evaluation limit and rejects overlength examples.
+- [ ] Use BF16 LoRA if it fits. If not, implement QLoRA as a new option and qualify it against a clean-transfer baseline; four-bit loading is not an existing flag.
+- [ ] Version artifact manifests so every acquired example records provenance, prompt identity, response policy, delivered tokens and model revision.
+- [ ] Collect about 1,000 fresh teacher responses once, freeze generation settings, source families and token counts, and cache them privately. Optionally collect 1,000 matched benign sessions.
+- [ ] Serialize GPU work: cache teacher answers, generate protected variants, unload the teacher, train, evaluate. Never serve the teacher and train the student at the same time.
+- [ ] Train from the same pinned base on 300 and 1,000 clean examples and check that the gain repeats.
+- [ ] Add a gold-answer or trusted-data student as a diagnostic that the recipe can learn the task at all.
+- [ ] If clean training gives no reproducible gain, stop and fix the learning experiment. An incapable student makes every defense look effective.
+- [ ] Report raw teacher, base, clean-student and protected-student accuracies (A_T, A_B, A_C, A_D) first, with per-task values.
+- [ ] Report R_C and R_D (share of teacher headroom recovered) only when headroom is positive and stable, and suppression S = 1 - (A_D - A_B)/(A_C - A_B) only when clean gain is convincingly positive. Otherwise mark them undefined. Never clip to [0, 1].
+- [ ] Propagate denominator uncertainty with paired task-family resampling, and report training-seed variability separately. One seed is development evidence only.
+
+Done when a clean student shows a reproducible gain over the base on held-out problems.
+
+## 25. Phase 2: screen output defenses (days 3 to 5)
+
+Source: "Dense rewriting is the first output experiment worth running"; `defenses.md` takeaway and inferences.
+
+- [ ] Implement dense formal rewriting with the published instruction (Trace Rewriting, Appendix A.2 and E.3), reusing the same loaded teacher to rewrite its own cached clean draft. Skip the paper's prompt optimization at first.
+- [ ] Run a paper-style condition first, then a stricter variant that locks the extracted final answer and rewrites only the explanation. Check answer equality and task validity before release, and report the stricter variant as a departure from the paper.
+- [ ] Compare against a compact verified solution, final-answer-only output and ordinary paraphrasing, all from the same underlying questions.
+- [ ] Keep the response-policy decision independent of training labels.
+- [ ] Measure final-answer correctness, explanation usefulness, released tokens, latency and student gain for every arm. Rewriting can lengthen responses.
+- [ ] Record the rewriter's cost, and do not use a rewriter the GPU cannot serve in the default defense.
+- [ ] Define a fallback for failed rewrites and include it in both learning and utility measurements. Silently releasing the clean draft defeats the defense exactly when it fails.
+- [ ] Treat "protect only flagged accounts" and "protect everyone" as separate arms with separate legitimate-cost measurements.
+- [ ] Screen with one seed; carry only promising arms forward.
+
+Done when each output arm has a one-seed student result, a released-token count and a utility measurement.
+
+## 26. Phase 3: adaptive attackers and controls (days 5 to 7)
+
+Source: "Use controls that can disprove the proposed mechanism"; "Recent adaptive work argues against declaring victory early"; `repository_and_evaluation.md` days 3 to 7 and "Minimum adversarial controls".
+
+- [ ] Train adaptive students on final-answer extraction, cleaned or simplified explanations, paraphrased protected outputs, and protected outputs with high-loss-token filtering or loss clipping.
+- [ ] Add an attacker that asks the teacher directly for concise correct solutions.
+- [ ] If budget allows, add an attacker that reconstructs explanations with its own pretrained model, and a stronger student in a second stage.
+- [ ] Fix attacker compute for the main comparison; declare any expanded-compute attack as a separate extension.
+- [ ] Run both budget comparisons. Equal-query fixes the questions and lets output lengths differ. Equal-token fixes total delivered supervision tokens and lets a short-output arm's attacker take more distinct examples, with the extra queries, money and time recorded. Equal optimizer steps do not equalize information.
+- [ ] Add clean students matched on query count and on released tokens, plus clean truncated and subsampled controls, so a defense is not credited for simply delivering fewer tokens.
+- [ ] Add a quota baseline, and a request-plus-token quota, set to the same legitimate task-success loss as the candidate.
+- [ ] For a query gate, run the detector offline on fixed streams and train on the examples it actually accepted.
+- [ ] Repeat surviving comparisons with three seeds and paired task-family resampling.
+- [ ] Hold out an entire attacker family during detector fitting.
+- [ ] If a candidate fails these controls, record the negative result and stop tuning it on the test set.
+
+Done when each surviving candidate has three-seed results against the strongest affordable adaptive attacker and matched controls.
+
+## 27. Phase 4: behavioral detector features (CPU, in parallel)
+
+Source: "TRACE already contains more than a query cap"; "Test collection structure against legitimate lookalikes"; `detection.md` "Which lightweight signals could distinguish harvesting beyond request volume?".
+
+- [ ] Do not flip MMD to the lower tail. The stored v4 audit shows A1 looks less unusual than the specialist-heavy null; a lower-tail test would flag legitimate broad batches.
+- [ ] Freeze the encoder, task taxonomy, domain mapping, normalization, window schedule and feature-model parameters before calibration.
+- [ ] Extend `packages/harness/src/harness/signals.py` with collection-structure features, each treated as a hypothesis:
+	- domain-conditioned coverage, both unusually narrow and unusually broad, never broad coverage alone;
+	- follow-ups that depend on the previous answer, local edits, repeated sampling of the same problem, systematic variation of one problem dimension, topic transitions;
+	- a fixed template with changing content, after masking identifiers, numbers and boilerplate;
+	- sustained requests for worked solutions, multiple alternatives, exhaustive examples, labels or token probabilities where exposed.
+- [ ] Add the coverage feature g_t = log(1 + v_t' A_t^-1 v_t) on a fixed 64-dimensional projection, with a Sherman-Morrison update. Compare it at matched domain and prefix length; cumulative log-determinant alone recreates a volume threshold. Keep nearest-neighbor novelty as the baseline; the new feature stays only if it improves held-out separation.
+- [ ] Use a ridge-logistic model or a hand-specified score first, and use `packages/harness/src/harness/separation.py` as the feasibility gate.
+- [ ] Pilot fixed windows of 32, 64 and 128 requests with predetermined look points, and include every window and look in calibration.
+- [ ] Fit and select on disjoint source families, accounts and time blocks, keeping related templates and an account's windows together.
+- [ ] Rerun the decisive comparison without count, rate, prompt source IDs and corpus-membership flags. A detector that needs them is a quota.
+- [ ] Declare how prompts longer than the 512-token encoder limit are handled instead of scoring prefixes as complete requests.
+- [ ] Use cross-account overlap only with authenticated organization linkage, never shared IPs or common public prompts, and calibrate the grouping procedure itself, including switching and missing metadata.
+- [ ] Measure CPU latency of the features, including tokenization and encoding.
+- [ ] Build matched benign populations: educators producing worked solutions, evaluation teams, coding CI agents, translation services and enterprise batch jobs matching attacker domain, source, length, mixture, volume and rate.
+- [ ] Test adaptive collection: topic-sorted extraction, conversational wrappers, paraphrasing, low-and-slow collection, benign padding and Sybil splitting. Attacker success means the outputs still train a useful student.
+- [ ] Run the exact matched-observable control: identical prompts, timestamps, metadata and history, one copy assigned legitimate use and one later training. Scores must match; any difference is leakage.
+- [ ] Keep `packages/harness/src/harness/fusion.py` as unqualified shadow evidence until its full decision path passes calibration.
+
+Done when the extended features either separate matched traffic on held-out sources without count and rate, or are recorded as failing.
+
+## 28. Phase 5: whole-campaign calibration and audit
+
+Source: "A complete-path rank gives an honest finite-horizon guarantee"; "Betting is valid only when the conditional null is valid"; `detection.md` "How should sequential evidence, stopping and false-positive claims be implemented?".
+
+- [ ] Declare the campaign unit and horizon before seeing test scores, such as an authenticated organization-day or a fixed session horizon H. The horizon defines the error claim; it need not deny service when reached.
+- [ ] Split source families, accounts and time into fitting, method selection, policy calibration and final audit roles.
+- [ ] For each benign calibration campaign, record the maximum frozen score over its whole permitted path, including every detector, scale and action-triggering score after fixed transformations.
+- [ ] At runtime keep the running maximum and stop at the first conservative rank p* = (1 + #{M_i >= m_t}) / (n + 1) at or below alpha. This bounds the chance of any benign stop within the horizon by alpha under exchangeability of benign campaigns.
+- [ ] Use at least 99 calibration campaigns for a 1% level and 999 for 0.1%. Abstain from statistical stops in strata with too few campaigns; report their non-statistical handling separately.
+- [ ] Never claim a pooled guarantee for a sparse specialist stratum.
+- [ ] Predeclare alert and refusal thresholds separately. Start with shadow scoring and one terminal stop. Warnings, challenges, delays and output changes alter benign behavior, so validate any intermediate action with calibration that includes it.
+- [ ] Freeze stratum switching as part of the path. Unsupported traffic triggers abstention but cannot reset evidence or a durable stop.
+- [ ] Choose the error budget across periods: either an honest fixed organization-day rate, or alpha_j = alpha_total * 6 / (pi^2 j^2) with a union bound for a lifetime claim. Restarting full-alpha tests after resets spends extra error budget.
+- [ ] Do not treat `e_process` and `e_cusum` as anytime-valid for live turns until the equal-conditional-marginals condition is shown. Do not multiply transformed window ranks and call the result an e-process. Reserve betting for independent session units or a validated conditional model. (This qualifies the ticked item in section 12.)
+- [ ] After freezing the threshold, audit on independent benign campaigns: zero false stops in 299 campaigns bounds the rate below 1% at 95%, and 2,995 below 0.1%. Justify independence or enlarge the audit unit; overlapping windows from a few customers do not count.
+- [ ] Any retuning after an audit failure requires a fresh audit. Recalibrate whenever the horizon, look schedule, feature weights or response policy change.
+- [ ] Monitor drift in production and drop qualification explicitly when assumptions fail.
+
+Done when a frozen policy has a calibrated path-level false-stop bound and an independent audit result.
+
+## 29. Phase 6: integrate only what passed
+
+Source: "Integrate only the parts that pass their evidence gates"; `repository_and_evaluation.md` inferences.
+
+- [ ] Wire a qualified stop through `Policy.admit_in_transaction` in `packages/harness/src/harness/policy.py`, with immutable policy metadata.
+- [ ] Compute features outside the database write lock. Use a per-campaign ordered executor so the scored prefix is the actual one; keep only cheap state changes and reservations inside the transaction. Never hold SQLite write locks during encoding, generation or rewriting.
+- [ ] Make stops durable: a stopped account cannot clear the decision by changing context or reaching a new horizon. Persist state across restarts and deduplicate retries.
+- [ ] Decide on incoming prompts before teacher dispatch. A decision that uses the new answer must buffer it before release or affect only later requests.
+- [ ] Put output protection at the buffered generation boundary before release and settlement in `apps/harness-api/src/harness_api/app.py`. Record the exact released representation and reconcile admission, reservation and release events.
+- [ ] Keep clean drafts unreachable through streaming chunks, debug responses, tenant-visible logs, tool outputs, alternative endpoints and fallback paths.
+- [ ] Settle existing reservations correctly when policy changes during generation, and measure in-flight overshoot. Claim zero leakage only with concurrency evidence.
+- [ ] Keep `off_path` scoring incompatible with durable accounting rather than bypassing it.
+- [ ] Take primary release metrics from the authoritative ledger, since the event log does not record admission for every attempt.
+
+Done when the qualified stop and output arm run through the real gateway with ledger-backed release accounting.
+
+## 30. Phase 7: confirmation (conditional second week)
+
+Source: "Serialize model work and measure the actual machine"; `repository_and_evaluation.md` days 8 to 14.
+
+- [ ] Add a fresh confirmatory partition and a second task family (coding with sandboxed tests, or a second math source).
+- [ ] Use five training seeds where variability is material and throughput permits. On a slower GPU, reduce scope rather than weaken claims.
+- [ ] Replay accounts and sessions through the real buffered gateway with concurrency and restart tests.
+- [ ] Train prefix students on outputs received before the first restriction, plus in-flight outputs released after it, to find when useful transfer begins relative to enforcement.
+- [ ] Report first alert, first challenged admission, first withheld response and durable refusal separately, and detector refusals separately from quotas, attempt caps, rate limits and upstream failure. Count delayed answers in eventual acquisition if the client receives them.
+- [ ] For legitimate users, report the probability of any unjustified intervention per complete horizon, restricted responses, task completion, explanation adequacy, delivered-token cost, challenge burden and p50/p95 latency, by role, domain, language and workload where evidence supports it.
+- [ ] Get independent human judgments of explanation quality when explanations are part of the product; final-answer accuracy cannot certify it.
+- [ ] Optimize against the study objective: minimize the strongest tested attacker's gain subject to legitimate utility within epsilon of the clean service.
+- [ ] Preregister the minimum useful effect (proposed 5 points or 25% of clean gain) and the legitimate-loss budget (proposed 2 points overall plus explicit specialist limits) before seeing results.
+- [ ] Evaluate rewriting and detection separately before any combination, so a combined result does not hide which mechanism works.
+- [ ] Write the success statement with the task, teacher and student revisions, attack family, acquired-token budget, legitimate utility loss and interval, and state whether interruption preceded useful transfer or always-on protection suppressed learning under adaptive use. Never claim TRACE infers training intent.
+
+Abandon or narrow:
+
+- [ ] the detector, if source and count matching removes its advantage, matched benign automation is restricted at comparable rates, or a useful student exists before the first stop;
+- [ ] the output defense, if equal-token, final-answer, simplification, paraphrasing or robust-loss attackers recover the clean gain at comparable cost;
+- [ ] and if neither separation nor an acceptable output change exists, report that prevention is unattainable for that threat model as a measured boundary, not a renamed quota. Describe explanation loss as a product tradeoff, not free protection.
+
+## 31. Phase 8: lower-priority arms
+
+Source: "Recent adaptive work argues against declaring victory early"; `defenses.md` "What do the newest attacks and defenses change about the recommendation?".
+
+- [ ] Lossless Anti-Distillation Sampling as a separate multi-account ablation only: one account, redundant paraphrase collection across accounts, broad unique queries, greedy decoding and counter-desynchronized collection. Check scoped pseudorandom streams, deterministic buckets, atomic counters and seed behavior under batching, retries and replicas. Do not use its inconsistent headline number.
+- [ ] Antidistillation Sampling and DOGe as later comparisons once a clean-transfer baseline exists; both need logits or teacher-head training and face attackers that ignore harmful tokens.
+- [ ] BLADE-style Unicode perturbation only as a stress test, with OCR reconstruction as the attack; it harms parsing, accessibility and code.
+- [ ] Knowledge Honeypot only as an active-extraction experiment where the attacker follows the defender's suggestions; its suspicion features include session progression, so it is not an independent intent test.
+- [ ] Watermark Basins for post-training attribution only, not prevention; re-evaluate power for any reference bank smaller than the published one (about 450 GPU-hours).
+- [ ] Test whether answer-only coding solutions and correct labels still train students well; shorter output is not automatically safer.
 
 ## Sources cited
 
