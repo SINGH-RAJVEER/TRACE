@@ -207,20 +207,24 @@ def test_cli_plan(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
 def test_math_curve(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
 	from distillation.learning_curve import math_family, plan_math_curve
 	from distillation.results_index import student_rows
+	from distillation.tasks import GSM8K_EVAL_SUFFIX
 
 	dev, _, suite_path = inputs
 	rows = [json.loads(line) for line in dev.read_text().splitlines()[:4]]
 	for i, row in enumerate(rows):
 		row["task"] = "gsm8k"
 		row["source"]["group_id"] = math_family(f"training {i}")
-		row["prompt"][0]["content"] = f"training {i}"
+		row["prompt"][0]["content"] = f"training {i}{GSM8K_EVAL_SUFFIX}"
 		row["completion"][0]["content"] = "work\n#### 2"
 	ledger = tmp_path / "math.jsonl"
 	ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
 	gold = tmp_path / "gold.jsonl"
 	gold.write_text(
 		"".join(
-			json.dumps({"example_id": row["example_id"], "completion": "gold\n#### 2"}) + "\n"
+			json.dumps(
+				{"example_id": row["example_id"], "completion": f"gold {row['example_id']}\n#### 2"}
+			)
+			+ "\n"
 			for row in rows
 		)
 	)
@@ -268,15 +272,28 @@ def test_math_curve(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
 	teacher = json.loads((output / "subset-2.json").read_text())
 	gold_rows = json.loads((output / "gold-subset-2.json").read_text())
 	assert [r["example_id"] for r in teacher] == [r["example_id"] for r in gold_rows]
-	assert all(r["sft"]["completion"][0]["content"].startswith("gold") for r in gold_rows)
+	assert all(
+		r["sft"]["completion"][0]["content"] == f"gold {r['example_id']}\n#### 2" for r in gold_rows
+	)
 	calls: list[str] = []
 
 	def runner(path: Path, recipe: dict[str, Any], n: int | None, seed: int) -> dict[str, Any]:
 		calls.append(recipe.get("_arm", "teacher"))
 		return {"test0": int(n is not None), "test1": 0}
 
-	assert execute_curve(output, runner) == {"completed": 9, "skipped": 0}
-	assert calls.count("gold") == 4
+	def too_long(path: Path, recipe: dict[str, Any], files: list[str]) -> None:
+		calls.append("preflight:" + ",".join(files))
+		raise ValueError("training response would be truncated")
+
+	with pytest.raises(ValueError, match="truncated"):
+		execute_curve(output, runner, too_long)
+	assert calls == ["preflight:subset-4.json,gold-subset-4.json"]
+	calls.clear()
+	assert execute_curve(output, runner, lambda *args: calls.append("preflight")) == {
+		"completed": 9,
+		"skipped": 0,
+	}
+	assert calls[0] == "preflight" and calls.count("gold") == 4
 	assert execute_curve(output, runner) == {"completed": 0, "skipped": 9}
 	summary = summarize_curve(output, replicates=100)
 	assert len(summary["gold_results"]) == 2
@@ -287,3 +304,9 @@ def test_math_curve(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
 	ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
 	with pytest.raises(ValueError, match="source family"):
 		plan_math_curve(tmp_path / "overlap", ledger, math_suite, sizes=(2,))
+	# An evaluation question in another wrapper, without group_id, is refused by template.
+	del rows[0]["source"]["group_id"]
+	rows[0]["prompt"][0]["content"] = "Question: evaluation 0\nAnswer with a number."
+	ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
+	with pytest.raises(ValueError, match="task builder template"):
+		plan_math_curve(tmp_path / "wrapped", ledger, math_suite, sizes=(2,))

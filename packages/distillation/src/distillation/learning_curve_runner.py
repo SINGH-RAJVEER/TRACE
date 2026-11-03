@@ -11,6 +11,56 @@ from distillation.benchmarks.models import BenchmarkItem
 from distillation.benchmarks.scoring import evaluate_answer
 
 
+def render_rows(
+	tokenizer: Any, rows: list[dict[str, Any]], max_length: int
+) -> list[dict[str, str]]:
+	"""Render SFT rows exactly as training does, refusing any that the recipe would truncate."""
+	rendered = []
+	for row in rows:
+		sft = row["sft"]
+		prompt = tokenizer.apply_chat_template(
+			sft["prompt"],
+			tokenize=False,
+			add_generation_prompt=True,
+			enable_thinking=False,
+		)
+		full = tokenizer.apply_chat_template(
+			sft["prompt"] + sft["completion"],
+			tokenize=False,
+			add_generation_prompt=False,
+			enable_thinking=False,
+		)
+		if not full.startswith(prompt):
+			raise ValueError("chat template does not preserve the generation prefix")
+		if len(tokenizer(full)["input_ids"]) > max_length:
+			raise ValueError(
+				f"training response {row['example_id']} would be truncated by the frozen recipe"
+			)
+		rendered.append({"prompt": prompt, "completion": full[len(prompt) :]})
+	return rendered
+
+
+def preflight(output: Path, recipe: dict[str, Any], files: list[str]) -> None:
+	"""Check every training file against the length limit before any cell trains.
+
+	Loads only the pinned tokenizer, so it needs no GPU. Subsets are nested, so the largest
+	teacher and gold subsets cover every cell.
+	"""
+	import json
+
+	try:
+		tf = importlib.import_module("transformers")
+	except ImportError as error:
+		raise RuntimeError(
+			"the length preflight needs transformers in the uv environment"
+		) from error
+	tokenizer = tf.AutoTokenizer.from_pretrained(
+		recipe["tokenizer_model"], revision=recipe["tokenizer_revision"]
+	)
+	for name in files:
+		render_rows(tokenizer, json.loads((output / name).read_text()), recipe["max_length"])
+
+
 def run_cell(output: Path, recipe: dict[str, Any], n: int | None, seed: int) -> dict[str, Any]:
 	import json
 
@@ -49,26 +99,7 @@ def run_cell(output: Path, recipe: dict[str, Any], n: int | None, seed: int) -> 
 			if cell_dir.exists():
 				shutil.rmtree(cell_dir)
 			rows = json.loads((output / f"{prefix}subset-{n}.json").read_text())
-			rendered = []
-			for row in rows:
-				sft = row["sft"]
-				prompt = tokenizer.apply_chat_template(
-					sft["prompt"],
-					tokenize=False,
-					add_generation_prompt=True,
-					enable_thinking=False,
-				)
-				full = tokenizer.apply_chat_template(
-					sft["prompt"] + sft["completion"],
-					tokenize=False,
-					add_generation_prompt=False,
-					enable_thinking=False,
-				)
-				if not full.startswith(prompt):
-					raise ValueError("chat template does not preserve the generation prefix")
-				if len(tokenizer(full)["input_ids"]) > recipe["max_length"]:
-					raise ValueError("training response would be truncated by the frozen recipe")
-				rendered.append({"prompt": prompt, "completion": full[len(prompt) :]})
+			rendered = render_rows(tokenizer, rows, recipe["max_length"])
 			data = datasets.Dataset.from_list(rendered)
 			adapter = peft.LoraConfig(
 				r=recipe["lora_rank"],

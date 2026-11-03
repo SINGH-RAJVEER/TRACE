@@ -185,16 +185,30 @@ def validate_scores(scores: dict[str, Any], ids: set[str]) -> None:
 def execute_curve(
 	output: Path,
 	runner: Callable[[Path, dict[str, Any], int | None, int], dict[str, Any]] | None = None,
+	preflight: Callable[[Path, dict[str, Any], list[str]], None] | None = None,
 ) -> dict[str, int]:
-	"""A committed score file marks completion; interrupted cells restart training."""
+	"""A committed score file marks completion; interrupted cells restart training.
+
+	A math plan checks the largest teacher and gold subsets against the length limit before
+	any cell trains, so an overlong example never surfaces after other cells finished. With a
+	custom runner and no preflight, the check is skipped.
+	"""
 	if runner is None:
+		from distillation.learning_curve_runner import preflight as check_lengths
 		from distillation.learning_curve_runner import run_cell
 
 		runner = run_cell
+		preflight = preflight or check_lengths
 	plan = load_plan(output)
 	contract = digest(output / "plan.json")
 	ids = {i["id"] for i in json.loads((output / "suite.json").read_text())}
 	completed = skipped = 0
+	if preflight is not None and plan["version"] == "math-learning-curve-v1":
+		largest = max(plan["sizes"])
+		files = [f"subset-{largest}.json"]
+		if any(c.get("arm") == "gold" for c in plan["cells"]):
+			files.append(f"gold-subset-{largest}.json")
+		preflight(output, plan["recipe"], files)
 	for cell in [{"n": None, "seed": plan["seeds"][0]}, *plan["cells"]]:
 		n, seed = cell["n"], cell["seed"]
 		arm = cell.get("arm", "teacher")
@@ -348,7 +362,7 @@ def plan_math_curve(
 	fraction: float = 0.8,
 ) -> dict[str, Any]:
 	"""Freeze nested GSM8K subsets and optional matched gold completions."""
-	from distillation.tasks import GoldRecord
+	from distillation.tasks import GSM8K_EVAL_SUFFIX, GoldRecord
 
 	if output.exists():
 		raise ValueError("plan output must be a new directory")
@@ -386,6 +400,13 @@ def plan_math_curve(
 			continue
 		prompt = [m.model_dump(mode="json") for m in record.prompt]
 		question = next((m.content for m in record.prompt if m.role == "user"), "")
+		# Reconstructing the builder key is exact only for the builder's own template; another
+		# wrapper around an evaluation question would hash differently and slip through.
+		if not question.endswith(GSM8K_EVAL_SUFFIX):
+			raise ValueError(
+				f"math prompt {record.example_id} does not use the task builder template, "
+				"so its question key cannot be checked against the evaluation suite"
+			)
 		family = record.source.group_id or math_family(question)
 		if (
 			record.example_id in eval_ids
