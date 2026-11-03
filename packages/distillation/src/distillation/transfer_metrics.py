@@ -11,22 +11,25 @@ import math
 import random
 import statistics
 from collections.abc import Mapping, Sequence
+from fractions import Fraction
 from typing import Any, Literal
 
 ROLES = ("teacher", "base", "clean", "defended")
 Correct = Mapping[str, Mapping[str, Sequence[bool]]]
 Weighting = Literal["item", "family"]
 SINGLE_SEED = "Development evidence: a single training seed."
-# Accuracy differences are float sums, so 0.9 - 0.8 lands just below 0.1. Inclusive
-# thresholds compare with this slack, far below any one-item change in accuracy.
-TOLERANCE = 1e-9
 
 
-def _at_least(value: float, minimum: float) -> bool:
-	return value >= minimum - TOLERANCE
+def _decimal(value: float) -> Fraction:
+	"""A threshold as written, so 0.10 is exactly one tenth rather than its binary neighbor."""
+	return Fraction(str(value))
 
 
-def _bounds(samples: list[float]) -> list[float]:
+def _floats(values: list[Fraction]) -> list[float]:
+	return [float(v) for v in values]
+
+
+def _bounds(samples: list[Fraction]) -> list[Fraction]:
 	"""Percentile 95% bounds, indexed as in evaluation_protocol.cluster_interval."""
 	samples = sorted(samples)
 	n = len(samples)
@@ -57,11 +60,11 @@ def _validate(correct: Correct) -> list[str]:
 	return families
 
 
-def _ratio(numerator: float, denominator: float) -> float | None:
+def _ratio(numerator: Fraction, denominator: Fraction) -> Fraction | None:
 	return numerator / denominator if denominator > 0 else None
 
 
-def _derive(a: dict[str, float]) -> dict[str, Any]:
+def _derive(a: dict[str, Fraction]) -> dict[str, Any]:
 	"""Differences and ratios from four accuracies; ratios are None when the denominator <= 0."""
 	headroom = a["teacher"] - a["base"]
 	clean_gain = a["clean"] - a["base"]
@@ -78,18 +81,20 @@ def _derive(a: dict[str, float]) -> dict[str, Any]:
 	}
 
 
-def _gate(estimate: float, interval: list[float], minimum: float, what: str) -> dict[str, Any]:
+def _gate(
+	estimate: Fraction, interval: list[Fraction], minimum: float, what: str
+) -> dict[str, Any]:
 	"""A denominator is usable only when its interval excludes zero and it meets the minimum."""
 	reason = None
 	if interval[0] <= 0 <= interval[1]:
 		reason = f"{what} interval includes zero"
 	elif estimate <= 0:
 		reason = f"{what} is not positive"
-	elif not _at_least(estimate, minimum):
-		reason = f"{what} {estimate:.4f} is below the minimum {minimum}"
+	elif estimate < _decimal(minimum):
+		reason = f"{what} {float(estimate):.4f} is below the minimum {minimum}"
 	return {
-		"estimate": estimate,
-		"interval": interval,
+		"estimate": float(estimate),
+		"interval": _floats(interval),
 		"minimum": minimum,
 		"usable": not reason,
 		"reason": reason,
@@ -97,13 +102,13 @@ def _gate(estimate: float, interval: list[float], minimum: float, what: str) -> 
 
 
 def _quantity(
-	point: float | None, draws: list[float], gate: dict[str, Any], replicates: int
+	point: Fraction | None, draws: list[Fraction], gate: dict[str, Any], replicates: int
 ) -> dict[str, Any]:
 	if not gate["usable"] or point is None:
 		return {"value": None, "interval": None, "reason": gate["reason"] or "undefined"}
 	return {
-		"value": point,
-		"interval": _bounds(draws),
+		"value": float(point),
+		"interval": _floats(_bounds(draws)),
 		"replicates_used": len(draws),
 		"replicates": replicates,
 		"reason": None,
@@ -129,6 +134,8 @@ def transfer_report(
 	default) or "family" (each family counts equally). Nothing is clipped. A ratio is None with
 	a reason unless its denominator interval excludes zero and meets the declared minimum;
 	bootstrap replicates with a non-positive denominator are left out of that ratio's interval.
+	Accuracies, differences and ratios are exact fractions and thresholds are read as written,
+	so boundaries and zero are compared exactly; values are converted to floats for output.
 	"""
 	if replicates < 100:
 		raise ValueError("need at least 100 bootstrap replicates")
@@ -140,24 +147,25 @@ def transfer_report(
 	families = _validate(correct)
 	sizes = [len(correct["teacher"][f]) for f in families]
 	if weighting == "item":
-		numerators = {r: [float(sum(correct[r][f])) for f in families] for r in ROLES}
-		weights = [float(n) for n in sizes]
+		numerators = {r: [Fraction(sum(correct[r][f])) for f in families] for r in ROLES}
+		weights = [Fraction(n) for n in sizes]
 	else:
 		numerators = {
-			r: [sum(correct[r][f]) / n for f, n in zip(families, sizes, strict=True)] for r in ROLES
+			r: [Fraction(sum(correct[r][f]), n) for f, n in zip(families, sizes, strict=True)]
+			for r in ROLES
 		}
-		weights = [1.0] * len(families)
+		weights = [Fraction(1)] * len(families)
 
-	def accuracies(indices: Sequence[int]) -> dict[str, float]:
-		total = sum(weights[i] for i in indices)
-		return {r: sum(numerators[r][i] for i in indices) / total for r in ROLES}
+	def accuracies(indices: Sequence[int]) -> dict[str, Fraction]:
+		total = sum((weights[i] for i in indices), Fraction(0))
+		return {r: sum((numerators[r][i] for i in indices), Fraction(0)) / total for r in ROLES}
 
 	everything = list(range(len(families)))
 	point_acc = accuracies(everything)
 	point = _derive(point_acc)
 	rng = random.Random(seed)
-	draws_acc: dict[str, list[float]] = {r: [] for r in ROLES}
-	draws: dict[str, list[float]] = {}
+	draws_acc: dict[str, list[Fraction]] = {r: [] for r in ROLES}
+	draws: dict[str, list[Fraction]] = {}
 	for _ in range(replicates):
 		acc = accuracies(rng.choices(everything, k=len(everything)))
 		for role in ROLES:
@@ -173,7 +181,7 @@ def transfer_report(
 		point["clean_gain"], _bounds(draws["clean_gain"]), min_clean_gain, "clean gain"
 	)
 
-	def get(key: str) -> list[float]:
+	def get(key: str) -> list[Fraction]:
 		return draws.get(key, [])
 
 	transfer = {
@@ -183,18 +191,13 @@ def transfer_report(
 	suppression = _quantity(point["suppression"], get("suppression"), clean_gain, replicates)
 	effect = point["effect"]
 	effect_interval = _bounds(get("effect"))
-	fraction_met = (
-		None
-		if suppression["value"] is None
-		else _at_least(suppression["value"], min_suppression_fraction)
-	)
-	fraction_lower = (
-		None
-		if suppression["value"] is None
-		else _at_least(suppression["interval"][0], min_suppression_fraction)
-	)
-	effect_met = _at_least(effect, min_effect)
-	effect_lower = _at_least(effect_interval[0], min_effect)
+	fraction_met = fraction_lower = None
+	if suppression["value"] is not None:
+		fraction = _decimal(min_suppression_fraction)
+		fraction_met = point["suppression"] >= fraction
+		fraction_lower = _bounds(get("suppression"))[0] >= fraction
+	effect_met = effect >= _decimal(min_effect)
+	effect_lower = effect_interval[0] >= _decimal(min_effect)
 	by_family = {
 		f: {"items": n, **{r: sum(correct[r][f]) / n for r in ROLES}}
 		for f, n in zip(families, sizes, strict=True)
@@ -205,8 +208,8 @@ def transfer_report(
 		"families": len(families),
 		"items": sum(sizes),
 		"raw": {
-			"overall": point_acc,
-			"overall_interval": {r: _bounds(draws_acc[r]) for r in ROLES},
+			"overall": {r: float(point_acc[r]) for r in ROLES},
+			"overall_interval": {r: _floats(_bounds(draws_acc[r])) for r in ROLES},
 			"by_family": by_family,
 		},
 		"headroom": headroom,
@@ -216,7 +219,10 @@ def transfer_report(
 		"decision": {
 			"min_effect": min_effect,
 			"min_suppression_fraction": min_suppression_fraction,
-			"clean_minus_defended": {"value": effect, "interval": effect_interval},
+			"clean_minus_defended": {
+				"value": float(effect),
+				"interval": _floats(effect_interval),
+			},
 			"effect_met": effect_met,
 			"suppression_met": fraction_met,
 			"meets_target": effect_met or bool(fraction_met),

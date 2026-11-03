@@ -108,6 +108,27 @@ def test_inclusive_thresholds_at_exact_boundaries() -> None:
 	assert at_fraction["decision"]["suppression_met"]
 
 
+def test_exact_zero_and_sub_item_gaps() -> None:
+	# Family weighting once left a floating 5.6e-17 lower bound that passed the zero gate.
+	def counts(teacher, base, clean, defended, sizes):
+		roles = {"teacher": teacher, "base": base, "clean": clean, "defended": defended}
+		return {
+			role: {f"f{i}": flags(k, n) for i, (k, n) in enumerate(zip(ks, sizes, strict=True))}
+			for role, ks in roles.items()
+		}
+
+	zero = counts([3, 3, 3, 2], [0, 0, 0, 3], [3] * 4, [2] * 4, [5] * 4)
+	for weighting in ("item", "family"):
+		report = transfer_report(zero, weighting=weighting)  # type: ignore[arg-type]
+		assert report["headroom"]["interval"][0] == 0
+		assert not report["headroom"]["usable"]
+	# The exact family-weighted effect is 0.04999999920009599, just below 0.05.
+	sizes = [25_000, 25_003]
+	near = counts(sizes, [0, 0], [15_000, 10_000], [4_167, 18_334], sizes)
+	decision = transfer_report(near, weighting="family", replicates=100)["decision"]
+	assert not decision["effect_met"] and not decision["meets_target"]
+
+
 def test_decision_rule() -> None:
 	large = transfer_report(uniform(90, 30, 70, 50, items=100))
 	assert large["decision"]["effect_met"] and large["decision"]["meets_target"]

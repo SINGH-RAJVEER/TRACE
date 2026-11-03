@@ -136,7 +136,7 @@ Intervals are percentile bootstraps that resample task families with replacement
 
 Training seeds are not part of the bootstrap. With several seeds the report gives one bootstrap per seed plus the spread (values, mean, min, max, standard deviation) of the per-seed point estimates, separately. A single seed is labelled development evidence.
 
-The candidate defense meets the target if `A_C - A_D >= min_effect` (default 0.05) or `S >= min_suppression_fraction` (default 0.25). Both thresholds are preregistered study choices passed explicitly, never inferred from data; the report gives the interval of each quantity and also whether the target is met at the interval's lower bound.
+The candidate defense meets the target if `A_C - A_D >= min_effect` (default 0.05) or `S >= min_suppression_fraction` (default 0.25). Both thresholds are preregistered study choices passed explicitly, never inferred from data; the report gives the interval of each quantity and also whether the target is met at the interval's lower bound. Accuracies, differences and ratios are computed as exact fractions and each threshold is read as written in decimal, so a result exactly at a threshold meets it, a zero interval endpoint counts as zero, and a result below a threshold by less than one item never passes.
 
 ### Development-only shadow evidence study
 
