@@ -350,7 +350,12 @@ def student_rows(output: Path, index_rows: list[dict[str, str]]) -> list[dict[st
 	summary = _json(output / "summary.json")
 	if plan is None or summary is None:
 		raise ValueError(f"{output} needs plan.json and summary.json; run the summary first")
-	ledgers = sorted(digest for path, digest in plan["inputs"].items() if path.endswith(".jsonl"))
+	ledgers = sorted(
+		digest
+		for path, digest in plan["inputs"].items()
+		if path in plan.get("training_ledgers", [])
+		or ("training_ledgers" not in plan and path.endswith(".jsonl"))
+	)
 	sources = sorted(
 		f"{row['reading']}/{row['run_id']}/{row['attack']}/{row['arm']}"
 		for row in index_rows
@@ -362,21 +367,25 @@ def student_rows(output: Path, index_rows: list[dict[str, str]]) -> list[dict[st
 			"run_id": f"learning-curve:{output.name}",
 			"kind": "student",
 			"attack": "learning-curve",
-			"arm": "undefended",
+			"arm": "gold" if result.get("arm") == "gold" else "undefended",
 			"stratum": f"n={result['n']}",
 			"status": "complete",
 			"study": "development",
-			"student_task": "ag_news",
+			"student_task": "gsm8k"
+			if plan.get("version") == "math-learning-curve-v1"
+			else "ag_news",
 			"student_n": result["n"],
 			"student_seeds": len(result["seed_gains_pp"]),
 			"student_gain_pp": result["mean_gain_pp"],
 			"student_gain_lower": result["ci95_pp"][0],
 			"student_gain_upper": result["ci95_pp"][1],
-			"student_target_reached": None if target is None else result["mean_gain_pp"] >= target,
-			"training_ledger_sha256": ";".join(ledgers),
-			"training_runs": ";".join(sources) or None,
+			"student_target_reached": None
+			if target is None or result.get("arm") == "gold"
+			else result["mean_gain_pp"] >= target,
+			"training_ledger_sha256": None if result.get("arm") == "gold" else ";".join(ledgers),
+			"training_runs": None if result.get("arm") == "gold" else ";".join(sources) or None,
 		}
-		for result in summary["results"]
+		for result in summary["results"] + summary.get("gold_results", [])
 	]
 
 

@@ -41,11 +41,14 @@ def run_cell(output: Path, recipe: dict[str, Any], n: int | None, seed: int) -> 
 	trainer = None
 	try:
 		if n is not None:
+			if recipe.get("overlength_policy", "error_before_training") != "error_before_training":
+				raise ValueError("unsupported overlength policy")
 			# An incomplete cell restarts from the pinned base, never an arbitrary checkpoint.
-			cell_dir = output / "models" / f"n{n}-s{seed}"
+			prefix = "gold-" if recipe.get("_arm") == "gold" else ""
+			cell_dir = output / "models" / f"{prefix}n{n}-s{seed}"
 			if cell_dir.exists():
 				shutil.rmtree(cell_dir)
-			rows = json.loads((output / f"subset-{n}.json").read_text())
+			rows = json.loads((output / f"{prefix}subset-{n}.json").read_text())
 			rendered = []
 			for row in rows:
 				sft = row["sft"]
@@ -120,7 +123,7 @@ def run_cell(output: Path, recipe: dict[str, Any], n: int | None, seed: int) -> 
 			with torch.inference_mode():
 				generated = model.generate(
 					**inputs,
-					max_new_tokens=16,
+					max_new_tokens=recipe.get("evaluation_max_new_tokens", 16),
 					do_sample=False,
 					eos_token_id=tokenizer.convert_tokens_to_ids("<|im_end|>"),
 					pad_token_id=tokenizer.pad_token_id,

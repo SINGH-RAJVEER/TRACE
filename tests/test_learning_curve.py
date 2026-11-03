@@ -112,6 +112,9 @@ def test_nested_deterministic_sources(inputs: tuple[Path, Path, Path], tmp_path:
 	third = tmp_path / "three"
 	plan_curve(third, *inputs, subset_seed=99)
 	assert digest(first / "subset-50.json") != digest(third / "subset-50.json")
+	assert plan["version"] == "ag-news-learning-curve-v1"
+	assert "evaluation_max_new_tokens" not in plan["recipe"]
+	assert plan["cells"] == [{"n": n, "seed": seed} for n in plan["sizes"] for seed in (42, 43, 44)]
 	assert plan["estimated_gpu_hours"] == [4, 7]
 	assert not (first / "scores").exists()
 
@@ -199,3 +202,88 @@ def test_cli_plan(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
 	assert result.exit_code == 0, result.output
 	assert "One domain" in result.output
 	assert len(json.loads(result.output)["cells"]) == 21
+
+
+def test_math_curve(inputs: tuple[Path, Path, Path], tmp_path: Path) -> None:
+	from distillation.learning_curve import math_family, plan_math_curve
+	from distillation.results_index import student_rows
+
+	dev, _, suite_path = inputs
+	rows = [json.loads(line) for line in dev.read_text().splitlines()[:4]]
+	for i, row in enumerate(rows):
+		row["task"] = "gsm8k"
+		row["source"]["group_id"] = math_family(f"training {i}")
+		row["prompt"][0]["content"] = f"training {i}"
+		row["completion"][0]["content"] = "work\n#### 2"
+	ledger = tmp_path / "math.jsonl"
+	ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
+	gold = tmp_path / "gold.jsonl"
+	gold.write_text(
+		"".join(
+			json.dumps({"example_id": row["example_id"], "completion": "gold\n#### 2"}) + "\n"
+			for row in rows
+		)
+	)
+	suite = FrozenSuite.model_validate_json(suite_path.read_text())
+	suite.sources[0].benchmark = "gsm8k"
+	suite.sources[0].selected = 2
+	suite.items = suite.items[:2]
+	for i, item in enumerate(suite.items):
+		item.benchmark = "gsm8k"
+		item.metric = "numeric_exact_match"
+		item.question = f"evaluation {i}"
+		item.messages = [Message(role="user", content=f"evaluation {i}")]
+		item.answer = "2"
+	suite.sha256 = suite.digest()
+	math_suite = tmp_path / "math-suite.json"
+	math_suite.write_text(suite.model_dump_json())
+	cli = CliRunner().invoke(
+		app,
+		[
+			"learning-curve",
+			"plan-math",
+			"--output",
+			str(tmp_path / "math-cli"),
+			"--ledger",
+			str(ledger),
+			"--suite",
+			str(math_suite),
+			"--gold",
+			str(gold),
+			"--n",
+			"2",
+			"--seed",
+			"1",
+		],
+	)
+	assert cli.exit_code == 0, cli.output
+	output = tmp_path / "math-run"
+	plan = plan_math_curve(output, ledger, math_suite, gold_path=gold, sizes=(2, 4), seeds=(1, 2))
+	assert plan["version"] == "math-learning-curve-v1"
+	assert plan["recipe"]["evaluation_max_new_tokens"] == 512
+	assert plan["recipe"]["max_length"] == 2048
+	assert plan["recipe"]["overlength_policy"] == "error_before_training"
+	assert json.loads((output / "plan.json").read_text()) == plan
+	assert len(plan["cells"]) == 8
+	teacher = json.loads((output / "subset-2.json").read_text())
+	gold_rows = json.loads((output / "gold-subset-2.json").read_text())
+	assert [r["example_id"] for r in teacher] == [r["example_id"] for r in gold_rows]
+	assert all(r["sft"]["completion"][0]["content"].startswith("gold") for r in gold_rows)
+	calls: list[str] = []
+
+	def runner(path: Path, recipe: dict[str, Any], n: int | None, seed: int) -> dict[str, Any]:
+		calls.append(recipe.get("_arm", "teacher"))
+		return {"test0": int(n is not None), "test1": 0}
+
+	assert execute_curve(output, runner) == {"completed": 9, "skipped": 0}
+	assert calls.count("gold") == 4
+	assert execute_curve(output, runner) == {"completed": 0, "skipped": 9}
+	summary = summarize_curve(output, replicates=100)
+	assert len(summary["gold_results"]) == 2
+	index = student_rows(output, [])
+	assert {row["arm"] for row in index} == {"gold", "undefended"}
+	assert {row["student_task"] for row in index} == {"gsm8k"}
+	rows[0]["source"]["group_id"] = math_family("evaluation 0")
+	ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
+	with pytest.raises(ValueError, match="source family"):
+		plan_math_curve(tmp_path / "overlap", ledger, math_suite, sizes=(2,))

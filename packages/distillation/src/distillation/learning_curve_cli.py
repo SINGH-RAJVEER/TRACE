@@ -6,7 +6,13 @@ from typing import Annotated, Any
 
 import typer
 
-from distillation.learning_curve import SIZES, execute_curve, plan_curve, summarize_curve
+from distillation.learning_curve import (
+	SIZES,
+	execute_curve,
+	plan_curve,
+	plan_math_curve,
+	summarize_curve,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -36,6 +42,34 @@ def plan(
 			subset_seed=subset_seed,
 			fraction=fraction,
 			gpu_hours=(gpu_hours_low, gpu_hours_high),
+		)
+	except ValueError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(json.dumps(result, indent="\t"))
+
+
+@app.command("plan-math")
+def plan_math(
+	output: Annotated[Path, typer.Option()],
+	ledger: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	suite: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	gold: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	n: Annotated[list[int] | None, typer.Option("--n")] = None,
+	seed: Annotated[list[int] | None, typer.Option("--seed")] = None,
+	subset_seed: int = 42,
+	fraction: float = 0.8,
+) -> None:
+	"""Freeze a math curve, optionally including matched gold-answer cells."""
+	try:
+		result = plan_math_curve(
+			output,
+			ledger,
+			suite,
+			gold_path=gold,
+			sizes=tuple(n) if n else (300, 1000),
+			seeds=tuple(seed) if seed else (42, 43, 44),
+			subset_seed=subset_seed,
+			fraction=fraction,
 		)
 	except ValueError as error:
 		raise typer.BadParameter(str(error)) from error
