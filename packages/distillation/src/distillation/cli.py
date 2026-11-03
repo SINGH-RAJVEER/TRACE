@@ -124,25 +124,78 @@ def evaluation_report_command(
 
 @gateway_app.command("comparison-report")
 def comparison_report_command(
-	conditions: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
-	view: Annotated[str, typer.Option()],
+	view: Annotated[str, typer.Option(help="attacker_budget or legitimate_utility")],
 	capacity_evidence: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
 	benign_schedule: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	attack: str | None = None,
+	arm: Annotated[list[str] | None, typer.Option(help="Repeat for each compared arm.")] = None,
+	output_token_budget: Annotated[float | None, typer.Option(min=0)] = None,
+	money_budget: Annotated[float | None, typer.Option(min=0)] = None,
+	utility_metric: Annotated[
+		str | None,
+		typer.Option(help="completion_rate, served_only_quality or unconditional_utility"),
+	] = None,
+	utility_target: float | None = None,
+	utility_tolerance: Annotated[float | None, typer.Option(min=0)] = None,
+	conditions: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Hand-written conditions instead of --index."
+		),
+	] = None,
+	include_backfill: Annotated[
+		bool, typer.Option(help="Also pool backfilled historical rows, which ran other code.")
+	] = False,
 ) -> None:
-	"""Compare declared conditions only after the teacher capacity gate passes."""
+	"""Compare arms only after the teacher capacity gate passes.
+
+	With --index, conditions and outcomes come from readings/index.tsv for one attack and the
+	given arms, with intervals over independent runs. Budgets and utility targets the index
+	does not record must be declared with their options; they are never filled in.
+	"""
 	import hashlib
 
 	from distillation.evaluation_protocol import compare_conditions
+	from distillation.results_index import UTILITY_FIELDS, comparison_from_index, read_index
 
+	if (index is None) == (conditions is None):
+		raise typer.BadParameter("give exactly one of --index and --conditions")
+	if utility_metric is not None and utility_metric not in UTILITY_FIELDS:
+		raise typer.BadParameter(f"utility metric must be one of {', '.join(UTILITY_FIELDS)}")
 	try:
+		outcomes = None
+		if index is not None:
+			if not attack or not arm:
+				raise ValueError("--index needs --attack and at least two --arm options")
+			declared = {
+				"output_token_budget": output_token_budget,
+				"money_budget": money_budget,
+				"utility_metric": utility_metric,
+				"utility_target": utility_target,
+				"utility_tolerance": utility_tolerance,
+			}
+			rows, outcomes = comparison_from_index(
+				read_index(index),
+				attack=attack,
+				arms=arm,
+				view=view,
+				declared=declared,
+				include_backfill=include_backfill,
+			)
+		else:
+			assert conditions is not None
+			rows = json.loads(conditions.read_text())
 		result = compare_conditions(
-			json.loads(conditions.read_text()),
+			rows,
 			view,
 			capacity_evidence=json.loads(capacity_evidence.read_text()),
 			schedule_sha256=hashlib.sha256(benign_schedule.read_bytes()).hexdigest(),
 		)
 	except ValueError as error:
 		raise typer.BadParameter(str(error)) from error
+	result["source"] = str(index) if index is not None else "hand-written conditions"
+	result["outcomes"] = outcomes
 	typer.echo(json.dumps(result, indent="\t"))
 	if not result["comparable"]:
 		raise typer.Exit(1)

@@ -56,3 +56,22 @@ def summary(
 ) -> None:
 	"""Write paired seed/item bootstrap gains and the prespecified capability threshold."""
 	typer.echo(json.dumps(summarize_curve(output, replicates=replicates, seed=seed), indent="\t"))
+
+
+@app.command("index")
+def index(
+	output: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+	results: Annotated[Path, typer.Option("--index", dir_okay=False)] = Path("readings/index.tsv"),
+	reading: Annotated[str, typer.Option(help="Reading that preserves this curve, if any.")] = "",
+) -> None:
+	"""Replace this curve's student rows in the results index, linked to its training runs."""
+	from distillation.results_index import read_index, student_rows, update_index
+
+	try:
+		rows = student_rows(output, read_index(results))
+		for row in rows:
+			row["reading"] = reading
+		update_index(results, rows)
+	except ValueError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(f"{results}: {len(rows)} student rows for {output}")

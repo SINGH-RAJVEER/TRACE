@@ -7,6 +7,7 @@ utility SCHEDULE TASKS KEYS OUTPUT URL N measure benign utility through a runnin
 summary CAMPAIGN_JSON                    print a one-line campaign summary
 export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets,
                                          and replace its rows in READINGS/index.tsv
+backfill READINGS                        replace the frozen v3 and v4 rows in READINGS/index.tsv
 """
 
 import asyncio
@@ -41,7 +42,7 @@ EXCLUDED = (
 def corpus_ready(directory: Path) -> int:
 	try:
 		manifest = json.loads((directory / "manifest.json").read_text())
-	except (OSError, ValueError):
+	except OSError, ValueError:
 		return 1
 	partitions = manifest.get("attacker_partitions")
 	if manifest.get("complete") is False or not partitions:
@@ -115,9 +116,12 @@ def utility(
 
 
 def summary(path: Path) -> None:
+	from distillation.campaign_summary import load_campaign_summary
+
 	campaign = json.loads(path.read_text())
-	fields = ("received", "blocked", "challenge", "failed", "released_output_tokens")
-	parts = [f"{key} {campaign[key]}" for key in fields if key in campaign]
+	canonical = load_campaign_summary(path.parent) or {}
+	fields = ("received", "blocked", "challenge", "failed", "deadline", "released_tokens")
+	parts = [f"{key} {canonical.get(key)}" for key in fields]
 	hours = campaign.get("elapsed_seconds", 0) / 3600
 	print(", ".join(parts) + f", {hours:.2f} h")
 
@@ -258,6 +262,11 @@ def main() -> None:
 		utility(schedule, tasks, keys, output, args[4], int(args[5]))
 	elif command == "summary":
 		summary(Path(args[0]))
+	elif command == "backfill":
+		from distillation.results_index import backfill_rows, update_index
+
+		rows = update_index(Path(args[0]) / "index.tsv", backfill_rows(Path(args[0])))
+		print(f"{args[0]}/index.tsv has {len(rows)} rows")
 	elif command == "export":
 		export(Path(args[0]), Path(args[1]), args[2] if len(args) > 2 else "")
 	else:

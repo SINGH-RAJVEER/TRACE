@@ -20,6 +20,10 @@ start run_id="":
 reading run_id name="":
 	uv run --frozen python scripts/run_tools.py export artifacts/runs/{{run_id}} readings {{name}}
 
+# Rebuild the results index rows of the frozen v3 study and the v4 audit evidence.
+backfill:
+	uv run --frozen python scripts/run_tools.py backfill readings
+
 test:
 	uv run pytest
 
