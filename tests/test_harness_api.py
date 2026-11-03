@@ -617,7 +617,7 @@ async def test_gateway_campaign_shares_quota_across_domains_and_budget_across_ac
 		decision_log=decisions,
 	)
 	summary = await collect_gateway(**kwargs)
-	assert summary["queries"] == 5
+	assert summary["attempts"] == 5
 	assert summary["blocked"] >= 1
 	assert summary["received"] == teacher.calls
 	events = [
@@ -691,8 +691,8 @@ async def test_gateway_challenge_binding_and_proofs_share_the_campaign_budget(
 		decision_log=decisions,
 		transport=Transport(app=app),
 	)
-	assert summary["queries"] == 3
-	assert summary["proof_requests"] == 1
+	assert summary["attempts"] == 3
+	assert summary["proof_attempts"] == 1
 	assert summary["received"] == teacher.calls == 2
 	assert summary["hashes"] >= 1
 	async with httpx.AsyncClient(transport=Transport(app=app), base_url="http://gateway") as client:

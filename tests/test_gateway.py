@@ -440,7 +440,7 @@ async def test_live_campaign_charges_failures_and_wakes_future_accounts_when_bud
 			attempt_budget=2,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == calls == 2
+	assert result["attempts"] == calls == 2
 	assert result["failed"] == result["received"] == 1
 	assert result["pending"] == 0
 
@@ -474,7 +474,7 @@ async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path:
 			deadline_seconds=0.02,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == result["deadline"] == 2
+	assert result["attempts"] == result["deadline"] == 2
 	assert result["pending"] == result["received"] == 0
 	assert set(result["termination_by_account"].values()) == {"deadline"}
 

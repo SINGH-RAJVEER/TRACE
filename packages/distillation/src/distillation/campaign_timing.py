@@ -1,30 +1,27 @@
-"""Detection, throttling, and stopping times of one executed campaign, from its event log.
+"""Per-account stopping and latency of one executed campaign, from its event log.
 
-`event_summary` counts escalation in attempts (J) and released outputs (Q). This report adds
-the clock: when each level was first reached and by which account and domain, when each
-account was challenged, blocked, and observed stopped, whether the whole campaign stopped,
-and p50/p90/p95/p99 distributions of latency, solving, and end-to-end time per prompt.
-Times are seconds from the campaign start. Nothing here is inferred from a schedule alone.
+Counts and level reaches, with J, Q and their time, account and domain, come from
+`summarize_campaign`, the same summary `campaign.json` holds. This report adds when each
+account was challenged, blocked and observed stopped, whether the whole campaign stopped,
+deliveries per time window, and p50/p90/p95/p99 distributions of latency, solving and
+end-to-end time per prompt. Times are seconds from the campaign start. Nothing here is
+inferred from a schedule alone.
 """
 
-import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from distillation.benchmarks.reporting import distribution
+from distillation.campaign_summary import read_events, summarize_campaign
 from distillation.io import read_jsonl
 from distillation.schemas import GatewayRequest
 
-TIMING_VERSION = "campaign-timing-v1"
+TIMING_VERSION = "campaign-timing-v2"
 DEFAULT_WINDOW_SECONDS = 60.0
 # One refusal or failure is not a stop: at least this many blocked attempts must follow the
 # account's last received response.
 STOP_RUN = 2
-
-
-def _events(path: Path) -> list[dict[str, Any]]:
-	return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def _stop(attempts: list[dict[str, Any]], outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -55,7 +52,8 @@ def campaign_timing(
 	window_seconds: float = DEFAULT_WINDOW_SECONDS,
 ) -> dict[str, Any]:
 	"""Summarise `directory/campaign.events.jsonl`; `schedule` adds scheduled-to-start delay."""
-	events = _events(directory / "campaign.events.jsonl")
+	events = read_events(directory / "campaign.events.jsonl")
+	summary = summarize_campaign(events)
 	attempts = [e for e in events if e["event"] == "attempt"]
 	outcomes = {e["id"]: e for e in events if e["event"] == "outcome"}
 	policy = {e["policy_request_id"]: e for e in events if e["event"] == "policy"}
@@ -68,35 +66,6 @@ def campaign_timing(
 		decision = policy.get(attempt["policy_request_id"])
 		return None if decision is None else int(decision["level"])
 
-	ordered = sorted(attempts, key=lambda a: a["index"])
-	levels: dict[str, Any] = {}
-	for target in range(1, 5):
-		reach = next((a for a in ordered if (level(a) or -1) >= target), None)
-		before: dict[str, dict[str, int]] = defaultdict(
-			lambda: {"responses": 0, "tokens": 0, "unknown_tokens": 0}
-		)
-		for attempt in ordered:
-			outcome = outcomes.get(attempt["id"], {})
-			if outcome.get("status") != "received":
-				continue
-			if reach is not None and outcome["at_seconds"] >= reach["at_seconds"]:
-				continue
-			row = before[attempt.get("domain") or "unknown"]
-			row["responses"] += 1
-			if outcome.get("output_tokens") is None:
-				row["unknown_tokens"] += 1
-			else:
-				row["tokens"] += int(outcome["output_tokens"])
-		levels[f"L{target}"] = {
-			"reached": reach is not None,
-			"censored": reach is None,
-			"attempt_index": reach["index"] if reach else None,
-			"seconds": reach["at_seconds"] if reach else None,
-			"account": reach.get("account") if reach else None,
-			"domain": reach.get("domain") if reach else None,
-			# Responses still pending at the decision are excluded, as Q in the manuscript.
-			"received_before": dict(before),
-		}
 	accounts: dict[str, Any] = {}
 	grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
 	for attempt in attempts:
@@ -160,10 +129,11 @@ def campaign_timing(
 		"version": TIMING_VERSION,
 		"campaign": str(directory),
 		"time_origin": "campaign start",
-		"attempts": len(attempts),
+		"summary_version": summary["summary_version"],
+		"attempts": summary["attempts"],
 		"prompts": len(by_prompt),
-		"received": len(received),
-		"levels": levels,
+		"received": summary["received"],
+		"levels": summary["levels"],
 		"accounts": accounts,
 		"accounts_blocked": sum(a["first_block_seconds"] is not None for a in accounts.values()),
 		"accounts_stopped": sum(a["stopped"] for a in accounts.values()),
@@ -185,7 +155,7 @@ def campaign_timing(
 		"end_to_end_seconds": distribution(end_to_end),
 		"challenge_solve_seconds": distribution([float(s["seconds"]) for s in solves]),
 		"challenge_hashes": distribution([float(s["hashes"]) for s in solves]),
-		"attribution_complete": all(a["policy_request_id"] in policy for a in attempts),
+		"attribution_complete": summary["attribution_complete"],
 	}
 	if schedule is not None:
 		planned = {r.request_id: r.time for r in read_jsonl(schedule, GatewayRequest)}

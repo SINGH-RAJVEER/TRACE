@@ -116,11 +116,10 @@ def traffic_report(path: Annotated[Path, typer.Option(exists=True)]) -> None:
 def evaluation_report_command(
 	events: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
 ) -> None:
-	"""Summarize observed campaign events with unknown values preserved."""
-	from distillation.evaluation_protocol import campaign_report
+	"""Print the canonical campaign summary, the one in campaign.json, with unknowns kept."""
+	from distillation.campaign_summary import read_events, summarize_campaign
 
-	rows = [json.loads(line) for line in events.read_text().splitlines() if line.strip()]
-	typer.echo(json.dumps(campaign_report(rows), indent="\t"))
+	typer.echo(json.dumps(summarize_campaign(read_events(events)), indent="\t"))
 
 
 @gateway_app.command("comparison-report")

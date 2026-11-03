@@ -4,7 +4,6 @@ import pytest
 from distillation.cli import app
 from distillation.evaluation_protocol import (
 	benign_profiles,
-	campaign_report,
 	clopper_pearson,
 	cluster_interval,
 	compare_conditions,
@@ -12,51 +11,6 @@ from distillation.evaluation_protocol import (
 	zero_event_upper,
 )
 from typer.testing import CliRunner
-
-
-def test_campaign_unknowns_and_interventions() -> None:
-	events = [
-		{
-			"event": "attempt",
-			"id": "1",
-			"kind": "query",
-			"policy_request_id": "p1",
-			"example_id": "x",
-			"at_seconds": 0,
-		},
-		{"event": "outcome", "id": "1", "status": "received", "output_tokens": None},
-		{"event": "policy", "policy_request_id": "p1", "level": 1, "action": "serve"},
-		{
-			"event": "attempt",
-			"id": "2",
-			"kind": "query",
-			"policy_request_id": "p2",
-			"at_seconds": 4,
-		},
-		{"event": "policy", "policy_request_id": "p2", "level": 3, "action": "challenge"},
-		{"event": "outcome", "id": "2", "status": "failed"},
-	]
-	report = campaign_report(events)
-	assert report["admitted"] is None and report["cancelled"] is None
-	assert report["released_tokens"] is None and report["released_tokens_unknown_count"] == 1
-	assert report["distinct_examples"] == 1 and report["failed"] == 1
-	assert report["first_alert_seconds"] == 0 and report["first_restriction_seconds"] == 4
-	assert report["first_refusal_seconds"] is None
-
-
-def test_redeemed_challenge_still_counts_as_restriction() -> None:
-	attempt = {"event": "attempt", "kind": "query", "policy_request_id": "p1", "example_id": "x"}
-	events = [
-		{**attempt, "id": "1", "at_seconds": 2},
-		{"event": "outcome", "id": "1", "status": "challenge"},
-		{**attempt, "id": "2", "kind": "proof", "at_seconds": 3},
-		{"event": "outcome", "id": "2", "status": "received", "output_tokens": 5},
-		# The later redemption decision replaces the challenge decision for this prompt.
-		{"event": "policy", "policy_request_id": "p1", "level": 3, "action": "serve"},
-	]
-	report = campaign_report(events)
-	assert report["first_restriction_seconds"] == 2 and report["first_refusal_seconds"] is None
-	assert report["released"] == 1 and report["released_tokens"] == 5
 
 
 def test_profiles_intervals_and_matching() -> None:

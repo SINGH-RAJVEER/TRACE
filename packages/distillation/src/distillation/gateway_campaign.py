@@ -26,8 +26,8 @@ from distillation.campaign import (
 	CampaignAllowance,
 	PolicyRefusal,
 	ProtectedTeacher,
-	event_summary,
 )
+from distillation.campaign_summary import summarize_campaign
 from distillation.collection import CollectionOptions, _collect_one
 from distillation.detectability_gate import contract_record
 from distillation.io import append_jsonl, read_jsonl
@@ -456,10 +456,10 @@ async def collect_gateway(
 		"deadline_seconds": deadline_seconds,
 		"elapsed_seconds": elapsed,
 		"termination_by_account": terminations,
-		**event_summary(events),
+		**summarize_campaign(events),
 		"index_unit": "global campaign HTTP submissions",
 		"domains": {
-			domain: event_summary([e for e in events if e.get("domain") == domain])
+			domain: summarize_campaign([e for e in events if e.get("domain") == domain])
 			for domain in sorted({r.domain for r in rows})
 		},
 		"ledger_records": len(records),
