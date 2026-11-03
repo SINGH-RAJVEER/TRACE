@@ -22,8 +22,8 @@ from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from pydantic import BaseModel, ConfigDict, Field
 
 from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenSuite, save_json
-from distillation.io import canonical_json, read_jsonl, write_jsonl
-from distillation.schemas import LedgerRecord, Message, PromptRecord, PromptSource, SFTRecord
+from distillation.io import canonical_json, write_jsonl
+from distillation.schemas import Message, PromptRecord, PromptSource
 
 
 @dataclass(frozen=True)
@@ -551,75 +551,3 @@ def build_task(
 		json.dumps(manifest, indent="\t", sort_keys=True) + "\n", encoding="utf-8"
 	)
 	return manifest
-
-
-def budget_run(
-	*,
-	task_dir: Path,
-	budget: int,
-	seed: int,
-	output_dir: Path,
-	ledger_path: Path | None = None,
-	partition: AttackerPartition = "exploratory",
-) -> dict[str, Any]:
-	"""Take the first `budget` partition prompts in a seeded order, so budgets nest per seed.
-
-	Writes prompts.jsonl and the matching gold-train.jsonl. With a ledger, also writes the
-	subset of its records for these prompts, in prompt order, counts prompts it lacks, and
-	refuses records collected with a different output limit from the task's.
-	"""
-	pool = read_jsonl(task_dir / attacker_file(partition), PromptRecord)
-	if not 1 <= budget <= len(pool):
-		raise ValueError(f"budget must be between 1 and the {partition} pool size, {len(pool)}")
-	ordered = sorted(pool, key=lambda prompt: _digest(seed, "order", prompt.example_id))
-	selected = ordered[:budget]
-	gold = {
-		record.example_id: record
-		for record in read_jsonl(task_dir / "gold-answers.jsonl", GoldRecord)
-	}
-	write_jsonl(output_dir / "prompts.jsonl", selected)
-	write_jsonl(
-		output_dir / "gold-train.jsonl",
-		[
-			SFTRecord(
-				prompt=prompt.prompt,
-				completion=[Message(role="assistant", content=gold[prompt.example_id].completion)],
-			)
-			for prompt in selected
-		],
-	)
-	summary: dict[str, Any] = {
-		"task_dir": str(task_dir),
-		"budget": budget,
-		"seed": seed,
-		"partition": partition,
-		"pool": len(pool),
-	}
-	if ledger_path:
-		records = {record.example_id: record for record in read_jsonl(ledger_path, LedgerRecord)}
-		subset: list[LedgerRecord] = [
-			records[prompt.example_id] for prompt in selected if prompt.example_id in records
-		]
-		limit = json.loads((task_dir / "manifest.json").read_text())["max_output_tokens"]
-		for record in subset:
-			if record.teacher.parameters.get("max_output_tokens") != limit:
-				raise ValueError(
-					f"{record.example_id} was collected with a different max_output_tokens; "
-					f"collect this task with --max-output-tokens {limit}"
-				)
-		write_jsonl(output_dir / "ledger.jsonl", subset)
-		summary["ledger"] = str(ledger_path)
-		summary["collected"] = len(subset)
-		summary["missing"] = budget - len(subset)
-		# The collector rejects nonterminal finishes, such as hitting the output limit, and
-		# preparation drops them, so these responses were received but cannot train.
-		summary["rejected_by_collector"] = sum(r.quality.status == "rejected" for r in subset)
-		summary["finish_reasons"] = dict(Counter(str(r.finish_reason) for r in subset))
-	summary["sha256"] = {
-		path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-		for path in sorted(output_dir.glob("*.jsonl"))
-	}
-	(output_dir / "budget.json").write_text(
-		json.dumps(summary, indent="\t", sort_keys=True) + "\n", encoding="utf-8"
-	)
-	return summary

@@ -172,13 +172,3 @@ class SFTRecord(BaseModel):
 		if messages[0].role != "assistant":
 			raise ValueError("the teacher completion must be an assistant message")
 		return messages
-
-
-class ReviewRecord(BaseModel):
-	"""Human or task-validator decision stored separately from the raw ledger."""
-
-	example_id: str = Field(min_length=1)
-	status: Literal["accepted", "rejected"]
-	checks: list[str] = Field(min_length=1)
-	reviewer: str = Field(min_length=1)
-	reason: str | None = None

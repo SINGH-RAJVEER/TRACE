@@ -1,6 +1,4 @@
 # Dependencies
-node_modules/
-.pnpm-store/
 .venv/
 .venv-pip/
 .venv-vllm/
@@ -13,15 +11,13 @@ __pycache__/
 # Build outputs
 dist/
 build/
-.nx/
 .devenv/
 .jj/
 artifacts/
+# The frozen v4 method checks write here by default.
 outputs/
 data/
-*.tsbuildinfo
 /paper/main.pdf
-/scripts/kaggle_gpu.py
 
 # Environment files
 .env
@@ -33,13 +29,9 @@ data/
 *.bin
 *.pt
 *.pth
-wandb/
 
 # Logs
 *.log
-npm-debug.log*
-pnpm-debug.log*
-bun-debug.log*
 
 # OS files
 .DS_Store

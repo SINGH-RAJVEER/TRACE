@@ -6,14 +6,6 @@ from collections import defaultdict
 from typing import Any
 
 CHECKPOINTS = (100, 300, 1000, 3000, 6000, 12000)
-BASELINES = (
-	"allow",
-	"full_mmd",
-	"instantaneous_mmd",
-	"request_quota",
-	"rate",
-	"request_token_quota",
-)
 
 
 def campaign_report(events: list[dict[str, Any]]) -> dict[str, Any]:

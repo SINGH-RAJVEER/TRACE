@@ -108,7 +108,7 @@ class Settings(BaseSettings):
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
 
 	decision_log: Path = Field(
-		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
+		default=Path("artifacts/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
 	)
 	encoder_device: str | None = Field(default=None, alias="HARNESS_ENCODER_DEVICE")
 	encoder_batch_size: int = Field(default=64, ge=1, alias="HARNESS_ENCODER_BATCH_SIZE")
@@ -130,7 +130,7 @@ class Settings(BaseSettings):
 	log_level: str = Field(default="info", alias="HARNESS_LOG_LEVEL")
 
 	@model_validator(mode="after")
-	def coding_l4(self) -> Settings:
+	def validate_combinations(self) -> Settings:
 		if self.review_enabled and self.state_db is None:
 			raise ValueError("review requires HARNESS_STATE_DB")
 		if self.review_verify_codes and not self.review_enabled:

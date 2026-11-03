@@ -1,25 +1,18 @@
-"""Bounded single-account campaigns; every HTTP attempt has a durable event record."""
+"""Campaign allowance, protected teacher client and event summaries shared by gateway campaigns."""
 
 import asyncio
-import hashlib
 import json
 import platform
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import httpx
-from anyio import Path as AsyncPath
-from harness.calibration import HORIZON_POLICY
 
-from distillation.collection import CollectionOptions, _collect_one
-from distillation.io import append_jsonl, read_jsonl
-from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver, SolveMetrics
+from distillation.proof import SOLVER_VERSION, ProofSolver, SolveMetrics
 from distillation.schemas import (
-	LedgerRecord,
-	PromptRecord,
 	TeacherGeneration,
 	TeacherGenerationRequest,
 )
@@ -298,183 +291,3 @@ def event_summary(
 		"levels": level_results,
 		"proof_requests": sum(a["kind"] == "proof" for a in attempts),
 	}
-
-
-def _trim_partial_line(path: Path) -> None:
-	"""Drop a final line cut short by an interruption; complete records end with a newline."""
-	data = path.read_bytes()
-	if data and not data.endswith(b"\n"):
-		path.write_bytes(data[: data.rfind(b"\n") + 1])
-
-
-def campaign_contract(prompts: Path, options: CollectionOptions) -> str:
-	return hashlib.sha256(
-		prompts.read_bytes() + json.dumps(asdict(options), sort_keys=True).encode()
-	).hexdigest()
-
-
-async def collect_campaign(
-	*,
-	prompts_path: Path,
-	ledger_path: Path,
-	summary_path: Path,
-	teacher: ProtectedTeacher,
-	options: CollectionOptions,
-	max_requests: int | None = None,
-	deadline_seconds: float = 86400,
-	decision_log: Path | None = None,
-	levels: tuple[int, ...] = (1, 2, 3, 4),
-	resumable: bool = False,
-) -> dict[str, Any]:
-	"""Run a fresh campaign or reuse a completed one; never replenish an interrupted budget.
-
-	`resumable` is only for campaigns without policy state, such as the undefended baseline.
-	An interrupted or incomplete campaign then continues on its original clock, so the
-	deadline still binds, and prompts without a ledger record are attempted again. Every
-	retry is an attempt event and is counted in the summary. A deadline is never resumed.
-	"""
-	from distillation.benchmarks.models import save_json
-
-	try:
-		prompts = read_jsonl(prompts_path, PromptRecord)
-		if len({p.example_id for p in prompts}) != len(prompts) or any(
-			p.split == "test" for p in prompts
-		):
-			raise ValueError("campaign requires unique non-test prompts")
-		limit = max_requests if max_requests is not None else len(prompts)
-		if limit < 1 or deadline_seconds <= 0:
-			raise ValueError("campaign budgets must be positive")
-		contract = hashlib.sha256(
-			(
-				f"campaign-v2:{campaign_contract(prompts_path, options)}"
-				f":{limit}:{deadline_seconds}:{levels}:{SOLVER_VERSION}:{teacher.solver.workers}"
-				f":{CHUNK_HASHES}:{HORIZON_POLICY}"
-				f"{':resumable' if resumable else ''}"
-			).encode()
-		).hexdigest()
-		events = summary_path.with_suffix(".events.jsonl")
-		resume = False
-		if await AsyncPath(summary_path).exists():
-			summary = json.loads(await AsyncPath(summary_path).read_text())
-			if summary["contract"] != contract:
-				raise ValueError("campaign options changed; use a new run directory")
-			for key, path in (("ledger_sha256", ledger_path), ("events_sha256", events)):
-				if hashlib.sha256(await AsyncPath(path).read_bytes()).hexdigest() != summary[key]:
-					raise ValueError("completed campaign artifacts changed")
-			complete = summary["termination"] == "prompts_exhausted" and summary[
-				"ledger_records"
-			] == len(prompts)
-			if not resumable or complete or summary["termination"] == "deadline":
-				return dict(summary)
-			resume = True
-		elif await AsyncPath(ledger_path).exists() or await AsyncPath(events).exists():
-			if not resumable:
-				raise ValueError(
-					"interrupted campaign retained its spent budget; keep its artifacts and "
-					"declare a new campaign directory with fresh policy state"
-				)
-			resume = True
-		ledger_path.parent.mkdir(parents=True, exist_ok=True)
-		await AsyncPath(ledger_path).touch()
-		events.parent.mkdir(parents=True, exist_ok=True)
-		await AsyncPath(events).touch()
-		prior: list[dict[str, Any]] = []
-		received: set[str] = set()
-		if resume:
-			for path in (ledger_path, events):
-				_trim_partial_line(path)
-			prior = [
-				json.loads(line) for line in (await AsyncPath(events).read_text()).splitlines()
-			]
-			if any(e["event"] == "attempt" and e["contract"] != contract for e in prior):
-				raise ValueError("campaign options changed; use a new run directory")
-			received = {r.example_id for r in read_jsonl(ledger_path, LedgerRecord)}
-		pending = [prompt for prompt in prompts if prompt.example_id not in received]
-		spent = sum(e["event"] == "attempt" for e in prior)
-		elapsed = max((float(e.get("at_seconds", 0.0)) for e in prior), default=0.0)
-		teacher.event_path, teacher.contract = events, contract
-		teacher.events = prior
-		# A resumed pass may spend one more attempt on each prompt still missing a response.
-		teacher.max_requests = spent + len(pending) if resume else limit
-		await teacher.solver.warmup()
-		teacher.started = time.monotonic() - elapsed
-		teacher.deadline = teacher.started + deadline_seconds
-		if resume:
-			teacher._write(
-				{
-					"event": "resume",
-					"at_seconds": elapsed,
-					"spent_attempts": spent,
-					"pending_prompts": len(pending),
-				}
-			)
-		attempt_log = ledger_path.with_name(f"{ledger_path.stem}.attempts.jsonl")
-		reason = "prompts_exhausted"
-		consecutive = 0
-		for prompt in pending:
-			teacher.example_id = prompt.example_id
-			try:
-				record = await _collect_one(
-					prompt, teacher, replace(options, max_attempts=1), attempt_log, lambda: None
-				)
-			except BudgetExhausted:
-				reason = "deadline" if teacher.remaining() <= 0 else "attempt_budget"
-				break
-			except PolicyRefusal:
-				consecutive = 0
-			except AttemptFailed:
-				consecutive += 1
-				if consecutive >= MAX_CONSECUTIVE_FAILURES:
-					reason = "service_failures"
-					break
-			else:
-				record.attempt_id = teacher.last_event_id
-				append_jsonl(ledger_path, [record])
-				consecutive = 0
-		if decision_log and await AsyncPath(decision_log).exists():
-			wanted = {e["policy_request_id"] for e in teacher.events if e["event"] == "attempt"}
-			for line in (await AsyncPath(decision_log).read_text()).splitlines():
-				decision = json.loads(line)
-				if (
-					decision.get("event") == "decision"
-					and decision.get("benchmark_request") in wanted
-				):
-					teacher._write(
-						{
-							"event": "policy",
-							"policy_request_id": decision["benchmark_request"],
-							"level": decision["level"],
-							"action": decision["action"],
-						}
-					)
-		queried = [
-			e["example_id"]
-			for e in teacher.events
-			if e["event"] == "attempt" and e["kind"] == "query"
-		]
-		summary = {
-			"contract": contract,
-			"attempt_budget": limit,
-			"deadline_seconds": deadline_seconds,
-			"termination": reason,
-			"elapsed_seconds": time.monotonic() - teacher.started,
-			**event_summary(teacher.events, levels),
-			"ledger_records": len(read_jsonl(ledger_path, LedgerRecord)),
-			"challenges": teacher.challenges,
-			"challenge_seconds": teacher.challenge_seconds,
-			"horizon_policy": HORIZON_POLICY,
-			"hashes": teacher.hashes,
-			"resumes": sum(e["event"] == "resume" for e in teacher.events),
-			"retried_queries": len(queried) - len(set(queried)),
-			"solver": {
-				"version": SOLVER_VERSION,
-				"workers": teacher.solver.workers,
-				"chunk_hashes": CHUNK_HASHES,
-			},
-			"ledger_sha256": hashlib.sha256(await AsyncPath(ledger_path).read_bytes()).hexdigest(),
-			"events_sha256": hashlib.sha256(await AsyncPath(events).read_bytes()).hexdigest(),
-		}
-		save_json(summary_path, summary)
-		return summary
-	finally:
-		await teacher.close()

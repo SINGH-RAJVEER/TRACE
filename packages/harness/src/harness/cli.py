@@ -352,7 +352,7 @@ def bench_command(
 	encode: Annotated[bool, typer.Option(help="time the BGE encoder too")] = True,
 	device: str | None = None,
 ) -> None:
-	"""Time the harness's own serving costs, unit by unit, for the paper's Table X.
+	"""Time the harness's own serving costs, unit by unit.
 
 	Replays up to --limit requests from a request file as one account. Victim inference is
 	excluded; measure it with the traffic benchmark at the same load and hardware.

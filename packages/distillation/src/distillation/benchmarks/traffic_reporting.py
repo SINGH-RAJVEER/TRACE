@@ -21,23 +21,6 @@ def discover_traffic(directory: Path) -> tuple[list[TrafficRun], list[str]]:
 	return runs, errors
 
 
-def traffic_experiments(directory: Path) -> dict[str, Any]:
-	runs, errors = discover_traffic(directory)
-	keys = dict.fromkeys(run.comparison_key() for run in runs)
-	return {
-		"experiments": [
-			{
-				"id": key,
-				"name": next(r.config.experiment for r in runs if r.comparison_key() == key),
-				"phases": sorted({r.phase for r in runs if r.comparison_key() == key}),
-				"demo": next(r.demo for r in runs if r.comparison_key() == key),
-			}
-			for key in keys
-		],
-		"errors": errors,
-	}
-
-
 def summarize_traffic(samples: list[TrafficSample], seconds: float) -> dict[str, Any]:
 	n = len(samples)
 	successes = [s for s in samples if s.succeeded]

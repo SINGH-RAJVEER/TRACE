@@ -1,7 +1,7 @@
 # Protected-only traffic evaluation.
 experiment = "qwen3.5-teacher-harness-v1"
 suite_path = "data/traffic/suite.json"
-output_dir = "outputs/traffic-benchmarks"
+output_dir = "artifacts/traffic-benchmarks"
 model = "Qwen/Qwen3.5-9B"
 model_revision = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
 timeout_seconds = 120

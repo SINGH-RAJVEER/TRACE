@@ -298,7 +298,6 @@ class Transaction(Protocol):
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
 	def put_idempotency(self, record: IdempotencyRecord) -> None: ...
-	def delete_idempotency(self, account: str, key: str) -> None: ...
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int: ...
 	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]: ...
 	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None: ...
@@ -507,9 +506,6 @@ class _MemoryTransaction:
 
 	def put_idempotency(self, record: IdempotencyRecord) -> None:
 		self.store.idempotency[(record.account, record.key)] = record
-
-	def delete_idempotency(self, account: str, key: str) -> None:
-		self.store.idempotency.pop((account, key), None)
 
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
 		self.store.aggregate.append((np.asarray(embedding, dtype=np.float64), account, now))
@@ -920,9 +916,6 @@ class _SQLiteTransaction:
 				None if record.outcome is None else json.dumps(asdict(record.outcome)),
 			),
 		)
-
-	def delete_idempotency(self, account: str, key: str) -> None:
-		self.db.execute("DELETE FROM idempotency WHERE account = ? AND key = ?", (account, key))
 
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
 		self.db.execute(

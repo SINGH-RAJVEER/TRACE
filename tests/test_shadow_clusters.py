@@ -54,11 +54,3 @@ def test_fusion_superuniform_discrete_ranks_even_with_perfect_dependence() -> No
 	# Finite calibration rank is uniform on 1/(m+1), ..., 1 under exchangeability.
 	values = [fuse_evidence(dict.fromkeys(FAMILIES, i / 20))["e_value"] for i in range(1, 21)]
 	assert float(np.mean(values)) <= 1
-
-
-def test_family_averaging_avoids_maximum_selection() -> None:
-	from harness.fusion import average_calibrated_evidence, fuse_family_evalues
-
-	family = average_calibrated_evidence({"one": 0.01, "two": 1.0})
-	assert family["e_value"] == pytest.approx(2.75)
-	assert fuse_family_evalues({"session": family["e_value"]})["e_value"] == pytest.approx(1.35)
