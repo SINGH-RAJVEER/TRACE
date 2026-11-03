@@ -377,9 +377,9 @@ Source: "First establish that the chosen student can learn"; `repository_and_eva
 - [ ] Train from the same pinned base on 300 and 1,000 clean examples and check that the gain repeats.
 - [ ] Add a gold-answer or trusted-data student as a diagnostic that the recipe can learn the task at all.
 - [ ] If clean training gives no reproducible gain, stop and fix the learning experiment. An incapable student makes every defense look effective.
-- [ ] Report raw teacher, base, clean-student and protected-student accuracies (A_T, A_B, A_C, A_D) first, with per-task values.
-- [ ] Report R_C and R_D (share of teacher headroom recovered) only when headroom is positive and stable, and suppression S = 1 - (A_D - A_B)/(A_C - A_B) only when clean gain is convincingly positive. Otherwise mark them undefined. Never clip to [0, 1].
-- [ ] Propagate denominator uncertainty with paired task-family resampling, and report training-seed variability separately. One seed is development evidence only.
+- [x] Report raw teacher, base, clean-student and protected-student accuracies (A_T, A_B, A_C, A_D) first, with per-task values. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
+- [x] Report R_C and R_D (share of teacher headroom recovered) only when headroom is positive and stable, and suppression S = 1 - (A_D - A_B)/(A_C - A_B) only when clean gain is convincingly positive. Otherwise mark them undefined. Never clip to [0, 1]. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
+- [x] Propagate denominator uncertainty with paired task-family resampling, and report training-seed variability separately. One seed is development evidence only. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
 
 Done when a clean student shows a reproducible gain over the base on held-out problems.
 
@@ -428,7 +428,7 @@ Source: "TRACE already contains more than a query cap"; "Test collection structu
 	- follow-ups that depend on the previous answer, local edits, repeated sampling of the same problem, systematic variation of one problem dimension, topic transitions;
 	- a fixed template with changing content, after masking identifiers, numbers and boilerplate;
 	- sustained requests for worked solutions, multiple alternatives, exhaustive examples, labels or token probabilities where exposed.
-- [ ] Add the coverage feature g_t = log(1 + v_t' A_t^-1 v_t) on a fixed 64-dimensional projection, with a Sherman-Morrison update. Compare it at matched domain and prefix length; cumulative log-determinant alone recreates a volume threshold. Keep nearest-neighbor novelty as the baseline; the new feature stays only if it improves held-out separation.
+- [x] Add the coverage feature g_t = log(1 + v_t' A_t^-1 v_t) on a fixed 64-dimensional projection, with a Sherman-Morrison update. Compare it at matched domain and prefix length; cumulative log-determinant alone recreates a volume threshold. Keep nearest-neighbor novelty as the baseline; the new feature stays only if it improves held-out separation. Done: `packages/harness/src/harness/logdet.py`, opt-in through `CoverageSpec`, with nulls matched by request-count band. Not yet wired into `evidence-calibrate`, and not yet compared with the nearest-neighbor baseline on held-out sources.
 - [ ] Use a ridge-logistic model or a hand-specified score first, and use `packages/harness/src/harness/separation.py` as the feasibility gate.
 - [ ] Pilot fixed windows of 32, 64 and 128 requests with predetermined look points, and include every window and look in calibration.
 - [ ] Fit and select on disjoint source families, accounts and time blocks, keeping related templates and an account's windows together.
@@ -449,15 +449,15 @@ Source: "A complete-path rank gives an honest finite-horizon guarantee"; "Bettin
 
 - [ ] Declare the campaign unit and horizon before seeing test scores, such as an authenticated organization-day or a fixed session horizon H. The horizon defines the error claim; it need not deny service when reached.
 - [ ] Split source families, accounts and time into fitting, method selection, policy calibration and final audit roles.
-- [ ] For each benign calibration campaign, record the maximum frozen score over its whole permitted path, including every detector, scale and action-triggering score after fixed transformations.
-- [ ] At runtime keep the running maximum and stop at the first conservative rank p* = (1 + #{M_i >= m_t}) / (n + 1) at or below alpha. This bounds the chance of any benign stop within the horizon by alpha under exchangeability of benign campaigns.
-- [ ] Use at least 99 calibration campaigns for a 1% level and 999 for 0.1%. Abstain from statistical stops in strata with too few campaigns; report their non-statistical handling separately.
+- [x] For each benign calibration campaign, record the maximum frozen score over its whole permitted path, including every detector, scale and action-triggering score after fixed transformations. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy.
+- [x] At runtime keep the running maximum and stop at the first conservative rank p* = (1 + #{M_i >= m_t}) / (n + 1) at or below alpha. This bounds the chance of any benign stop within the horizon by alpha under exchangeability of benign campaigns. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy.
+- [x] Use at least 99 calibration campaigns for a 1% level and 999 for 0.1%. Abstain from statistical stops in strata with too few campaigns; report their non-statistical handling separately. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy; calibrations below the resolution abstain.
 - [ ] Never claim a pooled guarantee for a sparse specialist stratum.
 - [ ] Predeclare alert and refusal thresholds separately. Start with shadow scoring and one terminal stop. Warnings, challenges, delays and output changes alter benign behavior, so validate any intermediate action with calibration that includes it.
 - [ ] Freeze stratum switching as part of the path. Unsupported traffic triggers abstention but cannot reset evidence or a durable stop.
-- [ ] Choose the error budget across periods: either an honest fixed organization-day rate, or alpha_j = alpha_total * 6 / (pi^2 j^2) with a union bound for a lifetime claim. Restarting full-alpha tests after resets spends extra error budget.
+- [ ] Choose the error budget across periods: either an honest fixed organization-day rate, or alpha_j = alpha_total * 6 / (pi^2 j^2) with a union bound for a lifetime claim. Restarting full-alpha tests after resets spends extra error budget. Helper: `period_alpha` in `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy; the choice itself is still open.
 - [ ] Do not treat `e_process` and `e_cusum` as anytime-valid for live turns until the equal-conditional-marginals condition is shown. Do not multiply transformed window ranks and call the result an e-process. Reserve betting for independent session units or a validated conditional model. (This qualifies the ticked item in section 12.)
-- [ ] After freezing the threshold, audit on independent benign campaigns: zero false stops in 299 campaigns bounds the rate below 1% at 95%, and 2,995 below 0.1%. Justify independence or enlarge the audit unit; overlapping windows from a few customers do not count.
+- [ ] After freezing the threshold, audit on independent benign campaigns: zero false stops in 299 campaigns bounds the rate below 1% at 95%, and 2,995 below 0.1%. Justify independence or enlarge the audit unit; overlapping windows from a few customers do not count. Helper: `audit_upper_bound` in `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy; no audit has been run.
 - [ ] Any retuning after an audit failure requires a fresh audit. Recalibrate whenever the horizon, look schedule, feature weights or response policy change.
 - [ ] Monitor drift in production and drop qualification explicitly when assumptions fail.
 
