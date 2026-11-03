@@ -1,17 +1,22 @@
 """The results index uses a synthetic run directory, without a teacher or harness."""
 
+import csv
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from distillation.results_index import (
+	BASELINE_POLICIES,
 	COLUMNS,
+	backfill_rows,
 	comparison_from_index,
 	read_index,
 	run_rows,
 	student_rows,
 	update_index,
+	utility_validity,
+	utility_validity_check,
 )
 
 
@@ -209,3 +214,101 @@ def test_older_indexes_read_with_new_columns_empty(tmp_path: Path) -> None:
 	index.write_text("run_id\tsurprise\nr1\tx\n")
 	with pytest.raises(ValueError, match="surprise"):
 		read_index(index)
+
+
+def _bound(preflight: Path, served: int = 19) -> dict[str, object]:
+	preflight.write_text("{}")
+	return {
+		"submitted": 20,
+		"served": served,
+		"baseline": {
+			"preflight_sha256": hashlib.sha256(b"{}").hexdigest(),
+			"min_completion_rate": 0.95,
+		},
+	}
+
+
+def test_completion_floor_applies_to_baselines_and_binding_to_every_arm(tmp_path: Path) -> None:
+	preflight = tmp_path / "teacher-preflight.json"
+	assert "allow" in BASELINE_POLICIES and "none" in BASELINE_POLICIES
+	assert utility_validity(_bound(preflight), "none", preflight)["validity"] == "valid"
+	low = utility_validity(_bound(preflight, served=18), "none", preflight)
+	assert low["validity"] == "invalid" and "completed 18 of 20" in low["validity_reason"]
+	assert low["min_completion_rate"] == 0.95
+	# A defended arm serving less is the outcome being measured, once its teacher is qualified.
+	assert utility_validity(_bound(preflight, served=2), "mmd", preflight)["validity"] == "valid"
+	bound = _bound(preflight)
+	assert utility_validity(bound, "none", None)["validity"] == "unknown"
+	preflight.write_text("changed")
+	assert utility_validity(bound, "none", preflight)["validity"] == "invalid"
+	assert utility_validity({"served": 20, "submitted": 20}, "none", preflight)["validity"] == (
+		"unknown"
+	)
+
+
+def test_run_rows_copy_validity_to_every_stratum(tmp_path: Path) -> None:
+	run = _run(tmp_path, "run-a", "c1")
+	utility = json.loads((run / "utility" / "quota" / "utility.json").read_text())
+	preflight = run / "teacher-preflight.json"
+	_write(run / "utility" / "quota" / "utility.json", {**utility, **_bound(preflight, served=3)})
+	rows = [r for r in run_rows(run, "v5", "abc") if r["kind"] == "utility"]
+	assert {r["validity"] for r in rows} == {"valid"} and len(rows) == 3
+	assert {r["preflight_sha256"] for r in rows} == {hashlib.sha256(b"{}").hexdigest()}
+
+
+def test_older_utility_rows_remain_unknown_without_a_binding(
+	tmp_path: Path,
+) -> None:
+	index = tmp_path / "readings" / "index.tsv"
+	index.parent.mkdir()
+	index.write_text(
+		"run_id\tkind\tattack\tarm\tstratum\tcompletion_rate\n"
+		"backfill:v3\tutility\tbenign_test\tundefended\tall\t0.2898\n"
+	)
+	(old,) = read_index(index)
+	assert old["validity"] == "unknown" and old["validity_reason"]
+	_write(
+		index.parent / "v3" / "utility" / "undefended.json",
+		{"submitted": 24047, "served": 6968, "completion_rate": 0.28976587516114277},
+	)
+	(row,) = backfill_rows(index.parent)
+	assert row["validity"] == "unknown" and row["policy"] == "none"
+	assert row["validity_reason"]
+	# Writing another run leaves the historical row's stored validity cell empty.
+	update_index(index, [{"run_id": "gate:x", "kind": "gate", "attack": "phase0-headroom"}])
+	with index.open() as stream:
+		stored = next(r for r in csv.DictReader(stream, delimiter="\t") if r["kind"] == "utility")
+	assert stored["validity"] == "" and stored["validity_reason"] == ""
+	rewritten = next(r for r in update_index(index, [row]) if r["kind"] == "utility")
+	assert rewritten["validity"] == "unknown" and rewritten["completion_rate"]
+
+
+def test_validity_check_covers_compared_arms_and_the_baseline_in_each_run() -> None:
+	def utility(run: str, arm: str, validity: str, policy: str) -> dict[str, str]:
+		row = _row(run, arm, "")
+		row.update(kind="utility", validity=validity, validity_reason=validity, policy=policy)
+		return row
+
+	conditions = [{"arm": "quota", "runs": ["r1", "r2"]}, {"arm": "full", "runs": ["r1"]}]
+	rows = [
+		utility("r1", "quota", "valid", "quota"),
+		utility("r2", "quota", "valid", "quota"),
+		utility("r1", "full", "valid", "mmd"),
+		utility("r1", "allow", "valid", "allow"),
+		utility("r2", "allow", "valid", "allow"),
+	]
+	check = utility_validity_check(rows, conditions, baseline_arm="allow", require_baseline=True)
+	assert check["valid"] is True and check["issues"] == []
+	invalid = [*rows[:-1], utility("r2", "allow", "invalid", "allow")]
+	check = utility_validity_check(invalid, conditions, baseline_arm="allow", require_baseline=True)
+	assert check["valid"] is False and check["arms"]["allow"] == "invalid"
+	assert [(i["arm"], i["run_id"]) for i in check["issues"]] == [("allow", "r2")]
+	check = utility_validity_check(
+		rows[:-1], conditions, baseline_arm="allow", require_baseline=True
+	)
+	assert check["issues"][0]["reason"] == "no utility row in the index"
+	check = utility_validity_check(rows, conditions, baseline_arm="quota", require_baseline=True)
+	assert "not a baseline" in check["issues"][0]["reason"]
+	assert not utility_validity_check(rows, conditions, baseline_arm=None, require_baseline=True)[
+		"valid"
+	]

@@ -37,8 +37,11 @@ VLLM_PORT=${VLLM_PORT:-8001}
 TEACHER_MODEL=${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}
 TEACHER_MODEL_REVISION=${TEACHER_MODEL_REVISION:-c202236235762e1c871ad0ccb60c8ee5ba337b9a}
 TEACHER_URL=http://${TEACHER_HOST:-127.0.0.1}:${TEACHER_PORT:-8000}
-# Declared capacity thresholds for `distill gateway teacher-preflight`; empty skips the gate.
+# Optional capacity check; binding utility validity also needs both UTILITY_* declarations.
 TEACHER_PREFLIGHT_ARGS=${TEACHER_PREFLIGHT_ARGS:-}
+# Utility is bound to that preflight, at this declared offered rate and minimum completion rate.
+UTILITY_OFFERED_RPS=${UTILITY_OFFERED_RPS:-}
+UTILITY_MIN_COMPLETION_RATE=${UTILITY_MIN_COMPLETION_RATE:-}
 
 UV=(uv run --frozen --extra eval --extra embed)
 TOOLS=(env PYTHONPATH="$ROOT/scripts" "${UV[@]}" python "$ROOT/scripts/run_tools.py")
@@ -75,6 +78,18 @@ finish() {
 }
 trap 'finish 130 interrupted' INT TERM
 trap cleanup EXIT
+
+# Unbound utility keeps the legacy workflow, but cannot qualify a utility comparison.
+UTILITY_BINDING_ARGS=()
+if [ "$UTILITY" = 1 ] && {
+	[ -n "$UTILITY_OFFERED_RPS" ] || [ -n "$UTILITY_MIN_COMPLETION_RATE" ]
+}; then
+	if [ -z "$TEACHER_PREFLIGHT_ARGS" ] || [ -z "$UTILITY_OFFERED_RPS" ] \
+		|| [ -z "$UTILITY_MIN_COMPLETION_RATE" ]; then
+		finish 2 "utility binding needs TEACHER_PREFLIGHT_ARGS, UTILITY_OFFERED_RPS and UTILITY_MIN_COMPLETION_RATE"
+	fi
+	UTILITY_BINDING_ARGS=("$RUN/teacher-preflight.json" "$UTILITY_OFFERED_RPS" "$UTILITY_MIN_COMPLETION_RATE")
+fi
 
 # step NAME COMMAND...: run once, log its output to logs/NAME.log, time it, mark it done.
 step() {
@@ -143,6 +158,8 @@ UTILITY=$UTILITY
 TEACHER_MODEL=$TEACHER_MODEL
 TEACHER_MODEL_REVISION=$TEACHER_MODEL_REVISION
 TEACHER_PREFLIGHT_ARGS=$TEACHER_PREFLIGHT_ARGS
+UTILITY_OFFERED_RPS=$UTILITY_OFFERED_RPS
+UTILITY_MIN_COMPLETION_RATE=$UTILITY_MIN_COMPLETION_RATE
 EOF
 redact() { sed -E 's/^([A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD)[A-Z0-9_]*)=.+/\1=<redacted>/'; }
 env | grep -E '^(TEACHER|HARNESS|VLLM|HF|CUDA)_' | sort | redact > "$attempt/environment.env"
@@ -359,7 +376,8 @@ if [ "$UTILITY" = 1 ]; then
 		start_harness "$arm" "$dir" "$BENIGN/benign_test/requests.jsonl" \
 			|| finish 1 "harness did not start for utility/$arm; see $dir/harness.log"
 		step "$name" "${TOOLS[@]}" utility "$BENIGN/benign_test" "$TASKS_DIR" "$dir/credentials.json" \
-			"$dir/utility.json" "http://127.0.0.1:$HARNESS_RUN_PORT" "$CONCURRENCY"
+			"$dir/utility.json" "http://127.0.0.1:$HARNESS_RUN_PORT" "$CONCURRENCY" \
+			"${UTILITY_BINDING_ARGS[@]}"
 		code=$?
 		stop_harness
 		[ "$code" -eq 0 ] || finish 1 "utility failed for $arm; see $LOGS/$name.log"
