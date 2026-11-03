@@ -16,7 +16,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from harness.corpus import CorpusIndex, normalized, shingles
-from harness.logdet import CoverageSpec
+from harness.logdet import CoverageSpec, length_bin
 from harness.shadow import minimum_null, upper_p
 
 
@@ -55,8 +55,8 @@ def raw_signals(
 	Novelty is mean Euclidean distance to the closest earlier embedding, excluding the first.
 	With a `coverage` spec, `coverage_mean_logdet` adds the mean per-request log-det gain
 	(see harness.logdet), excluding the first. It is a coverage proxy, not mutual information
-	or a learning prediction, and falls with prefix length: compare only at matched profile
-	and horizon length. The cumulative sum is deliberately not exposed.
+	or a learning prediction. It depends on request count, so its nulls are matched by
+	request-count band (see harness.logdet.length_bin). The cumulative sum is not exposed.
 	"""
 	if not rows:
 		return {}
@@ -155,6 +155,10 @@ def fit_signals(
 		for metric, value in raw_signals(rows, corpus, coverage).items():
 			if len(rows) < 2 and metric in {"revisit_followup_rate", "rephrasing_rate"}:
 				continue
+			if metric == "coverage_mean_logdet":
+				# Coverage falls as a stream repeats its span, so its nulls are matched by
+				# request-count band rather than pooled across horizon lengths.
+				metric = f"{metric}[{length_bin(len(rows))}]"
 			nulls.setdefault(profile, {}).setdefault(metric, []).append(value)
 	return SignalCalibration(
 		target=target,
@@ -199,7 +203,10 @@ def score_signals(
 			"request_count",
 		}
 		required = minimum_null(calibration.target if one_sided else calibration.target / 2)
-		null = calibration.nulls.get(profile, {}).get(name, [])
+		key = name
+		if name == "coverage_mean_logdet" and len(rows) >= 2:
+			key = f"{name}[{length_bin(len(rows))}]"
+		null = calibration.nulls.get(profile, {}).get(key, [])
 		entry: dict[str, Any] = {
 			"value": value,
 			"null_horizons": len(null),
@@ -207,6 +214,8 @@ def score_signals(
 			"rank_floor": min(1.0, (1 if one_sided else 2) / (len(null) + 1)),
 			"p_value": None,
 		}
+		if key != name:
+			entry["length_band"] = key[len(name) + 1 : -1]
 		if value is None or (
 			len(rows) < 2 and name in {"revisit_followup_rate", "rephrasing_rate"}
 		):
@@ -214,7 +223,8 @@ def score_signals(
 				"statistic unavailable: insufficient observations, gaps, embeddings or corpus"
 			)
 		elif len(null) < required:
-			entry["abstain"] = f"need {required} benign {profile} horizons"
+			band = f" of {key[len(name) + 1 : -1]} requests" if key != name else ""
+			entry["abstain"] = f"need {required} benign {profile} horizons{band}"
 		else:
 			upper = upper_p(null, value)
 			lower = (1 + sum(v <= value for v in null)) / (len(null) + 1)

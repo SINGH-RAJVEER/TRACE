@@ -17,11 +17,22 @@ from functools import lru_cache
 from typing import Literal, Self
 
 import numpy as np
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness.mmd import Array
 
 COVERAGE_DIM = 64
+# Sherman-Morrison subtracts nearly equal terms when the ridge is tiny, and the gains vanish
+# when it is huge; within these bounds updates agree with the closed form to about 1e-13.
+RIDGE_MIN, RIDGE_MAX = 1e-3, 1e3
+
+
+def length_bin(count: int) -> str:
+	"""Request-count band, doubling in width, within which coverage nulls are matched."""
+	if count < 2:
+		raise ValueError("coverage needs at least two requests")
+	low = 1 << (count.bit_length() - 1)
+	return f"{low}-{2 * low - 1}"
 
 
 @lru_cache(maxsize=8)
@@ -36,14 +47,17 @@ class CoverageSpec(BaseModel):
 
 	`projection_digest` is the SHA-256 of the projection matrix. It is filled on creation and
 	checked on load, so a numpy release that changes the generator stream fails loudly instead
-	of silently shifting the null.
+	of silently shifting the null. The spec is frozen so a fitted calibration cannot be
+	re-pointed at another projection after its nulls were computed.
 	"""
+
+	model_config = ConfigDict(frozen=True)
 
 	version: Literal["coverage-logdet-v1"] = "coverage-logdet-v1"
 	seed: int
 	input_dim: int = Field(gt=0)
 	dim: Literal[64] = 64
-	ridge: float = Field(default=1.0, gt=0)
+	ridge: float = Field(default=1.0, ge=RIDGE_MIN, le=RIDGE_MAX)
 	projection_digest: str | None = None
 
 	@model_validator(mode="after")
@@ -51,7 +65,7 @@ class CoverageSpec(BaseModel):
 		digest = hashlib.sha256(self.matrix().tobytes()).hexdigest()
 		if self.projection_digest not in {None, digest}:
 			raise ValueError("coverage projection digest differs from the regenerated matrix")
-		self.projection_digest = digest
+		object.__setattr__(self, "projection_digest", digest)
 		return self
 
 	def matrix(self) -> Array:
@@ -82,8 +96,10 @@ class LogDetCoverage:
 	"""
 
 	def __init__(self, dim: int = COVERAGE_DIM, ridge: float = 1.0) -> None:
-		if dim <= 0 or not ridge > 0:
-			raise ValueError("dim and ridge must be positive")
+		if dim <= 0:
+			raise ValueError("dim must be positive")
+		if not RIDGE_MIN <= ridge <= RIDGE_MAX:
+			raise ValueError(f"ridge must be in [{RIDGE_MIN}, {RIDGE_MAX}]")
 		self.dim, self.ridge = dim, ridge
 		self.reset()
 

@@ -74,3 +74,31 @@ def test_calibration_records_spec_and_rejects_a_changed_projection() -> None:
 	payload["coverage"]["projection_digest"] = "0" * 64
 	with pytest.raises(ValueError, match="digest"):
 		SignalCalibration.model_validate(payload)
+
+
+def test_ranks_use_matched_request_count_bands() -> None:
+	spec = CoverageSpec(seed=7, input_dim=2)
+	same = [SignalRow(f"r{i}", float(i), (1.0, 0.0)) for i in range(100)]
+	fitted = fit_signals([same] * 19, profiles=["g"] * 19, coverage=spec)
+	assert set(fitted.nulls["g"]) >= {"coverage_mean_logdet[64-127]"}
+	short = score_signals(same[:2], profile="g", calibration=fitted)["metrics"]
+	assert short["coverage_mean_logdet"]["p_value"] is None
+	assert "of 2-3 requests" in short["coverage_mean_logdet"]["abstain"]
+	matched = score_signals(same, profile="g", calibration=fitted)["metrics"]
+	assert matched["coverage_mean_logdet"]["length_band"] == "64-127"
+	assert matched["coverage_mean_logdet"]["p_value"] == 1.0
+
+
+def test_ridge_bounds_and_frozen_spec() -> None:
+	for ridge in (1e-20, float("inf"), 0.0):
+		with pytest.raises(ValueError):
+			CoverageSpec(seed=7, input_dim=2, ridge=ridge)
+		with pytest.raises(ValueError):
+			LogDetCoverage(COVERAGE_DIM, ridge)
+	tracker = LogDetCoverage(COVERAGE_DIM, 1e-3)
+	e = np.eye(COVERAGE_DIM)[0]
+	for k in range(200):
+		assert tracker.update(e) == pytest.approx(np.log1p(1 / (1e-3 + k)), rel=1e-12)
+	spec = CoverageSpec(seed=7, input_dim=2)
+	with pytest.raises(ValueError):
+		spec.seed = 8  # type: ignore[misc]
