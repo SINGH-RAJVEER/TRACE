@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from harness.corpus import CorpusIndex, normalized, shingles
 from harness.logdet import CoverageSpec, length_bin
@@ -30,6 +30,9 @@ class SignalRow:
 
 
 class SignalCalibration(BaseModel):
+	# Frozen so scoring cannot swap the coverage spec that produced the stored nulls.
+	model_config = ConfigDict(frozen=True)
+
 	version: str = "horizon-signals-v1"
 	target: float = Field(default=0.05, gt=0, lt=1)
 	nulls: dict[str, dict[str, list[float]]] = Field(default_factory=dict)

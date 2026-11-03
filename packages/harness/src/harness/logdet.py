@@ -7,8 +7,9 @@ By the matrix determinant lemma, g_t is the increase in log det(A) caused by req
 
 This is a coverage proxy only. It is not mutual information about teacher weights and it does
 not predict student learning. The running sum of g_t grows with request count and would
-recreate a volume threshold, so consumers must use the per-request gain or a windowed mean
-compared at matched profile and prefix length, never the cumulative sum.
+recreate a volume threshold, so consumers must use the per-request gain or a windowed mean,
+never the cumulative sum. The windowed mean still depends on request count, so its nulls
+are matched by request-count band (length_bin) rather than pooled across horizon lengths.
 """
 
 import hashlib

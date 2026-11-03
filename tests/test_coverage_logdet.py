@@ -102,3 +102,7 @@ def test_ridge_bounds_and_frozen_spec() -> None:
 	spec = CoverageSpec(seed=7, input_dim=2)
 	with pytest.raises(ValueError):
 		spec.seed = 8  # type: ignore[misc]
+	same = [SignalRow(f"r{i}", float(i), (1.0, float(i % 3))) for i in range(10)]
+	fitted = fit_signals([same] * 19, profiles=["g"] * 19, coverage=spec)
+	with pytest.raises(ValueError):
+		fitted.coverage = CoverageSpec(seed=8, input_dim=2, ridge=0.001)  # type: ignore[misc]
