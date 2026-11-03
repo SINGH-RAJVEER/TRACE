@@ -35,16 +35,7 @@ In the API, `HARNESS_SHADOW_SCORERS=true` adds a `shadow` object to every `decis
 
 `harness shadow-check --calibration DIR --requests FILE [--reorder topic]` replays BenignRequest or gateway schedule lines through the shadow scorers only. It reports coverage and per-domain window summaries for each account horizon. `--reorder topic` sends each horizon grouped by domain, then by coverage cell, while keeping the original times.
 
-**Development check, not confirmation.** On the frozen v3 roles with cached embeddings, at target 0.05:
-
-- AG News (102 independent specialist windows) and SQuAD (67) resolve. Coding (12) and GSM8K (2) abstain, so the coding separation the audit measured for A7 is not reported here.
-- A1 and topic-sorted A1 have identical coverage: 127 of 128 cells, with rarefied rank p 0.031 at 200 prompts against `all`. That rank is the floor of a 31-horizon null.
-- A7 ranks at p 0.094 against `all`. The `multi_domain` null has 13 horizons, so it abstains.
-- On held-out `benign_test`, 2 of 13 multi-domain horizons and 1 of 112 single-domain horizons rank at or below 0.05.
-- Conditional MMD gives A1 as logged p 1.0 in AG News and SQuAD. Topic-sorted A1 reaches minimum p 0.003 in AG News. 21% of benign AG News specialists also reach a window at or below 0.05.
-- A7 is not separated in AG News (minimum p 0.20) or SQuAD (0.97).
-
-These probes were inspected during development. No setting was tuned on them, and they cannot serve as confirmation.
+A development check of these scorers on the frozen v3 roles, inspected during development and not usable as confirmation, is recorded in [readings/v5-development-notes](../readings/v5-development-notes/README.md#shadow-scorers).
 
 **What this does not establish.** Neither score identifies extraction or intent. Coverage measures breadth, which benign generalists and broad researchers share, and splitting a campaign across accounts removes it. Conditional MMD can only flag traffic unlike a domain's specialists, such as foreign-source prompts. When an attacker's prompts follow the same distribution as benign traffic, every content-only score, these included, rejects attacker and benign accounts at the same rate. No false-positive rate, detection rate, or effect on student capability has been measured. Any use in a policy needs a fresh source-disjoint calibration and evaluation.
 
@@ -86,9 +77,7 @@ Budgets are access controls, not a detector. They limit what one account, or the
 
 The bound depends on an accurate token count, traffic passing through this service, and an intact state file. Limits apply per principal, or per declared organization for the horizon and rolling organization budgets. An organization limit covers only principals the operator has mapped to that organization. The harness does not infer links between accounts, and it does not apply a ban or a limit across accounts the mapping does not join. A Sybil campaign such as A5 or A6, or account rotation, whose accounts are not mapped together gets one allowance per account, or per organization when the accounts sit in several declared organizations.
 
-**Measured.** `uv run pytest tests/test_crash.py` kills the real server process mid-request and restarts it against a stand-in teacher. A one-off run on one Windows host used recorded A1 requests, a 1,215-request rolling budget, and four requests in flight at the crash: 1,211 responses were released and the four open requests stayed charged, totalling exactly 1,215. The in-memory quota released 2,430 across the same crash. An offline replay of the recorded A1 token counts at 1,215 requests a day released 6,000 responses and 588,239 tokens by day five under a daily-renewing quota, against 1,215 responses and 118,024 tokens under a seven-day budget. A 44,200-token rolling budget released 440 responses. These are one campaign, one seed, and one account. They measure enforcement, not capability. On that host, with no encoder running, the rolling check added about 0.3 ms at p50 to a state-file request of about 8.4 ms, and a refusal took about 1.9 ms. Measure cost on the deployment host.
-
-**Estimated, not measured.** In the [audit's](../readings/v4/analysis/REPORT.md) offline comparison, the six-account A6 campaign stays below a 1,215-request limit and releases all 6,000 responses, while an estimated 44,200-token limit releases 2,706. That token limit reached L4 on 4 of 100 scored benign accounts, against 1 for the request quota, using estimated token costs and synthetic users. No comparison covers a seven-day window, which is stricter than the one-horizon limits the audit fitted.
+The crash-test measurements and the audit's offline estimates behind this section are recorded in [readings/v5-development-notes](../readings/v5-development-notes/README.md#budget-enforcement). They cover one campaign, one seed and one account, and measure enforcement, not capability.
 
 **Not measured.** No rolling budget has been run with the real teacher, the encoder, or the MMD policy. No organization rolling budget has been run against any recorded campaign; its tests check enforcement with a stand-in teacher. Student capability under any budget, real legitimate traffic, adaptive attackers, account rotation, and how often real Sybil accounts would be declared under one organization are all unknown.
 
