@@ -29,6 +29,7 @@ def record(
 	group_id: str | None = None,
 	model: str = "teacher-a",
 	parameters: dict[str, Any] | None = None,
+	split: str = "train",
 ) -> dict[str, Any]:
 	source: dict[str, Any] = {"corpus": "fake", "source_id": example_id, "license": "test"}
 	if group_id is not None:
@@ -36,7 +37,7 @@ def record(
 	return {
 		"example_id": example_id,
 		"attempt_id": "a",
-		"split": "train",
+		"split": split,
 		"task": task,
 		"source": source,
 		"prompt": [{"role": "user", "content": prompt or f"prompt {example_id}"}],
@@ -267,3 +268,48 @@ def test_cli_manifest_then_select(ledgers: list[Path], tmp_path: Path) -> None:
 		+ ["--budget", "50", "--seed", "9", "--include-unaccepted"],
 	)
 	assert refused.exit_code != 0
+
+
+def test_token_budget_needs_the_clean_policy(tmp_path: Path) -> None:
+	rows = [record(f"e{i}", tokens=10) for i in range(4)]
+	protected = build_manifest([ledger(tmp_path / "p.jsonl", rows)], response_policy="protected-v1")
+	with pytest.raises(ManifestError, match="token budget refused"):
+		select_rows(protected, by="tokens", budget=20, seed=1)
+	assert select_rows(protected, by="queries", budget=2, seed=1)["count"] == 2
+
+
+def test_selection_is_limited_to_one_split(tmp_path: Path) -> None:
+	rows = [record("tr", split="train"), record("te", split="test")]
+	manifest = build_manifest([ledger(tmp_path / "s.jsonl", rows)], response_policy="clean")
+	train = select_rows(manifest, by="queries", budget=1, seed=1)
+	assert train["example_ids"] == ["tr"] and train["excluded_other_splits"] == 1
+	with pytest.raises(ManifestError):
+		select_rows(manifest, by="queries", budget=2, seed=1)
+	assert select_rows(manifest, by="queries", budget=1, seed=1, split="test")["example_ids"] == [
+		"te"
+	]
+
+
+def test_numeric_settings_compare_by_value(tmp_path: Path) -> None:
+	rows = [
+		record("z0", parameters={**PARAMETERS, "temperature": 0}),
+		record("z1", parameters={**PARAMETERS, "temperature": -0.0}),
+	]
+	manifest = build_manifest([ledger(tmp_path / "z.jsonl", rows)], response_policy="clean")
+	assert manifest["totals"]["examples"] == 2
+
+
+def test_outputs_are_never_overwritten(ledgers: list[Path], tmp_path: Path) -> None:
+	path = tmp_path / "manifest.json"
+	runner = CliRunner()
+	common = ["acquisition", "manifest", "--response-policy", "clean", "--output", str(path)]
+	sources = [arg for ledger_path in ledgers for arg in ("--ledger", str(ledger_path))]
+	assert runner.invoke(app, [*common, *sources]).exit_code == 0
+	before = path.read_bytes()
+	select = ["acquisition", "select", "--manifest", str(path), "--by", "queries"]
+	result = runner.invoke(app, [*select, "--budget", "1", "--seed", "1", "--output", str(path)])
+	assert result.exit_code == 2 and path.read_bytes() == before
+	assert not list(tmp_path.glob(".*.tmp"))
+	path.write_text("{truncated")
+	result = runner.invoke(app, [*select, "--budget", "1", "--seed", "1"])
+	assert result.exit_code == 2 and "not valid manifest JSON" in result.output

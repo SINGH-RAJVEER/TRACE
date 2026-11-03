@@ -8,6 +8,7 @@ estimated. Pure data and hashing, with no network, model, or GPU.
 
 import hashlib
 import json
+import os
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -18,6 +19,9 @@ from distillation.io import canonical_json
 from distillation.schemas import LedgerRecord
 
 MANIFEST_VERSION = "acquisition-manifest-v1"
+# The only policy whose ledger output tokens are what the client received; a transformed
+# policy needs its own verified delivered count before it can be token-budgeted.
+CLEAN_POLICY = "clean"
 _POLICY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHOWN = 5
 
@@ -110,10 +114,21 @@ def _check_unique(rows: list[dict[str, Any]]) -> None:
 		raise ManifestError(f"same prompt under different example IDs: {_capped(collisions)}")
 
 
+def _comparable(teacher: dict[str, Any]) -> str:
+	"""Settings as compared: numbers by value, so 0, 0.0 and -0.0 are one temperature."""
+	parameters = {
+		key: float(value) + 0.0
+		if isinstance(value, int | float) and not isinstance(value, bool)
+		else value
+		for key, value in teacher["parameters"].items()
+	}
+	return canonical_json({**teacher, "parameters": parameters})
+
+
 def _freeze_settings(rows: list[dict[str, Any]], settings: list[dict[str, Any]]) -> dict[str, Any]:
 	first_by_settings: dict[str, int] = {}
 	for index, teacher in enumerate(settings):
-		first_by_settings.setdefault(canonical_json(teacher), index)
+		first_by_settings.setdefault(_comparable(teacher), index)
 	if len(first_by_settings) > 1:
 		shown = [
 			f"{canonical_json(settings[index])} first at {_where(rows[index])}"
@@ -196,14 +211,26 @@ def _totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
 	}
 
 
+def write_new(output: Path, text: str) -> None:
+	"""Publish a complete file at a path that must not exist yet, atomically.
+
+	The text goes to a private temporary file that is then hard-linked into place; linking
+	fails if the destination exists, even when it appears after any earlier check.
+	"""
+	output.parent.mkdir(parents=True, exist_ok=True)
+	temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+	temporary.write_text(text)
+	try:
+		os.link(temporary, output)
+	except FileExistsError as error:
+		raise ManifestError(f"{output} already exists; outputs are never overwritten") from error
+	finally:
+		temporary.unlink()
+
+
 def write_manifest(manifest: dict[str, Any], output: Path) -> None:
 	"""Write a new manifest file; a frozen artifact is never overwritten."""
-	if output.exists():
-		raise ManifestError(f"{output} already exists; manifests are not overwritten")
-	output.parent.mkdir(parents=True, exist_ok=True)
-	temporary = output.with_suffix(f"{output.suffix}.tmp")
-	temporary.write_text(json.dumps(manifest, indent="\t", ensure_ascii=False) + "\n")
-	temporary.replace(output)
+	write_new(output, json.dumps(manifest, indent="\t", ensure_ascii=False) + "\n")
 
 
 def load_manifest(path: Path, *, require_ledgers: bool = False) -> dict[str, Any]:
@@ -212,7 +239,10 @@ def load_manifest(path: Path, *, require_ledgers: bool = False) -> dict[str, Any
 	A ledger that is not on disk is skipped unless require_ledgers is set. A ledger that is on
 	disk with different bytes is always an error.
 	"""
-	manifest = json.loads(path.read_text())
+	try:
+		manifest = json.loads(path.read_text())
+	except (UnicodeDecodeError, json.JSONDecodeError) as error:
+		raise ManifestError(f"{path}: not valid manifest JSON") from error
 	if not isinstance(manifest, dict) or manifest.get("version") != MANIFEST_VERSION:
 		raise ManifestError(f"{path}: not an {MANIFEST_VERSION} manifest")
 	claimed = manifest.get("digest")
@@ -236,13 +266,16 @@ def select_rows(
 	by: Literal["queries", "tokens"],
 	budget: int,
 	seed: int,
+	split: str = "train",
 	include_unaccepted: bool = False,
 ) -> dict[str, Any]:
 	"""Pick a seeded prefix of the manifest rows for an equal-query or equal-token budget.
 
 	Rows are ordered by sha256(seed:example_id), so every budget at one seed is a prefix of
-	the next larger one. Candidates are accepted rows unless include_unaccepted is set; their
-	number is returned. A query budget needs exactly that many candidates. A token budget
+	the next larger one. Candidates are accepted rows of one declared split (train by default),
+	so held-out rows never enter a training selection; include_unaccepted widens only the
+	quality filter. A token budget is allowed only for the clean policy, whose ledger tokens
+	are what the client received. A query budget needs exactly that many candidates. A token budget
 	stops at the first row that would exceed it, so it is never exceeded, and is refused when
 	any candidate has an unknown token count.
 	"""
@@ -250,8 +283,16 @@ def select_rows(
 		raise ManifestError("select by 'queries' or 'tokens'")
 	if budget < 1:
 		raise ManifestError("the budget must be at least 1")
+	if by == "tokens" and manifest["response_policy"] != CLEAN_POLICY:
+		raise ManifestError(
+			f"token budget refused for policy {manifest['response_policy']!r}: ledger tokens are "
+			"the teacher's count, not what a transformed response delivered"
+		)
 	rows = manifest["examples"]
-	candidates = [row for row in rows if include_unaccepted or row["quality_status"] == "accepted"]
+	in_split = [row for row in rows if row["split"] == split]
+	candidates = [
+		row for row in in_split if include_unaccepted or row["quality_status"] == "accepted"
+	]
 	ordered = sorted(
 		candidates,
 		key=lambda row: (
@@ -284,10 +325,12 @@ def select_rows(
 		"by": by,
 		"budget": budget,
 		"seed": seed,
+		"split": split,
 		"include_unaccepted": include_unaccepted,
 		"manifest_digest": manifest["digest"],
 		"candidates": len(ordered),
-		"excluded_unaccepted": len(rows) - len(candidates),
+		"excluded_other_splits": len(rows) - len(in_split),
+		"excluded_unaccepted": len(in_split) - len(candidates),
 		"count": len(chosen),
 		"output_tokens": sum(known) if len(known) == len(chosen) else None,
 		"unknown_token_rows": len(chosen) - len(known),

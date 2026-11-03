@@ -60,16 +60,27 @@ def acquisition_select_command(
 	by: Annotated[str, typer.Option(help="queries or tokens")],
 	budget: Annotated[int, typer.Option(min=1)],
 	seed: Annotated[int, typer.Option()],
+	split: Annotated[str, typer.Option(help="Only rows of this split are candidates.")] = "train",
 	include_unaccepted: Annotated[
 		bool, typer.Option(help="Also draw rows whose quality status is not accepted.")
 	] = False,
 	require_ledgers: Annotated[
 		bool, typer.Option(help="Fail when a ledger file is missing instead of skipping its check.")
 	] = False,
-	output: Annotated[Path | None, typer.Option(help="Also write the selection here.")] = None,
+	output: Annotated[
+		Path | None, typer.Option(help="Also write the selection to this new file.")
+	] = None,
 ) -> None:
-	"""Select example IDs for an equal-query or equal-delivered-token budget, by seed."""
-	from distillation.acquisition_manifest import ManifestError, load_manifest, select_rows
+	"""Select example IDs for an equal-query or equal-token budget, by seed.
+
+	Token budgets are only for the clean policy, whose ledger tokens were delivered as is.
+	"""
+	from distillation.acquisition_manifest import (
+		ManifestError,
+		load_manifest,
+		select_rows,
+		write_new,
+	)
 
 	if by not in ("queries", "tokens"):
 		raise typer.BadParameter("--by must be queries or tokens")
@@ -79,13 +90,14 @@ def acquisition_select_command(
 			by="queries" if by == "queries" else "tokens",
 			budget=budget,
 			seed=seed,
+			split=split,
 			include_unaccepted=include_unaccepted,
 		)
+		text = json.dumps(selection, indent="\t")
+		if output is not None:
+			write_new(output, text + "\n")
 	except ManifestError as error:
 		raise typer.BadParameter(str(error)) from error
-	text = json.dumps(selection, indent="\t")
-	if output is not None:
-		output.write_text(text + "\n")
 	typer.echo(text)
 
 
