@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 from bisect import bisect_left
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -12,13 +12,63 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness.calibration import binomial_upper
 
+Look = Sequence[float]
 
-class PathCalibration(BaseModel):
-	"""Frozen calibration for one declared campaign stratum and horizon."""
+
+class PathScoring(BaseModel):
+	"""The frozen per-look score shared by calibration and runtime.
+
+	A look supplies one score per declared stream, in stream order. Its path score is the
+	maximum of the fixed positive weight times each stream's score. Fitting and runtime both
+	score through this object, so a calibration cannot be applied to differently scored looks.
+	"""
 
 	model_config = ConfigDict(frozen=True, extra="forbid")
 
-	version: Literal["path-max-v1"] = "path-max-v1"
+	name: str = Field(min_length=1)
+	streams: tuple[str, ...] = Field(min_length=1)
+	weights: tuple[float, ...] | None = None
+
+	@model_validator(mode="after")
+	def validate_scoring(self) -> PathScoring:
+		if not self.name.strip() or any(not stream.strip() for stream in self.streams):
+			raise ValueError("scoring name and streams must not be blank")
+		if len(set(self.streams)) != len(self.streams):
+			raise ValueError("streams must be unique")
+		if self.weights is not None and (
+			len(self.weights) != len(self.streams)
+			or any(not math.isfinite(w) or w <= 0 for w in self.weights)
+		):
+			raise ValueError("weights must be one finite positive value per stream")
+		return self
+
+	def look(self, scores: Look) -> float:
+		"""Score one look; every declared stream must be present and finite."""
+		if len(scores) != len(self.streams):
+			raise ValueError(f"a look needs one score per stream: {', '.join(self.streams)}")
+		if any(not math.isfinite(value) for value in scores):
+			raise ValueError("scores must be finite")
+		weights = self.weights or (1.0,) * len(self.streams)
+		# Adding zero folds -0.0 into 0.0 so equal scores serialize identically.
+		return max(w * float(v) for w, v in zip(weights, scores, strict=True)) + 0.0
+
+	def path_maximum(self, path: Iterable[Look], horizon: int) -> float:
+		"""The maximum look score over a whole permitted path of at most `horizon` looks."""
+		values = [self.look(look) for look in path]
+		if not values:
+			raise ValueError("a campaign must contain at least one look")
+		if len(values) > horizon:
+			raise ValueError("a calibration path is longer than the horizon")
+		return max(values)
+
+
+class PathCalibration(BaseModel):
+	"""Frozen calibration for one declared campaign stratum, scoring and horizon."""
+
+	model_config = ConfigDict(frozen=True, extra="forbid")
+
+	version: Literal["path-max-v2"] = "path-max-v2"
+	scoring: PathScoring
 	alpha: float = Field(gt=0, lt=1, allow_inf_nan=False)
 	horizon: int = Field(gt=0, strict=True)
 	maxima: tuple[float, ...]
@@ -44,27 +94,37 @@ class PathCalibration(BaseModel):
 
 
 def fit_path_calibration(
-	maxima_by_campaign: Iterable[float], *, alpha: float, horizon: int, stratum: str
+	paths: Iterable[Iterable[Look]],
+	*,
+	scoring: PathScoring,
+	alpha: float,
+	horizon: int,
+	stratum: str,
 ) -> PathCalibration:
-	"""Fit one stratum from one maximum per benign calibration campaign."""
-	maxima = tuple(sorted(float(value) for value in maxima_by_campaign))
-	if any(not math.isfinite(value) for value in maxima):
-		raise ValueError("campaign maxima must be finite")
+	"""Fit one stratum from the complete look paths of independent benign campaigns."""
 	if not math.isfinite(alpha) or not 0 < alpha < 1:
 		raise ValueError("alpha must be finite and in (0, 1)")
 	if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon < 1:
 		raise ValueError("horizon must be a positive integer")
 	if not isinstance(stratum, str) or not stratum.strip():
 		raise ValueError("stratum must not be blank")
+	maxima = tuple(sorted(scoring.path_maximum(path, horizon) for path in paths))
 	n = len(maxima)
 	abstained = 1 / (n + 1) > alpha
 	payload = json.dumps(
-		{"alpha": alpha, "horizon": horizon, "stratum": stratum, "maxima": maxima},
+		{
+			"alpha": alpha,
+			"horizon": horizon,
+			"stratum": stratum,
+			"scoring": scoring.model_dump(),
+			"maxima": maxima,
+		},
 		sort_keys=True,
 		separators=(",", ":"),
 		allow_nan=False,
 	).encode()
 	return PathCalibration(
+		scoring=scoring,
 		alpha=alpha,
 		horizon=horizon,
 		maxima=maxima,
@@ -74,25 +134,6 @@ def fit_path_calibration(
 		abstained=abstained,
 		abstention_reason="insufficient campaigns for alpha" if abstained else None,
 	)
-
-
-def path_maximum(
-	scores: Iterable[Sequence[float]],
-	*,
-	transform: Callable[[Sequence[float]], float] | None = None,
-) -> float:
-	"""Take the maximum over looks after a fixed per-look transform, defaulting to max."""
-	maximum = -math.inf
-	for look in scores:
-		if len(look) == 0 or any(not math.isfinite(value) for value in look):
-			raise ValueError("each look must contain finite scores")
-		value = float(transform(look) if transform is not None else max(look))
-		if not math.isfinite(value):
-			raise ValueError("transformed score must be finite")
-		maximum = max(maximum, value)
-	if maximum == -math.inf:
-		raise ValueError("a campaign must contain at least one look")
-	return maximum
 
 
 @dataclass(frozen=True)
@@ -125,14 +166,13 @@ class PathState:
 	def abstained(self) -> bool:
 		return self._calibration.abstained
 
-	def observe(self, score: float) -> PathDecision:
-		"""Score a look, preserving a stop and rejecting looks beyond the horizon."""
+	def observe(self, scores: Look) -> PathDecision:
+		"""Score a look with the calibration's scoring, keeping a stop and the horizon."""
 		if self.look_count >= self.calibration.horizon:
 			return self._result("horizon expired")
 		if self.stopped:
 			return self._result("stop")
-		if not math.isfinite(score):
-			raise ValueError("score must be finite")
+		score = self.calibration.scoring.look(scores)
 		self.look_count += 1
 		self.running_max = score if self.running_max is None else max(self.running_max, score)
 		if self.abstained:
@@ -164,6 +204,11 @@ def period_alpha(alpha_total: float, j: int) -> float:
 
 def audit_upper_bound(false_stops: int, campaigns: int, confidence: float = 0.95) -> float:
 	"""Return the one-sided Clopper-Pearson upper bound for an independent audit."""
+	for count in (false_stops, campaigns):
+		if isinstance(count, bool) or not isinstance(count, int):
+			raise ValueError("audit counts must be integers")
+	if campaigns < 1 or not 0 <= false_stops <= campaigns:
+		raise ValueError("audit needs campaigns >= 1 and 0 <= false_stops <= campaigns")
 	if not math.isfinite(confidence) or not 0 < confidence < 1:
 		raise ValueError("confidence must be finite and in (0, 1)")
 	return binomial_upper(false_stops, campaigns, confidence)
