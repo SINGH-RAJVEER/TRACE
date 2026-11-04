@@ -156,6 +156,10 @@ def fit_signals(
 	nulls: dict[str, dict[str, list[float]]] = {}
 	for rows, profile in zip(horizons, profiles, strict=True):
 		for metric, value in raw_signals(rows, corpus, coverage).items():
+			if coverage is not None and metric == "novelty_mean_nn":
+				nulls.setdefault(profile, {}).setdefault(
+					f"{metric}[{length_bin(len(rows))}]", []
+				).append(value)
 			if len(rows) < 2 and metric in {"revisit_followup_rate", "rephrasing_rate"}:
 				continue
 			if metric == "coverage_mean_logdet":
@@ -207,7 +211,10 @@ def score_signals(
 		}
 		required = minimum_null(calibration.target if one_sided else calibration.target / 2)
 		key = name
-		if name == "coverage_mean_logdet" and len(rows) >= 2:
+		if (
+			name == "coverage_mean_logdet"
+			or (calibration.coverage is not None and name == "novelty_mean_nn")
+		) and len(rows) >= 2:
 			key = f"{name}[{length_bin(len(rows))}]"
 		null = calibration.nulls.get(profile, {}).get(key, [])
 		entry: dict[str, Any] = {

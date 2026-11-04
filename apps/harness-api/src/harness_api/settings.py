@@ -14,7 +14,10 @@ class Settings(BaseSettings):
 	calibration_dir: Path = Field(
 		default=Path("artifacts/harness"), alias="HARNESS_CALIBRATION_DIR"
 	)
-	policy: Literal["mmd", "allow", "quota", "rate"] = Field(default="mmd", alias="HARNESS_POLICY")
+	policy: Literal["mmd", "allow", "quota", "rate", "path"] = Field(
+		default="mmd", alias="HARNESS_POLICY"
+	)
+	path_calibration: Path | None = Field(default=None, alias="HARNESS_PATH_CALIBRATION")
 	accumulator: str = Field(default="paper", alias="HARNESS_ACCUMULATOR")
 	thresholds: Literal["calibrated", "ville"] = Field(
 		default="calibrated", alias="HARNESS_THRESHOLDS"
@@ -131,6 +134,17 @@ class Settings(BaseSettings):
 
 	@model_validator(mode="after")
 	def validate_combinations(self) -> Settings:
+		if (self.policy == "path") != (self.path_calibration is not None):
+			raise ValueError("path policy requires HARNESS_PATH_CALIBRATION, exclusively")
+		if self.policy == "path" and self.scoring_mode == "off_path":
+			raise ValueError("path stops are incompatible with off_path scoring")
+		if self.policy == "path" and self.state_db is None:
+			raise ValueError("path stops require HARNESS_STATE_DB for durable campaign state")
+		if self.policy == "path":
+			if "l4_action" not in self.model_fields_set:
+				self.l4_action = "refuse"
+			if self.l4_action != "refuse":
+				raise ValueError("path policy supports terminal refusal only")
 		if self.review_enabled and self.state_db is None:
 			raise ValueError("review requires HARNESS_STATE_DB")
 		if self.review_verify_codes and not self.review_enabled:

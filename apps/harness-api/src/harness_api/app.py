@@ -49,7 +49,16 @@ from harness.deception import noise
 from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
-from harness.policy import Decision, MMDPolicy, Policy, ScoreWindow, request_digest
+from harness.path_runtime import RuntimePathCalibration
+from harness.policy import (
+	Decision,
+	MMDPolicy,
+	PathStopPolicy,
+	Policy,
+	ScoreWindow,
+	StalePathAdmission,
+	request_digest,
+)
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
 from harness.shadow import ShadowMonitor
@@ -162,7 +171,11 @@ def _mimic(identifier: str | None) -> str | None:
 	return head + secrets.token_hex((len(tail) + 1) // 2)[: len(tail)]
 
 
-def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, Any]:
+def _policy_fields(
+	settings: Settings,
+	calibration: Calibration,
+	path: RuntimePathCalibration | None = None,
+) -> dict[str, Any]:
 	"""The policy, its actions and limits, and the calibration behind a decision."""
 	fields = settings.model_dump(
 		include={
@@ -188,6 +201,10 @@ def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, An
 	# Omitted for the default version so existing legacy state files keep their scope.
 	if settings.policy_version != "legacy-v1":
 		fields["policy_version"] = settings.policy_version
+	if path is not None:
+		fields["path_calibration"] = path.input_hash
+		fields["path_policy_version"] = path.recipe.version
+		fields["path_qualified"] = False
 	# Likewise omitted when unset, so a file written without rolling limits keeps its scope.
 	if settings.rolling_request_budget or settings.rolling_token_budget:
 		fields["rolling"] = [
@@ -228,10 +245,11 @@ def _scope(
 	scorer: WindowScorer,
 	aggregate_scorer: WindowScorer | None,
 	deception_key: bytes | None,
+	path: RuntimePathCalibration | None = None,
 ) -> str:
 	"""Everything that gives stored state its meaning: the policy, its actions, and the
 	calibration. Secrets and service addresses are left out."""
-	fields = _policy_fields(settings, calibration)
+	fields = _policy_fields(settings, calibration, path)
 	fields["references"] = hashlib.sha256(scorer.references.tobytes()).hexdigest()
 	fields["scorer"] = [scorer.sigma, scorer.scales]
 	fields["deception_key"] = hashlib.sha256(deception_key).hexdigest() if deception_key else None
@@ -291,13 +309,24 @@ def create_app(
 	served_task = calibration.config.task
 	if served_task != config.task:
 		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
+	path = (
+		RuntimePathCalibration.model_validate_json(config.path_calibration.read_text())
+		if config.path_calibration is not None
+		else None
+	)
+	if path is not None:
+		if encoder is None:
+			from harness.encoder import BGEEncoder
+
+			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+		path.require_compatible(calibration, scorer, encoder.identity())
 	if config.scoring_mode == "off_path" and config.state_db is not None:
 		# Queued windows live in this process, so a restart would silently drop their evidence.
 		raise ValueError("off-path scoring keeps queued windows in memory; unset HARNESS_STATE_DB")
 	store: StateStore = (
 		SQLiteStore(
 			config.state_db,
-			_scope(config, calibration, scorer, aggregate_scorer, key),
+			_scope(config, calibration, scorer, aggregate_scorer, key, path),
 			review_enabled=config.review_enabled,
 		)
 		if config.state_db is not None
@@ -305,8 +334,19 @@ def create_app(
 	)
 	# Binds every logged event to the exact policy and calibration behind it.
 	policy_revision = hashlib.sha256(
-		canonical_json(_policy_fields(config, calibration)).encode()
+		canonical_json(_policy_fields(config, calibration, path)).encode()
 	).hexdigest()
+	path_fields = (
+		{
+			"path_policy": {
+				"calibration_hash": path.input_hash,
+				"policy_version": path.recipe.version,
+				"qualified": False,
+			}
+		}
+		if path is not None
+		else {}
+	)
 	rolling = (
 		RollingBudget(
 			config.rolling_window_seconds,
@@ -448,16 +488,20 @@ def create_app(
 			policy_version=config.policy_version,
 			submit_window=submit_window if config.scoring_mode == "off_path" else None,
 		)
+	elif path is not None:
+		policy = PathStopPolicy(calibration, scorer, path, store=store)
 	else:
 		if config.scoring_mode == "off_path":
 			raise ValueError("off-path scoring requires the MMD policy")
 		policy = make_policy(config.policy, calibration, scorer, store=store)
 	monitor = (
 		AggregateMonitor(aggregate_scorer, calibration.aggregate)
-		if aggregate_scorer is not None and calibration.aggregate is not None
+		if config.policy != "path"
+		and aggregate_scorer is not None
+		and calibration.aggregate is not None
 		else None
 	)
-	needs_embeddings = config.policy == "mmd" or monitor is not None
+	needs_embeddings = config.policy in {"mmd", "path"} or monitor is not None
 	shadow: ShadowMonitor | None = None
 	if config.shadow_scorers:
 		if calibration.shadow is None:
@@ -863,6 +907,8 @@ def create_app(
 
 	def policy_response(decision: Decision) -> JSONResponse:
 		if decision.action == "refuse":
+			if decision.reason == "path_stop":
+				return _error(403, "path_stop", "campaign path stopped", "block")
 			return _error(403, "blocked", "request refused", "block")
 		return JSONResponse(
 			{
@@ -973,9 +1019,15 @@ def create_app(
 				horizon=decision.horizon,
 				attempt=decision.attempt,
 				status=status,
+				**(
+					{"path": decision.path, "reason": decision.reason}
+					if decision.path is not None
+					else {}
+				),
 				output_tokens=tokens if status == "released" else None,
 				deceive=decision.deceive,
 				policy_revision=policy_revision,
+				**path_fields,
 				request_digest=reservation.request_digest,
 				benchmark_request=benchmark_request,
 			)
@@ -1245,6 +1297,7 @@ def create_app(
 				action="refuse",
 				reason=None,
 				policy_revision=policy_revision,
+				**path_fields,
 				deceive=False,
 				window_completed=False,
 				p_value=None,
@@ -1290,88 +1343,118 @@ def create_app(
 		rejection = None
 		policy_result = None
 		alert = None
-		# A failed off-path submission rolls the whole admission back.
-		try:
-			with store.transaction() as tx:
-				prior = previous(tx, account, idempotency_key, digest)
-				if prior is not None:
-					return prior
-				code = (
-					rolling_refusal(
-						tx, candidate, now, rolling, organization_rolling, supervision, tier
+		while True:
+			prepared = (
+				await asyncio.to_thread(policy.prepare, account, text, now, embedding, binding)
+				if isinstance(policy, PathStopPolicy)
+				else None
+			)
+			# A failed off-path submission rolls the whole admission back.
+			try:
+				with store.transaction() as tx:
+					prior = previous(tx, account, idempotency_key, digest)
+					if prior is not None:
+						return prior
+					code = (
+						rolling_refusal(
+							tx, candidate, now, rolling, organization_rolling, supervision, tier
+						)
+						if supervision is not None or tier is not None
+						else None
 					)
-					if supervision is not None or tier is not None
-					else None
-				)
-				if code is not None:
-					status_code, message, header = ROLLING_REFUSALS[code]
-					refusal = _error(status_code, code, message, header)
-					remember(tx, account, idempotency_key, digest, now, refusal)
-					log.write(
-						"decision",
-						time=now,
-						account=account,
-						attempt=None,
-						horizon=None,
-						level=4,
-						action="refuse",
-						reason=None,
-						policy_revision=policy_revision,
-						deceive=False,
-						window_completed=False,
-						p_value=None,
-						statistic=None,
-						witness=[],
-						request_digest=digest,
-						benchmark_request=x_benchmark_request,
-						entitlement=code,
-					)
-					return refusal
-				decision = policy.admit_in_transaction(
-					tx, account, text, now, embedding=embedding, binding=binding
-				)
-				if decision.action == "refuse" and tx.allowance(
-					account, decision.reason or "blocked", now, request.max_output_tokens
-				):
-					decision = replace(decision, action="serve", release_at=now)
-				if (
-					monitor
-					and embedding is not None
-					and tx.append_aggregate(embedding, account, now)
-					>= monitor.calibration.window_size
-				):
-					index, rows = tx.take_aggregate()
-					window = AggregateWindow(
-						index,
-						np.stack([r[0] for r in rows]),
-						[r[1] for r in rows],
-						rows[0][2],
-						rows[-1][2],
-					)
-					alert = monitor.score(window)
-					tx.put_aggregate_alert(index, asdict(alert))
-				if decision.action in {"serve", "challenge"}:
-					reservation, rejection = reserve(
+					if code is not None:
+						status_code, message, header = ROLLING_REFUSALS[code]
+						refusal = _error(status_code, code, message, header)
+						remember(tx, account, idempotency_key, digest, now, refusal)
+						log.write(
+							"decision",
+							time=now,
+							account=account,
+							attempt=None,
+							horizon=None,
+							level=4,
+							action="refuse",
+							reason=None,
+							policy_revision=policy_revision,
+							**path_fields,
+							deceive=False,
+							window_completed=False,
+							p_value=None,
+							statistic=None,
+							witness=[],
+							request_digest=digest,
+							benchmark_request=x_benchmark_request,
+							entitlement=code,
+						)
+						return refusal
+					decision = policy.admit_in_transaction(
 						tx,
-						decision,
-						request,
-						digest,
+						account,
+						text,
 						now,
-						organization,
-						idempotency_key,
-						domain=domain,
+						embedding=embedding,
+						binding=binding,
+						prepared=prepared,
 					)
-					if rejection is not None:
-						remember(tx, account, idempotency_key, digest, now, rejection)
-					elif decision.action == "challenge":
-						assert decision.challenge is not None
-						challenge_record = tx.challenge(decision.challenge.nonce)
-						assert challenge_record is not None
-						challenge, held_data = challenge_record
-						held_data["idempotency_key"] = idempotency_key
-						# Replace the held metadata in the same transaction as the reservation.
-						tx.delete_challenge(challenge.nonce)
-						tx.put_challenge(challenge, held_data)
+					if (
+						decision.action == "refuse"
+						and decision.reason != "path_stop"
+						and tx.allowance(
+							account, decision.reason or "blocked", now, request.max_output_tokens
+						)
+					):
+						decision = replace(decision, action="serve", release_at=now)
+					if (
+						monitor
+						and embedding is not None
+						and tx.append_aggregate(embedding, account, now)
+						>= monitor.calibration.window_size
+					):
+						index, rows = tx.take_aggregate()
+						window = AggregateWindow(
+							index,
+							np.stack([r[0] for r in rows]),
+							[r[1] for r in rows],
+							rows[0][2],
+							rows[-1][2],
+						)
+						alert = monitor.score(window)
+						tx.put_aggregate_alert(index, asdict(alert))
+					if decision.action in {"serve", "challenge"}:
+						reservation, rejection = reserve(
+							tx,
+							decision,
+							request,
+							digest,
+							now,
+							organization,
+							idempotency_key,
+							domain=domain,
+						)
+						if rejection is not None:
+							remember(tx, account, idempotency_key, digest, now, rejection)
+						elif decision.action == "challenge":
+							assert decision.challenge is not None
+							challenge_record = tx.challenge(decision.challenge.nonce)
+							assert challenge_record is not None
+							challenge, held_data = challenge_record
+							held_data["idempotency_key"] = idempotency_key
+							# Replace the held metadata in the same transaction as the reservation.
+							tx.delete_challenge(challenge.nonce)
+							tx.put_challenge(challenge, held_data)
+							policy_result = review_response(
+								tx,
+								policy_response(decision),
+								account,
+								organization,
+								digest,
+								now,
+								decision.reason or "challenge_required",
+								decision.horizon,
+								decision.horizon + calibration.config.horizon_seconds,
+							)
+							remember(tx, account, idempotency_key, digest, now, policy_result)
+					else:
 						policy_result = review_response(
 							tx,
 							policy_response(decision),
@@ -1379,27 +1462,17 @@ def create_app(
 							organization,
 							digest,
 							now,
-							decision.reason or "challenge_required",
+							decision.reason or "blocked",
 							decision.horizon,
 							decision.horizon + calibration.config.horizon_seconds,
 						)
 						remember(tx, account, idempotency_key, digest, now, policy_result)
-				else:
-					policy_result = review_response(
-						tx,
-						policy_response(decision),
-						account,
-						organization,
-						digest,
-						now,
-						decision.reason or "blocked",
-						decision.horizon,
-						decision.horizon + calibration.config.horizon_seconds,
-					)
-					remember(tx, account, idempotency_key, digest, now, policy_result)
-		except ScoringUnavailable:
-			log.write("off_path_queue_error", account=account, request_digest=digest)
-			return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
+			except StalePathAdmission:
+				continue
+			except ScoringUnavailable:
+				log.write("off_path_queue_error", account=account, request_digest=digest)
+				return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
+			break
 		for sequence, metrics in score_metrics.items():
 			if score_accounts[sequence] == account:
 				metrics["admissions"] += 1
@@ -1421,6 +1494,7 @@ def create_app(
 			action=decision.action,
 			reason=decision.reason,
 			policy_revision=policy_revision,
+			**path_fields,
 			deceive=decision.deceive,
 			window_completed=decision.window_completed,
 			p_value=decision.p_value,
@@ -1435,6 +1509,7 @@ def create_app(
 			if rejection is None
 			else json.loads(bytes(rejection.body))["detail"]["code"],
 			**shadow_fields,
+			**({"path": decision.path} if decision.path is not None else {}),
 		)
 		if rejection is not None:
 			return rejection

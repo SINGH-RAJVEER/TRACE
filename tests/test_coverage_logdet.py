@@ -101,8 +101,48 @@ def test_ridge_bounds_and_frozen_spec() -> None:
 		assert tracker.update(e) == pytest.approx(np.log1p(1 / (1e-3 + k)), rel=1e-12)
 	spec = CoverageSpec(seed=7, input_dim=2)
 	with pytest.raises(ValueError):
-		spec.seed = 8  # type: ignore[misc]
+		spec.seed = 8
 	same = [SignalRow(f"r{i}", float(i), (1.0, float(i % 3))) for i in range(10)]
 	fitted = fit_signals([same] * 19, profiles=["g"] * 19, coverage=spec)
 	with pytest.raises(ValueError):
-		fitted.coverage = CoverageSpec(seed=8, input_dim=2, ridge=0.001)  # type: ignore[misc]
+		fitted.coverage = CoverageSpec(seed=8, input_dim=2, ridge=0.001)
+
+
+def test_evidence_round_trip_and_paired_band_comparison() -> None:
+	from harness.calibration import BenignRequest, Calibration, HarnessConfig
+	from harness.evidence import check_evidence, fit_evidence
+
+	calibration = Calibration.model_construct(config=HarnessConfig(horizon_attempts=100))
+	training = [
+		BenignRequest(account=f"fit-{a}", text=f"fit {a} {i}") for a in range(19) for i in range(4)
+	]
+	vectors = np.random.default_rng(7).normal(size=(len(training), 4))
+	spec = CoverageSpec(seed=9, input_dim=4, ridge=0.5)
+	fitted = fit_evidence(training, vectors, calibration, coverage=spec)
+	restored = SignalCalibration.model_validate_json(fitted.model_dump_json())
+	assert restored.coverage == spec
+	assert "novelty_mean_nn[4-7]" in restored.nulls["all"]
+	heldout = [
+		BenignRequest(account=f"test-{a}", text=f"heldout {a} {i}")
+		for a, n in enumerate((4, 2, 1))
+		for i in range(n)
+	]
+	report = check_evidence(heldout, vectors[:7], calibration, restored)
+	comparison = report["coverage_comparison"]
+	assert comparison["qualified"] is False
+	assert len(comparison["bands"]) == 3
+	for band in comparison["bands"]:
+		assert set(band["metrics"]) == {"coverage_mean_logdet", "novelty_mean_nn"}
+		for metric in band["metrics"].values():
+			assert metric["ranked"] + metric["abstained"] == band["horizons"]
+		if band["length_band"] == "4-7":
+			assert band["paired_ranked"] == 1
+		else:
+			assert band["paired_ranked"] == 0
+			assert all(m["abstained"] == 1 for m in band["metrics"].values())
+	legacy = fit_evidence(training, vectors, calibration)
+	assert "coverage_comparison" not in check_evidence(heldout, vectors[:7], calibration, legacy)
+	assert all(
+		"coverage_mean_logdet" not in u["signals"]["metrics"]
+		for u in check_evidence(heldout, vectors[:7], calibration, legacy)["units"]
+	)
