@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from distillation.acquisition_manifest import build_manifest, write_manifest
+from distillation.baseline_gates import CLEAN, GATE_VERSION, _seal
 from distillation.output_sets import (
 	ADAPTIVE_ARMS,
 	CONTROL_ARMS,
@@ -24,6 +25,7 @@ from distillation.output_sets import (
 )
 from distillation.quota_comparison import comparison_report
 from distillation.quota_matching import match_quotas
+from distillation.results_index import COLUMNS
 from distillation.schemas import LedgerRecord
 from test_acquisition_manifest import ledger, record
 
@@ -202,22 +204,42 @@ def test_loss_recipes_and_tensor_gradients() -> None:
 	assert values.grad.tolist() == [0.5, 0.0]
 
 
+def sealed_gate(manifest_digest: str) -> dict[str, Any]:
+	return _seal(
+		{
+			"version": GATE_VERSION,
+			"gate": CLEAN,
+			"passed": True,
+			"manifest_digest": manifest_digest,
+			"inputs": {},
+			"parameters": {},
+		}
+	)
+
+
 def comparison_fixture(
 	tmp_path: Path, cache: Path, adapters: Adapters
 ) -> tuple[dict[str, Any], Path]:
 	manifest_digest = json.loads(cache.read_text())["digest"]
 	gate = tmp_path / "gate.json"
-	gate.write_text(
-		json.dumps(
-			{
-				"version": "clean-baseline-gate-v1",
-				"status": "pass",
-				"manifest_digest": manifest_digest,
-			}
-		)
-	)
+	gate.write_text(json.dumps(sealed_gate(manifest_digest)))
 	gate_sha = hashlib.sha256(gate.read_bytes()).hexdigest()
+	index = tmp_path / "index.tsv"
+	row = dict.fromkeys(COLUMNS, "")
+	row |= {
+		"run_id": "dev",
+		"kind": "utility",
+		"attack": "benign_test",
+		"arm": "allow",
+		"stratum": "all",
+		"policy": "allow",
+		"validity": "valid",
+	}
+	index.write_text(
+		"\t".join(COLUMNS) + "\n" + "\t".join(str(row[column]) for column in COLUMNS) + "\n"
+	)
 	decl: dict[str, Any] = {
+		"utility_baseline": {"index": str(index), "run_id": "dev", "arm": "allow"},
 		"development": development(),
 		"manifest_digest": manifest_digest,
 		"evidence_kind": "fixture",
@@ -336,11 +358,9 @@ def test_comparison_uses_worst_adaptive_interval_and_refuses_misjoined_data(
 	student_path.write_text(json.dumps(student))
 	report = comparison_report(decl, gate_report=gate)
 	assert report["views"]["equal_query"]["arms"]["answer_attack"]["status"] == "no result"
-	gate.write_text(
-		json.dumps(
-			{"version": "clean-baseline-gate-v1", "status": "pass", "manifest_digest": "other"}
-		)
-	)
+	gate.write_text(json.dumps(sealed_gate("other")))
+	assert comparison_report(decl, gate_report=gate)["gate"] is None
+	gate.write_text(json.dumps({**sealed_gate(decl["manifest_digest"]), "passed": False}))
 	assert comparison_report(decl, gate_report=gate)["gate"] is None
 
 
@@ -386,6 +406,12 @@ def test_complete_fixture_report_exercises_success_rule_without_measurement_clai
 	]
 	assert report["verdict"] == "no result"
 	assert all(result["comparable"] for result in report["utility_by_stratum"].values())
+	decl["utility_baseline"]["arm"] = "missing"
+	assert any(
+		"not comparable" in reason
+		for reason in comparison_report(decl, gate_report=gate)["refusal_reasons"]
+	)
+	decl["utility_baseline"]["arm"] = "allow"
 	assert all(
 		all(seed["clears"].values())
 		for view in report["views"].values()

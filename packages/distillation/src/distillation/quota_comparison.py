@@ -6,9 +6,11 @@ import math
 from pathlib import Path
 from typing import Any
 
+from distillation.baseline_gates import CLEAN, load_gate
 from distillation.evaluation_protocol import compare_conditions
 from distillation.output_sets import ADAPTIVE_ARMS, CONTROL_ARMS, verify_artifact
 from distillation.quota_matching import BASELINES, finite_number, match_quotas
+from distillation.results_index import read_index, utility_validity_check
 
 VIEWS = ("equal_query", "equal_token")
 
@@ -22,20 +24,17 @@ def _read(path: str | Path) -> tuple[dict[str, Any], str]:
 
 
 def read_gate(path: Path | None, manifest_digest: str) -> dict[str, Any]:
-	"""Consume a gate report, never implement or run the clean-baseline gate.
-
-	The producer's adapter must export this envelope. A passing unrelated gate is insufficient.
-	"""
+	"""An intact, passing clean gate over this manifest. An unrelated pass is insufficient."""
 	if path is None:
 		raise ValueError("missing clean-baseline gate report")
-	gate, digest = _read(path)
+	gate = load_gate(path)
 	if (
-		gate.get("version") != "clean-baseline-gate-v1"
-		or gate.get("status") != "pass"
+		gate.get("gate") != CLEAN
+		or gate.get("passed") is not True
 		or gate.get("manifest_digest") != manifest_digest
 	):
 		raise ValueError("clean-baseline gate must pass and bind this acquisition manifest")
-	return {"path": str(path.resolve()), "sha256": digest, "report": gate}
+	return {"path": str(path.resolve()), "sha256": _read(path)[1], "report": gate}
 
 
 def comparison_report(
@@ -287,6 +286,13 @@ def comparison_report(
 		dev = matching["development"]
 		if schedule_sha != dev["schedule_sha256"]:
 			raise ValueError("benign schedule differs from the measured development schedule")
+		baseline = declaration["utility_baseline"]
+		validity = utility_validity_check(
+			read_index(Path(baseline["index"])),
+			[{"arm": baseline["arm"], "runs": [baseline["run_id"]]}],
+			baseline_arm=baseline["arm"],
+			require_baseline=True,
+		)
 		for stratum, loss in dev["candidate"]["loss_by_stratum"].items():
 			conditions = []
 			for arm in [candidate, *BASELINES]:
@@ -313,6 +319,7 @@ def comparison_report(
 				"legitimate_utility",
 				capacity_evidence=capacity,
 				schedule_sha256=schedule_sha,
+				utility_validity=validity,
 			)
 			if not utility[stratum]["comparable"]:
 				issues.append(f"{stratum}: capacity or legitimate utility not comparable")

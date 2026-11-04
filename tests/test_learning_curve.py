@@ -443,11 +443,16 @@ def test_headroom_gate_stores_the_margin_and_fails_with_a_reason(
 def test_clean_gate_passes_only_when_the_gain_repeats(
 	inputs: tuple[Path, Path, Path], tmp_path: Path
 ) -> None:
-	from distillation.baseline_gates import FIX_LEARNING, clean_gate
+	from distillation.baseline_gates import FIX_LEARNING, clean_gate, write_gate
+	from distillation.quota_comparison import read_gate
 
 	curve, headroom, manifest = _curve(tmp_path / "good", inputs)
 	report = clean_gate(curve, headroom, manifest, replicates=1000)
 	assert report["passed"] is True, report["reasons"]
+	written = tmp_path / "clean-gate.json"
+	write_gate(report, written)
+	digest = report["manifest_digest"]
+	assert read_gate(written, digest)["report"]["digest"] == report["digest"]
 	assert [row["n"] for row in report["results"]["clean"]] == [300, 1000]
 	assert report["results"]["clean"][0]["seeds"]["43"]["gain_pp"] == pytest.approx(37.5)
 	assert report["gold_diagnostic"]["learned"] is True

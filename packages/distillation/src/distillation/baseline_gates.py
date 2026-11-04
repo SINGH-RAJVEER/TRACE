@@ -391,7 +391,8 @@ def clean_gate(
 		"acquisition_manifest": digest(manifest),
 	}
 	reasons = _headroom_reasons(load_gate(headroom), identity, suite)
-	reasons += _clean_ledger_reasons(plan, load_manifest(manifest))
+	acquisition = load_manifest(manifest)
+	reasons += _clean_ledger_reasons(plan, acquisition)
 	seeds = plan["seeds"]
 	single_seed = len(seeds) < MIN_SEEDS
 	if single_seed:
@@ -423,6 +424,7 @@ def clean_gate(
 		"base": {"model": identity["base_model"], "revision": identity["base_revision"]},
 		"student_revision": identity["student_revision"],
 		"suite_sha256": suite,
+		"manifest_digest": acquisition["digest"],
 		"inputs": inputs,
 		"parameters": parameters,
 		"items": len(ids),
