@@ -40,7 +40,7 @@ The multi-domain null has 13 account horizons, so the session, novelty and volum
 - [ ] Rebuild larger source-disjoint role pools. The GSM8K score-calibration pool has only 682 prompts.
 - [ ] Obtain and audit source-family provenance (publisher, problem family, problem lineage, document title) for the `gateway-clients-v5` workload, then run `scripts/recalibrate-profiles.sh`.
 - [ ] Reach at least 19 independent horizons per profile for upper-tail ranks and 39 for two-sided ranks, including coding and GSM8K specialists.
-- [ ] Pass `teacher-preflight` at the declared offered rate before collecting any new utility baseline.
+- [ ] Pass `teacher-preflight` at the declared offered rate before collecting any new utility baseline. Tooling: utility runs bind a passing preflight and comparisons refuse an invalid baseline; rerun `just backfill` to record the v3 undefended baseline as invalid, then collect the new baseline on the GPU host.
 - [ ] Add benign roles that use the A7 external corpora, so that A7 can be balanced by corpus.
 
 ## 5. Make results tracking queryable and reproducible
@@ -118,7 +118,7 @@ Report: "Reserve before inference and settle every released prefix", "Define com
 - [x] Per-principal and organization output-token budgets, rolling request and token budgets, trust tiers, contractual organization budgets and supervision-weighted budgets. Done: `docs/harness.md` "Rolling budgets" and "Weighted and tiered rolling allowances".
 - [x] Separate admission (`decision`) and settlement (`release`) events; a rejected proof releases no new label. Done.
 - [x] Crash test with a stand-in teacher. Done: `tests/test_crash.py`.
-- [ ] Add request-plus-output-token quota as a named baseline arm. `distill gateway collect --policy` accepts only `mmd`, `quota`, `rate`, `allow` and `none` (`gateway_cli.py:461`).
+- [x] Add request-plus-output-token quota as a named baseline arm. Done: `HARNESS_POLICY=quota_tokens` and `distill gateway collect --policy quota_tokens`, using the durable reservation ledger; no measurement exists yet.
 - [ ] Support streaming. Reserve the maximum output cap or issue bounded incremental grants per chunk, meter released prefixes, and on cancellation charge the emitted prefix rather than refunding it. Responses are currently buffered.
 - [ ] Add fencing tokens or monotonic reservation versions, so an expired lease cannot grant the same entitlement again while the old worker can still emit. The current rule that an expired worker must withhold covers part of this; check it against the full failure model.
 - [ ] Derive and test the unrecorded-exposure bound: at most n times g tokens when n grants are in flight and each worker can emit g tokens after its last durable grant.
@@ -348,6 +348,8 @@ Report: "Resource planning should narrow the study before buying compute"; `outp
 
 # Research plan from `research/` (2026-11-03)
 
+Status on 2026-11-04: tooling for phases 0 to 3 and the path-stop wiring from phase 6 are in the code, tested on CPU fixtures only. No gate has run on real scores and no student has been trained. The wiring preceded the evidence gates by explicit request, so `path` stays off by default, is marked `qualified: false`, and is not evidence of effectiveness.
+
 Every proposal in `research/ANTI_DISTILLATION_RESEARCH.md` and its three notes, `research/notes/detection.md`, `research/notes/defenses.md` and `research/notes/repository_and_evaluation.md`, arranged in the order the research says to run them. The research describes designs and hypotheses, not measured TRACE results; the numbers it quotes are published paper results. Proposed thresholds (a 10-point headroom gate, a 5-point or 25% suppression target, a 2-point legitimate-loss budget, window sizes 32, 64 and 128) are starting choices to preregister, not established values.
 
 Phases 0 to 3 are the single-GPU pilot, about three to seven days once throughput is measured. Phases 4 and 5 are CPU work on the detector and can run alongside. Phase 6 integrates only what passed. Phase 7 is the conditional second week. Phase 8 holds lower-priority arms.
@@ -361,7 +363,7 @@ Source: "Serialize model work and measure the actual machine"; `repository_and_e
 - [ ] Pick one objective task: GSM8K-style numeric reasoning first, coding with sandboxed tests second. AG News qualifies plumbing only.
 - [ ] Pin a student of about 2B parameters (the existing Qwen3.5-2B-Base) and a fresh source family that no earlier study has examined.
 - [ ] Evaluate the frozen base and the teacher on the same 300 to 500 held-out problems for development, and reserve a separate confirmatory set.
-- [ ] Continue only if the teacher beats the base by a preregistered margin, proposed 10 points, with an interval that excludes zero. Otherwise change the domain or the base.
+- [ ] Continue only if the teacher beats the base by a preregistered margin, proposed 10 points, with an interval that excludes zero. Otherwise change the domain or the base. Tooling: `distill baseline headroom` and `just baseline-gates RUN_ID`; not yet run on real scores.
 
 Done when the machine, the task, the student and the teacher-base headroom are recorded.
 
@@ -376,7 +378,7 @@ Source: "First establish that the chosen student can learn"; `repository_and_eva
 - [ ] Serialize GPU work: cache teacher answers, generate protected variants, unload the teacher, train, evaluate. Never serve the teacher and train the student at the same time.
 - [ ] Train from the same pinned base on 300 and 1,000 clean examples and check that the gain repeats.
 - [x] Add a gold-answer or trusted-data student as a diagnostic that the recipe can learn the task at all. Done (tooling): the gold arm of `plan-math` (`--gold`), reported separately; no student has been trained yet.
-- [ ] If clean training gives no reproducible gain, stop and fix the learning experiment. An incapable student makes every defense look effective.
+- [ ] If clean training gives no reproducible gain, stop and fix the learning experiment. An incapable student makes every defense look effective. Tooling: `distill baseline clean`, and suppression is withheld without a covering gate; not yet run on real scores.
 - [x] Report raw teacher, base, clean-student and protected-student accuracies (A_T, A_B, A_C, A_D) first, with per-task values. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
 - [x] Report R_C and R_D (share of teacher headroom recovered) only when headroom is positive and stable, and suppression S = 1 - (A_D - A_B)/(A_C - A_B) only when clean gain is convincingly positive. Otherwise mark them undefined. Never clip to [0, 1]. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
 - [x] Propagate denominator uncertainty with paired task-family resampling, and report training-seed variability separately. One seed is development evidence only. Done (tooling): `packages/distillation/src/distillation/transfer_metrics.py` and `distill learning-curve transfer`; no student results exist yet.
@@ -387,7 +389,7 @@ Done when a clean student shows a reproducible gain over the base on held-out pr
 
 Source: "Dense rewriting is the first output experiment worth running"; `defenses.md` takeaway and inferences.
 
-- [ ] Implement dense formal rewriting with the published instruction (Trace Rewriting, Appendix A.2 and E.3), reusing the same loaded teacher to rewrite its own cached clean draft. Skip the paper's prompt optimization at first.
+- [ ] Implement dense formal rewriting with the published instruction (Trace Rewriting, Appendix A.2 and E.3), reusing the same loaded teacher to rewrite its own cached clean draft. Skip the paper's prompt optimization at first. Tooling: `distill output-study` builds the output arms and adaptive sets with recorded fallbacks; real teacher, validator and tokenizer adapters are still needed.
 - [ ] Run a paper-style condition first, then a stricter variant that locks the extracted final answer and rewrites only the explanation. Check answer equality and task validity before release, and report the stricter variant as a departure from the paper.
 - [ ] Compare against a compact verified solution, final-answer-only output and ordinary paraphrasing, all from the same underlying questions.
 - [ ] Keep the response-policy decision independent of training labels.
@@ -409,7 +411,7 @@ Source: "Use controls that can disprove the proposed mechanism"; "Recent adaptiv
 - [ ] Fix attacker compute for the main comparison; declare any expanded-compute attack as a separate extension.
 - [ ] Run both budget comparisons. Equal-query fixes the questions and lets output lengths differ. Equal-token fixes total delivered supervision tokens and lets a short-output arm's attacker take more distinct examples, with the extra queries, money and time recorded. Equal optimizer steps do not equalize information.
 - [ ] Add clean students matched on query count and on released tokens, plus clean truncated and subsampled controls, so a defense is not credited for simply delivering fewer tokens.
-- [ ] Add a quota baseline, and a request-plus-token quota, set to the same legitimate task-success loss as the candidate.
+- [ ] Add a quota baseline, and a request-plus-token quota, set to the same legitimate task-success loss as the candidate. Tooling: `distill output-study` matches both per stratum and reports "not matched" rather than interpolating; no measured settings exist yet.
 - [ ] For a query gate, run the detector offline on fixed streams and train on the examples it actually accepted.
 - [ ] Repeat surviving comparisons with three seeds and paired task-family resampling.
 - [ ] Hold out an entire attacker family during detector fitting.
@@ -428,7 +430,7 @@ Source: "TRACE already contains more than a query cap"; "Test collection structu
 	- follow-ups that depend on the previous answer, local edits, repeated sampling of the same problem, systematic variation of one problem dimension, topic transitions;
 	- a fixed template with changing content, after masking identifiers, numbers and boilerplate;
 	- sustained requests for worked solutions, multiple alternatives, exhaustive examples, labels or token probabilities where exposed.
-- [x] Add the coverage feature g_t = log(1 + v_t' A_t^-1 v_t) on a fixed 64-dimensional projection, with a Sherman-Morrison update. Compare it at matched domain and prefix length; cumulative log-determinant alone recreates a volume threshold. Keep nearest-neighbor novelty as the baseline; the new feature stays only if it improves held-out separation. Done: `packages/harness/src/harness/logdet.py`, opt-in through `CoverageSpec`, with nulls matched by request-count band. Not yet wired into `evidence-calibrate`, and not yet compared with the nearest-neighbor baseline on held-out sources.
+- [x] Add the coverage feature g_t = log(1 + v_t' A_t^-1 v_t) on a fixed 64-dimensional projection, with a Sherman-Morrison update. Compare it at matched domain and prefix length; cumulative log-determinant alone recreates a volume threshold. Keep nearest-neighbor novelty as the baseline; the new feature stays only if it improves held-out separation. Done: `packages/harness/src/harness/logdet.py`, opt-in through `CoverageSpec` and `harness evidence-calibrate --coverage-*`, with nulls matched by request-count band. `evidence-check` reports the paired comparison with nearest-neighbor novelty, but it has not been run on real held-out sources, so whether the feature stays is still open.
 - [ ] Use a ridge-logistic model or a hand-specified score first, and use `packages/harness/src/harness/separation.py` as the feasibility gate.
 - [ ] Pilot fixed windows of 32, 64 and 128 requests with predetermined look points, and include every window and look in calibration.
 - [ ] Fit and select on disjoint source families, accounts and time blocks, keeping related templates and an account's windows together.
@@ -449,9 +451,9 @@ Source: "A complete-path rank gives an honest finite-horizon guarantee"; "Bettin
 
 - [ ] Declare the campaign unit and horizon before seeing test scores, such as an authenticated organization-day or a fixed session horizon H. The horizon defines the error claim; it need not deny service when reached.
 - [ ] Split source families, accounts and time into fitting, method selection, policy calibration and final audit roles.
-- [x] For each benign calibration campaign, record the maximum frozen score over its whole permitted path, including every detector, scale and action-triggering score after fixed transformations. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy.
-- [x] At runtime keep the running maximum and stop at the first conservative rank p* = (1 + #{M_i >= m_t}) / (n + 1) at or below alpha. This bounds the chance of any benign stop within the horizon by alpha under exchangeability of benign campaigns. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy.
-- [x] Use at least 99 calibration campaigns for a 1% level and 999 for 0.1%. Abstain from statistical stops in strata with too few campaigns; report their non-statistical handling separately. Done: `packages/harness/src/harness/path_calibration.py`, standalone and not yet wired into the policy; calibrations below the resolution abstain.
+- [x] For each benign calibration campaign, record the maximum frozen score over its whole permitted path, including every detector, scale and action-triggering score after fixed transformations. Done: `packages/harness/src/harness/path_calibration.py`, wired as the unqualified opt-in `HARNESS_POLICY=path`.
+- [x] At runtime keep the running maximum and stop at the first conservative rank p* = (1 + #{M_i >= m_t}) / (n + 1) at or below alpha. This bounds the chance of any benign stop within the horizon by alpha under exchangeability of benign campaigns. Done: `packages/harness/src/harness/path_calibration.py`, wired as the unqualified opt-in `HARNESS_POLICY=path`.
+- [x] Use at least 99 calibration campaigns for a 1% level and 999 for 0.1%. Abstain from statistical stops in strata with too few campaigns; report their non-statistical handling separately. Done: `packages/harness/src/harness/path_calibration.py`, wired as the unqualified opt-in `HARNESS_POLICY=path`; calibrations below the resolution abstain. The benign campaigns themselves do not exist yet.
 - [ ] Never claim a pooled guarantee for a sparse specialist stratum.
 - [ ] Predeclare alert and refusal thresholds separately. Start with shadow scoring and one terminal stop. Warnings, challenges, delays and output changes alter benign behavior, so validate any intermediate action with calibration that includes it.
 - [ ] Freeze stratum switching as part of the path. Unsupported traffic triggers abstention but cannot reset evidence or a durable stop.
@@ -467,7 +469,7 @@ Done when a frozen policy has a calibrated path-level false-stop bound and an in
 
 Source: "Integrate only the parts that pass their evidence gates"; `repository_and_evaluation.md` inferences.
 
-- [ ] Wire a qualified stop through `Policy.admit_in_transaction` in `packages/harness/src/harness/policy.py`, with immutable policy metadata.
+- [ ] Wire a qualified stop through `Policy.admit_in_transaction` in `packages/harness/src/harness/policy.py`, with immutable policy metadata. Partly done: the wiring exists as `HARNESS_POLICY=path`; the stop is not qualified until phase 5 passes.
 - [ ] Compute features outside the database write lock. Use a per-campaign ordered executor so the scored prefix is the actual one; keep only cheap state changes and reservations inside the transaction. Never hold SQLite write locks during encoding, generation or rewriting.
 - [ ] Make stops durable: a stopped account cannot clear the decision by changing context or reaching a new horizon. Persist state across restarts and deduplicate retries.
 - [ ] Decide on incoming prompts before teacher dispatch. A decision that uses the new answer must buffer it before release or affect only later requests.
