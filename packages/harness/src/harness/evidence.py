@@ -10,6 +10,7 @@ from typing import Any
 from harness.calibration import BenignRequest, Calibration, horizon_indices
 from harness.corpus import CorpusIndex
 from harness.fusion import fuse_evidence
+from harness.logdet import CoverageSpec, length_bin
 from harness.mmd import Array
 from harness.shadow import assign, coverage_report, profile, request_domain
 from harness.signals import SignalCalibration, SignalRow, fit_signals, score_signals
@@ -43,13 +44,14 @@ def fit_evidence(
 	embeddings: Array,
 	calibration: Calibration,
 	corpus: CorpusIndex | None = None,
+	coverage: CoverageSpec | None = None,
 ) -> SignalCalibration:
 	config = calibration.config
 	rows = signal_rows(requests, embeddings, calibration)
 	groups = horizon_indices(requests, config.horizon_seconds, config.horizon_attempts)
 	horizons = [[rows[i] for i in group] for group in groups]
 	profiles = [profile(config.task, {row.domain for row in horizon}) for horizon in horizons]
-	return fit_signals(horizons, profiles=profiles, corpus=corpus)
+	return fit_signals(horizons, profiles=profiles, corpus=corpus, coverage=coverage)
 
 
 def check_evidence(
@@ -63,7 +65,7 @@ def check_evidence(
 	config = calibration.config
 	rows = signal_rows(requests, embeddings, calibration)
 	groups = horizon_indices(requests, config.horizon_seconds, config.horizon_attempts)
-	units = []
+	units: list[dict[str, Any]] = []
 	for group in groups:
 		members = [rows[i] for i in group]
 		if reorder == "topic":
@@ -100,7 +102,59 @@ def check_evidence(
 				"signals": report,
 			}
 		)
-	return {"development_only": True, "reorder": reorder, "horizons": len(units), "units": units}
+	result: dict[str, Any] = {
+		"development_only": True,
+		"reorder": reorder,
+		"horizons": len(units),
+		"units": units,
+	}
+	if null.coverage is not None:
+		bands: dict[str, Any] = {}
+		for unit in units:
+			band = length_bin(unit["requests"]) if unit["requests"] >= 2 else "insufficient"
+			key = f"{unit['profile']}:{band}"
+			entry = bands.setdefault(
+				key,
+				{
+					"profile": unit["profile"],
+					"length_band": band,
+					"horizons": 0,
+					"paired_ranked": 0,
+					"metrics": {},
+				},
+			)
+			entry["horizons"] += 1
+			metrics = unit["signals"]["metrics"]
+			names = ("coverage_mean_logdet", "novelty_mean_nn")
+			entry["paired_ranked"] += all(metrics[n]["p_value"] is not None for n in names)
+			for name in names:
+				counts = entry["metrics"].setdefault(
+					name,
+					{
+						"ranked": 0,
+						"abstained": 0,
+						"at_or_below_target": 0,
+						"abstention_reasons": {},
+					},
+				)
+				metric = metrics[name]
+				p = metric["p_value"]
+				counts["ranked"] += p is not None
+				counts["abstained"] += p is None
+				counts["at_or_below_target"] += p is not None and p <= null.target
+				if p is None:
+					reason = metric["abstain"]
+					counts["abstention_reasons"][reason] = (
+						counts["abstention_reasons"].get(reason, 0) + 1
+					)
+		result["coverage_comparison"] = {
+			"qualified": False,
+			"target": null.target,
+			"bands": list(bands.values()),
+			"source_disjointness": "operator must verify held-out source families",
+			"interpretation": "paired descriptive ranks; no labeled separation or measured gain",
+		}
+	return result
 
 
 def file_hash(path: Path) -> str:

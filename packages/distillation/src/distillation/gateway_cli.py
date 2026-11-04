@@ -368,7 +368,7 @@ def collect_command(
 	policy: Annotated[
 		str,
 		typer.Option(
-			help="Policy the gateway serves for this arm: mmd, quota, rate, allow, or none "
+			help="Policy the gateway serves: mmd, quota, quota_tokens, rate, allow, or none "
 			"for a direct teacher. mmd arms must pass the detectability gate."
 		),
 	],
@@ -458,8 +458,8 @@ def collect_command(
 	try:
 		if alternative_url and policy != "none":
 			raise ValueError("alternative teacher mixing requires --policy none")
-		if policy not in {"mmd", "quota", "rate", "allow", "none"}:
-			raise ValueError("policy must be mmd, quota, rate, allow, or none")
+		if policy not in {"mmd", "path", "quota", "quota_tokens", "rate", "allow", "none"}:
+			raise ValueError("policy must be mmd, path, quota, quota_tokens, rate, allow, or none")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
 		schedule = input_dir / "requests.jsonl"
 		if digest(schedule) != manifest["sha256"][schedule.name]:

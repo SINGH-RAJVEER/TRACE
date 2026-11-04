@@ -24,6 +24,10 @@ reading run_id name="":
 backfill:
 	uv run --frozen python scripts/run_tools.py backfill readings
 
+# GPU host only: pilot, base and teacher evaluation, headroom gate, collection, training, clean gate.
+baseline-gates run_id="":
+	bash scripts/baseline-gates.sh {{run_id}}
+
 test:
 	uv run pytest
 

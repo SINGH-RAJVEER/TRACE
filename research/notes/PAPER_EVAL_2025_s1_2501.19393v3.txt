@@ -1,0 +1,3412 @@
+s1: Simple test-time scaling
+Niklas Muennighoff*134 Zitong Yang*1 Weijia Shi*23 Xiang Lisa Li*1 Li Fei-Fei1 Hannaneh Hajishirzi23
+Luke Zettlemoyer2 Percy Liang1 Emmanuel Candès1 Tatsunori Hashimoto1
+Abstract
+Test-time scaling is a promising new approach to
+language modeling that uses extra test-time com-
+putetoimproveperformance. Recently,OpenAI’s
+o1 model showed this capability but did not pub-
+licly share its methodology, leading to many repli-
+cation efforts. We seek the simplest approach to
+achievetest-timescalingandstrongreasoningper-
+formance. First, we curate a small datasets1K
+of 1,000 questions paired with reasoning traces
+relying on three criteria we validate through abla-
+tions: difficulty,diversity,andquality. Second,we
+develop budget forcing to control test-time com-
+pute by forcefully terminating the model’s think-
+ing process or lengthening it by appending “Wait”
+multiple times to the model’s generation when it
+tries to end. This can lead the model to double-
+check its answer, often fixing incorrect reasoning
+steps. After supervised finetuning the Qwen2.5-
+32B-Instruct language model ons1Kand equip-
+ping it with budget forcing, our models1-32B ex-
+ceeds o1-preview on competition math questions
+by up to 27% (MATH and AIME24). Further,
+scaling s1-32B with budget forcing allows extrap-
+olating beyond its performance without test-time
+intervention: from 50% to 57% on AIME24. Our
+model, data, and code are open-source athttps:
+//github.com/simplescaling/s1.
+1. Introduction
+Performance improvements of language models (LMs) over
+the past years have largely relied on scaling up train-time
+compute using large-scale self-supervised pretraining (Ka-
+plan et al., 2020; Hoffmann et al., 2022). The creation of
+these powerful models has set the stage for a new scaling
+paradigm built on top of them:test-time scaling. The aim
+*Equal contribution. ZY and NM started the project. WS, NM
+and ZY collected the prompts, XL, ZY and NM, built the data
+pipeline, LZ and WS proposed using a 1K subset and ZY and
+NM built budget forcing.1 Stanford University.2 University of
+Washington, Seattle.3 Allen Institute for AI.4 Contextual AI.
+512 2048
+65
+75
+85
+95Accuracy (%)
+Mathematical
+Problem Solving
+(MATH500)
+512 2048 8192
+0
+20
+40
+60
+Competition
+Math
+(AIME24)
+1024 4096
+40
+50
+60
+PhD-Level
+Science Questions
+(GPQA Diamond)
+Average thinking time (tokens)
+Figure 1.Test-time scaling with s1-32B.We benchmarks1-32B
+on reasoning-intensive tasks and vary test-time compute.
+of this approach is to increase the compute at test time to
+get better results. There has been much work exploring this
+idea (Snell et al., 2024; Welleck et al., 2024), and the via-
+bility of this paradigm was recently validated by OpenAI
+o1 (OpenAI, 2024). o1 has demonstrated strong reasoning
+performance with consistent gains from scaling test-time
+compute. OpenAI describes their approach as using large-
+scalereinforcementlearning(RL)implyingtheuseofsizable
+amounts of data (OpenAI, 2024). This has led to various
+attempts to replicate their models relying on techniques like
+Monte Carlo Tree Search (Gao et al., 2024b; Zhang et al.,
+2024a), multi-agent approaches (Qin et al., 2024), and oth-
+ers (Wang et al., 2024a; Huang et al., 2024b; 2025). Among
+these approaches, DeepSeek R1 (DeepSeek-AI et al., 2025)
+has successfully replicated o1-level performance, also em-
+ploying reinforcement learning via millions of samples and
+multiple training stages. However, despite the large num-
+ber of o1 replication attempts, none have openly replicated
+a clear test-time scaling behavior. Thus, we ask: what is
+the simplest approach to achieve both test-time scaling and
+strong reasoning performance?
+Weshowthattrainingononly1,000sampleswithnext-token
+prediction and controlling thinking duration via a simple
+test-time technique we refer to asbudget forcingleads to
+a strong reasoning model that scales in performance with
+more test-time compute. Specifically, we constructs1K,
+which consists of 1,000 carefully curated questions paired
+with reasoning traces and answers distilled from Gemini
+Thinking Experimental (Google, 2024). We perform super-
+vised fine-tuning (SFT) of an off-the-shelf pretrained model
+1
+arXiv:2501.19393v3  [cs.CL]  1 Mar 2025
+s1: Simple test-time scaling
+on our small dataset requiring just 26 minutes of training
+on 16 H100 GPUs. After training, we control the amount
+of test-time compute our model spends usingbudget forc-
+ing: (I) If the model generates more thinking tokens than
+a desired limit, we forcefully end the thinking process by
+appending an end-of-thinking token delimiter. Ending the
+thinking this way makes the model transition to generating
+itsanswer. (II)Ifwewantthemodeltospendmoretest-time
+compute on a problem, we suppress the generation of the
+end-of-thinking token delimiter and instead append “Wait”
+to the model’s current reasoning trace to encourage more
+exploration. Equipped with this simple recipe – SFT on
+1,000 samples and test-time budget forcing – our models1-
+32Bexhibits test-time scaling (Figure 1). Further,s1-32Bis
+the most sample-efficient reasoning model and outperforms
+closed-source models like OpenAI’s o1-preview (Figure 2).
+We conduct extensive ablation experiments targeting (a) our
+selection of 1,000 (1K) reasoning samples and (b) our test-
+time scaling. For (a), we find that jointly incorporating
+difficulty, diversity, and quality measures into our selec-
+tion algorithm is important. Random selection, selecting
+samples with the longest reasoning traces, or only selecting
+maximally diverse samples all lead to significantly worse
+performance (around−30% on AIME24 on average). Train-
+ing on our full data pool of 59K examples, a superset of
+s1K, does not offer substantial gains over our 1K selection.
+This highlights the importance of careful data selection and
+echoes prior findings for instruction tuning (Zhou et al.,
+2023). For(b), we define desiderata for test-time scaling
+methods to compare different approaches. Budget forcing
+leads to the best scaling as it has perfect controllability with
+a clear positive slope leading to strong performance.
+Insummary,ourcontributionsare: Wedevelopsimplemeth-
+ods for creating a sample-efficient reasoning dataset (§2)
+and test-time scaling (§3); Based on these we builds1-32B
+which is competitive with o1-preview (§4); We ablate sub-
+tleties of data (§5.1) and test-time scaling (§5.2). We end
+with a discussion to motivate future work on simple rea-
+soning (§6). Our code, model, and data are open-source at
+https://github.com/simplescaling/s1.
+2. Reasoning data curation to create s1K
+In this section, we describe our process for creating a large
+dataset first in §2.1 and then filtering it down tos1Kin §2.2.
+2.1. Initial collection of 59K samples
+Wecollectaninitial59,029questionsfrom16sourcesfollow-
+ing three guiding principles.Quality: Datasets should be
+high-quality; we always inspect samples and ignore datasets
+with, e.g., poor formatting;Difficulty: Datasets should be
+challenging and require significant reasoning effort;Diver-
+sity: Datasetsshouldstemfromvariousfieldstocoverdiffer-
+ent reasoning tasks. We collect datasets of two categories:
+Curation of existing datasetsOur largest source is Nu-
+minaMATH (LI et al., 2024) with 30,660 mathematical
+problems from online websites. We also include histori-
+cal AIME problems (1983-2021). To enhance diversity,
+we add OlympicArena (Huang et al., 2024a) with 4,250
+questions spanning Astronomy, Biology, Chemistry, Com-
+puter Science, Geography, Mathematics, and Physics from
+various Olympiads. OmniMath (Gao et al., 2024a) adds
+4,238 competition-level mathematics problems. We also
+include 2,385 problems from AGIEval (Zhong et al., 2023),
+which features questions from standardized tests like SAT
+and LSAT, covering English, Law, and Logic. We refer to
+Table 7 in §C for our other sources.
+New datasets in quantitative reasoning To comple-
+ment these existing datasets, we create two original
+datasets. s1-prob consists of 182 questions from the prob-
+ability section of Stanford University’s Statistics Depart-
+ment’s PhD Qualifying Exams (https://statistics.
+stanford.edu), accompanied by handwritten solutions
+that cover difficult proofs. The probability qualifying exam
+is held yearly and requires professional-level mathemati-
+cal problem-solving. s1-teasers comprises 23 challenging
+brain-teasers commonly used in interview questions for
+quantitative trading positions. Each sample consists of a
+problem and solution taken from PuzzledQuant (https:
+//www.puzzledquant.com/). Weonlytakeexamples
+with the highest difficulty level ("Hard").
+For each question, we generate a reasoning trace and solu-
+tion using the Google Gemini Flash Thinking API (Google,
+2024)extractingitsreasoningtraceandresponse. Thisyields
+59K triplets of a question, generated reasoning trace, and
+generated solution. Examples from our dataset are in §D.2.
+We decontaminate all samples against our evaluation ques-
+tions (MATH500, GPQA Diamond, AIME24; §C.5) using
+8-grams and deduplicate the data.
+2.2. Final selection of 1K samples
+We could directly train on our pool of 59K questions, how-
+ever, our goal is to find thesimplest approach with minimal
+resources. Thus, we go through three stages of filtering to
+arriveataminimalsetof1,000samplesrelyingonourthree
+guiding data principles: Quality, Difficulty, and Diversity.
+Quality We first remove any questions where we ran into
+anyAPIerrorsreducingourdatasetto54,116samples. Next,
+wefilteroutlow-qualityexamplesbycheckingiftheycontain
+any string patterns with formatting issues, such as ASCII
+art diagrams, non-existent image references, or inconsistent
+questionnumberingreducingourdatasetto51,581examples.
+2
+s1: Simple test-time scaling
+Geometry Numbertheory
+Combin−
+atorics
+Real
+functions
+Biology
+Complex
+functions
+Quantum
+theory
+Field
+theory
+Calculus of
+variations
+Difference
+equations
+Electro−
+dynamics
+Group
+theory
+Linear
+algebra
+Probability
+theory
+Algebraic
+systems
+Mechanics
+Thermo−
+dynamics
+Differential
+equations
+Computer
+science
+Numerical
+analysis
+Calculus
+Algebraic
+structures
+Astronomy
+Dynamical
+systems
+Statistical
+mechanics
+Operations
+research
+Math−
+ematics
+education
+Measure
+theory
+Convex
+geometry
+Fluid
+mechanics
+Algebraic
+geometry
+Statistics Generaltopology
+Economics
+Associative
+rings
+General
+relativity
+Differential
+geometry
+Math−
+ematical
+logic
+Partial
+differential
+equations
+Information
+theory
+Solid
+mech
+−anics
+Functional
+analysis
+Special
+functions
+Comm−
+utative
+algebra
+Integral
+equations
+Integral
+transform
+Approxi−
+mation
+theory
+Potential
+theory
+Harmonic
+analysis
+Control
+theory
+Geo−
+physics
+1000 17000 800000 N/A
+Number of Examples
+80
+85
+90
+95
+100MATH500 Accuracy (%)
+s1
+r1-distill
+Sky-T1
+QwQ
+Bespoke-Stratos
+o1-preview
+Most sample-efficient
+Figure 2.s1Kands1-32B. (left)s1Kisadatasetof1,000high-quality,diverse,anddifficultquestionswithreasoningtraces. (right)s1-32B,
+a 32B parameter model finetuned ons1K is on the sample-efficiency frontier. See Table 1 for details on other models.
+From this pool, we identify 384 samples for our final 1,000
+samples from datasets that we perceive as high-quality and
+not in need of further filtering (see §C.4 for details).
+Difficulty Fordifficulty, weusetwoindicators: modelper-
+formance and reasoning trace length. We evaluate two mod-
+els on each question: Qwen2.5-7B-Instruct and Qwen2.5-
+32B-Instruct (Qwen et al., 2024), with correctness assessed
+by Claude 3.5 Sonnet comparing each attempt against the
+reference solution (see §C.3 for the grading protocol). We
+measure the token length of each reasoning trace to indicate
+problem difficulty using the Qwen2.5 tokenizer. This relies
+on the assumption that more difficult problems require more
+thinkingtokens. Basedonthegrading,weremovequestions
+that either Qwen2.5-7B-Instruct or Qwen2.5-32B-Instruct
+can solve correctly and thus may be too easy. By using two
+models we reduce the likelihood of an easy sample slipping
+through our filtering due to a rare mistake on an easy ques-
+tion of one of the models. This brings our total samples
+down to 24,496, setting the stage for the next round of sub-
+sampling based on diversity. While filtering with these two
+models may be optimized for our setup as we will also use
+Qwen2.5-32B-Instruct as our model to finetune, the idea of
+model-based filtering generalizes to other setups.
+Diversity To quantify diversity, we classify questions into
+domainsusingClaude3.5SonnetbasedontheMathematics
+Subject Classification (MSC) system (e.g., geometry, com-
+binatorics, etc.) from the American Mathematical Society.1
+The taxonomy focuses on topics in mathematics but also
+includes other sciences such as biology, physics, and eco-
+1https://mathscinet.ams.org/mathscinet/
+msc/msc2020.html
+nomics. Toselectourfinalexamplesfromthepoolof24,496
+questions, we first choose one domain uniformly at random.
+Then, we sample one problem from this domain according
+toadistributionthatfavorslongerreasoningtraces(see§C.4
+fordetails)asmotivatedin Difficulty. Werepeatthisprocess
+until we have 1,000 total samples spanning 50 domains.
+In §5.1, we will show that using our three criteria in combi-
+nation is important, as only relying on quality, diversity, or
+difficulty in isolation leads to worse datasets. Some distilled
+generations are incorrect, which we allow in our data as we
+focusoncapturingthereasoningprocessratherthanentirely
+correct solutions. Our grader (§C.3) deems 53.6% correct
+in s1Kand 63.0% in our follow-ups1K-1.1(see §A).
+3. Test-time scaling
+3.1. Method
+We classify test-time scaling methods into1) Sequential,
+wherelatercomputationsdependonearlierones(e.g.,along
+reasoningtrace),and 2)Parallel,wherecomputationsrunin-
+dependently(e.g.,majorityvoting)(Snelletal.,2024;Brown
+etal.,2024). Wefocusonsequentialscalingasintuitivelywe
+believe it should scale better, since later computations can
+build on intermediate results, allowing for deeper reasoning
+anditerativerefinement. Weproposenewsequentialscaling
+methods and ways to benchmark them.
+Budget forcing We propose a simple decoding-time in-
+tervention by forcing a maximum and/or minimum number
+of thinking tokens. Specifically, we enforce a maximum
+token count by simply appending the end-of-thinking token
+delimiter and optionally “Final Answer: ” to early exit
+3
+s1: Simple test-time scaling
+How many r in raspberry?
+Let's break down the process of counting the letter 'r' in the 
+word "raspberry" ...
+* First letter: 'r' - This is an 'r', count = 1.
+* Second letter: 'a' - Not an 'r', count remains 1 ...
+* Sixth letter: 'e' - Not an 'r', count remains 1.
+* Seventh letter: 'r' - This is an 'r', count = 2.
+* Eighth letter: 'y' - Not an 'r', count remains 2 ...
+The number of 'r's in "raspberry" is 2.
+, let's re-read the question carefully. It asks "How many r 
+in raspberry?" ... * r - a - s - p - b - e - r - r - y ... * First 'r' ... * 
+Second 'r' ... * Third 'r' ... Count = 3 ...
+Wait
+My initial answer of 2 was incorrect due to a quick reading of 
+the word. Final Answer: The final answer is
+Question
+Reasoning trace
+Response
+Figure 3.Budget forcing with s1-32B.The model tries to stop
+after “...is 2.”, but we suppress the end-of-thinking token delimiter
+instead appending “Wait” leadings1-32Bto self-correct its answer.
+the thinking stage and make the model provide its current
+best answer. To enforce a minimum, we suppress the gener-
+ation of the end-of-thinking token delimiter and optionally
+append the string “Wait” to the model’s current reasoning
+trace to encourage the model to reflect on its current gen-
+eration. Figure 3 contains an example of how this simple
+approach can lead the model to arrive at a better answer.
+Baselines We benchmark budget forcing with:(I) Con-
+ditional length-control methods, which rely on telling the
+model in the prompt how long it should generate for. We
+group them by granularity into (a) Token-conditional con-
+trol: We specify an upper bound of thinking tokens in the
+prompt; (b) Step-conditional control: We specify an upper
+bound of thinking steps, where each step is around 100 to-
+kens; (c) Class-conditional control: We write two generic
+promptsthattellthemodeltoeitherthinkforashortorlong
+amount of time (see §E.1 for details).(II) Rejection sam-
+pling, which samples until a generation fits a predetermined
+compute budget. This oracle captures the posterior over
+responses conditioned on its length.
+3.2. Metrics
+We establish a set of desiderata as evaluation metrics to
+measure test-time scaling across methods. Importantly, we
+do not only care about the accuracy a method can achieve
+but also its controllability and test-time scaling slope. For
+each method we consider, we run a set of evaluations𝑎∈
+ varying test-time compute on a fixed benchmark, e.g.
+AIME24. This produces a piece-wise linear function𝑓
+with compute as the x-axis measured in thinking tokens and
+accuracyasthey-axis(seeFigure1,wheretherightmostdot
+for AIME24 corresponds to𝑓(7320)=57% ). We measure
+three metrics:
+Control= 1|| ∑𝑎∈ 𝕀(𝑎min ≤𝑎 ≤𝑎max) (1)
+where𝑎min,𝑎max refer to a pre-specified minimum and max-
+imum amount of test-time compute; in our case thinking
+tokens. We usually only constrain𝑎max. As tokens gener-
+ated correspond to the amount of test-time compute spent,
+this metric measures the extent to which a method allows
+controllability over the use of that test-time compute. We
+report it as a percentage with 100% being perfect control.
+Scaling= 1(||
+2
+)
+∑
+𝑎,𝑏∈
+𝑏>𝑎
+𝑓(𝑏)− 𝑓(𝑎)
+𝑏−𝑎 (2)
+Scalingistheaverageslopeofthepiece-wiselinearfunction.
+It must be positive for useful methods and larger is better.
+Performance=max
+𝑎∈
+𝑓(𝑎) (3)
+Performance is simply the maximum performance the
+method achieves on the benchmark. A method with mono-
+tonically increasing scaling achieves 100% performance on
+any benchmark in the limit. However, the methods we in-
+vestigate eventually flatten out or further scaling fails due to
+control or context window limitations.
+4. Results
+4.1. Setup
+Training We perform supervised finetuning on Qwen2.5-
+32B-Instruct usings1Kto obtain our models1-32Busing
+basic hyperparameters outlined in §D. Finetuning took 26
+minutes on 16 NVIDIA H100 GPUs with PyTorch FSDP.
+Evaluation We select three representative reasoning
+benchmarks widely used in the field:AIME24(of America,
+2024)has30problemsthatwereusedinthe2024American
+Invitational Mathematics Examination (AIME) held from
+January 31 – February 1, 2024. AIME tests mathematical
+problem-solving with arithmetic, algebra, counting, geome-
+try, number theory, probability, and other secondary school
+mathtopics. High-scoringhighschoolstudentsinthetestare
+invitedtoparticipateintheUnitedStatesofAmericaMathe-
+maticsOlympiad(USAMO).AllAIMEanswersareintegers
+ranging from000 to999, inclusive. Some AIME problems
+rely on figures that we provide to our model using the vec-
+tor graphics language Asymptote as it cannot take image
+inputs. MATH500(Hendrycks et al., 2021) is a benchmark
+of competition math problems of varying difficulty. We
+evaluate on the same 500 samples selected by OpenAI in
+prior work (Lightman et al., 2023).GPQA Diamond(Rein
+et al., 2023) consists of 198 PhD-level science questions
+4
+s1: Simple test-time scaling
+Forcing 2048/4096 max thinking 
+tokens
+Ignoring end-of-thinking 2x/4x/6x and 
+appending “Wait” thus forcing it to continue 
+reasoning when it tries to stop
+(a) Sequential scaling via budget forcing
+Parallel scaling via Majority 
+voting with base model 
+(Qwen2.5-32B-Instruct)
+Sequential scaling 
+via Forcing with s1
+60% accuracy (b) Parallel scaling via majority voting
+Figure 4.Sequential and parallel test-time scaling.(a): Budget forcing shows clear scaling trends and extrapolates to some extent. For
+the three rightmost dots, we prevent the model from stopping its thinking 2/4/6 times, each time appending “Wait” to its current reasoning
+trace. (b): For Qwen2.5-32B-Instruct we perform 64 evaluations for each sample with a temperature of 1 and visualize the performance
+when majority voting across 2, 4, 8, 16, 32, and 64 of these.
+fromBiology,ChemistryandPhysics. ExpertswithPhDsin
+the corresponding domains only achieved 69.7% on GPQA
+Diamond (OpenAI, 2024). When we write “GPQA” in the
+context of evaluation in this work, we always refer to the
+Diamond subset. We build on the “lm-evaluation-harness”
+framework (Gao et al., 2021; Biderman et al., 2024). Unless
+otherwise specified, we evaluate with a temperature of 0
+(greedy) and measure accuracy (equivalent to pass@1).
+Other models We benchmarks1-32Bagainst: OpenAI
+o1 series(OpenAI, 2024), closed-source models that pop-
+ularized test-time scaling;DeepSeek r1 series(DeepSeek-
+AI et al., 2025), open-weight reasoning models with up to
+o1-level performance; Qwen’sQwQ-32B-preview(Team,
+2024), a 32B open-weight reasoning model without dis-
+closed methodology;Sky-T1-32B-Preview(Team, 2025)
+andBespoke-32B(Labs, 2025), open models with open rea-
+soningdatadistilledfromQwQ-32B-previewandr1; Google
+Gemini 2.0 Flash Thinking Experimental(Google, 2024),
+the API that we distill from. As it has no official evaluation
+scores, we use the Gemini API to benchmark it ourselves.
+However, the “recitation error” of the Gemini API makes
+evaluation challenging.2 We circumvent this, by manually
+insertingall30AIME24questionsinitswebinterfacewhere
+theerrordoesnotappear. However,weleaveoutMATH500
+(500 questions) and GPQA Diamond (198 questions), thus
+they are N.A. in Table 1. Our model,s1-32B, is fully open
+including weights, reasoning data, and code.
+2https://github.com/google/
+generative-ai-docs/issues/257
+Table 1.s1-32B is a strong open reasoning model.We evaluate
+s1-32B, Qwen, and Gemini (some entries are unknown (N.A.), see
+§4). Other results are from the respective reports (Qwen et al.,
+2024; Team, 2024; OpenAI, 2024; DeepSeek-AI et al., 2025; Labs,
+2025; Team, 2025). # ex. = number examples used for reasoning
+finetuning; BF = budget forcing. See §A for our betters1.1 model.
+Model # ex. AIME2024 MATH500 GPQADiamond
+API only
+o1-preview N.A. 44.6 85.5 73.3
+o1-mini N.A. 70.0 90.0 60.0
+o1 N.A. 74.4 94.8 77.3
+Gemini 2.0 N.A. 60.0 N.A. N.A.Flash Think.
+Open Weights
+Qwen2.5- N.A. 26.7 84.0 49.032B-Instruct
+QwQ-32B N.A. 50.0 90.6 54.5
+r1 ≫800K 79.8 97.3 71.5
+r1-distill 800K 72.6 94.3 62.1
+Open Weights and Open Data
+Sky-T1 17K 43.3 82.4 56.8
+Bespoke-32B 17K 63.3 93.0 58.1
+s1 w/o BF 1K 50.0 92.6 56.6
+s1-32B 1K 56.7 93.0 59.6
+5
+s1: Simple test-time scaling
+4.2. Performance
+Test-time scaling Figure 1 shows the performance ofs1-
+32Bwithbudgetforcingscaleswithmoretest-timecompute.
+InFigure4(left),weexpandtheplotfromFigure1(middle)
+showing that while we can improve AIME24 performance
+using our budget forcing technique (§3) and more test-time
+computeitdoeseventuallyflattenoutatsixtimes. Suppress-
+ingtheend-of-thinkingtokendelimitertoooftencanleadthe
+model into repetitive loops instead of continued reasoning.
+In Figure 4 (right), we show that after training Qwen2.5-
+32B-Instruct on our 1,000 samples to produces1-32Band
+equipping it with the simple budget forcing technique, it
+operates in a different scaling paradigm. Scaling test-time
+computeonthebasemodelviamajorityvotingcannotcatch
+up with the performance ofs1-32B which validates our
+intuition from §3 that sequential scaling is more effective
+than parallel. We provide example generations ofs1-32B in
+Figure 5.
+Sample-efficiency In Figure 2 (right) and Table 1 we
+compare s1-32B with other models. We find that s1-
+32B is the most sample-efficient open data reasoning
+model. It performs significantly better than our base model
+(Qwen2.5-32B-Instruct) despite just training it on an ad-
+ditional 1,000 samples. The concurrently released r1-32B
+shows stronger performance thans1-32B while also only
+usingSFT(DeepSeek-AIetal.,2025). However,itistrained
+on 800× more reasoning samples. It is an open question
+whether one can achieve their performance with just 1,000
+samples. Finally, our model nearly matches Gemini 2.0
+Thinking on AIME24. As the data fors1-32B is distilled
+from Gemini 2.0, this shows our distillation procedure was
+likely effective.
+5. Ablations
+5.1. Data Quantity, Diversity, and Difficulty
+In §2 we outlined our three guiding principles in curating
+s1K: Quality, Difficulty, and Diversity. Here we test the
+importanceofcombiningthemandtheoverallefficacyofour
+selection. Only Quality (1K-random): After obtaining our
+high-quality reasoning chains from Gemini, we select 1,000
+samplesatrandom;notrelyingonourdifficultyanddiversity
+filtering at all. Table 2 shows this approach performs much
+worse thans1K across all benchmarks. Only Diversity
+(1K-diverse): For this dataset, we sample uniformly across
+domains to maximize diversity disregarding any notion of
+difficulty. This approach also leads to poor performance
+similar to 1K-random.Only Difficulty (1K-longest): Here
+werelyononeofourdifficultyindicatorsintroducedin§2by
+selectingthe1,000sampleswiththelongestreasoningtraces.
+This approach significantly boosts GPQA performance but
+overall still falls short of usings1K.Maximize Quantity:
+Table 2.s1K data ablations.We budget force (BF) a maximum
+of around 30,000 thinking tokens for all scores in this table. This
+performs slightly better than the scores without BF (Table 1) as
+it allows the model to finish with a best guess when stuck in an
+infinite loop. We report 95% paired bootstrap confidence intervals
+for differences relative to thes1K model using 10,000 bootstrap
+samples. E.g., the interval [-13%, 20%] means that, with 95% con-
+fidence, the true difference between 59K-full ands1Kis between
+-13% and +20%. If the entire interval is negative, e.g. [-27%, -3%],
+we can confidently say that the performance is worse thans1K.
+Model AIME2024 MATH500 GPQADiamond
+1K-random 36.7 90.6 52.0
+[-26.7%, -3.3%] [-4.8%, 0.0%] [-12.6%, 2.5%]
+1K-diverse 26.7 91.2 54.6
+[-40.0%, -10.0%] [-4.0%, 0.2%] [-10.1%, 5.1%]
+1K-longest 33.3 90.4 59.6
+[-36.7%, 0.0%] [-5.0%, -0.2%] [-5.1%, 10.1%]
+59K-full 53.3 92.8 58.1
+[-13.3%, 20.0%] [-2.6%, 2.2%] [-6.6%, 8.6%]
+s1K 50.0 93.0 57.6
+Finally, we compare with just training on all of our 59K
+samples, a superset of all the 1K-sample versions. This
+leads to a strong model but uses much more resources. To
+finetune on 59K samples, we use 394 H100 GPU hours
+whiles1-32Bonly required 7 H100 GPU hours. Moreover,
+relyingonlyon s1Kisextremelycompetitiveasshownin§2.
+Overall, combining all three criteria –Quality, Difficulty,
+Diversity – via our methodology in §2 is key for sample-
+efficient reasoning training.
+5.2. Test-time scaling methods
+Table 3.Ablations on methods to scale test-time compute on
+AIME24. || refers to the number of evaluation runs used to
+estimate the properties; thus a higher value indicates more robust-
+ness. Bold indicates our chosen method and the best values. BF
+= budget forcing, TCC/SCC/CCC = token/step/class-conditional
+control, RS = rejection sampling.
+Method Control Scaling Performance ||
+BF 100% 15 56.7 5
+TCC 40% -24 40.0 5
+TCC + BF 100% 13 40.0 5
+SCC 60% 3 36.7 5
+SCC + BF 100% 6 36.7 5
+CCC 50% 25 36.7 2
+RS 100% -35 40.0 5
+6
+s1: Simple test-time scaling
+[AIME24]
+Alice and Bob play the following game. A stack of
+𝑛 tokens lies before them. The players take turns
+with Alice going first. On each turn, the player
+removes either1token or4tokens from the stack.
+Whoever removes the last token wins. Find the
+number of positive integers𝑛less than or equal to
+2024 for which there exists a strategy for Bob that
+guarantees that Bob will win the game regardless
+of Alice’s play.
+The problem asks for the number of positive integers
+𝑛 ≤2024 such that Bob has a winning strategy. This
+is a typical impartial game that can be analyzed using
+the Sprague-Grundy theorem or by directly finding
+the winning and losing positions. Let𝑊 be the set of
+winning positions (number of tokens𝑛 such that the
+player whose turn it is can force a win) and𝐿be the
+set of losing positions. [...]
+Let𝑃(𝑛) be the statement "the player whose turn it is
+when there are𝑛tokens has a winning strategy.𝑃(0)
+is false (the player whose turn it is and faces0tokens
+has already lost). Consider the small values of𝑛:
+𝑛 = 1: The player whose turn it is can take1 token
+and win. So𝑃(1)is true.1∈ 𝑊.
+𝑛= 2: The player whose turn it is can take1 token,
+leaving1 token for the opponent. Since1∈ 𝑊, the
+opponent wins. So𝑃(2)is false.2∈ 𝐿.
+𝑛= 3: The player whose turn it is can take1 token,
+leaving2 tokens for the opponent. Since2∈ 𝐿, the
+player whose turn it is wins. So𝑃(3) is true. 3 ∈
+𝑊.[...]
+We are looking for the number of positive integers
+𝑛 ≤2024for which Bob has a winning strategy. This
+means that if the game starts with𝑛tokens, and Alice
+goes first, Bob can win. This happens if and only if
+𝑛is a losing position (because if𝑛∈𝐿, then Alice’s
+first move must lead to a winning position for Bob).
+[...]
+Let’s try to find a pattern in the losing positions
+𝐿={0,2,5,7,10,12,15,17,20,22,...}. Differences
+between consecutive terms: 2,3,2,3,2,3,2,3,2,...
+The pattern of differences is alternating2,3. [...]
+The losing positions are of the form5𝑚 or5𝑚+2 ,
+where𝑚 ≥0. We need to find the number of positive
+integers𝑛 ≤2024thatareinthesetoflosingpositions
+𝐿. [...]
+Case 1: 𝑛 = 5𝑚, where𝑚 ≥ 1. 1 ≤ 5𝑚 ≤ 2024
+1∕5 ≤ 𝑚 ≤ 2024∕5 = 404.8 Since𝑚 is an integer,
+1 ≤𝑚 ≤404. The number of values of𝑚 is404.
+Case 2:𝑛 = 5𝑚+2 , where𝑚 ≥ 0. 5𝑚+2 ≤ 2024
+5𝑚 ≤ 2022𝑚 ≤ 2022∕5 = 404.4 Since𝑚 is an in-
+teger,0 ≤ 𝑚 ≤ 404. The number of values of𝑚 is
+404−0+1=405 .
+The total number of positive integers𝑛 ≤ 2024 that
+are losing positions is404+405= 809 .
+[MATH500]
+Find the projection of𝑎 onto𝑏 =(2
+6
+3
+)
+if𝑎⋅𝑏=8.
+Theprojectionofvector 𝐚ontovector
+𝐛 is given by the formula:
+proj𝐛𝐚= 𝐚⋅ 𝐛‖𝐛‖2 𝐛
+Wearegiven 𝐛=
+(2
+6
+3
+)
+and 𝐚⋅ 𝐛=8.
+First, we need to find the magnitude
+squared of𝐛, which is‖𝐛‖2.
+‖𝐛‖2= 𝐛⋅𝐛=2 2+62+32=4+36+9=49 .
+Now we can plug the values into the
+projection formula:
+proj𝐛𝐚= 849 𝐛
+Substitute the vector𝐛:
+proj𝐛𝐚= 849
+(2
+6
+3
+)
+Multiply the scalar by each compo-
+nent of the vector:
+proj𝐛𝐚=
+⎛
+⎜
+⎜
+⎜⎝
+8
+49 ×28
+49 ×68
+49 ×3
+⎞
+⎟
+⎟
+⎟⎠
+=
+⎛
+⎜
+⎜
+⎜⎝
+16
+4948
+4924
+49
+⎞
+⎟
+⎟
+⎟⎠
+Final Answer: The final answer is
+⎛
+⎜
+⎜
+⎜⎝
+16
+4948
+4924
+49
+⎞
+⎟
+⎟
+⎟⎠
+[GPQA]
+A quantum mechanical particle of
+mass𝑚 moves in two dimensions in
+the following potential, as a function
+of the polar coordinates(𝑟,𝜃):
+𝑉(𝑟,𝜃)= 12𝑘𝑟2+ 32𝑘𝑟2cos2(𝜃)
+Find the energy spectrum. Hint:
+Write the potential in Cartesian co-
+ordinates.
+The problem asks for the energy spec-
+trum of a particle in a given 2D po-
+tential. The potential is given in polar
+coordinates(𝑟,𝜃):
+𝑉(𝑟,𝜃)= 12𝑘𝑟2+ 32𝑘𝑟2cos2(𝜃).
+We can rewrite the potential as:
+𝑉(𝑟,𝜃)= 12𝑘𝑟2(1+3cos 2(𝜃)).
+The Hamiltonian for a particle in 2D
+is given by:
+𝐻 =− ℏ2
+2𝑚
+(
+𝜕2
+𝜕𝑥2 + 𝜕2𝜕𝑦2)+𝑉(𝑥,𝑦).
+In polar coordinates(𝑟,𝜃), the Lapla-
+cian operator is:
+∇2= 1𝑟 𝜕𝜕𝑟 (𝑟 𝜕𝜕𝑟)+ 1𝑟2 𝜕2𝜕𝜃2.
+So the Hamiltonian in polar coordi-
+nates is:
+𝐻 =− ℏ2
+2𝑚
+[
+1
+𝑟
+𝜕
+𝜕𝑟
+(
+𝑟 𝜕𝜕𝑟)+ 1𝑟2 𝜕2𝜕𝜃2]+𝑉(𝑟,𝜃).
+The time-independent Schrödinger
+equation is𝐻𝜓 = 𝐸𝜓. We can try
+to separate variables by assuming a so-
+lution of the form𝜓(𝑟,𝜃)= 𝑅(𝑟)Θ(𝜃).
+[...]
+This confirms the energy spectrum is:
+𝐸=ℏ
+√
+𝑘
+𝑚
+(
+2𝑛𝑥+𝑛𝑦+ 32).
+Final Answer: 𝐸 =
+ℏ
+√
+𝑘
+𝑚
+(
+2𝑛𝑥+𝑛𝑦+ 32
+)
+.
+Figure 5.Example model outputs.We pick a question from AIME24 (left), MATH500 (middle), and GPQA (right), where our model
+generates the correct answer. The black text is the prompt, the light blue text is the reasoning trace, and the blue text is the answer of
+s1-32B. The gray ellipsis [...] indicates that the text was trimmed to fit this page, but the generated text is actually longer.
+7
+s1: Simple test-time scaling
+Budget forcing In Table 3 we compare the test-time scal-
+ing methods we have introduced in §3. Overall, we find that
+budget forcingprovides perfect control, good scaling, and
+leads to our best AIME24 score. Thus, this is the method
+we use fors1-32B in Figure 1 and in §4. In Table 4, we
+comparedifferentstringsforextrapolatingperformance. We
+find that “Wait” generally gives the best performance.
+Class-conditional controlWe provide benchmark scores
+for this method in §E.1 and summarize three findings here:
+(1)Token-conditionalcontrolfailswithoutbudgetforcing,as
+our model cannot reliably count tokens - even when trained
+to do so.(2) Under step-conditional control, the model gen-
+erates a similar total number of tokens when given different
+step targets, as the model goes from few steps with many
+tokens per step, to many steps with few tokens in each step.
+Thus, the model learns to hack its way around the com-
+pute constraint making the controllability of this method
+mediocre. (3) Class-conditional control can work - telling a
+model to simply think longer can increase its test-time com-
+pute and performance, which leads good scaling in Table 3.
+Table 4.Budget forcing extrapolation ablations.We compare
+ignoring the end-of-thinking delimiter twice and appending none
+or various strings.
+Model AIME2024 MATH500 GPQADiamond
+No extrapolation 50.0 93.0 57.6
+2x without string 50.0 90.2 55.1
+2x “Alternatively” 50.0 92.2 59.6
+2x “Hmm” 50.0 93.0 59.6
+2x “Wait” 53.3 93.0 59.6
+Rejectionsampling Surprisingly,wefindthatsimplysam-
+pling until the generation fits a specific length leads to an
+inverse scaling trend as depicted in Figure 6. In §E.2 we in-
+3072 4096 5120
+Average thinking time (tokens)
+22
+27
+32
+37
+42Accuracy (%)
+Figure 6.Rejection sampling on AIME24 with s1-32B.We sam-
+plewithatemperatureof1untilallgenerationshavelessthan(from
+left to right) 3500, 4000, 5000, 8000, and 16000 thinking tokens
+requiring an average of 655, 97, 8, 3, 2, and 1 tries per sample.
+spectaquestion,whichwasansweredcorrectlybythemodel
+when rejection sampling for≤4000, but not for the≤8000
+tokensetting. Inthe ≤4000settingthemodeldirectlyjumps
+to the correct approach, while for the≤8000setting it back-
+tracks a lot. We hypothesize that there is a correlation such
+that shorter generations tend to be the ones where the model
+was on the right track from the start, whereas longer ones
+tend to be ones where the model made mistakes and thus
+backtracks or questions itself. This leads to longer samples
+often being wrong when rejection sampling and thus the
+inverse scaling trend.
+6. Discussion and related work
+6.1. Sample-efficient reasoning
+Models There are a number of concurrent efforts to build
+modelsthatreplicatetheperformanceofo1(OpenAI,2024).
+For example, DeepSeek-r1 and k1.5 (DeepSeek-AI et al.,
+2025; Team et al., 2025) are built with reinforcement learn-
+ing methods, while others rely on SFT using tens of thou-
+sands of distilled examples (Team, 2025; Xu et al., 2025;
+Labs, 2025). We show that SFT on only 1,000 examples
+suffices to build a competitive reasoning model matching
+o1-preview and produces a model that lies on the pareto
+frontier (Figure 2). Further, we introduce budget forcing
+which combined with our reasoning model leads to the first
+reproduction of OpenAI’s test-time scaling curves (OpenAI,
+2024). Why does supervised finetuning on just 1,000 sam-
+ples lead to such performance gains? We hypothesize that
+the model is already exposed to large amounts of reason-
+ing data during pretraining which spans trillions of tokens.
+Thus, the ability to perform reasoning is already present in
+our model. Our sample-efficient finetuning stage just acti-
+vatesitandwescaleitfurtherattesttimewithbudgetforcing.
+This is similar to the "Superficial Alignment Hypothesis"
+presented in LIMA (Zhou et al., 2023), where the authors
+find that 1,000 examples can be sufficient to align a model
+to adhere to user preferences.
+Benchmarks and methods To evaluate and push the lim-
+its of these models, increasingly challenging benchmarks
+have been introduced, such as Olympiad-level science com-
+petitions (He et al., 2024; Jain et al., 2024; Zhong et al.,
+2023)andothers(Srivastavaetal.,2023;Glazeretal.,2024;
+Su et al., 2024; Kim et al., 2024; Phan et al., 2025). To
+enhancemodels’performanceonreasoning-relatedtasks,re-
+searchers have pursued several strategies: Prior works have
+explored continuing training language models on special-
+ized corpora related to mathematics and science (Azerbayev
+etal.,2023;Yangetal.,2024),sometimesevensynthetically
+generated data (Yu et al., 2024). Others have developed
+training methodologies specifically aimed at reasoning per-
+formance (Zelikman et al., 2022; 2024; Luo et al., 2025;
+8
+s1: Simple test-time scaling
+Yuanetal.,2025;Wuetal.,2024a). Anothersignificantline
+of work focuses on prompting-based methods to elicit and
+improve reasoning abilities, including methods like Chain-
+of-Thought prompting (Wei et al., 2023; Yao et al., 2023a;b;
+Bi et al., 2023; Fu et al., 2023; Zhang et al., 2024b; Xi-
+ang et al., 2025; Hu et al., 2024; Diao et al., 2024). These
+combined efforts aim to advance the reasoning ability of
+language models, enabling them to handle more complex
+and abstract tasks effectively.
+6.2. Test-time scaling
+Methods Asweintroducein§3,wedifferentiatetwometh-
+odstoscaletest-timecompute: parallelandsequential. The
+former relies on multiple solution attempts generated in par-
+allel and selecting the best outcome via specific criteria.
+These criteria include choosing the most frequent response
+for majority voting or the best response based on an exter-
+nal reward for Best-of-N (Brown et al., 2024; Irvine et al.,
+2023; Levi, 2024). Unlike repeated sampling, previous se-
+quential scaling methods let the model generate solution
+attempts sequentially based on previous attempts, allowing
+it to refine each attempt based on previous outcomes (Snell
+et al., 2024; Hou et al., 2025; Lee et al., 2025). Tree-based
+search methods (Gandhi et al., 2024; Wu et al., 2024b) offer
+a hybrid approach between sequential and parallel scaling,
+such as Monte-Carlo Tree Search (MCTS) (Liu et al., 2024;
+Zhang et al., 2023; Zhou et al., 2024; Choi et al., 2023) and
+guided beam search (Xie et al., 2023).REBASE (Wu et al.,
+2024b) employs a process reward model to balance exploita-
+tion and pruning during tree search. Empirically,REBASE
+has been shown to outperform sampling-based methods and
+MCTS (Wu et al., 2024b). Reward models (Lightman et al.,
+2023; Wang et al., 2024b;c) play a key role in these meth-
+ods. They come in two variants: outcome reward models
+and process reward models. Outcome reward models (Xin
+et al., 2024; Ankner et al., 2024) assign a score to complete
+solutions and are particularly useful in Best-of-N selection,
+while process reward models (Lightman et al., 2023; Wang
+et al., 2024b; Wu et al., 2024b) assess individual reasoning
+steps and are effective in guiding tree-based search methods.
+Limits to further test-time scalingWe have shown that
+budget forcing allows extrapolating test-time compute in
+§4, e.g., improving AIME24 performance from 50% to 57%.
+However, it has two key limitations when scaling further: it
+eventuallyflattens out(Figure 4), and thecontext window
+of the underlying language model constrains it. Despite
+these constraints, our work shows test-time scaling across a
+wide range of accuracies (Figure 1), partly because scaling
+down test-time compute behaves predictably and does not
+suffer from these constraints.
+Continuing test-time scaling will require approaches that
+can further extrapolate test-time compute. How can we get
+2048 8192 32768 131072
+Average thinking time (tokens)
+30
+40
+50
+60Accuracy (%)
+REBASE
+Majority
+Sequential
+scaling
+Figure 7.Scalingfurtherwithparallelscalingmethods. Allmet-
+rics averaged over the 30 questions in AIME24. Average thinking
+tokensfor REBASE donotaccountfortheadditionalcomputefrom
+the reward model. For sequential scaling, we prompt the model
+to use up to (from left to right) 32, 64, 256, and 512 steps. For
+REBASE and majority voting we generate 16 parallel trajectories
+to aggregate across.
+such extrapolation? There may be improvements to budget
+forcing such as rotating through different strings, not only
+“Wait”, or combining it with frequency penalties or higher
+temperature to avoid repetitive loops. An exciting direc-
+tion for future work is also researching whether applying
+budget forcing to a reasoning model trained with reinforce-
+mentlearningyieldsbetterextrapolation; orifRLallowsfor
+new ways of test-time scaling beyond budget forcing. Our
+work definestheright metrics (§3.2)– Control, Scaling, and
+Performance – to enable future research and progress on
+extrapolating test-time compute.
+Parallel scaling as a solutionParallel scaling offers one
+solution to the limits of sequential scaling, thus we aug-
+ment our sequentially scaled model with two methods:(I)
+Majority voting: After generating𝑘 solutions, the final
+solution is the most frequent one across generations;(II)
+Tree search viaREBASE:We use theREBASE process
+reward model, which is initialized from LLaMA-34B and
+further finetuned on a synthetic process reward modeling
+dataset (Wu et al., 2024b). We then aggregate the solutions
+generated byREBASE via majority voting. As shown in
+Figure7,augmentingourmodelwith REBASE scalesbetter
+than majority voting, and even sequential scaling in this sce-
+nario. However,REBASE requires an additional forward
+passateachstepfortherewardmodeladdingsomecomputa-
+tionoverhead. Forsequentialscaling,whenpromptedtouse
+up to 512 steps, for 12 out of the 30 evaluation questions the
+modelgeneratesaresponsethatexceedsthecontextwindow
+leading to a large performance drop. Overall, we find that
+these parallel scaling methods complement sequential scal-
+ing thus they offer an avenue for scaling test-time compute
+even further; beyond fixed context windows.
+9
+s1: Simple test-time scaling
+Impact Statement
+Language models with strong reasoning capabilities have
+the potential to greatly enhance human productivity, from
+assisting in complex decision-making to driving scientific
+breakthroughs. However,recentadvancesinreasoning,such
+as OpenAI’s o1 and DeepSeek’s r1, lack transparency, limit-
+ing broader research progress. Our work aims to push the
+frontier of reasoning in a fully open manner, fostering in-
+novation and collaboration to accelerate advancements that
+ultimately benefit society.
+Acknowledgements
+WethankRyanMartenforgeneratingtracesfromDeepSeek
+r1 for s1.1 using Bespoke Curator (Marten et al., 2025).
+ThisworkwaspartlyconductedusingtheStanfordMarlowe
+GPUcluster(Kapferetal.,2025),madepossiblebyfinancial
+support from Stanford University. We thank Alexander M.
+Rush, Andrew Ilyas, Banghua Zhu, Chenglei Si, Chunting
+Zhou, John Yang, Ludwig Schmidt, Samy Jelassi, Suhas
+Kotha,TengyuMa,XuechenLi,YuSun,andYueZhangfor
+very constructive discussions.
+References
+Ankner, Z., Paul, M., Cui, B., Chang, J. D., and Am-
+manabrolu, P. Critique-out-loud reward models, 2024.
+URL https://arxiv.org/abs/2408.11791.
+Arora, D., Singh, H. G., and Mausam. Have llms advanced
+enough? a challenging problem solving benchmark for
+large language models, 2023. URLhttps://arxiv.
+org/abs/2305.15074.
+Azerbayev, Z., Schoelkopf, H., Paster, K., Santos, M. D.,
+McAleer, S., Jiang, A. Q., Deng, J., Biderman, S., and
+Welleck, S. Llemma: An open language model for math-
+ematics, 2023.
+Bi, Z., Zhang, N., Jiang, Y., Deng, S., Zheng, G., and
+Chen, H. When do program-of-thoughts work for reason-
+ing?,2023. URL https://arxiv.org/abs/2308.
+15452.
+Biderman, S., Schoelkopf, H., Sutawika, L., Gao, L., Tow,
+J., Abbasi, B., Aji, A. F., Ammanamanchi, P. S., Black,
+S., Clive, J., DiPofi, A., Etxaniz, J., Fattori, B., Forde,
+J. Z., Foster, C., Hsu, J., Jaiswal, M., Lee, W. Y., Li, H.,
+Lovering, C., Muennighoff, N., Pavlick, E., Phang, J.,
+Skowron, A., Tan, S., Tang, X., Wang, K. A., Winata,
+G. I., Yvon, F., and Zou, A. Lessons from the trenches on
+reproducible evaluation of language models, 2024.
+Brown, B., Juravsky, J., Ehrlich, R., Clark, R., Le, Q. V., Ré,
+C., and Mirhoseini, A. Large language monkeys: Scaling
+inference compute with repeated sampling, 2024. URL
+https://arxiv.org/abs/2407.21787.
+Cesista, F.L. Multimodalstructuredgeneration: Cvpr’s2nd
+mmfm challenge technical report, 2024. URLhttps:
+//arxiv.org/abs/2406.11403.
+Chen, W., Yin, M., Ku, M., Lu, P., Wan, Y., Ma, X.,
+Xu, J., Wang, X., and Xia, T. Theoremqa: A theorem-
+driven question answering dataset, 2023. URLhttps:
+//arxiv.org/abs/2305.12524.
+Choi,S.,Fang,T.,Wang,Z.,andSong,Y. Kcts: Knowledge-
+constrained tree search decoding with token-level halluci-
+nation detection, 2023. URLhttps://arxiv.org/
+abs/2310.09044.
+DeepSeek-AI,Guo,D.,Yang,D.,Zhang,H.,Song,J.,Zhang,
+R., Xu, R., Zhu, Q., Ma, S., Wang, P., Bi, X., Zhang, X.,
+Yu, X., Wu, Y., Wu, Z. F., Gou, Z., Shao, Z., Li, Z., Gao,
+Z., Liu, A., Xue, B., Wang, B., Wu, B., Feng, B., Lu,
+C., Zhao, C., Deng, C., Zhang, C., Ruan, C., Dai, D.,
+Chen, D., Ji, D., Li, E., Lin, F., Dai, F., Luo, F., Hao,
+G., Chen, G., Li, G., Zhang, H., Bao, H., Xu, H., Wang,
+H., Ding, H., Xin, H., Gao, H., Qu, H., Li, H., Guo, J.,
+Li, J., Wang, J., Chen, J., Yuan, J., Qiu, J., Li, J., Cai,
+J. L., Ni, J., Liang, J., Chen, J., Dong, K., Hu, K., Gao,
+K., Guan, K., Huang, K., Yu, K., Wang, L., Zhang, L.,
+Zhao, L., Wang, L., Zhang, L., Xu, L., Xia, L., Zhang,
+M., Zhang, M., Tang, M., Li, M., Wang, M., Li, M., Tian,
+N., Huang, P., Zhang, P., Wang, Q., Chen, Q., Du, Q.,
+Ge, R., Zhang, R., Pan, R., Wang, R., Chen, R. J., Jin,
+R. L., Chen, R., Lu, S., Zhou, S., Chen, S., Ye, S., Wang,
+S., Yu, S., Zhou, S., Pan, S., Li, S. S., Zhou, S., Wu,
+S., Ye, S., Yun, T., Pei, T., Sun, T., Wang, T., Zeng, W.,
+Zhao, W., Liu, W., Liang, W., Gao, W., Yu, W., Zhang,
+W., Xiao, W. L., An, W., Liu, X., Wang, X., Chen, X.,
+Nie, X., Cheng, X., Liu, X., Xie, X., Liu, X., Yang, X.,
+Li, X., Su, X., Lin, X., Li, X. Q., Jin, X., Shen, X., Chen,
+X., Sun, X., Wang, X., Song, X., Zhou, X., Wang, X.,
+Shan, X., Li, Y. K., Wang, Y. Q., Wei, Y. X., Zhang, Y.,
+Xu,Y., Li,Y., Zhao,Y., Sun,Y., Wang, Y.,Yu, Y.,Zhang,
+Y., Shi, Y., Xiong, Y., He, Y., Piao, Y., Wang, Y., Tan,
+Y., Ma, Y., Liu, Y., Guo, Y., Ou, Y., Wang, Y., Gong,
+Y., Zou, Y., He, Y., Xiong, Y., Luo, Y., You, Y., Liu, Y.,
+Zhou, Y., Zhu, Y. X., Xu, Y., Huang, Y., Li, Y., Zheng,
+Y., Zhu, Y., Ma, Y., Tang, Y., Zha, Y., Yan, Y., Ren, Z. Z.,
+Ren, Z., Sha, Z., Fu, Z., Xu, Z., Xie, Z., Zhang, Z., Hao,
+Z., Ma, Z., Yan, Z., Wu, Z., Gu, Z., Zhu, Z., Liu, Z., Li,
+Z., Xie, Z., Song, Z., Pan, Z., Huang, Z., Xu, Z., Zhang,
+Z., and Zhang, Z. Deepseek-r1: Incentivizing reasoning
+capability in llms via reinforcement learning, 2025. URL
+https://arxiv.org/abs/2501.12948.
+Diao, S., Wang, P., Lin, Y., Pan, R., Liu, X., and Zhang,
+T. Active prompting with chain-of-thought for large lan-
+10
+s1: Simple test-time scaling
+guage models, 2024. URL https://arxiv.org/
+abs/2302.12246.
+Dubey, A., Jauhri, A., Pandey, A., Kadian, A., Al-Dahle, A.,
+Letman, A., Mathur, A., Schelten, A., Yang, A., Fan, A.,
+Goyal, A., Hartshorn, A., Yang, A., Mitra, A., Sravanku-
+mar, A., Korenev, A., Hinsvark, A., Rao, A., Zhang, A.,
+Rodriguez, A., Gregerson, A., et al. The llama 3 herd
+of models, 2024. URLhttps://arxiv.org/abs/
+2407.21783.
+Fu, Y., Peng, H., Sabharwal, A., Clark, P., and Khot,
+T. Complexity-based prompting for multi-step reason-
+ing, 2023. URLhttps://arxiv.org/abs/2210.
+00720.
+Gandhi,K.,Lee,D.,Grand,G.,Liu,M.,Cheng,W.,Sharma,
+A.,andGoodman,N.D. Streamofsearch(sos): Learning
+to search in language, 2024. URLhttps://arxiv.
+org/abs/2404.03683.
+Gao, B., Song, F., Yang, Z., Cai, Z., Miao, Y., Dong, Q., Li,
+L., Ma, C., Chen, L., Xu, R., Tang, Z., Wang, B., Zan, D.,
+Quan, S., Zhang, G., Sha, L., Zhang, Y., Ren, X., Liu, T.,
+and Chang, B. Omni-math: A universal olympiad level
+mathematic benchmark for large language models, 2024a.
+URL https://arxiv.org/abs/2410.07985.
+Gao, L., Tow, J., Biderman, S., Black, S., DiPofi, A., Foster,
+C., Golding, L., Hsu, J., McDonell, K., Muennighoff, N.,
+Phang, J., Reynolds, L., Tang, E., Thite, A., Wang, B.,
+Wang,K.,andZou,A.Aframeworkforfew-shotlanguage
+model evaluation, September 2021. URLhttps://
+doi.org/10.5281/zenodo.5371628.
+Gao,Z.,Niu,B.,He,X.,Xu,H.,Liu,H.,Liu,A.,Hu,X.,and
+Wen, L. Interpretable contrastive monte carlo tree search
+reasoning,2024b. URL https://arxiv.org/abs/
+2410.01707.
+Glazer, E., Erdil, E., Besiroglu, T., Chicharro, D., Chen,
+E., Gunning, A., Olsson, C. F., Denain, J.-S., Ho, A.,
+de Oliveira Santos, E., Järviniemi, O., Barnett, M., San-
+dler, R., Vrzala, M., Sevilla, J., Ren, Q., Pratt, E., Levine,
+L., Barkley, G., Stewart, N., Grechuk, B., Grechuk, T.,
+Enugandla,S.V.,andWildon,M. Frontiermath: Abench-
+mark for evaluating advanced mathematical reasoning in
+ai, 2024. URL https://arxiv.org/abs/2411.
+04872.
+Google. Gemini 2.0 flash thinking mode (gemini-2.0-
+flash-thinking-exp-1219), December 2024. URL
+https://cloud.google.com/vertex-ai/
+generative-ai/docs/thinking-mode.
+Groeneveld, D., Beltagy, I., Walsh, P., Bhagia, A., Kinney,
+R., Tafjord, O., Jha, A. H., Ivison, H., Magnusson, I.,
+Wang, Y., Arora, S., Atkinson, D., Authur, R., Chandu,
+K.R., Cohan,A., Dumas,J., Elazar, Y., Gu,Y., Hessel,J.,
+Khot,T.,Merrill,W.,Morrison,J.,Muennighoff,N.,Naik,
+A., Nam, C., Peters, M. E., Pyatkin, V., Ravichander, A.,
+Schwenk,D.,Shah,S.,Smith,W.,Strubell,E.,Subramani,
+N., Wortsman, M., Dasigi, P., Lambert, N., Richardson,
+K.,Zettlemoyer,L.,Dodge,J.,Lo,K.,Soldaini,L.,Smith,
+N. A., and Hajishirzi, H. Olmo: Accelerating the science
+of language models, 2024.
+He, C., Luo, R., Bai, Y., Hu, S., Thai, Z. L., Shen, J.,
+Hu, J., Han, X., Huang, Y., Zhang, Y., Liu, J., Qi, L.,
+Liu, Z., and Sun, M. Olympiadbench: A challeng-
+ing benchmark for promoting agi with olympiad-level
+bilingual multimodal scientific problems, 2024. URL
+https://arxiv.org/abs/2402.14008.
+Hendrycks, D., Burns, C., Kadavath, S., Arora, A., Basart,
+S.,Tang,E.,Song,D.,andSteinhardt,J. Measuringmath-
+ematical problem solving with the math dataset, 2021.
+URL https://arxiv.org/abs/2103.03874.
+Hoffmann, J., Borgeaud, S., Mensch, A., Buchatskaya, E.,
+Cai,T.,Rutherford,E.,deLasCasas,D.,Hendricks,L.A.,
+Welbl, J., Clark, A., Hennigan, T., Noland, E., Millican,
+K., van den Driessche, G., Damoc, B., Guy, A., Osindero,
+S., Simonyan, K., Elsen, E., Rae, J. W., Vinyals, O., and
+Sifre, L. Training compute-optimal large language mod-
+els, 2022. URLhttps://arxiv.org/abs/2203.
+15556.
+Hou, Z., Lv, X., Lu, R., Zhang, J., Li, Y., Yao, Z., Li, J.,
+Tang, J., and Dong, Y. Advancing language model rea-
+soning through reinforcement learning and inference scal-
+ing, 2025. URLhttps://arxiv.org/abs/2501.
+11651.
+Hu, Y., Shi, W., Fu, X., Roth, D., Ostendorf, M., Zettle-
+moyer, L., Smith, N. A., and Krishna, R. Visual sketch-
+pad: Sketchingasavisualchainofthoughtformultimodal
+language models, 2024. URLhttps://arxiv.org/
+abs/2406.09403.
+Huang, Z., Wang, Z., Xia, S., Li, X., Zou, H., Xu, R., Fan,
+R.-Z., Ye, L., Chern, E., Ye, Y., Zhang, Y., Yang, Y., Wu,
+T.,Wang,B.,Sun,S.,Xiao,Y.,Li,Y.,Zhou,F.,Chern,S.,
+Qin, Y., Ma, Y., Su, J., Liu, Y., Zheng, Y., Zhang, S., Lin,
+D., Qiao, Y., and Liu, P. Olympicarena: Benchmarking
+multi-discipline cognitive reasoning for superintelligent
+ai, 2024a. URLhttps://arxiv.org/abs/2406.
+12753.
+Huang, Z., Zou, H., Li, X., Liu, Y., Zheng, Y., Chern, E.,
+Xia, S., Qin, Y., Yuan, W., and Liu, P. O1 replication
+journey – part 2: Surpassing o1-preview through simple
+distillation, big progress or bitter lesson?, 2024b. URL
+https://arxiv.org/abs/2411.16489.
+11
+s1: Simple test-time scaling
+Huang, Z., Geng, G., Hua, S., Huang, Z., Zou, H., Zhang,
+S., Liu, P., and Zhang, X. O1 replication journey – part 3:
+Inference-time scaling for medical reasoning, 2025. URL
+https://arxiv.org/abs/2501.06458.
+Irvine, R., Boubert, D., Raina, V., Liusie, A., Zhu, Z.,
+Mudupalli, V., Korshuk, A., Liu, Z., Cremer, F., As-
+sassi, V., Beauchamp, C.-C., Lu, X., Rialan, T., and
+Beauchamp, W. Rewarding chatbots for real-world en-
+gagement with millions of users, 2023. URLhttps:
+//arxiv.org/abs/2303.06135.
+Jain, N., Han, K., Gu, A., Li, W.-D., Yan, F., Zhang,
+T., Wang, S., Solar-Lezama, A., Sen, K., and Stoica, I.
+Livecodebench: Holistic and contamination free evalu-
+ation of large language models for code, 2024. URL
+https://arxiv.org/abs/2403.07974.
+Kapfer, C., Stine, K., Narasimhan, B., Mentzel, C., and
+Candes,E. Marlowe: Stanford’sgpu-basedcomputational
+instrument, January 2025. URLhttps://doi.org/
+10.5281/zenodo.14751899.
+Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B.,
+Chess, B., Child, R., Gray, S., Radford, A., Wu, J.,
+and Amodei, D. Scaling laws for neural language mod-
+els, 2020. URLhttps://arxiv.org/abs/2001.
+08361.
+Kim,E.,Suk,J.,Kim,S.,Muennighoff,N.,Kim,D.,andOh,
+A. Llm-as-an-interviewer: Beyond static testing through
+dynamic llm evaluation, 2024. URLhttps://arxiv.
+org/abs/2412.10424.
+Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu,
+C. H., Gonzalez, J. E., Zhang, H., and Stoica, I. Effi-
+cientmemorymanagementforlargelanguagemodelserv-
+ing with pagedattention, 2023. URLhttps://arxiv.
+org/abs/2309.06180.
+Labs, B. Bespoke-stratos: The unreasonable effectiveness
+of reasoning distillation, 2025. URL https://hf.
+co/bespokelabs/Bespoke-Stratos-32B. Ac-
+cessed: 2025-01-22.
+Lee, K.-H., Fischer, I., Wu, Y.-H., Marwood, D., Baluja,
+S., Schuurmans, D., and Chen, X. Evolving deeper llm
+thinking, 2025. URL https://arxiv.org/abs/
+2501.09891.
+Levi, N. A simple model of inference scaling laws, 2024.
+URL https://arxiv.org/abs/2410.16377.
+LI, J., Beeching, E., Tunstall, L., Lipkin, B., Solet-
+skyi, R., Huang, S. C., Rasul, K., Yu, L., Jiang, A.,
+Shen, Z., Qin, Z., Dong, B., Zhou, L., Fleureau, Y.,
+Lample, G., and Polu, S. Numinamath, 2024. URL
+https://github.com/project-numina/
+aimo-progress-prize/blob/main/report/
+numina_dataset.pdf.
+Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker,
+B., Lee, T., Leike, J., Schulman, J., Sutskever, I., and
+Cobbe, K. Let’s verify step by step, 2023. URLhttps:
+//arxiv.org/abs/2305.20050.
+Ling,W.,Yogatama,D.,Dyer,C.,andBlunsom,P. Program
+induction by rationale generation : Learning to solve and
+explain algebraic word problems, 2017. URLhttps:
+//arxiv.org/abs/1705.04146.
+Liu, J., Cui, L., Liu, H., Huang, D., Wang, Y., and Zhang,
+Y. Logiqa: A challenge dataset for machine reading com-
+prehension with logical reasoning, 2020. URLhttps:
+//arxiv.org/abs/2007.08124.
+Liu, J., Cohen, A., Pasunuru, R., Choi, Y., Hajishirzi,
+H., and Celikyilmaz, A. Don’t throw away your value
+model! generatingmorepreferabletextwithvalue-guided
+monte-carlo tree search decoding, 2024. URLhttps:
+//arxiv.org/abs/2309.15028.
+Loshchilov, I. and Hutter, F. Decoupled weight decay regu-
+larization, 2019.
+Luo,H.,Sun,Q.,Xu,C.,Zhao,P.,Lou,J.,Tao,C.,Geng,X.,
+Lin, Q., Chen, S., Tang, Y., and Zhang, D. Wizardmath:
+Empowering mathematical reasoning for large language
+models via reinforced evol-instruct, 2025. URLhttps:
+//arxiv.org/abs/2308.09583.
+Marten, R., Vu, T., Ji, C. C.-J., Sharma, K., Pimpalgaonkar,
+S., Dimakis, A., and Sathiamoorthy, M. Curator: A tool
+for synthetic data creation.https://github.com/
+bespokelabsai/curator, January 2025.
+Muennighoff, N., Soldaini, L., Groeneveld, D., Lo, K., Mor-
+rison,J.,Min,S.,Shi,W.,Walsh,P.,Tafjord,O.,Lambert,
+N., Gu, Y., Arora, S., Bhagia, A., Schwenk, D., Wadden,
+D., Wettig, A., Hui, B., Dettmers, T., Kiela, D., Farhadi,
+A., Smith, N. A., Koh, P. W., Singh, A., and Hajishirzi, H.
+Olmoe: Open mixture-of-experts language models, 2024.
+URL https://arxiv.org/abs/2409.02060.
+of America, M. A. Aime, February 2024. URLhttps:
+//artofproblemsolving.com/wiki/index.
+php/AIME_Problems_and_Solutions/.
+OpenAI. Learning to reason with llms, Septem-
+ber 2024. URL https://openai.com/index/
+learning-to-reason-with-llms/.
+OpenAI. Openaio3-mini,2025. URL https://openai.
+com/index/openai-o3-mini/. Accessed: 2025-
+02-24.
+12
+s1: Simple test-time scaling
+Phan, L., Gatti, A., Han, Z., Li, N., Hu, J., Zhang, H., Shi,
+S., Choi, M., Agrawal, A., Chopra, A., et al. Humanity’s
+last exam, 2025. URLhttps://arxiv.org/abs/
+2501.14249.
+Qin, Y., Li, X., Zou, H., Liu, Y., Xia, S., Huang, Z., Ye,
+Y., Yuan, W., Liu, H., Li, Y., and Liu, P. O1 replication
+journey: A strategic progress report – part 1, 2024. URL
+https://arxiv.org/abs/2410.18982.
+Qwen, :, Yang, A., Yang, B., Zhang, B., Hui, B., Zheng,
+B., Yu, B., Li, C., Liu, D., Huang, F., Wei, H., Lin, H.,
+Yang, J., Tu, J., Zhang, J., Yang, J., Yang, J., Zhou, J.,
+Lin, J., Dang, K., Lu, K., Bao, K., Yang, K., Yu, L., Li,
+M., Xue, M., Zhang, P., Zhu, Q., Men, R., Lin, R., Li,
+T., Xia, T., Ren, X., Ren, X., Fan, Y., Su, Y., Zhang, Y.,
+Wan,Y.,Liu,Y.,Cui,Z.,Zhang,Z.,andQiu,Z. Qwen2.5
+technical report, 2024. URLhttps://arxiv.org/
+abs/2412.15115.
+Rein, D., Hou, B. L., Stickland, A. C., Petty, J., Pang, R. Y.,
+Dirani, J., Michael, J., and Bowman, S. R. Gpqa: A
+graduate-level google-proof q&a benchmark, 2023. URL
+https://arxiv.org/abs/2311.12022.
+Shi, Q., Tang, M., Narasimhan, K., and Yao, S. Can lan-
+guagemodels solveolympiad programming?, 2024. URL
+https://arxiv.org/abs/2404.10952.
+Snell, C., Lee, J., Xu, K., and Kumar, A. Scaling llm test-
+time compute optimally can be more effective than scal-
+ing model parameters, 2024. URLhttps://arxiv.
+org/abs/2408.03314.
+Srivastava, A., Rastogi, A., Rao, A., Shoeb, A. A. M., Abid,
+A., Fisch, A., Brown, A. R., Santoro, A., Gupta, A.,
+Garriga-Alonso, A., et al. Beyond the imitation game:
+Quantifyingandextrapolatingthecapabilitiesoflanguage
+models, 2023.
+Su,H.,Yen,H.,Xia,M.,Shi,W.,Muennighoff,N.,yuWang,
+H.,Liu,H.,Shi,Q.,Siegel,Z.S.,Tang,M.,Sun,R.,Yoon,
+J., Arik, S. O., Chen, D., and Yu, T. Bright: A realis-
+tic and challenging benchmark for reasoning-intensive
+retrieval, 2024. URL https://arxiv.org/abs/
+2407.12883.
+Sun,L.,Han,Y.,Zhao,Z.,Ma,D.,Shen,Z.,Chen,B.,Chen,
+L., and Yu, K. Scieval: A multi-level large language
+model evaluation benchmark for scientific research, 2024.
+URL https://arxiv.org/abs/2308.13149.
+Team, K., Du, A., Gao, B., Xing, B., Jiang, C., Chen, C., Li,
+C., Xiao, C., Du, C., Liao, C., Tang, C., Wang, C., Zhang,
+D., Yuan, E., Lu, E., Tang, F., Sung, F., Wei, G., Lai, G.,
+Guo, H., Zhu, H., Ding, H., Hu, H., Yang, H., Zhang, H.,
+Yao, H., Zhao, H., Lu, H., Li, H., Yu, H., Gao, H., Zheng,
+H., Yuan, H., Chen, J., Guo, J., Su, J., Wang, J., Zhao, J.,
+Zhang, J., Liu, J., Yan, J., Wu, J., Shi, L., Ye, L., Yu, L.,
+Dong, M., Zhang, N., Ma, N., Pan, Q., Gong, Q., Liu, S.,
+Ma, S., Wei, S., Cao, S., Huang, S., Jiang, T., Gao, W.,
+Xiong, W., He, W., Huang, W., Wu, W., He, W., Wei, X.,
+Jia,X.,Wu,X.,Xu,X.,Zu,X.,Zhou,X.,Pan,X.,Charles,
+Y.,Li,Y.,Hu,Y.,Liu,Y.,Chen,Y.,Wang,Y.,Liu,Y.,Qin,
+Y., Liu, Y., Yang, Y., Bao, Y., Du, Y., Wu, Y., Wang, Y.,
+Zhou, Z., Wang, Z., Li, Z., Zhu, Z., Zhang, Z., Wang, Z.,
+Yang,Z.,Huang,Z.,Huang,Z.,Xu,Z.,andYang,Z. Kimi
+k1.5: Scaling reinforcement learning with llms, 2025.
+URL https://arxiv.org/abs/2501.12599.
+Team, N. Sky-t1: Fully open-source reasoning
+model with o1-preview performance in $450 budget,
+2025. URL https://novasky-ai.github.io/
+posts/sky-t1. Accessed: 2025-01-09.
+Team, Q. Qwq: Reflect deeply on the boundaries of the
+unknown, November 2024. URLhttps://qwenlm.
+github.io/blog/qwq-32b-preview/.
+Wang, J., Meng, F., Liang, Y., and Zhou, J. Drt-o1: Op-
+timized deep reasoning translation via long chain-of-
+thought, 2024a. URL https://arxiv.org/abs/
+2412.17498.
+Wang, P., Li, L., Shao, Z., Xu, R. X., Dai, D., Li, Y., Chen,
+D., Wu, Y., and Sui, Z. Math-shepherd: Verify and rein-
+forcellmsstep-by-stepwithouthumanannotations,2024b.
+URL https://arxiv.org/abs/2312.08935.
+Wang, S., Liu, Z., Zhong, W., Zhou, M., Wei, Z., Chen, Z.,
+and Duan, N. From lsat: The progress and challenges
+of complex reasoning, 2021. URLhttps://arxiv.
+org/abs/2108.00648.
+Wang, Z., Dong, Y., Delalleau, O., Zeng, J., Shen, G., Egert,
+D., Zhang, J. J., Sreedhar, M. N., and Kuchaiev, O. Help-
+steer2: Open-source dataset for training top-performing
+reward models, 2024c. URLhttps://arxiv.org/
+abs/2406.08673.
+Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter,
+B., Xia, F., Chi, E., Le, Q., and Zhou, D. Chain-of-
+thought prompting elicits reasoning in large language
+models, 2023. URL https://arxiv.org/abs/
+2201.11903.
+Welleck,S.,Bertsch,A.,Finlayson,M.,Schoelkopf,H.,Xie,
+A., Neubig, G., Kulikov, I., and Harchaoui, Z. From de-
+coding to meta-generation: Inference-time algorithms for
+large language models, 2024. URLhttps://arxiv.
+org/abs/2406.16838.
+13
+s1: Simple test-time scaling
+Wu, T., Lan, J., Yuan, W., Jiao, J., Weston, J., and
+Sukhbaatar, S. Thinking llms: General instruction fol-
+lowing with thought generation, 2024a. URLhttps:
+//arxiv.org/abs/2410.10630.
+Wu, Y., Sun, Z., Li, S., Welleck, S., and Yang, Y. Infer-
+ence scaling laws: An empirical analysis of compute-
+optimalinferenceforproblem-solvingwithlanguagemod-
+els,2024b. URL https://arxiv.org/abs/2408.
+00724.
+Xiang, V., Snell, C., Gandhi, K., Albalak, A., Singh, A.,
+Blagden, C., Phung, D., Rafailov, R., Lile, N., Mahan,
+D., Castricato, L., Franken, J.-P., Haber, N., and Finn, C.
+Towards system 2 reasoning in llms: Learning how to
+think with meta chain-of-thought, 2025. URLhttps:
+//arxiv.org/abs/2501.04682.
+Xie, Y., Kawaguchi, K., Zhao, Y., Zhao, X., Kan, M.-Y., He,
+J., and Xie, Q. Self-evaluation guided beam search for
+reasoning, 2023. URLhttps://arxiv.org/abs/
+2305.00633.
+Xin, H., Guo, D., Shao, Z., Ren, Z., Zhu, Q., Liu, B., Ruan,
+C., Li, W., and Liang, X. Deepseek-prover: Advancing
+theorem proving in llms through large-scale synthetic
+data,2024. URL https://arxiv.org/abs/2405.
+14333.
+Xu, H., Wu, X., Wang, W., Li, Z., Zheng, D., Chen, B.,
+Hu, Y., Kang, S., Ji, J., Zhang, Y., Guo, Z., Yang, Y.,
+Zhang,M.,andZhang,D. Redstar: Doesscalinglong-cot
+data unlock better slow-reasoning systems?, 2025. URL
+https://arxiv.org/abs/2501.11284.
+Yang, Z., Band, N., Li, S., Candès, E., and Hashimoto, T.
+Synthetic continued pretraining, 2024. URL https:
+//arxiv.org/abs/2409.07431.
+Yao, S., Yu, D., Zhao, J., Shafran, I., Griffiths, T. L., Cao,
+Y., and Narasimhan, K. Tree of thoughts: Deliberate
+problemsolvingwithlargelanguagemodels,2023a. URL
+https://arxiv.org/abs/2305.10601.
+Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan,
+K., and Cao, Y. React: Synergizing reasoning and acting
+in language models, 2023b. URLhttps://arxiv.
+org/abs/2210.03629.
+Ye, Y., Huang, Z., Xiao, Y., Chern, E., Xia, S., and Liu, P.
+Limo: Less is more for reasoning, 2025a. URLhttps:
+//arxiv.org/abs/2502.03387.
+Ye, Y., Xiao, Y., Mi, T., and Liu, P. Aime-preview: A
+rigorous and immediate evaluation framework for ad-
+vanced mathematical reasoning. https://github.
+com/GAIR-NLP/AIME-Preview, 2025b. GitHub
+repository.
+Yu, L., Jiang, W., Shi, H., Yu, J., Liu, Z., Zhang, Y., Kwok,
+J.T.,Li,Z.,Weller,A.,andLiu,W. Metamath: Bootstrap
+your own mathematical questions for large language mod-
+els, 2024. URLhttps://arxiv.org/abs/2309.
+12284.
+Yuan, S., Chen, Z., Xi, Z., Ye, J., Du, Z., and Chen, J.
+Agent-r: Training language model agents to reflect via
+iterative self-training, 2025. URLhttps://arxiv.
+org/abs/2501.11425.
+Zelikman, E., Wu, Y., Mu, J., and Goodman, N. D. Star:
+Bootstrapping reasoning with reasoning, 2022. URL
+https://arxiv.org/abs/2203.14465.
+Zelikman, E., Harik, G., Shao, Y., Jayasiri, V., Haber, N.,
+and Goodman, N. D. Quiet-star: Language models can
+teach themselves to think before speaking, 2024. URL
+https://arxiv.org/abs/2403.09629.
+Zhang, H. and Chen, C. Test-time compute scaling laws,
+2024. URLhttps://github.com/hughbzhang/
+o1_inference_scaling_laws.
+Zhang, S., Chen, Z., Shen, Y., Ding, M., Tenenbaum, J. B.,
+and Gan, C. Planning with large language models for
+code generation, 2023. URLhttps://arxiv.org/
+abs/2303.05510.
+Zhang, Y., Wu, S., Yang, Y., Shu, J., Xiao, J., Kong, C., and
+Sang, J. o1-coder: an o1 replication for coding, 2024a.
+URL https://arxiv.org/abs/2412.00154.
+Zhang, Y., Yang, J., Yuan, Y., and Yao, A. C.-C. Cumula-
+tive reasoning with large language models, 2024b. URL
+https://arxiv.org/abs/2308.04371.
+Zhong, H., Xiao, C., Tu, C., Zhang, T., Liu, Z., and Sun, M.
+Jec-qa: A legal-domain question answering dataset, 2019.
+URL https://arxiv.org/abs/1911.12011.
+Zhong, W., Cui, R., Guo, Y., Liang, Y., Lu, S., Wang,
+Y., Saied, A., Chen, W., and Duan, N. Agieval: A
+human-centric benchmark for evaluating foundation mod-
+els, 2023. URLhttps://arxiv.org/abs/2304.
+06364.
+Zhou, A., Yan, K., Shlapentokh-Rothman, M., Wang, H.,
+and Wang, Y.-X. Language agent tree search unifies rea-
+soning acting and planning in language models, 2024.
+URL https://arxiv.org/abs/2310.04406.
+Zhou, C., Liu, P., Xu, P., Iyer, S., Sun, J., Mao, Y., Ma, X.,
+Efrat, A., Yu, P., Yu, L., Zhang, S., Ghosh, G., Lewis, M.,
+Zettlemoyer, L., and Levy, O. Lima: Less is more for
+alignment, 2023. URLhttps://arxiv.org/abs/
+2305.11206.
+14
+s1: Simple test-time scaling
+Contents
+1 Introduction 1
+2 Reasoning data curation to create s1K 2
+2.1 Initial collection of 59K samples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 2
+2.2 Final selection of 1K samples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 2
+3 Test-time scaling 3
+3.1 Method . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 3
+3.2 Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+4 Results 4
+4.1 Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+4.2 Performance . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+5 Ablations 6
+5.1 Data Quantity, Diversity, and Difficulty . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+5.2 Test-time scaling methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+6 Discussion and related work 8
+6.1 Sample-efficient reasoning . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+6.2 Test-time scaling . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9
+A s1.1 16
+B Evaluation determinism 16
+C s1K details 17
+C.1 s1K summary . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+C.2 Dataset composition for full 59K questions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+C.3 s1K grading prompt . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+C.4 s1K diversity selection . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+C.5 Decontamination . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+D Training details 21
+D.1 Training Ablations: Sequence length . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+D.2 Training Samples . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+E Test-time scaling details 35
+E.1 Sequential scaling ablations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+E.2 Examples for rejection sampling ablation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37
+F Version Control 46
+15
+s1: Simple test-time scaling
+A. s1.1
+Seven days after our release of s1, we released s1.1. We regenerated traces for our 1,000 samples ins1Kusing DeepSeek
+r1 (DeepSeek-AI et al., 2025) to creates1K-1.1. We use the same training procedure to train our models1.1. Other updates
+since our launch include the release of o3 (OpenAI, 2025), LIMO (Ye et al., 2025a), and AIME 2025. We consider all these
+new developments in Table 5. We find that s1.1 performs significantly better than s1. We also tried distilling from Claude
+3.7, which led to worse performance than from r1 (not reported).
+Table 5.s1-32B is an open and sample-efficient reasoning model.We evaluates1-32B, Qwen, and Gemini (some entries are unknown
+(N.A.), see §4). Other results are from the respective reports (Qwen et al., 2024; Team, 2024; OpenAI, 2024; 2025; DeepSeek-AI et al.,
+2025; Labs, 2025; Team, 2025) except for AIME 2025 (Ye et al., 2025b). # ex. = number examples used for reasoning finetuning; BF =
+budget forcing.
+Model # Examples MATH500 GPQA AIME 2024 AIME 2025
+API only
+o3-mini-low N/A 95.8 70.6 56.3 42.1
+o3-mini-medium N/A 97.3 76.8 75.8 70.4
+o3-mini-high N/A 97.9 79.7 83.8 80.9
+Open Weights
+QwQ-32B N.A. 90.6 54.5 46.7 32.7
+r1 ≫800K 07.3 71.5 79.8 70.0
+r1-distill-Llama-70B 800K 94.5 65.2 57.1 56.3
+r1-distill-Qwen-14B 800K 93.9 59.1 61.7 48.0
+r1-distill-Qwen-32B 800K 94.3 62.1 58.3 49.6
+Open Weights and Open Data
+LIMO 817 94.8 66.7 56.3 44.6
+s1 w/o BF 1K 92.6 56.6 50.0 26.7
+s1 with Budget Forcing “Wait” 1x 1K 92.8 59.6 53.3 30.0
+s1 with Budget Forcing “Wait” 2x 1K 93.0 59.6 53.3 33.3
+s1 with Budget Forcing “Wait” 4x 1K 92.2 58.6 56.7 36.7
+s1.1 w/o BF 1K 94.4 60.6 56.7 50.0
+s1.1 with Budget Forcing “Wait” 1x 1K 95.4 62.6 56.7 50.0
+s1.1 with Budget Forcing “Wait” 2x 1K 95.4 63.6 56.7 50.0
+B. Evaluation determinism
+We run our evaluations using vLLM (Kwon et al., 2023) as it is faster than the alternatives we tried. However, we find that
+even when using the same random seeds and greedy sampling, evaluation scores can change significantly across runs:
+• Different batch sizes causing different results seehttps://github.com/vllm-project/vllm/issues/
+5898
+• Continuing generations causing different results seehttps://github.com/vllm-project/vllm/issues/
+11783
+• Changes in tensor parallelism causing different results
+As our model generates long reasoning traces prior to its answer, small numeric changes can snowball into large differences.
+We encounter many generations that are exactly the same for thousands of tokens and then suddenly differ in one token
+eventually ending up with an entirely different answer. To partly counter this issue we generally run our final evaluations
+using full precision unless otherwise indicated.
+16
+s1: Simple test-time scaling
+C. s1K details
+C.1. s1K summary
+Table 6.Summary of our dataset s1K. Token count measured by the Qwen-2.5 tokenizer. We prompt Claude to produce keywords given
+several questions from the domain.
+Domain #questions Total token count Keywords
+Geometry 109 560.2K Area, Triangle, Distance
+Number theory 98 522.5K Sequences, Divisibility
+Combinatorics 75 384.7K Permutations, Counting
+Real functions 43 234.8K Trigonometry, Calculus
+Biology 41 120.9K Organic reactions
+Complex functions 32 170.2K Complex roots
+Quantum theory 32 127.9K Particles, Wave functions
+Field theory 28 150.1K Polynomials, Roots
+Calculus of variations 28 155.5K Optimization, Control
+Difference equations 24 132.5K Recurrence, Recursion
+Electromagnetic theory 23 95.8K Optics, Waves, Diffraction
+Group theory 22 100.0K Groups, Automorphisms
+Linear algebra 22 128.3K Matrices, Determinants
+Probability theory 20 114.6K Random walk, Expectation
+Algebraic systems 19 109.9K Functional equations
+Mechanics 19 103.6K Forces, Motion, Energy
+Thermodynamics 19 74.2K Heat engines, Entropy
+Differential equations 18 89.6K Substitution, Existence
+Computer science 18 34.2K Complexity theory, Algorithms
+Numerical analysis 18 76.5K Error analysis, Stability
+Calculus 17 96.3K Convergence, Summation
+Algebraic structures 17 90.4K Inequalities, Sets
+Astronomy 16 37.7K Stellar populations, Orbits
+Remaining 27 domains 242 982.2K Domains with ≤16 questions
+All domains (51) 1000 4.7M s1K
+C.2. Dataset composition for full 59K questions
+17
+s1: Simple test-time scaling
+Table 7.Composition of full 59K questions.Thinking and response lengths are measured in tokens using the Qwen2.5-32B-Instruct
+tokenizer (Qwen et al., 2024). In addition to excluding our evaluation benchmark, AIME24, we also exclude AIME questions from
+2022-2023 as we use these 90 questions during our development stage ofs1-32B.
+Source Description #Samples Avg.
+thinking
+length
+NuminaMATH (LI et al., 2024) Math problems from online websites 30660 4.1K
+MATH (Hendrycks et al., 2021) Math problems from competitions 11999 2.9K
+OlympicArena (Huang et al.,
+2024a)
+Astronomy, Biology, Chemistry, Com-
+puter Science, Geography, Math, and
+Physics olympiad questions
+4250 3.2K
+OmniMath (Gao et al., 2024a) Math problems from competitions 4238 4.4K
+AGIEval (Zhong et al., 2023;
+Lingetal.,2017;Hendrycksetal.,
+2021; Liu et al., 2020; Zhong
+et al., 2019; Wang et al., 2021)
+English, Law, Logic and Math prob-
+lems from the SAT, LSAT and other
+exams
+2385 1.2K
+xword Crossword puzzles 999 0.7K
+OlympiadBench (He et al., 2024) Math and Physics olympiad questions 896 3.9K
+AIME (1983-2021) AmericanInvitationalMathematicsEx-
+amination
+890 4.7K
+TheoremQA (Chen et al., 2023) Computer Science, Finance, Math, and
+Physics university-level questions relat-
+ing to theorems
+747 2.1K
+USACO (Shi et al., 2024) Code problems from the USA Comput-
+ing Olympiad
+519 3.6K
+JEEBench (Arora et al., 2023) Chemistry,Math,andPhysicsproblems
+used in the university entrance exami-
+nation of the Indian Institute of Tech-
+nology
+515 2.9K
+GPQA (Rein et al., 2023) PhD-Level Science Questions 348 2.9K
+SciEval (Sun et al., 2024) Biology, Chemistry, and Physics prob-
+lems from various sources
+227 0.7K
+s1-prob Stanford statistics qualifying exams 182 4.0K
+LiveCodeBench (Jain et al., 2024)Code problems from coding websites
+(LeetCode, AtCoder, and CodeForces)
+151 3.5K
+s1-teasers Math brain-teasers crawled from the In-
+ternet
+23 4.1K
+All 59K questions Composite of the above datasets with
+reasoning traces and solutions
+59029 3.6K
+18
+s1: Simple test-time scaling
+C.3. s1K grading prompt
+Togradewhetheranexampleiscorrectforourdatasetselectionin§2,weusethepromptinFigure8. WegradeusingClaude
+3.5 except for the correctness among the final 1,000 samples, which we graded with Claude 3.7.
+You are an AI assistant for grading a science problem. The user will provide you with the question itself, an attempt made by
+a student and the correct answer to the problem. Your job is to judge whether the attempt is correct by comparing it with the
+correct answer. If the expected solution concludes with a number or choice, there should be no ambiguity. If the expected
+solution involves going through the entire reasoning process, you should judge the attempt based on whether the reasoning
+process is correct with correct answer if helpful.
+The user will provide the attempt and the correct answer in the following format:
+# Problem
+{problem}
+## Attempt
+{attempt}
+## Correct answer
+{solution}
+Explain your reasoning, and end your response on a new line with only "Yes" or "No" (without quotes).
+Figure 8.Grading prompt.
+C.4. s1K diversity selection
+Algorithm 1 provides our algorithm for selecting data in our diversity selection stage. As mentioned in §2, we also include
+samples from some specific benchmarks we perceive as high-quality. None of the samples overlap with our final evaluation.
+C.5. Decontamination
+We filter all samples by checking for an 8-gram overlap between the selected examples and the evaluation benchmarks:
+MATH500, GPTQA Diamond, and AIME24. We exclude questions with more than an 8-gram overlap.
+19
+s1: Simple test-time scaling
+Algorithm 1Two-stage sampling fors1K
+1: Input:  := Set of 24,496 questions with features
+2: Output:  := Set of 1,000 selected questions
+3:  ←∅ Initialize the output set (only tracks unique elements)
+4: for𝑞∈  do
+5: if IsGeminiCorrect(𝑞)and (IsAIME(𝑞)or IsGPQA(𝑞)) then
+6:  ← ∪{𝑞}
+7: Select all correct AIME/GPQA solutions
+8: else ifIsGeminiCorrect(𝑞)andIsMATH(𝑞) andThinkingLength(𝑞) > 5600then
+9:  ← ∪{𝑞}
+10: Select correct MATH500 solutions with long chains
+11: end if
+12: end for
+13:  ←All available domains
+14: Initialize domain pool
+15: while||<1000 do
+16: 𝑑 ←RandomChoice()
+17: Randomly select a domain
+18: 𝑄𝑑 ←Questions in domain𝑑
+19: Get questions from this domain
+20: ranks ←RankByThinkingLength(𝑄𝑑)
+21: Rank by thinking length
+22: weights ←2−ranks
+23: Apply power-law weighting
+24: 𝑞 ←WeightedSample(𝑄𝑑, weights)
+25: Sample favoring longer chains
+26:  ← ∪{𝑞}
+27: Add selected question
+28: 𝑄𝑑 ←𝑄𝑑 ⧵{𝑞}
+29: if𝑄𝑑 =∅ then
+30:  ←  ⧵{𝑑}
+31: Remove exhausted domains
+32: end if
+33: end while
+20
+s1: Simple test-time scaling
+D. Training details
+We take a model that has already been pretrained and instruction tuned and further finetune it for reasoning. Specifically, we
+use Qwen2.5-32B-Instruct (Qwen et al., 2024), which on math tasks generally matches or outperforms the larger Qwen2.5-
+72B-Instruct (Qwen et al., 2024) or other open models (Dubey et al., 2024; Groeneveld et al., 2024; Muennighoff et al.,
+2024). We use token delimiters to separate the thinking stage from the answering stage. We enclose the thinking stage
+with <|im_start|>thinkand <|im_start|>answer; bothprecededandfollowedbyanewline. Samplesfromour
+dataset are in §D.2. We use basic fine-tuning hyperparameters: we train for 5 epochs with a batch size of 16 for a total of 315
+gradient steps. We train in bfloat16 precision with a learning rate of1𝑒−5 warmed up linearly for 5% (16 steps) and then
+decayed to 0 over the rest of training (299 steps) following a cosine schedule. We use the AdamW optimizer (Loshchilov &
+Hutter, 2019) with𝛽1=0.9,𝛽2=0.95and weight decay of1𝑒−4. We do not compute loss on questions, only on reasoning
+traces and solutions. We ensure the sequence length is large enough to avoid cutting off any samples; a setting we ablate in
+§D.1. The training takes just 26 minutes on 16 NVIDIA H100 GPUs.
+0 100 200 300
+Training Steps
+0.0
+0.2
+0.4Loss
+Training Loss
+0 100 200 300
+Training Steps
+0.0
+0.5
+1.0Learning Rate
+1e 5
+Learning Rate Schedule
+0 100 200 300
+Training Steps
+1
+2
+3Gradient Norm
+Gradient Norm
+Figure 9.Training dynamics of s1-32B on s1K.
+D.1. Training Ablations: Sequence length
+Table 8.Training sequence length ablation.We report “accuracy / average thinking tokens per sample”; the higher the accuracy and the
+fewer the thinking tokens (inference cost) the better.
+Model A Model B
+Training sequence length 4096 32768
+% training samples cutoff 74% 0%
+AIME24 30.0% / 20721 50.0% / 6984
+MATH500 90.0% / 5324 91.0% / 3268
+GPQA 52.5% / 6841 53.0% / 3568
+Besidesourscalingablationsin§5.2, themaintraininghyperparameterweablateisthesequencelengthusedduringtraining.
+We find that ashorter training sequence length leads tolongerreasoning traces at test time. This is because when training
+with a shorter sequence length the answer section of the training sample is more commonly cut off. Inversely, when the
+training sequence length is longer, more samples appear in their entirety with the section where the model answers. Thus
+the model receives more gradient updates where it learns to generate an answer following its chain. This in turn leads to a
+higher log probability of the answer section at any point during the generation and thus shorter reasoning traces at test time.
+Performance-wise, we also find that the model trained with a longer sequence length performs better. Thus we opt for the
+longest training sequence length as it leads to better performance and makes inference more efficient by leading to shorter
+reasoning traces.
+D.2. Training Samples
+Table 9, Table 10, Table 11 contain training samples froms1K.
+21
+s1: Simple test-time scaling
+Table 9.s1K sample stemming from s1-prob.The black text is the question and the yellow text is the solution. Based solely on the
+question we generate the light blue reasoning trace and blue response with Gemini, which we use for training.
+You are given integrable random variables𝑋,𝑌0 and𝑍0 on the same probability space(Ω, , ℙ), and two𝜎-algebras
+⊂ , ⊂ .For𝑘=1,2,…,, let
+𝑌𝑘∶= 𝔼[𝑋|𝜎(,𝑍0,…,𝑍𝑘−1)], 𝑍 𝑘∶= 𝔼[𝑋|𝜎(,𝑌0,…,𝑌𝑘−1)].
+(a) Show that there exist integrable random variables𝑌∞ and 𝑍∞ such that as𝑛 → ∞ both 𝔼[|𝑌𝑛 −𝑌∞|] → 0 and
+𝔼[|𝑍𝑛−𝑍∞|] →0. (b) Prove that almost surely𝑌∞=𝑍∞.
+1. Introducethenotations, 𝑛∶=𝜎(,𝑍0,…,𝑍𝑛−1)and 𝑛∶=𝜎(,𝑌0,…,𝑌𝑛−1),forall 𝑛 ≥1and 0∶= , 0∶= .
+Clearly, both are filtrations and by definition,𝑌𝑛 = 𝔼[𝑋|𝑛] and𝑍𝑛 = 𝔼[𝑋|𝑛], for all𝑛 ≥ 0. Thus{𝑌𝑛}𝑛≥0 (or{𝑍𝑛}𝑛≥0 )isa Doob’sMartingale withrespecttofiltration {𝑛}𝑛≥0 (or{𝑛}𝑛≥0)andhenceisU.I., 𝑋 beingintegrable.
+Now apply the fact that a Martingale is U.I. if and only if it converges in𝐿1 and conclude.
+2. We provide two different proofs.
+1. Observe the following identity which follows fromTower Property.
+𝔼[𝑌𝑛|𝑛]= 𝔼[𝔼[𝑋|𝑛]|𝑛]= 𝔼[𝔼[𝑋|𝑛]|𝑛]= 𝔼[𝑍𝑛|𝑛]. (4)
+Note that𝔼|𝔼[𝑌𝑛|𝑛]− 𝔼[𝑌∞|𝑛]| ≤ 𝔼|𝑌𝑛−𝑌∞|=𝑜(1)and byLevy’s Upward Theorem, 𝔼[𝑌∞|𝑛] 𝐿1⟶ 𝔼[𝑌∞|∞],
+where ∞ = 𝜎(∪𝑛≥0𝑛)= 𝜎(,𝑌0,𝑌1…). It is evident that𝑌∞ ∈ 𝑚∞ (since it is almost sure limit of𝑌𝑛 ∈ 𝑚𝑛)
+and hence𝔼[𝑌∞|∞]=𝑌∞ almost surely. Combining the above observations we conclude that𝔼[𝑌𝑛|𝑛] 𝐿1⟶𝑌∞.
+Similarly, 𝔼[𝑍𝑛|𝑛] 𝐿1⟶𝑍∞.Now invoke Equation (4), to conclude that𝑌∞=𝑍∞ almost surely.
+2. Since𝑋 is integrable, we have byLevy’s Upward Theorem,𝑌∞ = lim𝑛→∞𝑌𝑛 = lim𝑛→∞ 𝔼[𝑋|𝑛] = 𝔼[𝑋|∞].
+Similarly,𝑍∞ = 𝔼[𝑋|∞]. On the otherhand, in first proof we have observed that𝑌∞ ∈ 𝑚∞ and hence𝑌∞ ∈
+𝑚∞∩𝑚∞=𝑚(∞∩ ∞). This yields the following.
+𝑌∞= 𝔼[𝑌∞|∞∩ ∞]= 𝔼[𝔼[𝑋|∞]|∞∩ ∞]= 𝔼[𝑋|∞∩ ∞].
+Similarly,𝑍∞= 𝔼[𝑋|∞∩ ∞]. This proves that𝑌∞=𝑍∞ almost surely.
+Let’s analyze the problem. We are given two sequences of random variables𝑌𝑘 and𝑍𝑘 defined by conditional expectations.
+We need to show that these sequences converge in𝐿1 and that their limits are equal almost surely.
+Part (a): Convergence in𝐿1.
+The sigma-algebras involved are increasing:
+𝑘=𝜎(,𝑍0,…,𝑍𝑘−1)
+𝑘=𝜎(,𝑌0,…,𝑌𝑘−1)
+For the𝑌𝑘 sequence:
+𝑌1= 𝔼[𝑋|𝜎()]
+𝑌2= 𝔼[𝑋|𝜎(,𝑍0)]
+𝑌3= 𝔼[𝑋|𝜎(,𝑍0,𝑍1)]
+...
+Thesequenceofsigma-algebras 𝜎(,𝑍0,…,𝑍𝑘−1)isincreasing. BytheMartingaleConvergenceTheorem(forconditional
+expectations), since𝑋 is integrable, the sequence𝑌𝑘 converges almost surely and in𝐿1 to 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)]. Let
+𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)].
+22
+s1: Simple test-time scaling
+Similarly, for the𝑍𝑘 sequence:
+𝑍1= 𝔼[𝑋|𝜎()]
+𝑍2= 𝔼[𝑋|𝜎(,𝑌0)]
+𝑍3= 𝔼[𝑋|𝜎(,𝑌0,𝑌1)]
+...
+The sequence of sigma-algebras𝜎(,𝑌0,…,𝑌𝑘−1)is increasing. By the Martingale Convergence Theorem, the sequence
+𝑍𝑘 converges almost surely and in𝐿1 to 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)]. Let𝑍∞= 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)].
+Part (b): Prove that almost surely𝑌∞=𝑍∞.
+We have𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)]and𝑍∞= 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)].
+Let ∞=𝜎(,𝑍0,𝑍1,…) and ∞=𝜎(,𝑌0,𝑌1,…).
+Then𝑌∞= 𝔼[𝑋|∞]and𝑍∞= 𝔼[𝑋|∞].
+Consider𝑌1= 𝔼[𝑋|]. 𝑍1= 𝔼[𝑋|].
+𝑌2= 𝔼[𝑋|𝜎(,𝑍0)]. Since𝑍0= 𝔼[𝑋|],𝜎(,𝑍0)= 𝜎(, 𝔼[𝑋|]).
+𝑍2= 𝔼[𝑋|𝜎(,𝑌0)]. Since𝑌0 is not defined, let’s assume𝑌0 and𝑍0 are given.
+Let’s consider the sigma-algebra generated by all the𝑌𝑖 and𝑍𝑖.
+Let =𝜎(𝑌0,𝑍0,𝑌1,𝑍1,…).
+Both𝑌𝑘 and𝑍𝑘 are measurable with respect to. Thus,𝑌∞ and𝑍∞ are measurable with respect to.
+Consider 𝔼[𝑌𝑛+1|,𝑍0,…,𝑍𝑛−1]= 𝔼[𝔼[𝑋|𝜎(,𝑍0,…,𝑍𝑛)]|,𝑍0,…,𝑍𝑛−1]= 𝑌𝑛.
+Consider 𝔼[𝑍𝑛+1|,𝑌0,…,𝑌𝑛−1]= 𝔼[𝔼[𝑋|𝜎(,𝑌0,…,𝑌𝑛)]|,𝑌0,…,𝑌𝑛−1]= 𝑍𝑛.
+Let =𝜎(∪ ∪𝜎(𝑌0,𝑍0,𝑌1,𝑍1,…)).
+Consider 𝔼[𝑋|,𝑍0,…,𝑍𝑘−1]= 𝑌𝑘.
+Consider 𝔼[𝑋|,𝑌0,…,𝑌𝑘−1]= 𝑍𝑘.
+Let’s consider the limit sigma-algebras∞=𝜎(,𝑍0,𝑍1,…) and ∞=𝜎(,𝑌0,𝑌1,…).
+We know that𝑌∞ is ∞-measurable and𝑍∞ is ∞-measurable.
+Let =𝜎(∪ ).
+𝑌1= 𝔼[𝑋|]. 𝑍1= 𝔼[𝑋|].
+𝑌2= 𝔼[𝑋|𝜎(,𝑍0)]= 𝔼[𝑋|𝜎(, 𝔼[𝑋|])].
+𝑍2= 𝔼[𝑋|𝜎(,𝑌0)]= 𝔼[𝑋|𝜎(, 𝔼[𝑋|])].
+Consider the case when and  are independent. Then𝑌1= 𝔼[𝑋|]and𝑍1= 𝔼[𝑋|].
+𝑌2= 𝔼[𝑋|𝜎(, 𝔼[𝑋|])].
+Let’s consider the sigma-algebra generated by all the information. Let∞=𝜎(, ,𝑌0,𝑍0,𝑌1,𝑍1,…).
+Then both𝑌∞ and𝑍∞ are ∞-measurable.
+We have𝑌∞=lim 𝑛→∞𝑌𝑛 and𝑍∞=lim 𝑛→∞𝑍𝑛 a.s. and in𝐿1.
+Consider 𝔼[𝑋|,𝑍0,𝑍1,…]= 𝑌∞ and 𝔼[𝑋|,𝑌0,𝑌1,…]= 𝑍∞.
+Let ∞=𝜎(∪ ).
+Consider 𝔼[𝑋|∞].
+Let’s try to show that both𝑌∞ and𝑍∞ are equal to𝔼[𝑋|𝜎(∨ )]. This seems too simple.
+Let’s consider the definition of conditional expectation. For any set𝐴∈ ∞, 𝔼[𝑌∞1𝐴]= 𝔼[𝑋1𝐴].
+For any set𝐵∈ ∞, 𝔼[𝑍∞1𝐵]= 𝔼[𝑋1𝐵].
+Consider 𝔼[𝑌𝑘+1|𝑘]= 𝑌𝑘 where 𝑘=𝜎(,𝑍0,…,𝑍𝑘−1).
+Consider 𝔼[𝑍𝑘+1|𝑘]= 𝑍𝑘 where 𝑘=𝜎(,𝑌0,…,𝑌𝑘−1).
+Consider the sigma-algebra𝜎(∪ ).
+Let𝑊 = 𝔼[𝑋|𝜎(∪ )].
+We have𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)].
+Since𝑍𝑘 depends on𝑌𝑘−1 which depends on𝑍𝑘−2 etc., it is complex.
+Let’s consider the case where𝑌0= 𝔼[𝑋|]and𝑍0= 𝔼[𝑋|].
+Then𝑌1= 𝔼[𝑋|]= 𝑌0.
+𝑍1= 𝔼[𝑋|]= 𝑍0.
+If this were the case, then𝑌𝑘=𝑌0 and𝑍𝑘=𝑍0, so𝑌∞=𝑌0 and𝑍∞=𝑍0.
+We need𝑌0=𝑍0 a.s., i.e.,𝔼[𝑋|]= 𝔼[𝑋|]a.s. This is not generally true.
+Consider the sigma-algebra generated by all𝑌𝑖 and𝑍𝑖, denoted by∞=𝜎(𝑌0,𝑍0,𝑌1,𝑍1,…).
+Then ∞=𝜎(,𝑍0,𝑍1,…)⊆𝜎(, ∞).
+∞=𝜎(,𝑌0,𝑌1,…)⊆𝜎(, ∞).
+23
+s1: Simple test-time scaling
+Consider 𝔼[𝑋|,𝑍0,𝑍1,…]= 𝑌∞. This means for any𝐴∈𝜎(,𝑍0,𝑍1,…), 𝔼[𝑋1𝐴]= 𝔼[𝑌∞1𝐴].
+Consider 𝔼[𝑋|,𝑌0,𝑌1,…]= 𝑍∞. This means for any𝐵∈𝜎(,𝑌0,𝑌1,…), 𝔼[𝑋1𝐵]= 𝔼[𝑍∞1𝐵].
+Let =𝜎(, ).
+Consider 𝔼[𝑋|].
+Consider 𝔼[𝑌∞|,𝑌0,𝑌1,…]= 𝔼[𝔼[𝑋|,𝑍0,𝑍1,…]|,𝑌0,𝑌1,…].
+Let’s use the fact that𝑌∞ is𝜎(,𝑍0,𝑍1,…)-measurable and𝑍∞ is𝜎(,𝑌0,𝑌1,…)-measurable.
+Consider the smallest sigma-algebra containing both𝜎(,𝑍0,𝑍1,…) and𝜎(,𝑌0,𝑌1,…).
+This is𝜎(∪ ∪{𝑌𝑖}𝑖≥0∪{𝑍𝑖}𝑖≥0).
+Let’s try to show that𝔼[(𝑌∞−𝑍∞)2]=0 .
+𝔼[(𝑌∞−𝑍∞)2]= 𝔼[𝑌2∞]+ 𝔼[𝑍2∞]−2 𝔼[𝑌∞𝑍∞].
+Consider the definition of𝑌𝑘 and𝑍𝑘.
+𝔼[𝑌𝑘+1|,𝑍0,…,𝑍𝑘−1]= 𝑌𝑘.
+𝔼[𝑍𝑘+1|,𝑌0,…,𝑌𝑘−1]= 𝑍𝑘.
+Consider 𝔼[𝑌∞|,𝑌0,𝑌1,…].
+Since𝑌∞ is measurable with respect to𝜎(,𝑍0,𝑍1,…), this does not simplify easily.
+Let’s assume𝑌∞ ≠𝑍∞ on a set of positive measure.
+Consider the case where and are trivial.
+Then𝑌𝑘= 𝔼[𝑋|𝜎(𝑍0,…,𝑍𝑘−1)] and𝑍𝑘= 𝔼[𝑋|𝜎(𝑌0,…,𝑌𝑘−1)].
+Let ∞=𝜎(∪ ∪{𝑌𝑖,𝑍𝑖}𝑖≥0).
+Consider 𝔼[𝑋|∞].
+We have𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)].
+By the properties of conditional expectation,𝔼[𝑌∞|]= 𝔼[𝔼[𝑋|,𝑍0,𝑍1,…]|].
+Consider the sigma-algebra generated by all the random variables involved.
+=𝜎(∪ ∪{𝑌𝑖}𝑖≥0∪{𝑍𝑖}𝑖≥0).
+Let𝑀∞= 𝔼[𝑋|∨ ].
+Consider the limits. As𝑛 →∞,𝜎(,𝑍0,…,𝑍𝑛−1) ↑𝜎(,𝑍0,𝑍1,…).
+As𝑛 →∞,𝜎(,𝑌0,…,𝑌𝑛−1) ↑𝜎(,𝑌0,𝑌1,…).
+Let ∞=𝜎(,𝑍0,𝑍1,…) and ∞=𝜎(,𝑌0,𝑌1,…).
+We have𝑌∞= 𝔼[𝑋|∞]and𝑍∞= 𝔼[𝑋|∞].
+Consider 𝔼[𝑌∞−𝑍∞]2= 𝔼[(𝑌∞−𝑋)+( 𝑋−𝑍∞)]2
+= 𝔼[(𝑌∞−𝑋)2]+ 𝔼[(𝑋−𝑍∞)2]+2 𝔼[(𝑌∞−𝑋)(𝑋−𝑍∞)]
+= 𝔼[(𝑋− 𝔼[𝑋|∞])2]+ 𝔼[(𝑋− 𝔼[𝑋|∞])2]+2 𝔼[𝑌∞𝑋−𝑌∞𝑍∞−𝑋2+𝑋𝑍∞]
+= 𝔼[𝑋2]− 𝔼[𝑌2∞]+ 𝔼[𝑋2]− 𝔼[𝑍2∞]+2 𝔼[𝑌∞𝑋]−2 𝔼[𝑌∞𝑍∞]−2 𝔼[𝑋2]+2 𝔼[𝑋𝑍∞]
+=− 𝔼[𝑌2∞]− 𝔼[𝑍2∞]+2 𝔼[𝑌2∞]−2 𝔼[𝑌∞𝑍∞]+2 𝔼[𝑍2∞]
+= 𝔼[𝑌2∞]+ 𝔼[𝑍2∞]−2 𝔼[𝑌∞𝑍∞]
+Consider the sigma-algebra=𝜎(∪ ).
+Let𝑊 = 𝔼[𝑋|].
+Consider the limit sigma-algebra generated by all the information.
+Let ∞=𝜎(, ,𝑌0,𝑍0,𝑌1,𝑍1,…).
+Then ∞⊆ ∞ and ∞⊆ ∞.
+We have𝔼[𝑋|∞]= 𝑌∞ and 𝔼[𝑋|∞]= 𝑍∞.
+Consider 𝔼[𝑌∞|∞]and 𝔼[𝑍∞|∞].
+Let =𝜎(∪ ).
+Consider 𝔼[𝑋|].
+Consider the sequence of pairs(𝑌𝑘,𝑍𝑘).
+If the limits are the same, then for any bounded measurable function𝑓, 𝔼[𝑓(𝑌∞)]= 𝔼[𝑓(𝑍∞)].
+Consider the sigma-algebra=𝜎(∪ ∪𝜎(𝑌0,𝑍0,…)).
+Then both𝑌∞ and𝑍∞ are measurable with respect to.
+Consider 𝔼[(𝑌𝑛−𝑍𝑛)2].
+Let =𝜎(∪ ).
+Consider𝑊 = 𝔼[𝑋|].
+Then 𝔼[𝑊|]= 𝔼[𝑋|]and 𝔼[𝑊|]= 𝔼[𝑋|].
+24
+s1: Simple test-time scaling
+Consider the limit sigma-algebra=𝜎(∪ ∪𝜎(𝑌0,𝑍0,…)).
+We have𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)]and𝑍∞= 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)].
+Let =𝜎(,𝑍0,𝑍1,…)∨ 𝜎(,𝑌0,𝑌1,…).
+Consider 𝔼[𝑋|].
+Consider the random variable𝑋. Then𝑌∞=lim 𝑛 𝔼[𝑋|𝑛]and𝑍∞=lim 𝑛 𝔼[𝑋|𝑛].
+Let ∞=𝜎(∪ ∪𝜎(𝑌0,𝑍0,…)).
+Consider𝐸={𝜔∶𝑌∞(𝜔) ≠𝑍∞(𝜔)}. Suppose𝑃(𝐸)>0.
+Consider the conditional expectation with respect to the join of the sigma-algebras.
+Let ∞=𝜎(, ,𝑌0,𝑍0,…).
+Consider 𝔼[𝑋|∞].
+Then 𝔼[𝔼[𝑋|∞]|,𝑍0,…]= 𝔼[𝑋|,𝑍0,…]= 𝑌𝑛+1.
+And 𝔼[𝔼[𝑋|∞]|,𝑌0,…]= 𝔼[𝑋|,𝑌0,…]= 𝑍𝑛+1.
+So𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)] and𝑍∞= 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)].
+Let ∞=𝜎(,𝑍0,𝑍1,…) and ∞=𝜎(,𝑌0,𝑌1,…).
+Consider 𝔼[𝑋|∞∨ ∞].
+Then 𝔼[𝔼[𝑋|∞∨ ∞]|∞]= 𝔼[𝑋|∞]= 𝑌∞.
+And 𝔼[𝔼[𝑋|∞∨ ∞]|∞]= 𝔼[𝑋|∞]= 𝑍∞.
+This means𝑌∞= 𝔼[𝑋|∞∨ ∞]a.s. and𝑍∞= 𝔼[𝑋|∞∨ ∞]a.s.
+Therefore,𝑌∞=𝑍∞ a.s.
+Solution:
+(a) For the sequence𝑌𝑘, the𝜎-algebras 𝑘=𝜎(,𝑍0,…,𝑍𝑘−1)are increasing as𝑘increases. Since𝑋 is integrable, by the
+Martingale Convergence Theorem for conditional expectations, the sequence𝑌𝑘= 𝔼[𝑋|𝑘]converges almost surely and in
+𝐿1 to𝑌∞= 𝔼[𝑋|𝜎(,𝑍0,𝑍1,…)]. Similarly, for the sequence𝑍𝑘, the𝜎-algebras 𝑘=𝜎(,𝑌0,…,𝑌𝑘−1) are increasing.
+Since𝑋 is integrable, by the Martingale Convergence Theorem, the sequence𝑍𝑘= 𝔼[𝑋|𝑘]converges almost surely and in
+𝐿1 to𝑍∞= 𝔼[𝑋|𝜎(,𝑌0,𝑌1,…)].
+(b) Let∞ =𝜎(,𝑍0,𝑍1,…) and ∞ =𝜎(,𝑌0,𝑌1,…). We have𝑌∞ = 𝔼[𝑋|∞] and𝑍∞ = 𝔼[𝑋|∞]. Consider the
+𝜎-algebra = ∞∨ ∞=𝜎(, ,𝑌0,𝑍0,𝑌1,𝑍1,…). Consider𝑊 = 𝔼[𝑋|].
+We have∞⊆ , so𝔼[𝑊|∞]= 𝔼[𝔼[𝑋|]|∞]= 𝔼[𝑋|∞]= 𝑌∞.
+Since𝑊 is -measurable, 𝔼[𝑊|∞]= 𝑌∞ implies that𝑌∞ is the conditional expectation of𝑊 given ∞. But since𝑌∞ is
+already ∞-measurable, we have𝔼[𝑊|∞]= 𝑊 if𝑊 is ∞-measurable, which is not necessarily true.
+However, we know that𝔼[𝑌∞|∞]= 𝑌∞ and 𝔼[𝑍∞|∞]= 𝑍∞.
+Consider 𝔼[𝑋|∞∨ ∞].
+Then 𝔼[𝔼[𝑋|∞∨ ∞]|∞]= 𝔼[𝑋|∞]= 𝑌∞.
+This implies that𝔼[𝑋|∞∨ ∞]= 𝑌∞ almost surely.
+Similarly, 𝔼[𝔼[𝑋|∞∨ ∞]|∞]= 𝔼[𝑋|∞]= 𝑍∞.
+This implies that𝔼[𝑋|∞∨ ∞]= 𝑍∞ almost surely.
+Therefore,𝑌∞=𝑍∞ almost surely.
+Final Answer: The final answer is𝑌∞=𝑍∞
+25
+s1: Simple test-time scaling
+Table 10.s1K sample stemming from s1-teasers.The black text is the question and the yellow text is the solution. Based solely on the
+question we generate the light blue reasoning trace and blue response with Gemini, which we use for training.
+Alice and Bob each have a coin and flip it until they get a heads. If Bob flipped his coin more times than Alice, what is the
+expected number of times Alice flipped her coin?
+4/3
+The problem asks for the expected number of times Alice flipped her coin, given that Bob flipped his coin more times than
+Alice.
+Let𝑋 be the number of flips Alice makes until she gets a head.
+Let𝑌 be the number of flips Bob makes until he gets a head.
+𝑋 and𝑌 are independent random variables following a geometric distribution with parameter𝑝=0.5(probability of getting
+a head).
+The probability mass function for a geometric distribution is𝑃(𝐾 =𝑘)=(1− 𝑝)𝑘−1𝑝, for𝑘=1,2,….
+In this case,𝑝=0.5, so𝑃(𝐾 =𝑘)=(0 .5)𝑘−1(0.5)=(0 .5)𝑘= 12𝑘.We are given the condition that Bob flipped his coin more times than Alice, which means𝑌 >𝑋.
+We want to find the expected value of𝑋 given that𝑌 >𝑋, i.e.,𝐸[𝑋|𝑌 >𝑋].
+The formula for conditional expectation is𝐸[𝑋|𝐴]= ∑𝑥𝑥𝑃(𝑋=𝑥|𝐴).
+Also,𝑃(𝑋=𝑥|𝐴)= 𝑃(𝑋=𝑥∩𝐴)𝑃(𝐴) .
+In our case,𝐴 is the event𝑌 >𝑋.
+We need to find𝑃(𝑌 >𝑋).
+𝑃(𝑌 >𝑋)= ∑∞𝑥=1∑∞𝑦=𝑥+1𝑃(𝑋=𝑥,𝑌 =𝑦)
+Since𝑋 and𝑌 are independent,𝑃(𝑋=𝑥,𝑌 =𝑦)= 𝑃(𝑋=𝑥)𝑃(𝑌 =𝑦)= 12𝑥 12𝑦 = 12𝑥+𝑦.
+𝑃(𝑌 >𝑋)= ∑∞𝑥=1∑∞𝑦=𝑥+1 12𝑥+𝑦 = ∑∞𝑥=1 12𝑥 ∑∞𝑦=𝑥+1 12𝑦
+The inner sum is a geometric series:∑∞𝑦=𝑥+1(12)𝑦=( 12)𝑥+1+( 12)𝑥+2+…
+This is a geometric series with first term𝑎=( 12)𝑥+1 and common ratio𝑟= 12.
+The sum is 𝑎1−𝑟 = (12)𝑥+11−12 = (12)𝑥+112 =( 12)𝑥.
+So,𝑃(𝑌 >𝑋)= ∑∞𝑥=1 12𝑥(12)𝑥= ∑∞𝑥=1(14)𝑥.
+This is another geometric series with first term𝑎= 14 and common ratio𝑟= 14.
+The sum is 𝑎1−𝑟 =
+1
+4
+1−14 =
+1
+4
+3
+4
+= 13.
+Now, we need to find𝑃(𝑋=𝑥∩𝑌 >𝑋)= 𝑃(𝑋=𝑥,𝑌 >𝑥).
+𝑃(𝑋=𝑥,𝑌 >𝑥)= 𝑃(𝑋=𝑥)𝑃(𝑌 >𝑥), due to independence.
+𝑃(𝑌 >𝑥)= ∑∞𝑦=𝑥+1𝑃(𝑌 =𝑦)= ∑∞𝑦=𝑥+1 12𝑦 =( 12)𝑥+1+( 12)𝑥+2+⋯=( 12)𝑥.
+So,𝑃(𝑋=𝑥,𝑌 >𝑥)= 12𝑥 ×( 12)𝑥=( 14)𝑥.
+Now, we can find𝑃(𝑋=𝑥|𝑌 >𝑋)= 𝑃(𝑋=𝑥∩𝑌>𝑋)𝑃(𝑌>𝑋) = (14)𝑥1
+3
+=3( 14)𝑥.
+Finally, we can calculate the conditional expectation:
+𝐸[𝑋|𝑌 >𝑋]= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥|𝑌 >𝑋)= ∑∞𝑥=1𝑥⋅3(14)𝑥=3 ∑∞𝑥=1𝑥(14)𝑥.
+Consider the series𝑆 = ∑∞𝑥=1𝑥𝑟𝑥, where|𝑟|<1.
+𝑆 =𝑟+2𝑟2+3𝑟3+4𝑟4+…
+𝑆
+𝑟 =1+2 𝑟+3𝑟2+4𝑟3+…
+Consider the geometric series𝐺=1+ 𝑟+𝑟2+𝑟3+⋯= 11−𝑟.Differentiating with respect to𝑟:
+𝑑𝐺
+𝑑𝑟 =1+2 𝑟+3𝑟2+4𝑟3+⋯= 𝑑𝑑𝑟( 11−𝑟)= 1(1−𝑟)2.
+So, 𝑆𝑟 = 1(1−𝑟)2, which means𝑆 = 𝑟(1−𝑟)2.
+In our case,𝑟= 14.
+26
+s1: Simple test-time scaling
+∑∞
+𝑥=1𝑥(14)𝑥=
+1
+4
+(1−14)2 =
+1
+4
+(34)2 =
+1
+4
+9
+16
+= 14× 169 = 49.
+Therefore,𝐸[𝑋|𝑌 >𝑋]=3× 49 = 129 = 43.Alternative approach: Symmetry.
+Consider the events𝑌 >𝑋,𝑋 >𝑌, and𝑋=𝑌.
+𝑃(𝑌 >𝑋)= 𝑃(𝑋 >𝑌)due to symmetry.
+𝑃(𝑋=𝑌)= ∑∞𝑘=1𝑃(𝑋=𝑘,𝑌 =𝑘)= ∑∞𝑘=1𝑃(𝑋=𝑘)𝑃(𝑌 =𝑘)= ∑∞𝑘=1( 12𝑘)2= ∑∞𝑘=1(14)𝑘= 141−14 = 1434 = 13.We have𝑃(𝑌 >𝑋)+ 𝑃(𝑋 >𝑌)+ 𝑃(𝑋=𝑌)=1 .
+𝑃(𝑌 >𝑋)+ 𝑃(𝑌 >𝑋)+ 13 =1 .
+2𝑃(𝑌 >𝑋)=1− 13 = 23.
+𝑃(𝑌 >𝑋)= 13. This confirms our previous calculation.Let𝐸[𝑋|𝑌 >𝑋]= 𝜇.
+We are looking for the expected number of flips Alice made, given Bob flipped more times.
+Consider the case where the first flip for both is tails. Then the process restarts, and the condition remains.
+Let𝐴1 be Alice’s first flip,𝐵1 be Bob’s first flip.
+𝑃(𝐴1=𝐻)=1∕2 ,𝑃(𝐴1=𝑇)=1∕2 .
+𝑃(𝐵1=𝐻)=1∕2 ,𝑃(𝐵1=𝑇)=1∕2 .
+Case 1:𝐴1=𝐻,𝐵1=𝐻. 𝑋=1,𝑌 =1 , so𝑌 >𝑋 is false.
+Case 2:𝐴1=𝐻,𝐵1=𝑇. Alice stops at 1, Bob continues.𝑌 >1.
+Case 3:𝐴1=𝑇,𝐵 1=𝐻. Bob stops at 1, Alice continues.
+Case 4:𝐴1=𝑇,𝐵 1=𝑇. Both continue.
+Consider the conditional probabilities given𝑌 >𝑋.
+Let𝐸=𝐸[𝑋|𝑌 >𝑋].
+If the first flips are HH, the condition𝑌 >𝑋 is not met.
+If the first flips are HT, Alice’s number of flips is 1.
+If the first flips are TH, Bob’s number of flips is 1, Alice’s is at least 2, so𝑌 <𝑋.
+If the first flips are TT, the problem restarts, and the expected number of additional flips for Alice is still𝐸.
+Let𝑁𝐴 be the number of flips Alice makes,𝑁𝐵 be the number of flips Bob makes.
+We are given𝑁𝐵 >𝑁 𝐴.
+Consider the first flips:
+HH (prob 1/4): Condition not met.
+HT (prob 1/4): Alice flips 1 time.
+TH (prob 1/4): Bob flips 1 time, Alice > 1, so𝑁𝐴>𝑁 𝐵, condition not met.
+TT (prob 1/4): Both continue.
+Let𝐸 be the expected number of Alice’s flips given Bob flipped more.
+If the first flips are HT, Alice flipped 1 time, and the condition is met.
+If the first flips are TT, the situation is the same as the beginning, so the expected number of additional flips for Alice is𝐸.
+Consider the event𝑌 >𝑋.
+Conditioning on the first flips:
+𝐸[𝑋|𝑌 >𝑋]= 𝐸[𝑋|𝑌 >𝑋,𝐻𝐻 ]𝑃(𝐻𝐻|𝑌 >𝑋)+𝐸[𝑋|𝑌 >𝑋,𝐻𝑇 ]𝑃(𝐻𝑇|𝑌 >𝑋)+𝐸[𝑋|𝑌 >𝑋,𝑇𝐻 ]𝑃(𝑇𝐻|𝑌 >
+𝑋)+ 𝐸[𝑋|𝑌 >𝑋,𝑇𝑇 ]𝑃(𝑇𝑇 |𝑌 >𝑋)
+𝑃(𝑌 >𝑋|𝐻𝐻)=0 .
+𝑃(𝑌 >𝑋|𝐻𝑇)=1 .
+𝑃(𝑌 >𝑋|𝑇𝐻)=0 .
+𝑃(𝑌 >𝑋|𝑇𝑇)depends on the future flips.
+Let’s use the definition of conditional expectation directly.
+𝐸[𝑋|𝑌 >𝑋]= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥|𝑌 >𝑋)= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥,𝑌>𝑥)𝑃(𝑌>𝑋)
+Consider the probabilities of the first flips given𝑌 >𝑋.
+𝑃(𝐻𝐻|𝑌 >𝑋)= 𝑃(𝑌>𝑋|𝐻𝐻)𝑃(𝐻𝐻)𝑃(𝑌>𝑋) = 0⋅1∕41∕3 =0 .
+𝑃(𝐻𝑇|𝑌 >𝑋)= 𝑃(𝑌>𝑋|𝐻𝑇)𝑃(𝐻𝑇)𝑃(𝑌>𝑋) = 1⋅1∕41∕3 = 34.
+27
+s1: Simple test-time scaling
+𝑃(𝑇𝐻|𝑌 >𝑋)= 𝑃(𝑌>𝑋|𝑇𝐻)𝑃(𝑇𝐻)𝑃(𝑌>𝑋) = 0⋅1∕41∕3 =0 .
+𝑃(𝑇𝑇 |𝑌 >𝑋)= 𝑃(𝑌>𝑋|𝑇𝑇)𝑃(𝑇𝑇)𝑃(𝑌>𝑋)
+If the first flips are TT, the future behavior is the same, and the condition𝑌 >𝑋 holds if Bob takes more flips than Alice in
+the subsequent trials.
+𝑃(𝑌 >𝑋|𝑇𝑇)= 𝑃(Bob needs more flips than Alice starting from scratch)= 𝑃(𝑌 >𝑋)=1∕3 .
+𝑃(𝑇𝑇 |𝑌 >𝑋)= (1∕3)⋅(1∕4)1∕3 = 14.
+Sum of conditional probabilities:0+3∕4+0+1∕4=1 .
+Now consider the conditional expectations of𝑋:
+𝐸[𝑋|𝑌 >𝑋,𝐻𝐻 ]: Not relevant since𝑃(𝐻𝐻|𝑌 >𝑋)=0 .
+𝐸[𝑋|𝑌 >𝑋,𝐻𝑇 ]: Given HT and𝑌 >𝑋, Alice flipped 1 time.𝐸=1 .
+𝐸[𝑋|𝑌 >𝑋,𝑇𝐻 ]: Not relevant.
+𝐸[𝑋|𝑌 >𝑋,𝑇𝑇 ]: Given TT and𝑌 >𝑋, Alice has already flipped once, and the expected number of additional flips is𝐸.
+So, the total number of flips is1+ 𝐸.
+𝐸=0 ⋅0+1 ⋅(3∕4)+ undefined⋅0+(1+ 𝐸)⋅(1∕4)
+𝐸=0+3∕4+0+1∕4+ 𝐸∕4
+𝐸=1+ 𝐸∕4
+𝐸−𝐸∕4=1
+3𝐸∕4=1
+𝐸=4∕3 .
+This confirms the previous result.
+Let’s think about the intuition. If we have the condition𝑌 >𝑋, it means Alice was "lucky" and got a head early, or Bob was
+"unlucky".
+Consider the random variable𝑍 =𝑌 −𝑋. We are given𝑍 >0.
+We want𝐸[𝑋|𝑍 >0].
+Let𝑝=𝑃(head)=0 .5.
+The number of tails before the first head follows a geometric distribution with parameter𝑝.
+𝑋−1∼ 𝐺𝑒𝑜𝑚(𝑝),𝑌 −1∼ 𝐺𝑒𝑜𝑚(𝑝).
+𝑃(𝑋−1= 𝑘)=(1− 𝑝)𝑘𝑝.
+𝑃(𝑋=𝑥)=(1− 𝑝)𝑥−1𝑝.
+Consider the joint distribution of𝑋 and𝑌.
+𝑃(𝑋=𝑥,𝑌 =𝑦)= 𝑝2(1− 𝑝)𝑥−1(1− 𝑝)𝑦−1
+Consider the event𝑌 =𝑋+𝑘, where𝑘 ≥1.
+𝑃(𝑌 =𝑋+𝑘)= ∑∞𝑥=1𝑃(𝑋=𝑥,𝑌 =𝑥+𝑘)= ∑∞𝑥=1𝑝2(1− 𝑝)𝑥−1(1− 𝑝)𝑥+𝑘−1
+=𝑝2(1− 𝑝)𝑘−1∑∞𝑥=1((1− 𝑝)2)𝑥−1=𝑝2(1− 𝑝)𝑘−1 11−(1−𝑝)2
+=𝑝2(1− 𝑝)𝑘−1 11−(1−2𝑝+𝑝2) =𝑝2(1− 𝑝)𝑘−1 12𝑝−𝑝2 =𝑝2(1− 𝑝)𝑘−1 1𝑝(2−𝑝)
+= 𝑝(1−𝑝)𝑘−12−𝑝 .
+If𝑝=0.5, then1− 𝑝=0.5,2− 𝑝=1.5.
+𝑃(𝑌 =𝑋+𝑘)= 0.5(0.5)𝑘−11.5 = (0.5)𝑘1.5 = (1∕2)𝑘3∕2 = 12𝑘 ⋅ 23 = 13⋅2𝑘−1.
+Check if∑∞𝑘=1𝑃(𝑌 =𝑋+𝑘)= 𝑃(𝑌 >𝑋)=1∕3 .∑∞
+𝑘=1
+1
+3⋅2𝑘−1 = 13 ∑∞𝑘=1(12)𝑘−1= 13(1+1∕2+1∕4+…)= 13 11−1∕2 = 13⋅2= 23.
+Something is wrong here.
+Let’s recalculate𝑃(𝑌 >𝑋).
+𝑃(𝑌 >𝑋)= ∑∞𝑥=1∑∞𝑦=𝑥+1(1− 𝑝)𝑥−1𝑝(1− 𝑝)𝑦−1𝑝
+=𝑝2∑∞𝑥=1(1− 𝑝)𝑥−1∑∞𝑦=𝑥+1(1− 𝑝)𝑦−1
+Inner sum:(1− 𝑝)𝑥+(1− 𝑝)𝑥+1+⋯= (1−𝑝)𝑥1−(1−𝑝) = (1−𝑝)𝑥𝑝 .
+𝑃(𝑌 >𝑋)= 𝑝2∑∞𝑥=1(1− 𝑝)𝑥−1(1−𝑝)𝑥𝑝 =𝑝(1− 𝑝)∑∞𝑥=1(1− 𝑝)2(𝑥−1)
+=𝑝(1− 𝑝)∑∞𝑥=1((1− 𝑝)2)𝑥−1=𝑝(1− 𝑝) 11−(1−𝑝)2
+=𝑝(1− 𝑝) 11−(1−2𝑝+𝑝2) =𝑝(1− 𝑝) 12𝑝−𝑝2 =𝑝(1− 𝑝) 1𝑝(2−𝑝) = 1−𝑝2−𝑝.
+If𝑝=0.5,𝑃(𝑌 >𝑋)= 0.51.5 = 13. Correct.
+28
+s1: Simple test-time scaling
+Now, let’s find𝐸[𝑋|𝑌 >𝑋].
+𝐸[𝑋|𝑌 >𝑋]= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥|𝑌 >𝑋)= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥,𝑌>𝑥)𝑃(𝑌>𝑋) .
+𝑃(𝑋=𝑥,𝑌 >𝑥)= 𝑃(𝑋=𝑥)𝑃(𝑌 >𝑥) (independence)
+𝑃(𝑋=𝑥)=(1− 𝑝)𝑥−1𝑝.
+𝑃(𝑌 >𝑥)= ∑∞𝑦=𝑥+1(1− 𝑝)𝑦−1𝑝=𝑝[(1− 𝑝)𝑥+(1− 𝑝)𝑥+1+…]= 𝑝 (1−𝑝)𝑥1−(1−𝑝) =(1− 𝑝)𝑥.
+𝑃(𝑋=𝑥,𝑌 >𝑥)=(1− 𝑝)𝑥−1𝑝(1− 𝑝)𝑥=𝑝(1− 𝑝)2𝑥−1.
+𝐸[𝑋|𝑌 >𝑋]= 1𝑃(𝑌>𝑋) ∑∞𝑥=1𝑥𝑝(1− 𝑝)2𝑥−1
+= 2−𝑝1−𝑝𝑝(1− 𝑝)−1∑∞𝑥=1𝑥((1− 𝑝)2)𝑥 (error in power)
+𝑃(𝑌 >𝑥)= (1−𝑝)𝑥1−(1−𝑝)𝑝=(1− 𝑝)𝑥.
+𝐸[𝑋|𝑌 >𝑋]= 1𝑃(𝑌>𝑋) ∑∞𝑥=1𝑥𝑃(𝑋=𝑥)𝑃(𝑌 >𝑥)
+= 1𝑃(𝑌>𝑋) ∑∞𝑥=1𝑥(1− 𝑝)𝑥−1𝑝(1− 𝑝)𝑥
+= 𝑝𝑃(𝑌>𝑋) ∑∞𝑥=1𝑥(1− 𝑝)2𝑥−1
+= 𝑝(1−𝑝)∕(2−𝑝)(1− 𝑝)−1∑∞𝑥=1𝑥((1− 𝑝)2)𝑥
+=𝑝 2−𝑝(1−𝑝)2 ∑∞𝑥=1𝑥((1− 𝑝)2)𝑥.
+Let𝑟=(1− 𝑝)2. ∑∞𝑥=1𝑥𝑟𝑥= 𝑟(1−𝑟)2.
+1− 𝑟=1−(1− 𝑝)2=1−(1−2 𝑝+𝑝2)=2 𝑝−𝑝2=𝑝(2− 𝑝).
+(1− 𝑟)2=𝑝2(2− 𝑝)2.∑∞
+𝑥=1𝑥((1− 𝑝)2)𝑥= (1−𝑝)2𝑝2(2−𝑝)2.
+𝐸[𝑋|𝑌 >𝑋]= 𝑝 2−𝑝(1−𝑝)2 (1−𝑝)2𝑝2(2−𝑝)2 = 1𝑝(2−𝑝).
+If𝑝=0.5,𝐸[𝑋|𝑌 >𝑋]= 10.5×1.5 = 10.75 = 13∕4 =4∕3 .
+Solution:
+Let𝑋 be the number of flips Alice makes until she gets a head, and𝑌 be the number of flips Bob makes until he gets a
+head. 𝑋 and𝑌 are independent geometric random variables with parameter𝑝 = 0.5. The probability mass function is
+𝑃(𝐾 =𝑘)=(1− 𝑝)𝑘−1𝑝.
+We are interested in the expected number of times Alice flipped her coin, given that Bob flipped his coin more times than
+Alice, i.e.,𝐸[𝑋|𝑌 >𝑋].
+Using the definition of conditional expectation,𝐸[𝑋|𝑌 >𝑋]= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥|𝑌 >𝑋).
+𝑃(𝑋=𝑥|𝑌 >𝑋)= 𝑃(𝑋=𝑥,𝑌>𝑥)𝑃(𝑌>𝑋) .
+First, calculate𝑃(𝑌 >𝑋).
+𝑃(𝑌 >𝑋)= ∑∞𝑥=1∑∞𝑦=𝑥+1𝑃(𝑋=𝑥,𝑌 =𝑦)= ∑∞𝑥=1𝑃(𝑋=𝑥)𝑃(𝑌 >𝑥).
+𝑃(𝑋=𝑥)=(0 .5)𝑥−1(0.5)=(0 .5)𝑥= 12𝑥.
+𝑃(𝑌 >𝑥)= ∑∞𝑦=𝑥+1(0.5)𝑦−1(0.5)=(0 .5)𝑥.
+𝑃(𝑌 >𝑋)= ∑∞𝑥=1 12𝑥(12)𝑥= ∑∞𝑥=1(14)𝑥= 1∕41−1∕4 = 1∕43∕4 = 13.
+Next, calculate𝑃(𝑋=𝑥,𝑌 >𝑥)= 𝑃(𝑋=𝑥)𝑃(𝑌 >𝑥)= 12𝑥(12)𝑥=( 14)𝑥.
+Now, find𝑃(𝑋=𝑥|𝑌 >𝑋)= 𝑃(𝑋=𝑥,𝑌>𝑥)𝑃(𝑌>𝑋) = (1∕4)𝑥1∕3 =3( 14)𝑥.
+Finally, calculate the conditional expectation:
+𝐸[𝑋|𝑌 >𝑋]= ∑∞𝑥=1𝑥𝑃(𝑋=𝑥|𝑌 >𝑋)= ∑∞𝑥=1𝑥⋅3(14)𝑥=3 ∑∞𝑥=1𝑥(14)𝑥.
+Using the formula∑∞𝑥=1𝑥𝑟𝑥= 𝑟(1−𝑟)2 with𝑟=1∕4 :∑∞
+𝑥=1𝑥(14)𝑥= 1∕4(1−1∕4)2 = 1∕4(3∕4)2 = 1∕49∕16 = 14× 169 = 49.
+𝐸[𝑋|𝑌 >𝑋]=3× 49 = 129 = 43.
+Final Answer: The final answer is4∕3
+29
+s1: Simple test-time scaling
+Table 11.s1K sample stemming from the astronomy subset of OlympicArena.The black text is the question and the blue text is the
+solution. BasedsolelyonthequestionwegeneratethelightbluereasoningtraceandblueresponsewithGemini,whichweusefortraining.
+An often-repeated fun fact is that humans produce more power per unit volume than stars. If the sun were the same size, but
+it produced the same amount of power per unit volume as a human, what would its surface temperature be? Assume the
+"average human" produces 100 watts of power and has a volume of 66400 cubic centimeters.
+A:3500K
+B:10000K
+C:25000K
+D:40000K
+E:50000K
+Using the numbers from the problem, the average human produces
+𝑢= 10066400×10 −6 =1506W∕m 3
+Thevolumeofthesunis 43𝜋𝑅3⊙,soitsnewpoweroutputwouldbe 𝑃 = 43𝜋𝑅3⊙𝑢. Tofindtheequilibriumtemperature,weuse
+𝑃 =𝜎𝐴𝑇4=4𝜋𝜎𝑅2⊙𝑇4
+Solving for𝑇, we get
+𝑇 =
+4
+√
+𝑅⊙𝑢
+3𝜎 =
+4
+√√√√(6.96×10 8)(1506)
+3(5.67×10 −8) =49823≈50000K .
+The problem asks for the surface temperature of the sun if it had the same size but produced power per unit volume as a
+human.
+First, let’s find the power density of a human.
+Power produced by a human,𝑃ℎ𝑢𝑚𝑎𝑛=100W
+Volume of a human,𝑉ℎ𝑢𝑚𝑎𝑛=66400cm 3
+Convert the volume to cubic meters:
+1m=100cm
+1m3=(100cm) 3=10 6cm3
+𝑉ℎ𝑢𝑚𝑎𝑛=66400cm 3=66400×10 −6m3=0.0664m3
+Power density of a human,𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛= 𝑃ℎ𝑢𝑚𝑎𝑛𝑉ℎ𝑢𝑚𝑎𝑛 = 100 W0.0664 m3
+𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛=1506.024W∕m3
+Now, consider the sun with the same size as it currently is, but with a power density equal to that of a human.
+We need the radius of the sun to calculate its volume. The average radius of the sun is𝑅𝑠𝑢𝑛=6.95×10 8m.
+Volume of the sun,𝑉𝑠𝑢𝑛= 43𝜋𝑅3𝑠𝑢𝑛= 43𝜋(6.95×10 8m)3
+𝑉𝑠𝑢𝑛= 43𝜋(337.159375×10 24)m3
+𝑉𝑠𝑢𝑛=1410.24×10 24×𝜋m3
+𝑉𝑠𝑢𝑛=4.4307×10 27m3
+If the sun had the same power density as a human, the total power produced by this modified sun would be:
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛×𝑉𝑠𝑢𝑛
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=1506.024W∕m3×4.4307×10 27m3
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=6.6726×10 30W
+30
+s1: Simple test-time scaling
+The surface temperature of a star is related to its luminosity (total power output) through the Stefan-Boltzmann law:
+𝐿=4𝜋𝑅2𝜎𝑇4
+where𝐿is the luminosity (total power output),𝑅is the radius of the star,𝜎 is the Stefan-Boltzmann constant, and𝑇 is the
+surface temperature.
+In this case, the luminosity of the modified sun is𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛. The radius of the modified sun is the same as the actual sun,
+𝑅𝑠𝑢𝑛.
+The Stefan-Boltzmann constant,𝜎=5.67×10 −8Wm−2K−4.
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=4𝜋𝑅2𝑠𝑢𝑛𝜎𝑇4
+6.6726×10 30W=4 𝜋(6.95×10 8m)2×5.67×10 −8Wm−2K−4×𝑇4
+Calculate the term4𝜋𝑅2𝑠𝑢𝑛𝜎:
+𝑅2𝑠𝑢𝑛=(6.95×10 8)2=48.3025×10 16m2
+4𝜋𝑅2𝑠𝑢𝑛=4𝜋×48.3025×10 16=607.08×10 16m2
+4𝜋𝑅2𝑠𝑢𝑛𝜎=607.08×10 16m2×5.67×10 −8Wm−2K−4
+4𝜋𝑅2𝑠𝑢𝑛𝜎=3441.93×10 8WK−4=3.44193×10 11WK−4
+Now, substitute this back into the equation:
+6.6726×10 30=3.44193×10 11×𝑇4
+Solve for𝑇4:
+𝑇4= 6.6726×1030
+3.44193×1011 =1.9386×10 19
+Solve for𝑇:
+𝑇 =(1.9386×10 19)1∕4=(193.86×10 17)1∕4
+𝑇 =(1.9386)1∕4×(1019)1∕4=(1.9386)0.25×104.75
+Calculate(1.9386)0.25:
+Let𝑦=1.93860.25, thenln𝑦=0.25ln(1.9386)
+ln(1.9386)≈0 .6619
+ln𝑦=0.25×0 .6619=0 .165475
+𝑦=𝑒0.165475≈1.1799
+So,𝑇 =1.1799×10 4.75=1.1799×10 4×100.75
+100.75=10 3∕4=(10 3)1∕4=(1000) 1∕4
+We know54=625 and64=1296 , so(1000)1∕4 is between 5 and 6.
+Alternatively,100.75=10 0.5×100.25= √10×10 0.25≈3.16×1 .778=5 .62
+𝑇 =1.1799×10 4×5.62=6 .63×10 4K=66300K
+Let’s double-check the calculations.
+Power density of human:𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛=1506.02W∕m3
+Volume of sun:𝑉𝑠𝑢𝑛=4.43×10 27m3
+Power of modified sun:𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=1506.02×4 .43×10 27=6671.67×10 27=6.67×10 30W
+Stefan-Boltzmann law:𝑃 =4𝜋𝑅2𝜎𝑇4
+𝑇4= 𝑃4𝜋𝑅2𝜎
+4𝜋𝑅2𝑠𝑢𝑛𝜎=3.44×10 11
+𝑇4= 6.67×1030
+3.44×1011 =1.939×10 19
+𝑇 =(1.939×10 19)1∕4=(193.9×10 17)1∕4
+𝑇 =(193.9)0.25×(1017)0.25=(193.9)0.25×104.25
+Calculate(193.9)0.25:
+Let𝑦=193.90.25, thenln𝑦=0.25ln(193.9)
+ln(193.9)≈5 .267
+ln𝑦=0.25×5 .267=1 .31675
+𝑦=𝑒1.31675≈3.73
+𝑇 =3.73×10 4.25=3.73×10 4×100.25=37300×1 .778=66329K
+The result is around66000K . This is not among the options. Let’s review the assumptions and calculations.
+Assumption: The sun radiates as a black body, which is reasonable for estimating surface temperature.
+31
+s1: Simple test-time scaling
+Consider potential errors in calculations.
+Let’s try a simpler approach by setting up ratios.
+The power per unit volume of the modified sun is equal to that of a human.
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛
+𝑉𝑠𝑢𝑛 = 𝑃ℎ𝑢𝑚𝑎𝑛𝑉ℎ𝑢𝑚𝑎𝑛
+We also know𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=4𝜋𝑅2𝑠𝑢𝑛𝜎𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛.
+4𝜋𝑅2𝑠𝑢𝑛𝜎𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛
+4
+3𝜋𝑅3𝑠𝑢𝑛 = 𝑃ℎ𝑢𝑚𝑎𝑛𝑉ℎ𝑢𝑚𝑎𝑛
+3𝜎𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛
+𝑅𝑠𝑢𝑛 =𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛
+𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛= 𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛𝑅𝑠𝑢𝑛3𝜎
+Substitute the values:
+𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛=1506.02W∕m3
+𝑅𝑠𝑢𝑛=6.95×10 8m
+𝜎=5.67×10 −8Wm−2K−4
+𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛= 1506.02×6.95×1083×5.67×10−8
+𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛= 10466.839×10817.01×10−8 = 1.0466×10121.701×10−7 =0.6153×10 19=6.153×10 18
+𝑇𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=(6.153×10 18)1∕4=(6153×10 15)1∕4
+𝑇𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=(6153) 0.25×(1015)0.25=(6153) 0.25×103.75
+Calculate(6153)0.25:
+Let𝑦=6153 0.25, thenln𝑦=0.25ln(6153)
+ln(6153)≈8 .724
+ln𝑦=0.25×8 .724=2 .181
+𝑦=𝑒2.181≈8.85
+𝑇𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=8.85×10 3.75=8.85×10 3×100.75=8850×5 .62=49737K
+This is close to option E:50000K .
+Let’s re-check the units and calculations carefully.
+Power density of human:100 W0.0664 m3 =1506.02W∕m3
+The formula derived was𝑇4= 𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛𝑅𝑠𝑢𝑛3𝜎 .Units check:
+[𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛]=W∕m 3
+[𝑅𝑠𝑢𝑛]=m
+[𝜎]=Wm −2K−4
+(W∕m3)×m
+Wm−2K−4 = W∕m2Wm−2K−4 = Wm2 × m2K4W =K 4
+The units match for𝑇4.
+Numerical calculation check:
+Numerator:1506.02×6 .95×10 8=10466.839×10 8=1.0466×10 12
+Denominator:3×5 .67×10 −8=17.01×10 −8
+Ratio: 1.0466×101217.01×10−8 =0.061528×10 20=6.1528×10 18
+𝑇4=6.1528×10 18
+𝑇 =(6.1528×10 18)1∕4=(6152.8×10 15)1∕4
+𝑇 =(6152.8)0.25×103.75
+Let’s use logarithms for precision.
+log10(6152.8)≈3 .789
+0.25×3 .789=0 .94725
+100.94725≈8.856
+𝑇 =8.856×10 3.75=8.856×10 3×100.75=8856×5 .623=49806K
+This is very close to50000K .
+Possible sources of minor discrepancies: rounding errors, precision of constants.
+Let’s verify the formula derivation.
+Power per unit volume =Total PowerVolume
+32
+s1: Simple test-time scaling
+𝜌𝑝𝑜𝑤𝑒𝑟= 𝐿𝑉
+𝐿=4𝜋𝑅2𝜎𝑇4
+𝑉 = 43𝜋𝑅3
+𝜌𝑝𝑜𝑤𝑒𝑟= 4𝜋𝑅2𝜎𝑇44
+3𝜋𝑅3 = 3𝜎𝑇4𝑅
+If the modified sun has the power density of a human:
+𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛=
+3𝜎𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛
+𝑅𝑠𝑢𝑛
+𝑇4𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛= 𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛𝑅𝑠𝑢𝑛3𝜎
+The formula derivation seems correct.
+Let’s use approximate values to check the order of magnitude.
+𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛≈10 3W∕m3
+𝑅𝑠𝑢𝑛≈7×10 8m
+𝜎≈6×10 −8Wm−2K−4
+𝑇4≈ 103×7×108
+3×6×10−8 = 7×101118×10−8 =0.38×10 19=3.8×10 18
+𝑇 ≈(3.8×10 18)1∕4=(3800×10 15)1∕4
+𝑇 ≈(3800) 0.25×103.75
+(3800)0.25:74=2401 ,84=4096 . So, between 7 and 8.
+≈7.8
+𝑇 ≈7.8×10 3.75=7800×5 .6=43680K
+The order of magnitude seems consistent with the detailed calculation.
+The problem statement is straightforward and doesn’t seem to have any hidden complexities. The assumptions made are
+standard for such problems.
+Consider the precision of the given values.
+Power of human: 100 W (exact)
+Volume of human: 66400 cm3 (exact)
+The result obtained is very close to option E. Given the nature of multiple-choice questions, the closest option is likely the
+intended answer.
+If there were any misinterpretations of the question, it would likely be in the setup. However, the phrase "If the sun were the
+same size, but it produced the same amount of power per unit volume as a human" seems clear.
+The surface temperature is calculated using the Stefan-Boltzmann law, assuming black-body radiation.
+Double-check the provided options:
+A:3500K
+B:10000K
+C:25000K
+D:40000K
+E:50000K
+Our calculated value is approximately49800K , which is closest to50000K .
+If we used more precise values for the constants, the result might be slightly different, but likely not enough to shift to
+another option.
+The fun fact mentioned in the question implies that the power density of a human is higher than that of the sun. Let’s verify
+this.
+Power output of the sun:3.846×10 26W
+Volume of the sun:4.43×10 27m3
+Power density of the sun:3.846×10264.43×1027 =0.868W∕m3
+Power density of human:1506W∕m3
+Indeed, the power density of a human is significantly higher than that of the sun.
+Final check of the calculation steps and logic. The approach of equating the power density of the modified sun to that of a
+human and then using the Stefan-Boltzmann law seems correct.
+33
+s1: Simple test-time scaling
+Solution:
+Thepowerproducedbyanaveragehumanis 𝑃ℎ𝑢𝑚𝑎𝑛=100W ,andthevolumeofanaveragehumanis 𝑉ℎ𝑢𝑚𝑎𝑛=66400cm 3=
+0.0664m3.
+The power density of a human is𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛= 𝑃ℎ𝑢𝑚𝑎𝑛𝑉ℎ𝑢𝑚𝑎𝑛 = 100 W0.0664 m3 ≈1506.02W∕m3.If the sun were the same size but produced the same amount of power per unit volume as a human, its power density would
+be𝜌𝑝𝑜𝑤𝑒𝑟,𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛.
+The radius of the sun is𝑅𝑠𝑢𝑛=6.95×10 8m.
+The volume of the sun is𝑉𝑠𝑢𝑛= 43𝜋𝑅3𝑠𝑢𝑛.
+The power density of the modified sun is given by𝜌𝑝𝑜𝑤𝑒𝑟,𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=
+𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛
+𝑉𝑠𝑢𝑛 .
+We also know that𝑃𝑚𝑜𝑑𝑖𝑓𝑖𝑒𝑑_𝑠𝑢𝑛=4𝜋𝑅2𝑠𝑢𝑛𝜎𝑇4, where𝑇 is the surface temperature of the modified sun.
+Equating the power density:
+𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛=
+4𝜋𝑅2𝑠𝑢𝑛𝜎𝑇4
+4
+3𝜋𝑅3𝑠𝑢𝑛 = 3𝜎𝑇4𝑅𝑠𝑢𝑛
+Solving for𝑇4:
+𝑇4= 𝜌𝑝𝑜𝑤𝑒𝑟,ℎ𝑢𝑚𝑎𝑛𝑅𝑠𝑢𝑛3𝜎
+Substitute the values:
+𝑇4= 1506.02 W∕m3×6.95×108 m3×5.67×10−8 Wm−2K−4
+𝑇4= 1.0466×10121.701×10−7 =6.1528×10 18K4
+Solving for𝑇:
+𝑇 =(6.1528×10 18)1∕4=(6152.8)0.25×1018∕4=(6152.8)0.25×104.5
+Using logarithms:
+log10(6152.8)≈3 .789
+0.25×3 .789=0 .94725
+(6152.8)0.25=10 0.94725≈8.856
+𝑇 =8.856×10 4.5=8.856×10 4×100.5=88560× √10≈88560×3 .16=280000K
+Let’s redo the exponent calculation:18∕4=4 .5.
+𝑇 =8.856×10 4.5=8.856×10 4×100.5 - error in previous step.
+𝑇 =(6.1528×10 18)0.25=49806K
+The surface temperature would be approximately49806K , which is closest to50000K .
+Final Answer: The final answer is𝐸
+34
+s1: Simple test-time scaling
+E. Test-time scaling details
+E.1. Sequential scaling ablations
+<|im_start|>user
+WhatistheanswertoLife,theUniverseandEverything?
+Think for up to 2048 tokens.
+<|im_start|>assistant
+<|im_start|>user
+What is the answer to Life, the Universe and Everything?
+Think for up to 64 steps.
+<|im_start|>assistant
+<|im_start|>think
+Let me break down this question into the three parts it
+is asking for: 1) Life 2) Universe 3) Everything
+Let me start with life...
+<|im_start|>64 steps left
+Let me break down this question into the three parts it is asking for:
+1) Life 2) Universe 3) Everything
+<|im_start|>63 steps left
+Let me start with life...
+<|im_start|>answer
+The answer is...
+<|im_start|>answer
+The answer is...
+Figure 10.Token and step instruction data formats for controlling test-time compute.We only train our model on the reasoning trace
+and the answer.
+Table 12.Scaling thinking time via tokens-conditional control.All metrics are averaged over the 30 questions in AIME24.
+Tokens instructed (→) 1024 2048 4096 8192 16384
+No intervention at test-time
+Thinking tokens 7939 7158 8263 7108 7500
+Answer tokens 689 669 659 722 724
+AIME24 26.7 30.0 33.3 33.3 40.0
+Forcing end of thinking when token budget is reached
+Thinking tokens 1024 2048 4031 5664 6330
+Answer tokens 15 15 142 722 691
+AIME24 3.3 30.0 33.3 33.3 40.0
+Token-conditional control One general approach is to simply tell a model in the prompt precisely how many tokens it
+should generate. Ideally, the model can keep track of its token count and adjust its generation to finish within the desired
+limits. We experiment with this approach by training a model with token instructions using the format in Figure 10 (left).
+We bucket the lengths of the reasoning traces from our 1,000 training examples into powers of two (rounded upwards) and
+add a corresponding instruction to the user prompt. For example, if the instruction says “Think for up to 2048 tokens”,
+then the reasoning trace has anywhere between 1024 and 2048 tokens. In Table 12, we show that after training the model
+hardly follows the token instruction. It does sometimes generate more tokens when given a higher limit but often overshoots
+the limit. This may not be unique to our model as prior work suggests that OpenAI o1-mini can also not follow token
+instructions (Zhang & Chen, 2024). To prevent exceeding the limit, we test budget forcing the thinking to end once the
+limit is reached. This leads to perfect control (Table 12 (lower)). With budget forcing, the scaling trend is also clearer as the
+model can no longer overshoot the limit when given a small thinking budget. This leads to better test-time scaling values for
+Token Prompting + budget forcingin Table 3. To compute Control reported in Table 3 for token-conditional control variants
+we divide the number of times the thinking tokens in Table 12 are less than the upper limit by the total evaluations (2/5 for
+without intervention; 5/5 for with intervention).
+Step-conditional control Token instructions fail as current models cannot count tokens. To accommodate this lack of
+capability, we experiment with making the counting more coarse-grained. We partition the reasoning traces into steps and
+askthemodeltothinkforaspecificnumberofstepsratherthantokens. Wesplitourreasoningtracesondoublenewlinesinto
+steps, which we find act as intuitive separators based on manual inspection of samples. We bucket our training samples into
+powers of 2 depending on their number of steps and add a corresponding step instruction following the format in Figure 10
+(right). This format is based on early experiments, where we found the model to be more likely to adhere to the step limit
+35
+s1: Simple test-time scaling
+Table 13.Scaling thinking time via step-conditional control.All metrics are averaged over the 30 samples in AIME24. Token counts
+ignore the thinking and step delimiters.
+Steps instructed (→) 16 32 64 128 256
+No intervention at test-time
+Steps used 123 90 80 82 136
+Tokens per step 60 70 69 66 56
+Thinking tokens 7252 6277 5396 5552 7551
+Answer tokens 665 653 735 777 754
+AIME24 33.3 23.3 33.3 36.7 33.3
+Forcing end of thinking when 0 steps are reached
+Steps used 16 32 59 78 136
+Tokens per step 96 94 80 70 56
+Thinking tokens 1517 2963 4636 5409 7551
+Answer tokens 1111 788 799 794 754
+AIME24 23.3 23.3 33.3 36.7 33.3
+Table 14.Scaling thinking time via class-conditional control.We report “accuracy / average thinking tokens per sample”; the higher
+the accuracy and the fewer the thinking tokens (inference cost) the better.
+Prompt appended to the question after two newlines AIME24 MATH500 GPQA
+Answer after a short amount of thinking. Do not spend
+excessive time double-checking your work.
+30.0% /
+8033
+90.4% /
+2537
+56.6% /
+4177
+Answerafteralongamountofthinking. Ifyoufeellikeyou
+are finished early, spend the extra time trying to double-
+checkyourworkuntilyouareabsolutelysurethatyouhave
+the correct answer.
+36.7% /
+9651
+91.4% /
+3875
+51.0% /
+4827
+Without generic prompt appending 50.0% /
+6109
+93.0% /
+3298
+57.6% /
+3510
+36
+s1: Simple test-time scaling
+when counting down (“3 steps left...2 steps left”) rather than counting up (“Step2...Step3...”). This is likely because if
+counting down, the final step is always 1, which will act as a strong prior to the model to finish its generation. If counting up,
+the final step before the answer varies, thus if the model does not remember the original step instruction, it may fail to stop.
+We conclude the following from our results in Table 13:(1) The model still struggles to adhere to the step limit. The model
+sometimes simply continues counting into negative steps, e.g. “-1 steps left”. To solve this issue, we automatically stop the
+thinking process once 0 steps are reached and then force the model to transition to answering mode by appending the answer
+token delimiter (§3). This leads to perfect step adherence (lower half of Table 13), yet problems remain.(2) The model
+compensates for fewer steps by making each step longer. For example, when forced to use up to 16 steps vs 256 steps, the
+model generates an average of 96 tokens per step vs 56. Despite this issue, more steps still clearly correlate with more total
+thinking tokens in Table 13 and better performance leading to a positive slope(3)Step instructions are more costly than
+other methods. The step delimiters require around 6 tokens each which for e.g. 64 steps adds up to a total of around 380
+tokens. When ignoring the step delimiters in token counts as in Table 13, the model still requires 7551 thinking tokens on
+average to achieve only 33.3% on AIME24. To compute Control reported in Table 3 for step-conditional control variants,
+we first decide that 100 tokens are an upper limit per step and then multiply this number by the steps instructed to arrive
+at a proxy total token limit, e.g. 1600 for 16 steps instructed. We then check whether the thinking tokens in Table 13 fit
+within the respective limit for each evaluation run (3/5 for without intervention; 5/5 for with intervention). For the model in
+Figure 7, we use a model with step-conditional control trained on an earlier version of our data and using an earlier version
+of our evaluation codebase.
+Class-conditional control OpenAI exposes test-time compute control to users via a “reasoning_effort” API parameter
+with three possible settings: low, medium, and high.3 The OpenAI documentation also states that “Reducing reasoning
+effort canresult in faster responses and fewer tokens used on reasoning in a response." suggesting that they are unable to
+control test-time compute with guarantees. Thus, maybe OpenAI simply adjusts the prompt or system instruction depending
+on the reasoning effort desired. In Table 14, we show that separate prompts for short and long thinking allow us to control
+thinking time to some extent: Prompting the model to think for longer leads to longer thinking. However, it does not reliably
+improve performance and control is not precise. The current adherence to control may suffice when we only have three
+classes, but it might not scale to finer-grained classes. To compute Control reported in Table 3 for this method, we assume
+that prompting the model to think for a short time in Table 14 should produce fewer tokens than the default for AIME24,
+while the longprompt shouldproduce more. As8033>6109and9651>6109, one out oftwofollows ourexpected control
+thus Control is 50%.
+E.2. Examples for rejection sampling ablation
+3https://github.com/openai/openai-python/blob/44d6210f101abedeb2dd68507fcffcb329df70ea/
+src/openai/types/chat/completion_create_params.py#L172
+37
+s1: Simple test-time scaling
+Table 15.Answers generated by an earlier version of s1-32B when rejection sampling on AIME24.The black text is the question and
+the yellow text is the solution. Based solely on the question we generate the light blue reasoning trace and blue response withs1-32B
+using a temperature of 1. We generate until the reasoning trace has less than 4000 tokens for the first and less than 8000 tokens for the
+second example. It required on average 199 (1) tries per example until thinking was≤4000(≤8000 tokens).
+Let𝑂(0,0),𝐴(12,0), and𝐵(0,
+√
+3
+2 ) be points in the coordinate plane. Let be the family of segments𝑃𝑄 of unit length
+lying in the first quadrant with𝑃 on the𝑥-axis and𝑄on the𝑦-axis. There is a unique point𝐶 on𝐴𝐵, distinct from𝐴and𝐵,
+that does not belong to any segment from other than𝐴𝐵. Then𝑂𝐶2 = 𝑝𝑞, where𝑝 and𝑞 are relatively prime positive
+integers. Find𝑝+𝑞.
+23
+[Correct generation with 3981 thinking tokens and 1055 answer tokens]
+The problem asks for a point𝐶 on the segment𝐴𝐵 that is not contained in any other segment from the family, except for
+𝐴𝐵 itself.
+The points𝑂,𝐴,𝐵 form a triangle in the first quadrant.
+𝑂=(0,0)
+𝐴=( 12,0)
+𝐵=(0,
+√
+3
+2 )
+The segment𝐴𝐵 connects𝐴(12,0) and𝐵(0,
+√
+3
+2 ).
+The equation of the line containing𝐴𝐵 can be found using the two points:
+Slope𝑚=
+√
+3
+2 −0
+0−12 =−
+√
+3
+Using the point-slope form𝑦−𝑦1=𝑚(𝑥−𝑥1)with point𝐴(12,0):
+𝑦−0=−
+√
+3(𝑥− 12)
+𝑦=−
+√
+3𝑥+
+√
+3
+2
+The segment𝐴𝐵 lies in the first quadrant and connects(12,0) to(0,
+√
+3
+2 ).
+The family consists of segments𝑃𝑄 of unit length, where𝑃 is on the𝑥-axis and𝑄 is on the𝑦-axis. Let𝑃 =(𝑎,0) and
+𝑄=(0,𝑏).
+The length of𝑃𝑄 is
+√
+(𝑎−0)2+(0− 𝑏)2= √𝑎2+𝑏2=1 .
+So𝑎2+𝑏2=1 .
+Since𝑃 is on the positive𝑥-axis and𝑄is on the positive𝑦-axis, we have𝑎> 0 and𝑏> 0.
+The segment𝑃𝑄 connects(𝑎,0)and(0,𝑏). The equation of the line containing𝑃𝑄 is 𝑥𝑎 + 𝑦𝑏 =1 .The region covered by the family is the area bounded by the lines containing these segments. The endpoints(𝑎,0)and
+(0,𝑏)vary such that𝑎2+𝑏2=1 .
+Consider the parametrization𝑎=cos 𝜃,𝑏=sin 𝜃, where0<𝜃 < 𝜋2.
+The segment𝑃𝑄 connects(cos𝜃,0) and(0,sin𝜃). The equation of the line is𝑥cos𝜃 + 𝑦sin𝜃 =1 .
+We are looking for a unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that does not belong to any segment from other than
+𝐴𝐵.
+Let𝐶 be a point on𝐴𝐵. We can parametrize the points on𝐴𝐵 as(1− 𝑡)𝐴+𝑡𝐵 for0 ≤𝑡 ≤1.
+𝐶 =(1− 𝑡)(12,0)+ 𝑡(0,
+√
+3
+2 )=( 12− 12𝑡,
+√
+3
+2 𝑡).Since𝐶 is distinct from𝐴 and𝐵, we have0<𝑡< 1.
+Suppose the point𝐶 lies on some segment𝑃𝑄 ∈ , where𝑃 =(cos 𝜃,0) and𝑄=(0,sin𝜃).
+The point𝐶 satisfies the equation 𝑥cos𝜃 + 𝑦sin𝜃 =1 .
+38
+s1: Simple test-time scaling
+Plugging in the coordinates of𝐶:
+1
+2−12𝑡
+cos𝜃 +
+√
+3
+2 𝑡
+sin𝜃 =1
+1−𝑡
+2cos 𝜃 +
+√
+3𝑡
+2sin 𝜃 =1Multiply by 2:
+1−𝑡
+cos𝜃 +
+√
+3𝑡
+sin𝜃 =2
+(1− 𝑡)sin 𝜃+
+√
+3𝑡cos𝜃=2sin 𝜃cos𝜃
+sin𝜃−𝑡sin𝜃+
+√
+3𝑡cos𝜃=sin(2𝜃)∕2
+We are looking for a point𝐶 on𝐴𝐵 such that the only segment from containing𝐶 is𝐴𝐵 itself.
+The segment𝐴𝐵 is part of the family.
+For𝐴𝐵,𝑃 =𝐴=( 12,0) and𝑄=𝐵=(0,
+√
+3
+2 ).
+Here𝑎= 12,𝑏=
+√
+3
+2 .
+𝑎2+𝑏2=( 12)2+(
+√
+3
+2 )2= 14+ 34 =1 .
+The line segment𝐴𝐵 connects(12,0)and(0,
+√
+3
+2 ).
+The equation of the line is𝑥1∕2+ 𝑦√3∕2 =1 , which simplifies to2𝑥+ 2√3𝑦=1 , or√3𝑥+𝑦= √32 .
+This matches the equation𝑦=−
+√
+3𝑥+
+√
+3
+2 .
+Consider the envelope of the family of lines𝑥cos𝜃 + 𝑦sin𝜃 =1 .Differentiating with respect to𝜃:
+−𝑥sin𝜃cos2𝜃 + 𝑦cos𝜃sin2𝜃 =0
+𝑦cos𝜃
+sin2𝜃 = 𝑥sin𝜃cos2𝜃
+𝑦cos3𝜃=𝑥sin3𝜃
+𝑦
+𝑥 =tan 3𝜃
+tan𝜃=( 𝑦𝑥)1∕3
+From the line equation:𝑦sin𝜃=sin 𝜃cos𝜃−𝑥sin𝜃
+𝑦=cos 𝜃−𝑥
+Substitutecos𝜃= 1√
+1+tan2𝜃 = 1√1+(𝑦∕𝑥)2∕3
+cos𝜃= 𝑥1∕3
+(𝑥2∕3+𝑦2∕3)1∕2
+sin𝜃=tan 𝜃cos𝜃=( 𝑦𝑥)1∕3 𝑥1∕3(𝑥2∕3+𝑦2∕3)1∕2 = 𝑦1∕3(𝑥2∕3+𝑦2∕3)1∕2
+Substitute back into the line equation:
+𝑥
+cos𝜃 + 𝑦sin𝜃 =1
+𝑥(𝑥2∕3+𝑦2∕3)1∕2∕𝑥1∕3+𝑦(𝑥2∕3+𝑦2∕3)1∕2∕𝑦1∕3=1
+𝑥2∕3(𝑥2∕3+𝑦2∕3)1∕2+𝑦2∕3(𝑥2∕3+𝑦2∕3)1∕2=1
+(𝑥2∕3+𝑦2∕3)3∕2=1
+𝑥2∕3+𝑦2∕3=1
+The envelope of the family is the astroid𝑥2∕3+𝑦2∕3=1 .
+The segments from are tangent to this astroid.
+The point𝐶 on𝐴𝐵 that we are looking for is the point where𝐴𝐵 is tangent to the astroid.
+The equation of𝐴𝐵 is𝑦=−
+√
+3𝑥+
+√
+3
+2 .Substitute into the astroid equation:
+𝑥2∕3+(−√3𝑥+ √32 )2∕3=1
+Let𝑢=𝑥1∕3 and𝑣=𝑦1∕3. The astroid is𝑢2+𝑣2=1 .
+The point𝐶 lies on both the line𝐴𝐵 and the astroid.
+Differentiating the astroid equation implicitly:
+2
+3𝑥−1∕3+ 23𝑦−1∕3𝑦′=0
+𝑦′=− 𝑦1∕3
+𝑥1∕3 =−( 𝑦𝑥)1∕3
+39
+s1: Simple test-time scaling
+The slope of the tangent to the astroid at a point(𝑥,𝑦)is− 3
+√
+𝑦
+𝑥.
+The slope of the line𝐴𝐵 is−
+√
+3.
+So, at the point of tangency,− 3
+√
+𝑦
+𝑥 =−
+√
+3.
+3
+√
+𝑦
+𝑥 =
+√
+3
+𝑦
+𝑥 =(
+√
+3)3=3 √3
+The point𝐶 lies on the line𝑦=−
+√
+3𝑥+
+√
+3
+2 and satisfies𝑦𝑥 =3 √3.
+So𝑦=3
+√
+3𝑥.
+Substitute into the line equation:
+3
+√
+3𝑥=−
+√
+3𝑥+
+√
+3
+2
+3𝑥=−𝑥+ 12
+4𝑥= 12
+𝑥= 18
+Then𝑦=3
+√
+3(18)= 3
+√
+3
+8 .
+The point𝐶 is(18, 3
+√
+3
+8 ).
+We need to check if this point lies on the segment𝐴𝐵.
+The point𝐶 is of the form(12− 12𝑡,
+√
+3
+2 𝑡).
+1
+2− 12𝑡= 18 ⟹ 4−4 𝑡=1 ⟹ 3=4 𝑡 ⟹ 𝑡= 34.√
+3
+2 𝑡=
+√
+3
+2 ⋅ 34 = 3
+√
+3
+8 .
+So𝐶 lies on𝐴𝐵.
+We need to make sure0<𝑡< 1, which is true for𝑡= 34.Now, we need to check if this point𝐶 does not belong to any other segment from.
+The point𝐶 lies on the astroid. The segment𝐴𝐵 is tangent to the astroid at𝐶.
+Any other segment from that contains𝐶 would have𝐶 as an interior point, not a tangent point.
+Consider the parametrization of the family.
+A point(𝑥,𝑦)belongs to some segment in iff there exists𝜃 such that 𝑥cos𝜃 + 𝑦sin𝜃 =1 .
+For the point𝐶 =( 18, 3
+√
+3
+8 ), we have:
+1∕8
+cos𝜃 + 3
+√
+3∕8
+sin𝜃 =1
+1
+cos𝜃 + 3
+√
+3
+sin𝜃 =8
+sin𝜃+3
+√
+3cos 𝜃=8sin 𝜃cos𝜃
+sin𝜃+3
+√
+3cos 𝜃=4sin(2 𝜃)
+We know that𝐶 lies on𝐴𝐵, which corresponds to some specific segment in.
+The problem statement assumes the existence and uniqueness of such a point𝐶.
+The unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that does not belong to any segment from other than𝐴𝐵.
+This means that if𝐶 lies on another segment𝑃′𝑄′∈ , then𝑃′𝑄′=𝐴𝐵.
+The point𝐶 is the point of tangency of𝐴𝐵 with the astroid.
+Now we need to find𝑂𝐶2.
+𝑂𝐶2=( 18)2+( 3
+√
+3
+8 )2= 164+ 2764 = 2864 = 716.Here𝑝=7 and𝑞=16 .
+𝑝 and𝑞 are relatively prime.
+𝑝+𝑞=7+16=23 .
+Final check of the reasoning:
+The family consists of unit-length segments with endpoints on the axes.
+The envelope of this family is the astroid𝑥2∕3+𝑦2∕3=1 .
+The segments from are tangent to the astroid.
+The segment𝐴𝐵 is also a member of the family.
+We are looking for a point𝐶 on𝐴𝐵 that lies on the astroid.
+This point𝐶 is the point of tangency of𝐴𝐵 with the astroid.
+40
+s1: Simple test-time scaling
+If a point on𝐴𝐵 lies on the astroid, it belongs to the tangent segment at that point. Since𝐴𝐵 is the tangent segment, this
+point does not belong to any other segment from.
+Consider the case when the segment𝐴𝐵 intersects the astroid at two points.
+If the segment𝐴𝐵 is not tangent to the astroid, then there are two points of intersection.
+Let the points of intersection be𝐶1 and𝐶2.
+If𝐶1 lies on𝐴𝐵, then the tangent to the astroid at𝐶1 is the segment𝐴𝐵.
+If𝐶2 lies on𝐴𝐵, then the tangent to the astroid at𝐶2 is the segment𝐴𝐵.
+The slope of𝐴𝐵 is−
+√
+3.
+We found the point on the astroid with tangent slope−
+√
+3.
+The problem statement guarantees the uniqueness of such a point𝐶.
+The point𝐶 must be interior to𝐴𝐵, so0<𝑡< 1.
+The parameter𝑡= 34 is in this range.The point𝐶 is distinct from𝐴 and𝐵.
+If𝐶 =𝐴, then𝑡=0 ,𝐶 =( 12,0).
+If𝐶 =𝐵, then𝑡=1 ,𝐶 =(0,
+√
+3
+2 ).
+The point of tangency𝐶 is the unique point on𝐴𝐵 (excluding endpoints) that lies on the astroid.
+Solution:
+Let the family of segments be defined by segments𝑃𝑄 of unit length with𝑃 on the positive𝑥-axis and𝑄 on the positive
+𝑦-axis. Let𝑃 =(𝑎,0)and𝑄=(0,𝑏). The length condition gives𝑎2+𝑏2=1 . The segment𝑃𝑄 lies on the line𝑥𝑎 + 𝑦𝑏 =1 .
+Using the parametrization𝑎=cos 𝜃,𝑏=sin 𝜃 with0<𝜃 < 𝜋2, the equation of the line is𝑥cos𝜃 + 𝑦sin𝜃 =1 .
+The envelope of this family of lines is the astroid𝑥2∕3+𝑦2∕3=1 .
+The segments from are tangent to this astroid.
+The segment𝐴𝐵 connects𝐴(12,0)and𝐵(0,
+√
+3
+2 ). The equation of the line containing𝐴𝐵 is𝑦=−
+√
+3𝑥+
+√
+3
+2 . This segmentis part of the family.
+We are looking for a unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that does not belong to any segment from other than
+𝐴𝐵. This means𝐶 is the point where𝐴𝐵 is tangent to the astroid.
+The slope of the tangent to the astroid at a point(𝑥,𝑦)is− 3
+√
+𝑦
+𝑥. The slope of𝐴𝐵 is−
+√
+3.
+Setting the slopes equal:− 3
+√
+𝑦
+𝑥 =−
+√
+3 ⟹ 𝑦𝑥 =3 √3.
+The point𝐶 lies on the line𝑦=−
+√
+3𝑥+
+√
+3
+2 and satisfies𝑦=3
+√
+3𝑥.
+Substituting,3
+√
+3𝑥=−
+√
+3𝑥+
+√
+3
+2 ⟹ 4
+√
+3𝑥=
+√
+3
+2 ⟹ 𝑥= 18.
+Then𝑦=3
+√
+3(18)= 3
+√
+3
+8 .
+The point𝐶 is(18, 3
+√
+3
+8 ).
+We need to check if𝐶 lies on𝐴𝐵. The points on𝐴𝐵 are(12− 12𝑡,
+√
+3
+2 𝑡)for0 ≤𝑡 ≤1.
+For𝑥= 18, 12− 12𝑡= 18 ⟹ 𝑡= 34.
+For𝑦= 3
+√
+3
+8 ,
+√
+3
+2 𝑡= 3
+√
+3
+8 ⟹ 𝑡= 34.
+Since0< 34 <1,𝐶 is an interior point of𝐴𝐵.
+The point𝐶 is the unique point on𝐴𝐵 (excluding endpoints) that lies on the astroid. The tangent to the astroid at𝐶 is the
+segment𝐴𝐵. Thus,𝐶 does not belong to any other segment from.
+Finally, we calculate𝑂𝐶2=( 18)2+( 3
+√
+3
+8 )2= 164+ 2764 = 2864 = 716.We have𝑝=7 and𝑞=16 . These are relatively prime.
+𝑝+𝑞=7+16=23 .
+Final Answer: The final answer is23
+41
+s1: Simple test-time scaling
+[Incorrect generation with 5923 thinking tokens and 754 answer tokens]
+The problem asks for a point𝐶 on the segment𝐴𝐵 such that𝐶 is not on any other segment from the family, except𝐴𝐵
+itself. The family consists of segments𝑃𝑄 of unit length, with𝑃 on the𝑥-axis and𝑄 on the𝑦-axis in the first quadrant.
+Let𝑃 =(𝑥,0)and𝑄=(0,𝑦), where𝑥> 0and𝑦> 0. The length of the segment𝑃𝑄 is 1, so the distance between𝑃 and𝑄
+is 1.√
+(𝑥−0)2+(0− 𝑦)2=1√
+𝑥2+𝑦2=1
+𝑥2+𝑦2=1
+The segment𝑃𝑄 lies in the first quadrant, so𝑥> 0 and𝑦> 0.
+The equation𝑥2+𝑦2=1 represents the quarter circle in the first quadrant, with endpoints at(1,0) and(0,1).
+The points on the segment𝑃𝑄 can be parameterized as(1− 𝑡)𝑥+𝑡(0),(1− 𝑡)0+ 𝑡𝑦)=( 𝑥(1− 𝑡),𝑦𝑡), where0 ≤𝑡 ≤1.
+The segment𝐴𝐵 connects𝐴(12,0) and𝐵(0,
+√
+3
+2 ).
+The equation of the line containing𝐴𝐵 can be found using the two points:
+Slope𝑚=
+√
+3
+2 −0
+0−12 =
+√
+3
+2
+−12 =−
+√
+3.
+Using point-slope form with point𝐴(12,0):
+𝑦−0=−
+√
+3(𝑥− 12)
+𝑦=−
+√
+3𝑥+
+√
+3
+2
+The segment𝐴𝐵 lies in the first quadrant, between𝑥=0 and𝑥= 12.
+Alternatively, we can parameterize the points on𝐴𝐵.
+Let𝐶 be a point on𝐴𝐵. Then𝐶 =(1− 𝜆)𝐴+𝜆𝐵 for some0 ≤𝜆 ≤1.
+𝐶 =(1− 𝜆)(12,0)+ 𝜆(0,
+√
+3
+2 )=( 12− 12𝜆,
+√
+3
+2 𝜆).
+We are looking for a unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that does not belong to any segment from other than
+𝐴𝐵.
+Consider a segment from, with endpoints𝑃 =(𝑥,0) and𝑄=(0,𝑦), where𝑥2+𝑦2=1 .
+A point on this segment is of the form(𝑥(1− 𝑡),𝑦𝑡), where0 ≤𝑡 ≤1.
+We want to find a point𝐶 on𝐴𝐵,𝐶 ≠𝐴,𝐵, such that if𝐶 lies on a segment𝑃𝑄 ∈ , then𝑃𝑄 =𝐴𝐵.
+Let𝐶 =( 12− 12𝜆,
+√
+3
+2 𝜆), where0<𝜆< 1.
+If𝐶 lies on a segment𝑃𝑄 from , then there exist𝑥,𝑦> 0 with𝑥2+𝑦2=1 , and𝑡∈[0,1]such that:
+1
+2− 12𝜆=𝑥(1− 𝑡)√
+3
+2 𝜆=𝑦𝑡
+From the first equation,1− 𝑡=
+1
+2−12𝜆
+𝑥 = 1−𝜆2𝑥 .
+From the second equation,𝑡=
+√
+3
+2 𝜆
+𝑦 =
+√
+3𝜆
+2𝑦 .
+Since𝑡∈[0,1], we have1− 𝑡∈[0,1].
+Also,𝑥> 0, so1−𝜆2𝑥 >0, which implies1− 𝜆> 0, or𝜆< 1. This is consistent with the condition for point on𝐴𝐵.
+We have1− 𝑡= 1−𝜆2𝑥 and𝑡=
+√
+3𝜆
+2𝑦 .
+Adding these equations:1= 1−𝜆2𝑥 +
+√
+3𝜆
+2𝑦
+2𝑥𝑦=(1− 𝜆)𝑦+
+√
+3𝜆𝑥
+42
+s1: Simple test-time scaling
+We know𝑥2+𝑦2=1 .
+If the point𝐶 belongs to the segment𝐴𝐵 itself, then the endpoints of the segment are𝐴 and𝐵.
+So, the segment is from(12,0)to(0,
+√
+3
+2 ).
+Here,𝑥= 12 and𝑦=
+√
+3
+2 .
+Check if𝑥2+𝑦2=1 :(12)2+(
+√
+3
+2 )2= 14+ 34 =1 . So𝐴𝐵∈ .
+If𝐶 belongs to another segment𝑃𝑄 from , with endpoints𝑃 =(𝑥,0) and𝑄=(0,𝑦), where(𝑥,𝑦) ≠(12,
+√
+3
+2 ).Consider the geometric interpretation. The family consists of segments of unit length with endpoints on the axes. The
+midpoints of these segments lie on the circle(𝑥− 12)2+(𝑦− 12)2= 12.Let the point𝐶 correspond to some𝜆.
+If𝐶 lies on𝑃𝑄, then𝐶 =(𝑥(1− 𝑡),𝑦𝑡).
+So, 12− 12𝜆=𝑥(1− 𝑡)and
+√
+3
+2 𝜆=𝑦𝑡.
+We need to find a𝜆∈(0,1)such that the only solution to these equations, with𝑥2+𝑦2=1 ,𝑥,𝑦> 0, is𝑥= 12 and𝑦=
+√
+3
+2 .
+From the equations,1− 𝑡= 1−𝜆2𝑥 and𝑡=
+√
+3𝜆
+2𝑦 .
+Substitute these into𝑥2+𝑦2=1 .
+Try a different approach. Consider the tangents to the family of segments.
+The segments are formed by points(𝑥,0) and(0,𝑦)with𝑥2+𝑦2=1 .
+The equation of the line containing the segment𝑃𝑄 is 𝑥𝑥+ 𝑦𝑦 =1 , or𝑥𝑥+ 𝑦𝑦 =1 .
+The equation of the line is𝑥𝑥+ 𝑦𝑦 =1 .
+Consider the equation of the segment in parametric form:(𝑥(1− 𝑡),𝑦𝑡).
+If a point𝐶 lies on this segment, then𝐶 =(𝑥𝑐,𝑦𝑐), where𝑥𝑐 =𝑥(1− 𝑡)and𝑦𝑐 =𝑦𝑡.
+So, 𝑥𝑐𝑥 =1− 𝑡 and 𝑦𝑐𝑦 =𝑡.𝑥𝑐
+𝑥 + 𝑦𝑐𝑦 =1− 𝑡+𝑡=1 .
+The segments from are parts of the lines𝑥𝑥0 + 𝑦𝑦0 =1 , where𝑥20+𝑦20=1 ,𝑥0,𝑦0>0.
+Consider the point𝐶 =( 12− 12𝜆,
+√
+3
+2 𝜆).If𝐶 lies on a segment from with endpoints(𝑥,0) and(0,𝑦), then:
+1
+2−12𝜆
+𝑥 +
+√
+3
+2 𝜆
+𝑦 =1
+1−𝜆
+2𝑥 +
+√
+3𝜆
+2𝑦 =1
+We need to find a unique𝜆∈(0,1) such that the only solution(𝑥,𝑦)to this equation, with𝑥2+𝑦2=1 ,𝑥,𝑦> 0, is(12,
+√
+3
+2 ).
+Substitute𝑥= 12 and𝑦=
+√
+3
+2 into the equation:
+1−𝜆
+2(12)+
+√
+3𝜆
+2(
+√
+3
+2 )
+=1
+1− 𝜆+𝜆=1
+1=1
+This shows that any point on𝐴𝐵 lies on the segment𝐴𝐵 itself.
+Consider the line containing𝐴𝐵: 𝑦=−
+√
+3𝑥+
+√
+3
+2 .
+If a point𝐶 on𝐴𝐵 also lies on another segment from with endpoints(𝑥,0)and(0,𝑦), then:
+𝑥𝐶
+𝑥 + 𝑦𝐶𝑦 =1 .
+Let the point𝐶 divide𝐴𝐵 in the ratio𝜇∶(1− 𝜇), where0<𝜇< 1.
+𝐶 =(1− 𝜇)𝐴+𝜇𝐵 =(1− 𝜇)(12,0)+ 𝜇(0,
+√
+3
+2 )=( 12− 12𝜇,
+√
+3
+2 𝜇).If𝐶 lies on a segment with endpoints(𝑥,0) and(0,𝑦), then:
+1
+2−12𝜇
+𝑥 +
+√
+3
+2 𝜇
+𝑦 =1 .
+We are looking for a point𝐶 such that the line passing through𝐶 with the form𝑥𝑥0 + 𝑦𝑦0 =1 , where𝑥20+𝑦20=1 , is unique.
+43
+s1: Simple test-time scaling
+Consider the tangents to the unit circle centered at the origin. The lines of the form𝑥𝑥0 + 𝑦𝑦0 =1 are tangents to the circle
+𝑥2+𝑦2=𝑟2.
+Consider the dual problem. The family of segments corresponds to points on the quarter circle𝑥2+𝑦2 = 1in the first
+quadrant.
+The lines containing the segments are𝑥𝑥0 + 𝑦𝑦0 =1 .The envelope of these lines is the curve whose tangents are these lines.
+The equation 𝑥𝑥0 + 𝑦𝑦0 =1 , with the constraint𝑥20+𝑦20=1 .
+Let𝑥0=cos 𝜃,𝑦0=sin 𝜃, where0<𝜃 < 𝜋2.The equations of the lines are𝑥cos𝜃+𝑦sin𝜃=1 .
+The envelope of the family of lines𝑥cos𝜃+𝑦sin𝜃=1 is the circle𝑥2+𝑦2=1 .
+The segments from are parts of the tangents to the unit circle in the first quadrant.
+The point𝐶 on𝐴𝐵 that does not belong to any other segment from means that the tangent to the unit circle passing
+through𝐶 is unique.
+Consider the point𝐶 =( 12− 12𝜆,
+√
+3
+2 𝜆).The tangents to the unit circle passing through𝐶 have the form𝑥𝑥𝐶+𝑦𝑦𝐶 =1 .
+If the tangent is unique, then𝐶 lies on the unit circle.
+(12− 12𝜆)2+(
+√
+3
+2 𝜆)2=1
+(14− 12𝜆+ 14𝜆2)+ 34𝜆2=1
+1
+4− 12𝜆+𝜆2=1
+4𝜆2−2𝜆+1=4
+4𝜆2−2𝜆−3=0
+Solve for𝜆:
+𝜆= −(−2)±
+√
+(−2)2−4(4)(−3)
+2(4) = 2±
+√
+4+48
+8 = 2±
+√
+52
+8 = 2±2
+√
+13
+8 = 1±
+√
+13
+4 .
+We need0<𝜆< 1.√
+13≈3 .6.
+1+3.6
+4 = 4.64 >1.
+1−3.6
+4 = −2.64 <0.Something is wrong. The point𝐶 is inside the unit circle.
+Let’s rephrase the condition. There is a unique point𝐶 on𝐴𝐵 such that if𝐶 lies on a segment𝑃𝑄 ∈ , then𝑃𝑄 =𝐴𝐵.
+Let the point𝐶 on𝐴𝐵 be(12− 12𝜆,
+√
+3
+2 𝜆).
+Consider a segment from with endpoints(𝑥,0) and(0,𝑦),𝑥2+𝑦2=1 .
+The parametric form of the segment is(𝑥(1− 𝑡),𝑦𝑡).
+If𝐶 is on this segment, then for some𝑡∈[0,1]:
+1
+2− 12𝜆=𝑥(1− 𝑡)√
+3
+2 𝜆=𝑦𝑡If the segment is unique, then the values of𝑥and𝑦are unique.
+The only solution to1−𝜆2𝑥 +
+√
+3𝜆
+2𝑦 =1 , with𝑥2+𝑦2=1 ,𝑥,𝑦> 0, should be𝑥= 12,𝑦 =
+√
+3
+2 .
+Consider the intersection of the line containing𝐴𝐵 with the boundary of the region formed by the segments in.
+The boundaries are the𝑥-axis,𝑦-axis, and the quarter circle𝑥2+𝑦2=1 .
+Consider the dual problem again. The family of lines𝑥𝑥0 + 𝑦𝑦0 =1 , where𝑥20+𝑦20=1 ,𝑥0,𝑦0>0.
+The envelope of these lines is the circle𝑥2+𝑦2=1 .
+A point belongs to a unique segment from if it lies on the circle𝑥2+𝑦2=1 .
+The point𝐶 on𝐴𝐵 satisfies𝐶 =𝑡𝐴+(1− 𝑡)𝐵.
+Let’s consider the case where the segment is𝐴𝐵. Here𝑥= 12,𝑦 =
+√
+3
+2 .
+The point𝐶 can be represented as(12(1− 𝑠),
+√
+3
+2 𝑠)for0 ≤𝑠 ≤1.
+We are looking for a point𝐶 on𝐴𝐵 that does not lie on any other segment from.
+44
+s1: Simple test-time scaling
+Consider the geometry. The family forms a region bounded by the axes and the quarter circle.
+The segments are chords of circles centered on the line𝑦=𝑥, tangent to the axes.
+Let the endpoints of a segment be(cos𝜃,0) and(0,sin𝜃).
+A point on the segment is(cos𝜃(1− 𝑡),sin𝜃𝑡).
+The point𝐶 =( 12− 12𝜆,
+√
+3
+2 𝜆).
+If𝐶 lies on such a segment, then
+1
+2−12𝜆
+cos𝜃 =1− 𝑡 and
+√
+3
+2 𝜆
+sin𝜃 =𝑡.
+1−𝜆
+2cos 𝜃 +
+√
+3𝜆
+2sin 𝜃 =1 .
+We need a unique𝜆∈(0,1)such that the only solution(cos𝜃,sin𝜃)is(12,
+√
+3
+2 ), which corresponds to𝜃= 𝜋3.
+Consider the function𝑓(𝜃)= 12cos 𝜃 − 𝜆2cos 𝜃 +
+√
+3𝜆
+2sin 𝜃.We need𝑓(𝜃)=1 .
+If𝜆= 12, then𝐶 =( 14,
+√
+3
+4 ).
+1−1∕2
+2cos 𝜃 +
+√
+3(1∕2)
+2sin 𝜃 =1
+1
+4cos 𝜃 +
+√
+3
+4sin 𝜃 =1
+1
+cos𝜃 +
+√
+3
+sin𝜃 =4
+sin𝜃+
+√
+3cos 𝜃=4sin 𝜃cos𝜃
+sin𝜃+
+√
+3cos 𝜃=2sin(2 𝜃)
+Divide by 2:12sin𝜃+
+√
+3
+2 cos𝜃=sin(2𝜃)
+sin(𝜃+ 𝜋3)=sin(2 𝜃).
+𝜃+ 𝜋3 =2𝜃+2𝜋𝑘, or𝜃+ 𝜋3 =𝜋−2𝜃+2𝜋𝑘.
+𝜃= 𝜋3 −2𝜋𝑘, so𝜃= 𝜋3.
+3𝜃=𝜋− 𝜋3 +2𝜋𝑘= 2𝜋3 +2𝜋𝑘.
+𝜃= 2𝜋9 + 2𝜋𝑘3 .
+If𝑘=0 ,𝜃= 2𝜋9 .
+If𝑘=1 ,𝜃= 2𝜋9 + 2𝜋3 = 2𝜋+6𝜋9 = 8𝜋9 .
+If𝜆= 12, the point is(14,
+√
+3
+4 ).
+This point lies on segments corresponding to𝜃= 𝜋3 and𝜃= 2𝜋9 .The unique point𝐶 means that for other values of𝜆, there is more than one solution for(𝑥,𝑦).
+Consider the tangent to the unit circle passing through𝐶.
+If the tangent is unique,𝐶 is on the unit circle.
+This leads to𝜆= 1±
+√
+13
+4 , neither of which is in(0,1).Consider the geometric interpretation of the family. The segments connect points on the axes such that the distance is 1.
+The locus of the centers of these segments is the circle(𝑥− 12)2+(𝑦− 12)2= 12, in the first quadrant.
+If a point𝐶 lies on a segment from, then𝐶 is on a line segment connecting(𝑥,0)and(0,𝑦)with𝑥2+𝑦2=1 .
+The line containing the segment is𝑥𝑥0 + 𝑦𝑦0 =1 .If𝐶 belongs to a unique segment, then there is a unique line of this form passing through𝐶.
+The point𝐶 on𝐴𝐵 is(12− 12𝜆,
+√
+3
+2 𝜆).
+We need a unique(𝑥0,𝑦0)with𝑥20+𝑦20=1 ,𝑥0,𝑦0>0, such that
+1
+2−12𝜆
+𝑥0 +
+√
+3
+2 𝜆
+𝑦0 =1 .
+Let the point𝐶 be such that the line passing through𝐶 with the form𝑥𝑥0 + 𝑦𝑦0 =1 is unique, subject to𝑥20+𝑦20=1 .This line is tangent to the unit circle.
+The point𝐶 lies on the intersection of the line containing𝐴𝐵 and the unit circle.
+(12− 12𝜆)2+(
+√
+3
+2 𝜆)2=1 .We found no solution for𝜆∈(0,1).
+45
+s1: Simple test-time scaling
+The unique point𝐶 means that if any other segment passes through𝐶, it must be𝐴𝐵.
+Consider the slope of the line containing the segment connecting(𝑥,0)and(0,𝑦). Slope is−𝑦𝑥.
+The equation is𝑦=− 𝑦𝑥𝑥+𝑦.
+If𝐶 lies on the segment, then1−𝜆2𝑥 +
+√
+3𝜆
+2𝑦 =1 .
+Consider the geometric mean.
+Let the point𝐶 have coordinates(𝑎,𝑏). The segment connecting(𝑥,0)and(0,𝑦)passes through(𝑎,𝑏).
+𝑎
+𝑥+ 𝑏𝑦 =1 .
+If𝐶 is on𝐴𝐵, then𝑏=−
+√
+3𝑎+
+√
+3
+2 .
+𝑎= 12− 12𝜆,𝑏=
+√
+3
+2 𝜆.The point𝐶 is tangent to the envelope of the family of segments.
+Solution:
+Let the family of segments be. The segments have endpoints𝑃 =(𝑥,0) and𝑄=(0,𝑦) with𝑥2+𝑦2 =1 and𝑥,𝑦> 0.
+The points on the segment𝑃𝑄 satisfy 𝑥𝑥+ 𝑦𝑦 =1 . The segments lie on the lines𝑥𝑥0 + 𝑦𝑦0 =1 , where𝑥20+𝑦20=1 ,𝑥0,𝑦0>0.
+The segment𝐴𝐵 has endpoints𝐴(12,0)and𝐵(0,
+√
+3
+2 ). The equation of the line containing𝐴𝐵 is𝑦=−
+√
+3𝑥+
+√
+3
+2 .
+A point𝐶 on𝐴𝐵 can be parameterized as𝐶 =( 12− 12𝜆,
+√
+3
+2 𝜆), where0 ≤𝜆 ≤1.
+If𝐶 belongs to a segment from with endpoints(𝑥,0) and(0,𝑦), then
+1
+2−12𝜆
+𝑥 +
+√
+3
+2 𝜆
+𝑦 =1 .
+We are looking for a unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that does not belong to any segment from other than
+𝐴𝐵. This means that the only solution(𝑥,𝑦)to the equation with𝑥2+𝑦2=1 ,𝑥,𝑦> 0, is(12,
+√
+3
+2 ).The segments from are parts of the tangents to the unit circle. The point𝐶 must be tangent to the envelope of the family
+of segments. The envelope is the unit circle itself.
+The unique point𝐶 on𝐴𝐵, distinct from𝐴 and𝐵, that lies on the unit circle. We need to solve:
+(12− 12𝜆)2+(
+√
+3
+2 𝜆)2=1
+𝜆= 12. The point𝐶 =( 14,
+√
+3
+4 ).
+𝑂𝐶2=( 14)2+(
+√
+3
+4 )2= 116+ 316 = 416 = 14.
+𝑂𝐶2= 14 = 𝑝𝑞, so𝑝=1 ,𝑞=4 .
+𝑝 and𝑞 are relatively prime.
+𝑝+𝑞=1+4=5 .
+Final Answer: The final answer is5
+F. Version Control
+V2 →V3 (2025-03):
+• Added §A
+• Added number of correct samples in §2
+V1 →V2 (2025-02):
+• Added citations and other small writing changes
+46

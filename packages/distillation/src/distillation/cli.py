@@ -9,8 +9,10 @@ import typer
 from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from rich.markup import escape
 
+from distillation.baseline_gates_cli import app as baseline_app
 from distillation.gateway_cli import app as gateway_app
 from distillation.learning_curve_cli import app as learning_curve_app
+from distillation.output_study_cli import app as output_study_app
 from distillation.progress import console
 
 app = typer.Typer(no_args_is_help=True)
@@ -18,8 +20,95 @@ tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(gateway_app, name="gateway")
 app.add_typer(learning_curve_app, name="learning-curve")
+app.add_typer(output_study_app, name="output-study")
+app.add_typer(baseline_app, name="baseline")
 traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
+acquisition_app = typer.Typer(no_args_is_help=True)
+app.add_typer(acquisition_app, name="acquisition")
+
+
+@acquisition_app.command("manifest")
+def acquisition_manifest_command(
+	ledger: Annotated[
+		list[Path],
+		typer.Option("--ledger", exists=True, dir_okay=False, help="Repeat for each ledger."),
+	],
+	response_policy: Annotated[
+		str,
+		typer.Option(
+			help="Identifier such as clean or protected-v1. Use clean only for responses "
+			"delivered unmodified; the label is your assertion and is not verified."
+		),
+	],
+	output: Annotated[Path, typer.Option(help="New manifest file; never overwritten.")],
+	accepted_only: Annotated[
+		bool,
+		typer.Option(help="Drop rows not accepted, after validating all rows; counts are kept."),
+	] = False,
+) -> None:
+	"""Write a versioned manifest of the cached teacher responses in one or more ledgers."""
+	from distillation.acquisition_manifest import ManifestError, build_manifest, write_manifest
+
+	try:
+		manifest = build_manifest(
+			ledger, response_policy=response_policy, accepted_only=accepted_only
+		)
+		write_manifest(manifest, output)
+	except ManifestError as error:
+		raise typer.BadParameter(str(error)) from error
+	totals = manifest["totals"]
+	typer.echo(
+		f"examples={totals['examples']} unknown_token_rows={totals['unknown_token_rows']} "
+		f"digest={manifest['digest']} output={output}"
+	)
+
+
+@acquisition_app.command("select")
+def acquisition_select_command(
+	manifest: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	by: Annotated[str, typer.Option(help="queries or tokens")],
+	budget: Annotated[int, typer.Option(min=1)],
+	seed: Annotated[int, typer.Option()],
+	split: Annotated[str, typer.Option(help="Only rows of this split are candidates.")] = "train",
+	include_unaccepted: Annotated[
+		bool, typer.Option(help="Also draw rows whose quality status is not accepted.")
+	] = False,
+	require_ledgers: Annotated[
+		bool, typer.Option(help="Fail when a ledger file is missing instead of skipping its check.")
+	] = False,
+	output: Annotated[
+		Path | None, typer.Option(help="Also write the selection to this new file.")
+	] = None,
+) -> None:
+	"""Select example IDs for an equal-query or equal-token budget, by seed.
+
+	Token budgets are only for the clean policy, whose ledger tokens were delivered as is.
+	"""
+	from distillation.acquisition_manifest import (
+		ManifestError,
+		load_manifest,
+		select_rows,
+		write_new,
+	)
+
+	if by not in ("queries", "tokens"):
+		raise typer.BadParameter("--by must be queries or tokens")
+	try:
+		selection = select_rows(
+			load_manifest(manifest, require_ledgers=require_ledgers),
+			by="queries" if by == "queries" else "tokens",
+			budget=budget,
+			seed=seed,
+			split=split,
+			include_unaccepted=include_unaccepted,
+		)
+		text = json.dumps(selection, indent="\t")
+		if output is not None:
+			write_new(output, text + "\n")
+	except ManifestError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(text)
 
 
 @tasks_app.command("build")
@@ -147,17 +236,32 @@ def comparison_report_command(
 	include_backfill: Annotated[
 		bool, typer.Option(help="Also pool backfilled historical rows, which ran other code.")
 	] = False,
+	utility_baseline_arm: Annotated[
+		str | None, typer.Option(help="Arm serving everything that utility is compared against.")
+	] = None,
+	allow_invalid_utility_baseline: Annotated[
+		str | None,
+		typer.Option(help="Reason to compare utility anyway; recorded, and validity stays shown."),
+	] = None,
 ) -> None:
 	"""Compare arms only after the teacher capacity gate passes.
 
 	With --index, conditions and outcomes come from readings/index.tsv for one attack and the
 	given arms, with intervals over independent runs. Budgets and utility targets the index
 	does not record must be declared with their options; they are never filled in.
+
+	A legitimate-utility comparison is refused unless every compared run and the baseline arm are
+	valid, or --allow-invalid-utility-baseline records why it proceeds. Other views mark it.
 	"""
 	import hashlib
 
 	from distillation.evaluation_protocol import compare_conditions
-	from distillation.results_index import UTILITY_FIELDS, comparison_from_index, read_index
+	from distillation.results_index import (
+		UTILITY_FIELDS,
+		comparison_from_index,
+		read_index,
+		utility_validity_check,
+	)
 
 	if (index is None) == (conditions is None):
 		raise typer.BadParameter("give exactly one of --index and --conditions")
@@ -165,6 +269,7 @@ def comparison_report_command(
 		raise typer.BadParameter(f"utility metric must be one of {', '.join(UTILITY_FIELDS)}")
 	try:
 		outcomes = None
+		validity = None
 		if index is not None:
 			if not attack or not arm:
 				raise ValueError("--index needs --attack and at least two --arm options")
@@ -175,22 +280,33 @@ def comparison_report_command(
 				"utility_target": utility_target,
 				"utility_tolerance": utility_tolerance,
 			}
+			indexed = read_index(index)
 			rows, outcomes = comparison_from_index(
-				read_index(index),
+				indexed,
 				attack=attack,
 				arms=arm,
 				view=view,
 				declared=declared,
 				include_backfill=include_backfill,
 			)
+			validity = utility_validity_check(
+				indexed,
+				rows,
+				baseline_arm=utility_baseline_arm,
+				require_baseline=view == "legitimate_utility",
+				override=allow_invalid_utility_baseline,
+			)
 		else:
 			assert conditions is not None
 			rows = json.loads(conditions.read_text())
+			if allow_invalid_utility_baseline:
+				validity = {"valid": False, "override": allow_invalid_utility_baseline}
 		result = compare_conditions(
 			rows,
 			view,
 			capacity_evidence=json.loads(capacity_evidence.read_text()),
 			schedule_sha256=hashlib.sha256(benign_schedule.read_bytes()).hexdigest(),
+			utility_validity=validity,
 		)
 	except ValueError as error:
 		raise typer.BadParameter(str(error)) from error

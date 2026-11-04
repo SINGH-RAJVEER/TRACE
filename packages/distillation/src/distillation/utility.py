@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import math
 import statistics
 import time
 from pathlib import Path
@@ -20,6 +21,18 @@ from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver
 from distillation.schemas import TeacherGeneration, TeacherGenerationRequest
 
 
+def check_arrivals(requests: list[BenignRequest], baseline: dict[str, Any]) -> None:
+	"""The schedule hash binds the preflight; this checks the requests actually sent match it."""
+	times = [request.time or 0 for request in requests]
+	span = max(times, default=0) - min(times, default=0)
+	offered = len(times) / span if span > 0 else math.inf
+	if not math.isclose(offered, baseline["preflight_offered_rps"], rel_tol=1e-6):
+		raise ValueError(
+			f"these requests arrive at {offered} per second, but the teacher preflight offered "
+			f"{baseline['preflight_offered_rps']}"
+		)
+
+
 async def measure_utility(
 	*,
 	requests: list[BenignRequest],
@@ -28,13 +41,19 @@ async def measure_utility(
 	keys: dict[str, str],
 	max_output_tokens: int | dict[str, int],
 	output: Path,
+	baseline: dict[str, Any],
 	account_profiles: dict[str, str] | None = None,
 	concurrency: int = 32,
 	solver_workers: int = 4,
 	request_deadline: float = 120,
 	transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
-	"""Measure response utility with a declared process allowance for proof solving."""
+	"""Measure response utility with a declared process allowance for proof solving.
+
+	`baseline` comes from `teacher_capacity.bind_utility_baseline` and is stored in the run. These
+	requests must arrive at the rate the preflight measured, so nothing runs if they would not.
+	"""
+	check_arrivals(requests, baseline)
 	solver = ProofSolver(solver_workers)
 	try:
 		return await _measure_utility(
@@ -44,6 +63,7 @@ async def measure_utility(
 			keys=keys,
 			max_output_tokens=max_output_tokens,
 			output=output,
+			baseline=baseline,
 			account_profiles=account_profiles,
 			concurrency=concurrency,
 			request_deadline=request_deadline,
@@ -63,6 +83,7 @@ async def _measure_utility(
 	keys: dict[str, str],
 	max_output_tokens: int | dict[str, int],
 	output: Path,
+	baseline: dict[str, Any],
 	account_profiles: dict[str, str] | None = None,
 	concurrency: int = 32,
 	request_deadline: float = 120,
@@ -76,8 +97,9 @@ async def _measure_utility(
 	contract = hashlib.sha256(
 		json.dumps(
 			{
-				"measurement_version": "utility-response-latency-v2",
+				"measurement_version": "utility-response-latency-v3",
 				"horizon_policy": HORIZON_POLICY,
+				"baseline": baseline,
 				"solver": {
 					"version": SOLVER_VERSION,
 					"workers": solver.workers,
@@ -270,8 +292,9 @@ async def _measure_utility(
 			}
 			for field in ("domain", "domain_profile", "client_type")
 		},
-		"measurement_version": "utility-response-latency-v2",
+		"measurement_version": "utility-response-latency-v3",
 		"horizon_policy": HORIZON_POLICY,
+		"baseline": baseline,
 		"solver": {
 			"version": SOLVER_VERSION,
 			"workers": solver.workers,

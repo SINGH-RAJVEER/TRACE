@@ -1,0 +1,67 @@
+[
+	{
+		"filename": "PAPER_DETECT_PRADA_1805.02628v5.pdf",
+		"title": "PRADA: Protecting against DNN Model Stealing Attacks",
+		"source_url": "https://arxiv.org/abs/1805.02628",
+		"pdf_url": "https://arxiv.org/pdf/1805.02628v5",
+		"version_date": "v5, 2019-03-31; first submitted 2018-05-07",
+		"status": "IEEE EuroS&P 2019",
+		"sha256": "d43ab63c43e40414c65e9048107a646b61f592f5112e51ec4b72a3632ff94da1",
+		"size_bytes": 1437686,
+		"pages": 17,
+		"header_verified": true,
+		"inspected": "Methods Section V-A (pp. 10-12), mitigation and Sybil discussion (pp. 13-14)."
+	},
+	{
+		"filename": "PAPER_DETECT_VarDetect_2107.05166v1.pdf",
+		"title": "Stateful Detection of Model Extraction Attacks",
+		"source_url": "https://arxiv.org/abs/2107.05166",
+		"pdf_url": "https://arxiv.org/pdf/2107.05166v1",
+		"version_date": "v1, 2021-07-12",
+		"status": "arXiv preprint; no peer-reviewed venue verified",
+		"sha256": "c27f30f8bb68a4386e317fe59ffd783412237ab87bf0717f0149f291be4de5e8",
+		"size_bytes": 1512246,
+		"pages": 16,
+		"header_verified": true,
+		"inspected": "Threat model, VAE/MMD algorithm, Section 7.3 adaptive attacks (pp. 8-10), including explicit 5% dilution miss."
+	},
+	{
+		"filename": "PAPER_DETECT_LLM_MMD_2606.05725v3.pdf",
+		"title": "An Embarrassingly Simple Detector for Model Extraction Attacks in Large Language Model API Traffic",
+		"source_url": "https://arxiv.org/abs/2606.05725",
+		"pdf_url": "https://arxiv.org/pdf/2606.05725v3",
+		"version_date": "v3, 2026-08-29; first submitted 2026-06-04",
+		"status": "Accepted EMNLP 2026 Main, verified FSU department announcement dated 2026-09-08",
+		"sha256": "e057d7170cd6050cd6cd89bac72896face4ad49f3d209209edadfe0dc0590849",
+		"size_bytes": 522974,
+		"pages": 19,
+		"header_verified": true,
+		"inspected": "Methods Sections 2-3; experiment settings 4.1; adaptive and contamination analyses 4.5-4.6; limitations; original-protocol comparison 4.7; relevant full PDF text and arXiv HTML inspected."
+	},
+	{
+		"filename": "PAPER_DETECT_Sequential_Two_Sample_Betting_2112.09162.pdf",
+		"title": "Nonparametric Two-Sample Testing by Betting",
+		"source_url": "https://arxiv.org/abs/2112.09162",
+		"pdf_url": "https://arxiv.org/pdf/2112.09162",
+		"version_date": "v6, 2025-08-22; first submitted 2021-12-16",
+		"status": "IEEE Transactions on Information Theory 2023 work; downloaded later arXiv v6 correction",
+		"sha256": "3d0c5f3261fde91d4443ed0d02820d207264cc40a14a3cfa40775ca56b016439",
+		"size_bytes": 844138,
+		"pages": 59,
+		"header_verified": true,
+		"inspected": "Sections 1.1, 2.1, conditional-expectation assumptions, pair symmetry Remark, Section 5.1. Latest revision fixes theorem proof; theorem applicability not assumed for raw conversational traffic."
+	},
+	{
+		"filename": "PAPER_DETECT_Conformal_Test_Martingales_Vovk_2021.pdf",
+		"title": "Retrain or not retrain: conformal test martingales for change-point detection",
+		"source_url": "https://proceedings.mlr.press/v152/vovk21b.html",
+		"pdf_url": "https://proceedings.mlr.press/v152/vovk21b/vovk21b.pdf",
+		"version_date": "PMLR 152:191-210, 2021-09-08 to 2021-09-10 conference",
+		"status": "COPA 2021, PMLR proceedings",
+		"sha256": "e1870eb130255ab78758b46dcd0968b11fff7a0965787ceead340e3793bbb573",
+		"size_bytes": 1081922,
+		"pages": 20,
+		"header_verified": true,
+		"inspected": "Section 2 definitions, randomized sequential rank p-values, exchangeability assumptions, Proposition 1, Ville inequality (pp. 2-4), calibration example (p. 5)."
+	}
+]
