@@ -1,7 +1,21 @@
 """Tests use synthetic per-item correctness, without a teacher or student training."""
 
+from typing import Any
+
 import pytest
-from distillation.transfer_metrics import transfer_report, transfer_report_seeds
+from distillation import transfer_metrics
+from distillation.transfer_metrics import SuppressionGate
+
+COVERED = SuppressionGate(covered=True, reason=None, digest="fixture", identity={})
+
+
+# The metrics themselves are tested under a covering gate; the refusal is tested without one.
+def transfer_report(correct: Any, **options: Any) -> dict[str, Any]:
+	return transfer_metrics.transfer_report(correct, gate=COVERED, **options)
+
+
+def transfer_report_seeds(runs: Any, **options: Any) -> dict[str, Any]:
+	return transfer_metrics.transfer_report_seeds(runs, gate=COVERED, **options)
 
 
 def flags(correct: int, total: int) -> list[bool]:
@@ -119,7 +133,7 @@ def test_exact_zero_and_sub_item_gaps() -> None:
 
 	zero = counts([3, 3, 3, 2], [0, 0, 0, 3], [3] * 4, [2] * 4, [5] * 4)
 	for weighting in ("item", "family"):
-		report = transfer_report(zero, weighting=weighting)  # type: ignore[arg-type]
+		report = transfer_report(zero, weighting=weighting)
 		assert report["headroom"]["interval"][0] == 0
 		assert not report["headroom"]["usable"]
 	# The exact family-weighted effect is 0.04999999920009599, just below 0.05.
@@ -168,6 +182,25 @@ def test_input_validation() -> None:
 			transfer_report(good, **{name: float("nan")})
 	for runs in ([good], "seed", {}):
 		with pytest.raises(ValueError, match="runs"):
-			transfer_report_seeds(runs)  # type: ignore[arg-type]
+			transfer_report_seeds(runs)
 	with pytest.raises(ValueError, match="mapping"):
 		transfer_report({**good, "clean": [True]})  # type: ignore[dict-item]
+
+
+def test_suppression_and_decision_are_refused_without_a_covering_gate() -> None:
+	correct = uniform(9, 3, 7, 5)
+	report = transfer_metrics.transfer_report(correct)
+	assert report["suppression"]["value"] is None
+	assert "No passing clean-baseline gate" in report["suppression"]["reason"]
+	assert report["suppression_gate"]["covered"] is False
+	assert report["decision"]["meets_target"] is None
+	assert report["decision"]["effect_met"] is None
+	assert report["decision"]["clean_minus_defended"]["value"] == pytest.approx(0.2)
+	assert report["raw"]["overall"]["clean"] == pytest.approx(0.7)
+	failing = SuppressionGate(covered=False, reason="other student", digest="d", identity={})
+	assert transfer_metrics.transfer_report(correct, gate=failing)["suppression"]["reason"] == (
+		"other student"
+	)
+	runs = transfer_metrics.transfer_report_seeds({"1": correct, "2": correct})
+	assert runs["seeds_meeting_target"] is None
+	assert runs["seed_variability"]["suppression"]["defined"] == 0

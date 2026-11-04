@@ -9,8 +9,10 @@ import typer
 from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from rich.markup import escape
 
+from distillation.baseline_gates_cli import app as baseline_app
 from distillation.gateway_cli import app as gateway_app
 from distillation.learning_curve_cli import app as learning_curve_app
+from distillation.output_study_cli import app as output_study_app
 from distillation.progress import console
 
 app = typer.Typer(no_args_is_help=True)
@@ -18,6 +20,8 @@ tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(gateway_app, name="gateway")
 app.add_typer(learning_curve_app, name="learning-curve")
+app.add_typer(output_study_app, name="output-study")
+app.add_typer(baseline_app, name="baseline")
 traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
 acquisition_app = typer.Typer(no_args_is_help=True)
@@ -232,17 +236,32 @@ def comparison_report_command(
 	include_backfill: Annotated[
 		bool, typer.Option(help="Also pool backfilled historical rows, which ran other code.")
 	] = False,
+	utility_baseline_arm: Annotated[
+		str | None, typer.Option(help="Arm serving everything that utility is compared against.")
+	] = None,
+	allow_invalid_utility_baseline: Annotated[
+		str | None,
+		typer.Option(help="Reason to compare utility anyway; recorded, and validity stays shown."),
+	] = None,
 ) -> None:
 	"""Compare arms only after the teacher capacity gate passes.
 
 	With --index, conditions and outcomes come from readings/index.tsv for one attack and the
 	given arms, with intervals over independent runs. Budgets and utility targets the index
 	does not record must be declared with their options; they are never filled in.
+
+	A legitimate-utility comparison is refused unless every compared run and the baseline arm are
+	valid, or --allow-invalid-utility-baseline records why it proceeds. Other views mark it.
 	"""
 	import hashlib
 
 	from distillation.evaluation_protocol import compare_conditions
-	from distillation.results_index import UTILITY_FIELDS, comparison_from_index, read_index
+	from distillation.results_index import (
+		UTILITY_FIELDS,
+		comparison_from_index,
+		read_index,
+		utility_validity_check,
+	)
 
 	if (index is None) == (conditions is None):
 		raise typer.BadParameter("give exactly one of --index and --conditions")
@@ -250,6 +269,7 @@ def comparison_report_command(
 		raise typer.BadParameter(f"utility metric must be one of {', '.join(UTILITY_FIELDS)}")
 	try:
 		outcomes = None
+		validity = None
 		if index is not None:
 			if not attack or not arm:
 				raise ValueError("--index needs --attack and at least two --arm options")
@@ -260,22 +280,33 @@ def comparison_report_command(
 				"utility_target": utility_target,
 				"utility_tolerance": utility_tolerance,
 			}
+			indexed = read_index(index)
 			rows, outcomes = comparison_from_index(
-				read_index(index),
+				indexed,
 				attack=attack,
 				arms=arm,
 				view=view,
 				declared=declared,
 				include_backfill=include_backfill,
 			)
+			validity = utility_validity_check(
+				indexed,
+				rows,
+				baseline_arm=utility_baseline_arm,
+				require_baseline=view == "legitimate_utility",
+				override=allow_invalid_utility_baseline,
+			)
 		else:
 			assert conditions is not None
 			rows = json.loads(conditions.read_text())
+			if allow_invalid_utility_baseline:
+				validity = {"valid": False, "override": allow_invalid_utility_baseline}
 		result = compare_conditions(
 			rows,
 			view,
 			capacity_evidence=json.loads(capacity_evidence.read_text()),
 			schedule_sha256=hashlib.sha256(benign_schedule.read_bytes()).hexdigest(),
+			utility_validity=validity,
 		)
 	except ValueError as error:
 		raise typer.BadParameter(str(error)) from error

@@ -11,12 +11,13 @@ import hashlib
 import json
 import re
 from collections import defaultdict
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 from distillation.campaign_summary import load_campaign_summary
 
-INDEX_VERSION = "results-index-v2"
+INDEX_VERSION = "results-index-v3"
 COLUMNS = (
 	"reading",
 	"run_id",
@@ -70,6 +71,18 @@ COLUMNS = (
 	"student_target_reached",
 	"training_ledger_sha256",
 	"training_runs",
+	# Utility rows: a baseline is usable only when these say so; see utility_validity.
+	"validity",
+	"validity_reason",
+	"preflight_sha256",
+	"min_completion_rate",
+	# Gate rows: the report and the hash of its inputs and parameters; see gate_row.
+	"gate_passed",
+	"gate_reason",
+	"gate_report_sha256",
+	"gate_inputs_sha256",
+	"base_revision",
+	"student_revision",
 )
 KEY = ("run_id", "kind", "attack", "arm", "stratum")
 STUDY = {"exploratory": "development", "confirmatory": "confirmatory"}
@@ -221,24 +234,78 @@ def campaign_row(
 
 
 UTILITY_STRATA = ("domain", "domain_profile", "client_type")
+# Arms that serve everything, so their completion measures the teacher and not a defense.
+BASELINE_POLICIES = ("none", "allow")
+UNBOUND = "no teacher preflight was recorded for this utility run"
+
+
+def utility_validity(
+	result: dict[str, Any] | None, policy: str | None, preflight: Path | None
+) -> dict[str, Any]:
+	"""Validity of one utility run, from its stored binding and the preflight report on disk.
+
+	The declared completion floor applies only to baseline policies: a defended arm that completes
+	less is the outcome being measured, so there validity means bound to a passing preflight. A
+	run without a binding is unknown, never valid, and a hash the report no longer matches is
+	invalid. The binding itself is checked at collection by `bind_utility_baseline`.
+	"""
+
+	def verdict(validity: str, reason: str | None, **fields: Any) -> dict[str, Any]:
+		return {"validity": validity, "validity_reason": reason, **fields}
+
+	if result is None:
+		return verdict("unknown", "utility was not run")
+	binding = result.get("baseline")
+	if not isinstance(binding, dict):
+		return verdict("unknown", UNBOUND)
+	recorded = {
+		"preflight_sha256": binding.get("preflight_sha256"),
+		"min_completion_rate": binding.get("min_completion_rate"),
+	}
+	actual = _sha256(preflight) if preflight else None
+	if actual is None:
+		return verdict("unknown", "the bound teacher preflight report is not available", **recorded)
+	if actual != binding.get("preflight_sha256"):
+		return verdict("invalid", "the teacher preflight report hash does not match", **recorded)
+	if policy not in BASELINE_POLICIES:
+		return verdict("valid", None, **recorded)
+	served, submitted = result.get("served"), result.get("submitted")
+	floor = recorded["min_completion_rate"]
+	if floor is None:
+		return verdict("invalid", "the run declares no minimum completion rate", **recorded)
+	if not submitted or served is None or Fraction(served, submitted) < Fraction(str(floor)):
+		return verdict(
+			"invalid",
+			f"completed {served} of {submitted} requests, below the declared minimum "
+			f"completion rate {floor}",
+			**recorded,
+		)
+	return verdict("valid", None, **recorded)
 
 
 def utility_rows(
-	directory: Path, calibration: Path | None, arm: str, *, name: str = "utility.json"
+	directory: Path,
+	calibration: Path | None,
+	arm: str,
+	*,
+	name: str = "utility.json",
+	preflight: Path | None = None,
 ) -> list[dict[str, Any]]:
 	"""A pooled `all` row, then one row per domain, profile and client type in `utility.json`.
 
 	A stratum's completion is its served share of submitted requests; its p95 latency is over
-	served requests only.
+	served requests only. Validity is decided on the pooled run and copied to every stratum.
 	"""
 	result = _json(directory / name)
+	settings = _arm_settings(directory, arm, calibration)
 	base = {
 		"kind": "utility",
 		"attack": "benign_test",
 		"arm": arm,
 		"status": "complete" if result is not None else "not-run",
 		"study": None,
-		**_arm_settings(directory, arm, calibration),
+		**settings,
+		**utility_validity(result, settings["policy"], preflight),
 	}
 	rows = [
 		{
@@ -278,6 +345,7 @@ def utility_rows(
 def run_rows(run: Path, reading: str, commit: str) -> list[dict[str, Any]]:
 	"""Rows for every campaign and utility arm directory in a `scripts/start.sh` run."""
 	calibration = run / "calibration" / "calibration.json"
+	preflight = run / "teacher-preflight.json"
 	rows = [
 		campaign_row(arm, run / "schedules" / attack.name, calibration, attack.name, arm.name)
 		for attack in sorted((run / "campaigns").glob("*"))
@@ -288,7 +356,7 @@ def run_rows(run: Path, reading: str, commit: str) -> list[dict[str, Any]]:
 		row
 		for arm in sorted((run / "utility").glob("*"))
 		if arm.is_dir()
-		for row in utility_rows(arm, calibration, arm.name)
+		for row in utility_rows(arm, calibration, arm.name, preflight=preflight)
 	]
 	for row in rows:
 		row.update(reading=reading, run_id=run.name, commit=commit)
@@ -300,13 +368,22 @@ def _seed_budget(name: str) -> tuple[int | None, int | None]:
 	return (int(match[1]), int(match[2])) if match else (None, None)
 
 
+def _overloaded(path: Path) -> str:
+	result = _json(path) or {}
+	return (
+		f"{UNBOUND}; the teacher was overloaded, completing {result.get('served')} of "
+		f"{result.get('submitted')} requests, so comparisons against this baseline are invalid"
+	)
+
+
 def backfill_rows(readings: Path) -> list[dict[str, Any]]:
 	"""Rows for the frozen v3 study and the v4 audit's undefended v2 evidence.
 
 	Both predate the runner layout and the index, so their rows are labelled `backfill:` in
 	`run_id`, carry no commit, and count as development evidence: the v4 audit inspected them.
 	Fields the frozen files never recorded stay empty. The v2 ledgers have no event log, so
-	their counts come from the translated legacy `campaign.json`.
+	their counts come from the translated legacy `campaign.json`. The v3 teacher was overloaded and
+	has no preflight, so its undefended baseline is invalid and the arms beside it stay unknown.
 	"""
 	rows: list[dict[str, Any]] = []
 	v3 = readings / "v3"
@@ -325,7 +402,13 @@ def backfill_rows(readings: Path) -> list[dict[str, Any]]:
 			]
 	if (v3 / "utility" / "undefended.json").is_file():
 		rows += [
-			{**u, "run_id": "backfill:v3", "reading": "v3"}
+			{
+				**u,
+				"run_id": "backfill:v3",
+				"reading": "v3",
+				"validity": "invalid",
+				"validity_reason": _overloaded(v3 / "utility" / "undefended.json"),
+			}
 			for u in utility_rows(v3 / "utility", None, "undefended", name="undefended.json")
 		]
 	for directory in sorted((readings / "v4" / "evidence" / "v2").glob("*/*/*")):
@@ -389,6 +472,28 @@ def student_rows(output: Path, index_rows: list[dict[str, str]]) -> list[dict[st
 	]
 
 
+def gate_row(report: dict[str, Any], sha256: str, student_seeds: int | None) -> dict[str, Any]:
+	"""A gate decision, keyed to the hash of its inputs: rerunning the same inputs replaces it."""
+	inputs = report["inputs_sha256"]
+	return {
+		"run_id": f"gate:{inputs[:24]}",
+		"kind": "gate",
+		"attack": report["gate"],
+		"arm": report["task"],
+		"stratum": "all",
+		"status": report["status"],
+		"study": "development",
+		"student_task": report["task"],
+		"student_seeds": student_seeds,
+		"gate_passed": report["passed"],
+		"gate_reason": "; ".join(report["reasons"]) or None,
+		"gate_report_sha256": sha256,
+		"gate_inputs_sha256": inputs,
+		"base_revision": report["base"]["revision"],
+		"student_revision": report["student_revision"],
+	}
+
+
 def _cell(value: Any) -> str:
 	if value is None:
 		return ""
@@ -397,7 +502,7 @@ def _cell(value: Any) -> str:
 	return str(value)
 
 
-def read_index(path: Path) -> list[dict[str, str]]:
+def _stored_rows(path: Path) -> list[dict[str, str]]:
 	if not path.is_file():
 		return []
 	with path.open(newline="") as stream:
@@ -409,10 +514,20 @@ def read_index(path: Path) -> list[dict[str, str]]:
 		return [{column: row.get(column) or "" for column in COLUMNS} for row in reader]
 
 
+def read_index(path: Path) -> list[dict[str, str]]:
+	"""Rows as they should be read: a utility row with no recorded validity is unknown."""
+	rows = _stored_rows(path)
+	for row in rows:
+		if row["kind"] == "utility" and not row["validity"]:
+			row.update(validity="unknown", validity_reason=UNBOUND)
+	return rows
+
+
 def update_index(path: Path, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
 	"""Replace the rows of each run in `rows`, keep all others, and write the index sorted."""
 	runs = {row["run_id"] for row in rows}
-	kept = [row for row in read_index(path) if row["run_id"] not in runs]
+	# Rows of other runs keep their stored cells; the reading default is never written back.
+	kept = [row for row in _stored_rows(path) if row["run_id"] not in runs]
 	merged = kept + [{column: _cell(row.get(column)) for column in COLUMNS} for row in rows]
 	keys = [tuple(row[column] for column in KEY) for row in merged]
 	if len(set(keys)) != len(keys):
@@ -464,6 +579,59 @@ def _outcomes(rows: list[dict[str, str]], fields: tuple[str, ...]) -> dict[str, 
 			entry["interval_reason"] = "fewer than two independent runs with a known value"
 		result[field] = entry
 	return result
+
+
+def utility_validity_check(
+	rows: list[dict[str, str]],
+	conditions: list[dict[str, Any]],
+	*,
+	baseline_arm: str | None,
+	require_baseline: bool,
+	override: str | None = None,
+) -> dict[str, Any]:
+	"""Whether the pooled utility of each compared run, and its baseline's, can be compared.
+
+	The compared arms are checked in the runs they pool. The baseline arm has to be valid in every
+	one of those runs, because a comparison against an overloaded teacher is meaningless whichever
+	arms it names. An override never changes the verdict; it is recorded beside it.
+	"""
+	pooled = {
+		(r["run_id"], r["arm"]): r for r in rows if r["kind"] == "utility" and r["stratum"] == "all"
+	}
+	expected = [(c["arm"], run) for c in conditions for run in c["runs"]]
+	if baseline_arm is not None:
+		runs = sorted({run for c in conditions for run in c["runs"]})
+		expected += [(baseline_arm, run) for run in runs if (baseline_arm, run) not in expected]
+	issues = []
+	arms: dict[str, str] = {}
+	for arm, run in expected:
+		row = pooled.get((run, arm))
+		validity = row["validity"] if row else "unknown"
+		reason = row["validity_reason"] if row else "no utility row in the index"
+		if arm == baseline_arm and row and row["policy"] not in BASELINE_POLICIES:
+			validity, reason = "invalid", f"arm {arm} has policy {row['policy']}, not a baseline"
+		arms[arm] = validity if arms.get(arm, "valid") == "valid" else arms[arm]
+		if validity != "valid":
+			issues.append({"arm": arm, "run_id": run, "validity": validity, "reason": reason})
+	if require_baseline and baseline_arm is None:
+		issues.append(
+			{
+				"arm": None,
+				"run_id": None,
+				"validity": "unknown",
+				"reason": "a utility comparison needs --utility-baseline-arm",
+			}
+		)
+	return {
+		"valid": not issues,
+		"baseline_arm": baseline_arm,
+		"arms": arms,
+		"issues": issues,
+		"override": override,
+		"note": None
+		if not issues
+		else "Utility values here rest on a baseline or run without established validity.",
+	}
 
 
 def comparison_from_index(

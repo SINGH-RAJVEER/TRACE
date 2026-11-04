@@ -198,6 +198,8 @@ def _policy_fields(
 			"tokenizer_revision",
 		}
 	)
+	if settings.request_quota is not None:
+		fields["request_quota"] = settings.request_quota
 	# Omitted for the default version so existing legacy state files keep their scope.
 	if settings.policy_version != "legacy-v1":
 		fields["policy_version"] = settings.policy_version
@@ -493,7 +495,13 @@ def create_app(
 	else:
 		if config.scoring_mode == "off_path":
 			raise ValueError("off-path scoring requires the MMD policy")
-		policy = make_policy(config.policy, calibration, scorer, store=store)
+		policy = make_policy(
+			"quota" if config.policy == "quota_tokens" else config.policy,
+			calibration,
+			scorer,
+			store=store,
+			request_quota=config.request_quota,
+		)
 	monitor = (
 		AggregateMonitor(aggregate_scorer, calibration.aggregate)
 		if config.policy != "path"

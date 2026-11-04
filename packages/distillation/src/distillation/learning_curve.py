@@ -34,6 +34,12 @@ RECIPE = {
 	"target_modules": "all-linear",
 	"precision": "bf16",
 }
+MATH_RECIPE: dict[str, Any] = {
+	**RECIPE,
+	"max_length": 2048,
+	"evaluation_max_new_tokens": 512,
+	"overlength_policy": "error_before_training",
+}
 
 
 def digest(path: Path) -> str:
@@ -473,12 +479,7 @@ def plan_math_curve(
 		"seeds": list(seeds),
 		"subset_seed": subset_seed,
 		"target_fraction": fraction,
-		"recipe": {
-			**RECIPE,
-			"max_length": 2048,
-			"evaluation_max_new_tokens": 512,
-			"overlength_policy": "error_before_training",
-		},
+		"recipe": MATH_RECIPE,
 		"files": files,
 		"inputs": {str(p.resolve()): digest(p) for p in inputs},
 		"training_ledgers": [str(ledger.resolve())],

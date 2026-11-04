@@ -11,6 +11,7 @@ import math
 import random
 import statistics
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any, Literal
 
@@ -18,6 +19,20 @@ ROLES = ("teacher", "base", "clean", "defended")
 Correct = Mapping[str, Mapping[str, Sequence[bool]]]
 Weighting = Literal["item", "family"]
 SINGLE_SEED = "Development evidence: a single training seed."
+NO_GATE = (
+	"No passing clean-baseline gate covers this task, base and student revision; "
+	"an incapable student makes every defense look effective."
+)
+
+
+@dataclass(frozen=True)
+class SuppressionGate:
+	"""Whether a verified clean-student gate licenses suppression; see baseline_gates."""
+
+	covered: bool
+	reason: str | None
+	digest: str
+	identity: dict[str, str]
 
 
 def _decimal(value: float) -> Fraction:
@@ -125,6 +140,7 @@ def transfer_report(
 	replicates: int = 2000,
 	seed: int = 42,
 	weighting: Weighting = "item",
+	gate: SuppressionGate | None = None,
 ) -> dict[str, Any]:
 	"""Raw accuracies, normalized transfer, suppression and the decision rule for one seed.
 
@@ -136,6 +152,10 @@ def transfer_report(
 	bootstrap replicates with a non-positive denominator are left out of that ratio's interval.
 	Accuracies, differences and ratios are exact fractions and thresholds are read as written,
 	so boundaries and zero are compared exactly; values are converted to floats for output.
+
+	Suppression and the target decision are computed only under a ``gate`` that covers this
+	student. Without one, they are None with the reason, so a missing gate never reads as a
+	result; raw accuracies, normalized transfer and the clean-defended difference still print.
 	"""
 	if replicates < 100:
 		raise ValueError("need at least 100 bootstrap replicates")
@@ -188,7 +208,12 @@ def transfer_report(
 		"clean": _quantity(point["r_clean"], get("r_clean"), headroom, replicates),
 		"defended": _quantity(point["r_defended"], get("r_defended"), headroom, replicates),
 	}
-	suppression = _quantity(point["suppression"], get("suppression"), clean_gain, replicates)
+	refusal = None if gate and gate.covered else (gate.reason if gate else None) or NO_GATE
+	suppression = (
+		{"value": None, "interval": None, "reason": refusal}
+		if refusal
+		else _quantity(point["suppression"], get("suppression"), clean_gain, replicates)
+	)
 	effect = point["effect"]
 	effect_interval = _bounds(get("effect"))
 	fraction_met = fraction_lower = None
@@ -198,6 +223,14 @@ def transfer_report(
 		fraction_lower = _bounds(get("suppression"))[0] >= fraction
 	effect_met = effect >= _decimal(min_effect)
 	effect_lower = effect_interval[0] >= _decimal(min_effect)
+	decision: dict[str, Any] = {
+		"effect_met": effect_met,
+		"suppression_met": fraction_met,
+		"meets_target": effect_met or bool(fraction_met),
+		"meets_target_at_interval_lower": effect_lower or bool(fraction_lower),
+	}
+	if refusal:
+		decision = dict.fromkeys(decision)
 	by_family = {
 		f: {"items": n, **{r: sum(correct[r][f]) / n for r in ROLES}}
 		for f, n in zip(families, sizes, strict=True)
@@ -216,6 +249,12 @@ def transfer_report(
 		"clean_gain": clean_gain,
 		"normalized_transfer": transfer,
 		"suppression": suppression,
+		"suppression_gate": {
+			"covered": not refusal,
+			"reason": refusal,
+			"digest": gate.digest if gate else None,
+			"identity": gate.identity if gate else None,
+		},
 		"decision": {
 			"min_effect": min_effect,
 			"min_suppression_fraction": min_suppression_fraction,
@@ -223,10 +262,8 @@ def transfer_report(
 				"value": float(effect),
 				"interval": _floats(effect_interval),
 			},
-			"effect_met": effect_met,
-			"suppression_met": fraction_met,
-			"meets_target": effect_met or bool(fraction_met),
-			"meets_target_at_interval_lower": effect_lower or bool(fraction_lower),
+			**decision,
+			"withheld_reason": refusal,
 		},
 		"bootstrap": {
 			"method": "percentile, paired resampling of task families",
@@ -276,5 +313,7 @@ def transfer_report_seeds(runs: Mapping[str, Correct], **options: Any) -> dict[s
 		"the bootstrap intervals.",
 		"seeds": reports,
 		"seed_variability": {name: _spread(values) for name, values in quantities.items()},
-		"seeds_meeting_target": sum(r["decision"]["meets_target"] for r in rows),
+		"seeds_meeting_target": None
+		if any(r["decision"]["meets_target"] is None for r in rows)
+		else sum(r["decision"]["meets_target"] for r in rows),
 	}
