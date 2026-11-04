@@ -13,7 +13,7 @@
 #   MARGIN_POINTS           preregistered teacher-base margin in points (proposed: 10)
 #   BENIGN_SCHEDULE         frozen benign gateway schedule directory for the teacher pilot
 #   TEACHER_PREFLIGHT_ARGS  declared capacity thresholds for `distill gateway teacher-preflight`
-#   TEACHER_TERMS_REVIEW_ID review identifier that `distill gateway collect` records
+#   TEACHER_TERMS_REVIEW_ID review identifier that `distill baseline collect` records
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,10 +30,7 @@ TASK_DIR=${TASK_DIR:-data/math}
 SUITE=${SUITE:-$TASK_DIR/development-suite.json}
 GOLD=${GOLD:-$TASK_DIR/gold-answers.jsonl}
 POOL=${POOL:-$TASK_DIR/attacker.jsonl}
-TASKS_DIR=${TASKS_DIR:-data}
-PARTITION=${PARTITION:-exploratory}
-COLLECT_BUDGET=${COLLECT_BUDGET:-1200}
-COLLECT_INTERVAL=${COLLECT_INTERVAL:-1}
+COLLECT_COUNT=${COLLECT_COUNT:-1200}
 CONCURRENCY=${CONCURRENCY:-4}
 INDEX=${INDEX:-readings/index.tsv}
 GPU_LOCK=${GPU_LOCK:-/tmp/trace-gpu.lock}
@@ -90,7 +87,13 @@ gpu_step() {
 
 PIDS=()
 TEACHER_LOCK_FD=
+# Another teacher would answer the health checks and stay loaded while a student trains.
+teacher_down() {
+	! curl -fsS "http://127.0.0.1:$VLLM_PORT/health" > /dev/null 2>&1 \
+		&& ! curl -fsS "$TEACHER_URL/healthz" > /dev/null 2>&1
+}
 start_teacher() {
+	teacher_down || stop "a teacher is already serving at $TEACHER_URL or port $VLLM_PORT; stop it"
 	# Holding the lock while serving keeps every other GPU step out until the teacher is unloaded.
 	exec 8>"$GPU_LOCK"
 	flock 8
@@ -105,11 +108,13 @@ start_teacher() {
 		--default-chat-template-kwargs '{"enable_thinking": false}' --language-model-only \
 		${VLLM_EXTRA_ARGS:-} >> "$LOGS/vllm.log" 2>&1 8>&- &
 	PIDS+=($!)
-	wait_http "http://127.0.0.1:$VLLM_PORT/health" "${VLLM_STARTUP_TIMEOUT:-1800}" || stop "vLLM did not start"
-	TEACHER_UPSTREAM_BASE_URL=http://127.0.0.1:$VLLM_PORT/v1 "${UV[@]}" teacher-api \
+	wait_http "http://127.0.0.1:$VLLM_PORT/health" "${VLLM_STARTUP_TIMEOUT:-1800}" $! \
+		|| stop "vLLM did not start"
+	TEACHER_UPSTREAM_MODEL=$TEACHER_MODEL TEACHER_UPSTREAM_BASE_URL=http://127.0.0.1:$VLLM_PORT/v1 \
+		"${UV[@]}" teacher-api \
 		>> "$LOGS/teacher-api.log" 2>&1 8>&- &
 	PIDS+=($!)
-	wait_http "$TEACHER_URL/healthz" 300 || stop "teacher API did not start"
+	wait_http "$TEACHER_URL/healthz" 300 $! || stop "teacher API did not start"
 }
 stop_teacher() {
 	for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null; done
@@ -121,9 +126,10 @@ stop_teacher() {
 		TEACHER_LOCK_FD=
 	fi
 }
-wait_http() { # URL SECONDS
+wait_http() { # URL SECONDS PID
 	local deadline=$((SECONDS + $2))
 	until curl -fsS "$1" > /dev/null 2>&1; do
+		kill -0 "$3" 2>/dev/null || return 1
 		[ $SECONDS -lt $deadline ] || return 1
 		sleep 5
 	done
@@ -167,12 +173,8 @@ step gate-headroom "${UV[@]}" distill baseline headroom --base-scores "$RUN/base
 	|| stop "headroom gate did not pass; see $RUN/gate-headroom.json"
 
 # 6. One clean collection from a direct teacher, then freeze it.
-step schedule "${UV[@]}" distill gateway schedule --attack A1 --budget "$COLLECT_BUDGET" \
-	--domains gsm8k --tasks-dir "$TASKS_DIR" --partition "$PARTITION" \
-	--interval-seconds "$COLLECT_INTERVAL" --campaign-id "$RUN_ID-clean" \
-	--output "$RUN/collection-schedule" || stop "collection schedule failed"
-step collect "${UV[@]}" distill gateway collect --input-dir "$RUN/collection-schedule" \
-	--output "$RUN/collection" --policy none --teacher-url "$TEACHER_URL" \
+step collect "${UV[@]}" distill baseline collect --pool "$POOL" --count "$COLLECT_COUNT" \
+	--output "$RUN/collection/ledger.jsonl" --teacher-url "$TEACHER_URL" \
 	--concurrency "$CONCURRENCY" || stop "collection failed"
 step manifest "${UV[@]}" distill acquisition manifest --ledger "$RUN/collection/ledger.jsonl" \
 	--response-policy clean --output "$RUN/acquisition-manifest.json" \
@@ -181,6 +183,7 @@ step manifest "${UV[@]}" distill acquisition manifest --ledger "$RUN/collection/
 # 7. Unload the teacher before any student trains.
 stop_teacher
 touch "$STEPS/stop-teacher.done"
+teacher_down || stop "a teacher is still serving; nothing trains until it is unloaded"
 note "teacher stopped"
 
 # 8. Train clean and gold students from the pinned base.

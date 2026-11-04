@@ -1,5 +1,6 @@
 """The results index uses a synthetic run directory, without a teacher or harness."""
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -273,7 +274,12 @@ def test_older_utility_rows_read_as_unknown_until_backfill_marks_v3_invalid(
 	(row,) = backfill_rows(index.parent)
 	assert row["validity"] == "invalid" and row["policy"] == "none"
 	assert "overloaded, completing 6968 of 24047" in row["validity_reason"]
-	(rewritten,) = update_index(index, [row])
+	# Writing another run leaves the historical row's stored validity cell empty.
+	update_index(index, [{"run_id": "gate:x", "kind": "gate", "attack": "phase0-headroom"}])
+	with index.open() as stream:
+		stored = next(r for r in csv.DictReader(stream, delimiter="\t") if r["kind"] == "utility")
+	assert stored["validity"] == "" and stored["validity_reason"] == ""
+	rewritten = next(r for r in update_index(index, [row]) if r["kind"] == "utility")
 	assert rewritten["validity"] == "invalid" and rewritten["completion_rate"]
 
 

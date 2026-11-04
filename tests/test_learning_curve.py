@@ -634,3 +634,58 @@ def test_evaluations_write_score_files_the_gate_reads(
 			transport=httpx.MockTransport(harness),
 		)
 	assert not failed.exists()
+
+
+def test_clean_collection_selects_deterministically_and_feeds_the_manifest(
+	tmp_path: Path,
+) -> None:
+	from distillation.acquisition_manifest import build_manifest
+	from distillation.baseline_gates import collect_clean
+	from distillation.tasks import GSM8K_EVAL_SUFFIX
+
+	pool = tmp_path / "attacker.jsonl"
+	pool.write_text(
+		"".join(
+			json.dumps(
+				{
+					"example_id": f"p{i}",
+					"split": "train",
+					"task": "gsm8k",
+					"source": {"corpus": "fake", "source_id": str(i), "license": "test"},
+					"prompt": [{"role": "user", "content": f"q{i}{GSM8K_EVAL_SUFFIX}"}],
+				}
+			)
+			+ "\n"
+			for i in range(5)
+		)
+	)
+
+	def teacher(request: httpx.Request) -> httpx.Response:
+		assert json.loads(request.content)["enable_thinking"] is False
+		return httpx.Response(
+			200,
+			json={
+				"id": "1",
+				"provider": "fake",
+				"model": "teacher",
+				"generated_at": "2026-01-01T00:00:00Z",
+				"message": {"role": "assistant", "content": "work\n#### 2"},
+				"finish_reason": "stop",
+				"endpoint": "fake",
+			},
+		)
+
+	options: dict[str, Any] = {
+		"count": 3,
+		"seed": 7,
+		"url": "http://teacher",
+		"terms_review_id": "review",
+		"transport": httpx.MockTransport(teacher),
+	}
+	ledger = tmp_path / "collection" / "ledger.jsonl"
+	assert collect_clean(pool, ledger, **options) == (3, 0)
+	assert collect_clean(pool, ledger, **options) == (0, 3)
+	manifest = build_manifest([ledger], response_policy="clean")
+	assert manifest["totals"]["examples"] == 3
+	with pytest.raises(ValueError, match="fewer than 9"):
+		collect_clean(pool, ledger, **{**options, "count": 9})

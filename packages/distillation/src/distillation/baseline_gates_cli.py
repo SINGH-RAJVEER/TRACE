@@ -123,6 +123,38 @@ def evaluate_teacher_command(
 	typer.echo(f"{output}: {sum(result['scores'].values())} of {len(result['scores'])} correct")
 
 
+@app.command("collect")
+def collect_command(
+	pool: Annotated[
+		Path, typer.Option(exists=True, dir_okay=False, help="Attacker prompt pool JSONL.")
+	],
+	output: Annotated[Path, typer.Option(help="Ledger JSONL; a partial one is resumed.")],
+	count: Annotated[int, typer.Option(min=1, help="Prompts to collect.")],
+	teacher_url: Annotated[str, typer.Option(help="Direct undefended teacher API URL.")],
+	seed: int = 42,
+	concurrency: Annotated[int, typer.Option(min=1)] = 4,
+	token: Annotated[str, typer.Option(envvar="TEACHER_API_TOKEN")] = "",
+	terms_review_id: Annotated[str, typer.Option(envvar="TEACHER_TERMS_REVIEW_ID")] = "",
+) -> None:
+	"""Collect one task's fresh responses from a direct teacher, once, with frozen settings."""
+	from distillation.baseline_gates import collect_clean
+
+	try:
+		collected, resumed = collect_clean(
+			pool,
+			output,
+			count=count,
+			seed=seed,
+			url=teacher_url,
+			terms_review_id=terms_review_id,
+			token=token,
+			concurrency=concurrency,
+		)
+	except (ValueError, OSError, RuntimeError) as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(f"{output}: {collected} collected, {resumed} already present")
+
+
 @app.command("pilot")
 def pilot_command(
 	output: Annotated[Path, typer.Option(help="New pilot directory.")],

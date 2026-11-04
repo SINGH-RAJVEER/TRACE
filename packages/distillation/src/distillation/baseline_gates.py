@@ -628,6 +628,50 @@ def evaluate_teacher(
 	return result
 
 
+def collect_clean(
+	pool_path: Path,
+	output: Path,
+	*,
+	count: int,
+	seed: int,
+	url: str,
+	terms_review_id: str,
+	token: str = "",
+	concurrency: int = 4,
+	max_output_tokens: int = MATH_RECIPE["evaluation_max_new_tokens"],
+	transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[int, int]:
+	"""Collect one task's fresh responses from a direct teacher, resuming a partial ledger.
+
+	Takes the first `count` training prompts by sha256(seed:example_id), so a rerun selects the
+	same prompts. `gateway schedule` needs several domains to keep its detector mix, and this
+	collection has no detector in the path. The ledger is what the manifest and the plan read.
+	"""
+	from distillation.collection import CollectionOptions, collect
+	from distillation.teacher import TeacherAPIGateway
+
+	prompts = [row for row in read_jsonl(pool_path, PromptRecord) if row.split == "train"]
+	prompts.sort(key=lambda row: hashlib.sha256(f"{seed}:{row.example_id}".encode()).hexdigest())
+	if len(prompts) < count:
+		raise ValueError(f"{pool_path} has {len(prompts)} training prompts, fewer than {count}")
+	selected = output.with_name(output.name + ".prompts.jsonl")
+	output.parent.mkdir(parents=True, exist_ok=True)
+	selected.write_text("".join(row.model_dump_json() + "\n" for row in prompts[:count]))
+	return asyncio.run(
+		collect(
+			input_path=selected,
+			output_path=output,
+			teacher=TeacherAPIGateway(base_url=url, token=token, transport=transport),
+			options=CollectionOptions(
+				terms_review_id=terms_review_id,
+				concurrency=concurrency,
+				max_output_tokens=max_output_tokens,
+				enable_thinking=False,
+			),
+		)
+	)
+
+
 def pilot_student(
 	output: Path,
 	suite_path: Path,

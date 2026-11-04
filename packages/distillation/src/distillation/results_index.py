@@ -502,7 +502,7 @@ def _cell(value: Any) -> str:
 	return str(value)
 
 
-def read_index(path: Path) -> list[dict[str, str]]:
+def _stored_rows(path: Path) -> list[dict[str, str]]:
 	if not path.is_file():
 		return []
 	with path.open(newline="") as stream:
@@ -511,7 +511,12 @@ def read_index(path: Path) -> list[dict[str, str]]:
 		if unknown:
 			raise ValueError(f"{path} has columns {INDEX_VERSION} does not know: {sorted(unknown)}")
 		# Columns added since the file was written are empty, which reads as unknown.
-		rows = [{column: row.get(column) or "" for column in COLUMNS} for row in reader]
+		return [{column: row.get(column) or "" for column in COLUMNS} for row in reader]
+
+
+def read_index(path: Path) -> list[dict[str, str]]:
+	"""Rows as they should be read: a utility row with no recorded validity is unknown."""
+	rows = _stored_rows(path)
 	for row in rows:
 		if row["kind"] == "utility" and not row["validity"]:
 			row.update(validity="unknown", validity_reason=UNBOUND)
@@ -521,7 +526,8 @@ def read_index(path: Path) -> list[dict[str, str]]:
 def update_index(path: Path, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
 	"""Replace the rows of each run in `rows`, keep all others, and write the index sorted."""
 	runs = {row["run_id"] for row in rows}
-	kept = [row for row in read_index(path) if row["run_id"] not in runs]
+	# Rows of other runs keep their stored cells; the reading default is never written back.
+	kept = [row for row in _stored_rows(path) if row["run_id"] not in runs]
 	merged = kept + [{column: _cell(row.get(column)) for column in COLUMNS} for row in rows]
 	keys = [tuple(row[column] for column in KEY) for row in merged]
 	if len(set(keys)) != len(keys):
