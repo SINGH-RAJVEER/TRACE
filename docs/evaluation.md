@@ -6,7 +6,7 @@ This protocol specifies a future study. Its acceptance targets are proposals, no
 
 ## Baselines and campaign design
 
-The intended baseline panel is allow, full MMD, instantaneous MMD, request quota, rate limit and request-plus-output-token quota. The last baseline requires the separate accounting implementation; declaring it here does not enable it. Use fresh account state per condition and the same frozen schedule, deadline and declared resources. Compare cap enforcement with detector escalation separately. Replay is policy-only and cannot establish delivered answers or solved challenges. L1 alert can serve traffic; report L1, L2, L3 and L4 separately and distinguish first alert, restriction and refusal.
+The intended baseline panel is allow, full MMD, instantaneous MMD, request quota, rate limit and request-plus-output-token quota. The last baseline is served with `HARNESS_POLICY=quota_tokens`, using durable output reservations and settlement; configure its budgets as described in [the harness guide](harness.md#named-request-plus-token-quota). Use fresh account state per condition and the same frozen schedule, deadline and declared resources. Compare cap enforcement with detector escalation separately. Replay is policy-only and cannot establish delivered answers or solved challenges. L1 alert can serve traffic; report L1, L2, L3 and L4 separately and distinguish first alert, restriction and refusal.
 
 Freeze the original A1-A7 attack schedules using `uv run distill gateway schedule --help`, including broad extraction, topic ordering, independent-source and cover strategies, account splitting and rotation as specified by each schedule. Include adaptive reordering, low-and-slow pacing, answer-only requests, deduplication, replay of legitimate sessions, selective retries and budget-aware account rotation. Add paraphrase, batching, verifier filtering and alternative-teacher mixing when available. Charge online calls, proof attempts, output tokens, money and offline work consistently. Fixed-pool reuse and acquisition of new examples are different budgets. The default 6,000 HTTP-attempt budget includes failures and proof redemption; an account horizon can impose a separate 10,000-attempt cap.
 
@@ -222,3 +222,77 @@ The 2026-11-02 development results of this study are recorded in [readings/v5-de
 The planner rejects training/evaluation overlap by example ID, exact prompt, or source family. GSM8K task builds use the first 24 hex characters of the SHA-256 of the normalized question as `group_id`; the suite does not retain that field, so the planner reconstructs it from each evaluation question. Where a ledger record lacks `group_id`, it reconstructs the same key from the user prompt after removing the standard GSM8K suffix. Every training prompt must end with that suffix: another wrapper around an evaluation question would produce a different key, so prompts in any other template are refused rather than checked inexactly. A supplied `group_id` must match that builder key; the planner rejects other family schemes because the suite cannot verify them. This checks the builder's exact-question families, not semantic variants or broader problem lineages. Use a separately screened family partition for claims requiring broader disjointness.
 
 The recipe retains the pinned student, tokenizer and LoRA settings above, with a 2,048-token training maximum and 512 generated evaluation tokens to allow a numerical rationale ending in `####` and a final number. The numeric exact-match scorer accepts a bare number or the final number after `####`; length-terminated outputs are incorrect. Before any cell trains, `execute` loads only the pinned tokenizer and renders the largest teacher subset and, when planned, the largest gold subset exactly as training does; subsets are nested, so this covers every cell, and an example over the training maximum stops the run before any training. Each cell repeats the check on its own subset. Examples are never truncated or dropped. Planning does not load a tokenizer, so the check can fail at execution; fix the input or declare a new recipe and plan rather than silently reducing the cell. The optional gold arm uses the same ordered prompts and gold completions, with separate subset, model and score files. Execute, summary and index use the same commands as AG News. The summary reports the gold arm separately and uses the largest teacher subset as the reference for the fractional threshold.
+
+## Cached output defenses and matched quota comparison
+
+`distill output-study` prepares Phase 2/3 datasets and compares supplied student evidence. It does not run a teacher, train a student, optimize a prompt or produce effectiveness measurements. Its tests use CPU fixtures and the fake teacher. Preserve frozen ledgers, acquisition manifests and existing run directories. Output files are exclusively created and never overwritten.
+
+The named serving baseline is `quota_tokens`, selected with `HARNESS_POLICY=quota_tokens` and declared to collection with `distill gateway collect --policy quota_tokens`. Configure `HARNESS_OUTPUT_TOKEN_BUDGET`, `HARNESS_STATE_DB` and optionally `HARNESS_REQUEST_QUOTA`; see [quota serving configuration](harness.md#named-request-plus-token-quota). Use fresh database files per setting. Query-only offline replay cannot enforce token reservations and does not support this arm.
+
+### Search development utility measurements
+
+Measure task-success loss relative to allow for the candidate and a grid of request quotas and request-plus-token quotas on the same development population and schedule. Declare every stratum before searching, including specialists and batch users. Supply a JSON file with this structure; numbers below illustrate an input schema, not experimental results:
+
+```json
+{
+	"split": "development",
+	"population_id": "declared-population-and-version",
+	"schedule_sha256": "sha256-of-development-schedule",
+	"tolerance": 0.01,
+	"candidate": {
+		"arm": "dense_locked",
+		"loss_by_stratum": {"casual": 0.02, "specialist": 0.05}
+	},
+	"settings": [
+		{
+			"policy": "quota",
+			"request_quota": 100,
+			"loss_by_stratum": {"casual": 0.02, "specialist": 0.05}
+		},
+		{
+			"policy": "quota_tokens",
+			"request_quota": 100,
+			"output_token_budget": 20000,
+			"loss_by_stratum": {"casual": 0.02, "specialist": 0.05}
+		}
+	]
+}
+```
+
+Run `uv run distill output-study match-quotas --development DEVELOPMENT.json --output MATCHES.json`. One setting must match the candidate within the absolute probability-loss tolerance in every stratum. The search minimizes the worst stratum difference, breaking ties by the setting hash. It records every observed setting and each stratum's match status. Missing strata or an empty matching grid return `not matched`; it never interpolates or assembles a quota from different strata. Measurement collection, sampling uncertainty in utility estimates and held-out confirmation remain the experimenter's responsibility. A declared development label is not proof of source separation.
+
+### Build output and adaptive datasets
+
+Start with one `distill acquisition manifest --response-policy clean` cache and require its ledgers on disk. `distill output-study build --manifest CACHE.json --recipe RECIPE.json --adapter project_adapter:factory --output ARM.json` verifies the manifest, ledger and record hashes and uses only accepted training rows. The trusted Python factory returns `distillation.output_sets.Adapters` with an exact token codec, a task-specific answer extractor, a task-validity checker, frozen identities for those components and an optional rewriter callback. No approximate whitespace tokenizer is supplied for experiments. The rewriter receives the cached draft and instruction and returns `Rewrite(text, queries, money, seconds)`. Return an empty text with the actual cost after an unsuccessful call, or abort the build on an exception; exceptions never trigger an unaccounted clean-draft release. Identify the teacher and rewriter model revisions in the adapter identity, reuse the loaded teacher for the default defense and declare any larger rewriter as a separate resource condition.
+
+A recipe is a JSON serialization of `output_sets.Recipe`, for example `{"arm":"dense_locked","fallback":"withhold","loss":"ordinary"}`. Supported output recipes are `clean`, `compact_verified`, `final_answer_only`, `paraphrase` and `dense_locked`. The dense recipe stores the exact dehyphenated Appendix A.2 instruction and the SHA-256 of `research/papers/PAPER_DEFENSE_Trace_Rewriting_2602.15143v2.pdf`. Appendix E.3 discusses rewriter/teacher sizes and provides no additional instruction. The answer-locked recipe rejects a changed or unextractable final answer and rejects a task-invalid rewrite. It is the stricter variant, not a claim to reproduce the paper's unconstrained condition. Compact and paraphrase instructions are repository controls, not attributed to the paper. A paper-style unconstrained arm and prompt optimization are outside this builder.
+
+Choose `fallback` explicitly as `withhold` or `final_answer`. A final-answer fallback releases only the extracted clean answer if the task validator accepts it; otherwise it withholds. Every row records the failure, fallback, answer equality, task-validity check, released tokens, training tokens, hashes and rewrite queries/money/time. Withheld rows have no SFT example and still consume an acquisition query. The builder never silently releases the original clean explanation after a failed rewrite. Task checks are adapter assertions, not independent measurements of explanation usefulness or legitimate-user utility; measure those separately.
+
+Adaptive recipes are `final_answer_extraction`, `cleaned_explanations`, `paraphrased_protected` and `protected_loss`. Pass the full protected output artifact with `--protected ARM.json`; it must derive from the same acquisition manifest. They train only from protected text, never replenish a withheld response from the clean cache, and retain the original protected output's released-token charge when they discard tokens. `protected_loss` requires `"loss":"filter"` or `"loss":"clip"` and a positive `loss_threshold`. `loss_values` specifies the per-token objective, and `tensor_loss` is a differentiable trainer hook for unmasked completion-token losses before reduction. Filtering zeros gradients above the threshold while retaining the original denominator; clipping caps token loss and its gradient. The generic learning-curve runner does not automatically install this hook: a training adapter must apply the frozen recipe and record it with the student artifact. An optimizer-step match alone does not equalize supervision.
+
+Quota training arms use recipe names `quota` and `quota_tokens` and require `--admissions ADMISSIONS.json`. This file declares `manifest_digest`, `policy`, `settings` containing `request_quota` and, for `quota_tokens`, `output_token_budget`, `accepted_example_ids`, `evidence_path` and `evidence_sha256`. Run the gate on the fixed stream and freeze its observed admitted IDs; the builder verifies the evidence file hash, preserves refused queries as withheld rows and joins accepted outputs to the one acquisition cache. The accepted-ID declaration is an operator assertion; a hash does not independently prove that an arbitrary evidence file supports it. Do not use a request-only replay as evidence of token enforcement.
+
+Clean control recipes are `clean_matched_queries`, `clean_matched_tokens`, `clean_truncated` and `clean_subsampled`. The first two preserve full clean responses and select by the corresponding candidate budget. `clean_truncated` requires positive `max_tokens` and truncates with the frozen codec; its validity and answer loss remain visible. `clean_subsampled` preserves full responses and uses an explicitly reduced query budget, rather than silently truncating them. All share cached prompt identities and hashes.
+
+For every arm run `uv run distill output-study select --arm ARM.json --by queries --budget N --seed 42 --output QUERIES.json` and a separate selection with `--by tokens --budget T --output TOKENS.json`. The existing acquisition selector supplies the nested seeded ordering and prefix rule, with token counts replaced by exact released counts. Whole responses are retained; token slack and cache exhaustion are reported. Short output can select more distinct examples from this cache, but it makes no new calls. If the cache cannot fill the budget, acquire additional distinct examples under a new frozen manifest and rebuild every arm. Train on non-null `rows[].sft`; retain the complete artifact and its digest for the student report. Reuse `learning_curve_runner.render_rows` for chat-template and length checks, and the frozen learning-curve recipes for training parameters. These dataset files are not complete learning-curve plans.
+
+### Join students and require both budget views
+
+Run `uv run distill output-study comparison-report --declaration COMPARISON.json --gate-report CLEAN_GATE.json --output REPORT.json`. The separate clean-baseline gate producer must supply the envelope `{"version":"clean-baseline-gate-v1","status":"pass","manifest_digest":"ACQUISITION_DIGEST",...}`. This module only consumes and hashes that report; it does not implement the gate. An absent, failed or unrelated gate refuses a verdict. If the other producer uses a different schema, adapt its report to this contract before qualification.
+
+The comparison declaration contains `development` with the complete measured search input above, `manifest_digest`, `evidence_kind` set to `measurement` for real observations or `fixture` for development fixtures, at least three distinct `seeds`, `adaptive_arms` listing every declared adaptive attacker, `reference_queries`, `capacity_evidence` and `benign_schedule` paths, and both `views.equal_query` and `views.equal_token`. Each view maps the candidate label, `quota`, `quota_tokens`, every adaptive label and all four clean control labels to entries of this form:
+
+```json
+{
+	"training_set": "path/to/frozen-selected-set.json",
+	"students": {"42": "path/to/seed42.json", "43": "path/to/seed43.json", "44": "path/to/seed44.json"},
+	"short_output_cost": {"extra_queries": 0, "money": 0, "seconds": 0}
+}
+```
+
+Each student file wraps one existing `transfer_metrics.transfer_report` result as `{"seed":42,"training_set_digest":"SELECTED_SET_DIGEST","gate_report_sha256":"GATE_FILE_HASH","transfer":{...}}`. Preserve task-family pairing in teacher/base/clean/defended correctness arrays before computing transfer; use paired task-family resampling from `transfer_metrics`. The report verifies the seed, selected-set digest, clean-gate dependency and usable transfer denominators. It records each student's file hash and full transfer result. A missing student, undefined interval or mismatched join returns `no result` for that arm. Quota datasets must bind the selected development setting, and adaptive datasets must reference the candidate's full output artifact.
+
+Record observed extra acquisition queries, incremental acquisition money and elapsed seconds for the short-output attacker, including explicit zeros when appropriate. `extra_queries` must equal selected distinct queries above `reference_queries`. These costs exclude separately recorded offline rewriting/training costs; declare expanded attacker compute as another condition. Both views require equal declared budgets and equal actual query counts or released-token totals for the main panel. Reduced truncated/subsampled controls are reported separately. Discrete token slack can prevent a verdict; adjust declared budgets or use an explicitly truncated control, rather than pretending unmatched token totals are equal.
+
+The report reuses `compare_conditions` separately for every legitimate stratum and requires the existing capacity preflight for the declared benign schedule, whose hash must equal the measured development schedule. At every paired training seed, it takes the largest transfer upper bound over the candidate and all declared adaptive variants. That bound must be strictly below the lower bound of both matched quota baselines in both budget views. This conservative interval-separation rule leaves uncertainty per seed; it does not invent a joint seed interval. One seed is screening only. Missing arms, missing gate or capacity evidence, unmatched utility, incomplete budgets or fixture evidence always yield `no result`. Declaring an attack panel does not establish that it contains every affordable attack, and CPU fixture success cannot establish a protective effect.

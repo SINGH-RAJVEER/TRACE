@@ -11,6 +11,7 @@ from rich.markup import escape
 
 from distillation.gateway_cli import app as gateway_app
 from distillation.learning_curve_cli import app as learning_curve_app
+from distillation.output_study_cli import app as output_study_app
 from distillation.progress import console
 
 app = typer.Typer(no_args_is_help=True)
@@ -18,6 +19,7 @@ tasks_app = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(gateway_app, name="gateway")
 app.add_typer(learning_curve_app, name="learning-curve")
+app.add_typer(output_study_app, name="output-study")
 traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
 acquisition_app = typer.Typer(no_args_is_help=True)
