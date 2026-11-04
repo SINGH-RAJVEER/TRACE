@@ -120,8 +120,21 @@ def transfer(
 	min_suppression_fraction: float = 0.25,
 	replicates: int = 2000,
 	seed: int = 42,
+	gate: Annotated[
+		Path | None,
+		typer.Option(exists=True, dir_okay=False, help="Clean-student gate report."),
+	] = None,
+	student_plan: Annotated[
+		Path | None,
+		typer.Option(exists=True, file_okay=False, help="Curve directory of the defended student."),
+	] = None,
 ) -> None:
-	"""Report transfer metrics from per-item correctness (role -> family -> flags)."""
+	"""Report transfer metrics from per-item correctness (role -> family -> flags).
+
+	Suppression and the target decision need --gate and --student-plan: a passing clean-student
+	gate on the same task, base and student revision. Without it they are null with the reason.
+	"""
+	from distillation.baseline_gates import covering_gate, load_gate, plan_identity
 	from distillation.transfer_metrics import transfer_report, transfer_report_seeds
 
 	options: dict[str, Any] = {
@@ -133,6 +146,10 @@ def transfer(
 		"seed": seed,
 	}
 	try:
+		if (gate is None) != (student_plan is None):
+			raise ValueError("--gate and --student-plan go together")
+		if gate is not None and student_plan is not None:
+			options["gate"] = covering_gate(load_gate(gate), plan_identity(student_plan))
 		data = json.loads(results.read_text())
 		report = (
 			transfer_report_seeds(data["runs"], **options)
