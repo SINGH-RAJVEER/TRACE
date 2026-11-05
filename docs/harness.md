@@ -1,5 +1,7 @@
 # TRACE harness
 
+The active [detection product roadmap](../TODO.md) tracks remaining detector implementation, calibration, product integration and testing. Its tasks are planned work; the runtime behavior and qualification limits below describe the current implementation.
+
 `packages/harness` contains the MMD scorer, calibration, account state, and graduated policies. `apps/harness-api` exposes the protected teacher endpoint. `harness calibrate --help` and `harness replay --help` describe their inputs. The gateway adds a domain tag to each user turn before detector serialization. For gateway calibration, use `distill gateway detector-input` and `--task gateway` so calibration and serving apply the same domain-specific serialization.
 
 A new account starts at L0. L1 is an alert that still serves; L2 adds spacing; L3 adds proof of work; L4 refuses when configured with `HARNESS_L4_ACTION=refuse`. Quota and rate policies are alternative controls. A detector window is not completed until enough requests arrive, and a completed window's decision can affect the triggering request. Account identity, horizon resets, caps, and policy settings affect results. Inspect the source and calibration metadata for exact settings.
