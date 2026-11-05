@@ -87,6 +87,7 @@ About 73% of requests in every arm timed out. The single-GPU teacher could not k
 
 - `provenance/`: code revision, diff, configuration, redacted environment, packages, hardware and corpus manifests, one folder per attempt. The first attempt (20261102T125419Z) stopped because vLLM's `/health` returns an empty body. The second is the run reported here.
 - `run.log`, `steps.tsv`, `steps/`, `logs/`: the run timeline, step timings, done-markers and per-step output, including `logs/vllm.log` and `logs/teacher-api.log`.
+- `corpus/`: the task corpus the run read as `TASKS_DIR=data`, copied from `data/` unchanged. One folder per domain (`news`, `question_answering`, `math`, `coding-subset-50000-s42`), each with its pools, sealed attacker partitions, evaluation suites and the `external/` pool used by A3 and A7. Its manifests are byte-identical to `provenance/corpus-*.manifest.json` and `provenance/external-*.manifest.json`. To reuse it, copy it back to `data/`.
 - `benign/`: the four benign roles and their detector inputs.
 - `calibration/`, `adequacy.json`, `schedules/`: calibration and the frozen attack schedules.
 - `campaigns/ATTACK/ARM/`: decisions, harness log, settings, state database, outcome, evaluation report, and `campaign/` events, attempts and ledger.
