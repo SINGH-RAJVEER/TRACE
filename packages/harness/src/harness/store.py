@@ -270,6 +270,8 @@ def _exposure(rows: list[Reservation], now: float) -> Exposure:
 
 
 class Transaction(Protocol):
+	def campaign(self, key: str) -> dict[str, Any] | None: ...
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None: ...
 	def account(self, name: str) -> AccountState | None: ...
 	def put_account(self, name: str, state: AccountState) -> None: ...
 	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None: ...
@@ -306,6 +308,7 @@ class Transaction(Protocol):
 
 
 class StateStore(Protocol):
+	def bind_campaign(self, config_hash: str) -> None: ...
 	def bind_path(self, calibration_hash: str) -> None: ...
 
 	def transaction(self) -> AbstractContextManager[Transaction]:
@@ -402,6 +405,12 @@ def _settled(
 
 
 class _MemoryTransaction:
+	def campaign(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.campaigns.get(key))
+
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None:
+		self.store.campaigns[key] = copy.deepcopy(value)
+
 	def __init__(self, store: MemoryStore) -> None:
 		self.store = store
 
@@ -538,6 +547,14 @@ class MemoryStore:
 		self.aggregate_alerts: dict[int, dict[str, Any]] = {}
 		self._lock = threading.RLock()
 		self._path_binding: str | None = None
+		self._campaign_binding: str | None = None
+		self.campaigns: dict[str, dict[str, Any]] = {}
+
+	def bind_campaign(self, config_hash: str) -> None:
+		with self._lock:
+			if self._campaign_binding not in {None, config_hash}:
+				raise ValueError("state store is bound to another campaign config")
+			self._campaign_binding = config_hash
 
 	def bind_path(self, calibration_hash: str) -> None:
 		with self._lock:
@@ -558,6 +575,7 @@ class MemoryStore:
 					self.aggregate,
 					self.aggregate_windows,
 					self.aggregate_alerts,
+					self.campaigns,
 				)
 			)
 			try:
@@ -572,6 +590,7 @@ class MemoryStore:
 					self.aggregate,
 					self.aggregate_windows,
 					self.aggregate_alerts,
+					self.campaigns,
 				) = snapshot
 				raise
 
@@ -715,6 +734,17 @@ def _outcome(text: str | None) -> Outcome | None:
 
 
 class _SQLiteTransaction:
+	def campaign(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute("SELECT state FROM campaign WHERE key = ?", (key,)).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO campaign VALUES (?, ?) "
+			"ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
+
 	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
 		self.review_enabled = review_enabled
@@ -1009,6 +1039,18 @@ class SQLiteStore:
 			from harness.review import initialize
 
 			initialize(self._db)
+
+	def bind_campaign(self, config_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'campaign_config'").fetchone()
+			if row is not None and row[0] != config_hash:
+				raise ValueError("state store is bound to another campaign config")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta VALUES ('campaign_config', ?)", (config_hash,)
+			)
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS campaign (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
 
 	def bind_path(self, calibration_hash: str) -> None:
 		with self.transaction() as tx:

@@ -4,6 +4,8 @@ Updated 2026-11-05. This is the active implementation and testing backlog for ex
 
 All checkboxes below describe remaining work. Existing plumbing is a starting point, not completion of these product requirements. Mark an item complete only with linked implementation, relevant checks and the evidence named in its section. Record software completion separately from measured detection performance and live operational qualification.
 
+An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage and Codex review. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
+
 ## Starting point and release order
 
 TRACE already has domain-conditional MMD, rarefied coverage, session/novelty/corpus signals, offline linkage and fusion, durable accounting, quotas, review and experimental whole-path stopping. The chronological [checkpoint workflow](docs/checkpoints.md) can plan and run GSM8K students from actual acquired prefixes. Most evidence signals remain telemetry-only; shadow history is process-local, and experimental path state grows with the full prefix. No effective general-purpose distillation detector or live student-capability prevention result is established.

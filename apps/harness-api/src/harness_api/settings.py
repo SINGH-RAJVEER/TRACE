@@ -107,6 +107,14 @@ class Settings(BaseSettings):
 	review_admin_key: str = Field(default="", alias="HARNESS_REVIEW_ADMIN_KEY")
 	review_verify_codes: set[str] = Field(default_factory=set, alias="HARNESS_REVIEW_VERIFY_CODES")
 
+	# Opt-in experimental campaign detector. The JSON file holds a `campaign-v1` config. In
+	# observe mode it only records evidence; in throttle mode it can refuse requests, which
+	# needs the explicit diagnostic override because the score is not calibrated.
+	campaign_config: Path | None = Field(default=None, alias="HARNESS_CAMPAIGN_CONFIG")
+	campaign_allow_unqualified_enforcement: bool = Field(
+		default=False, alias="HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT"
+	)
+
 	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
 	# only: no level, action, or response depends on them. Not part of the policy revision.
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
@@ -154,6 +162,12 @@ class Settings(BaseSettings):
 			)
 		if self.request_quota is not None and self.policy not in {"quota", "quota_tokens"}:
 			raise ValueError("HARNESS_REQUEST_QUOTA requires quota or quota_tokens")
+		if self.campaign_config is not None and self.state_db is None:
+			raise ValueError("HARNESS_CAMPAIGN_CONFIG requires HARNESS_STATE_DB for durable state")
+		if self.campaign_allow_unqualified_enforcement and self.campaign_config is None:
+			raise ValueError(
+				"HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT requires HARNESS_CAMPAIGN_CONFIG"
+			)
 		if self.review_enabled and self.state_db is None:
 			raise ValueError("review requires HARNESS_STATE_DB")
 		if self.review_verify_codes and not self.review_enabled:
