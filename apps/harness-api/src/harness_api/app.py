@@ -1565,6 +1565,7 @@ def create_app(
 									request_id=campaign_request,
 									text=text[: campaign.max_text_chars],
 									identity=campaign_identity,
+									resampling=request.temperature > 0,
 									now=now,
 									domain=domain,
 									embedding=(

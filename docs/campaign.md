@@ -52,7 +52,8 @@ Set `HARNESS_CAMPAIGN_CONFIG` to a JSON file and `HARNESS_STATE_DB` to a persist
 	"max_text_chars": 4096,
 	"window_seconds": 86400.0,
 	"cooldown_seconds": 300.0,
-	"threshold": 0.8
+	"threshold": 0.8,
+	"min_variant_fraction": 0.5
 }
 ```
 
@@ -65,6 +66,8 @@ The canonical configuration digest binds durable state and the API policy revisi
 The first rule combines normalized template repetition, lexical overlap and a heuristic fraction of independent questions. Numeric slots are normalized and English follow-up prefixes reduce the score. Breadth, timing and optional semantic similarity are supporting telemetry, not independent evidence of downstream training. Semantic similarity is absent when usable embeddings are unavailable; no additional teacher call or mandatory encoder is introduced.
 
 Templates are hashed over the full normalized prompt before the write transaction opens, so questions that differ only after the scored text bound are separate templates. An attacker can use the same property to vary a suffix, and any wording change already evades the exact template match.
+
+Exact repeats still raise alerts, but they start a cooldown only when distinct prompts make up more than `min_variant_fraction` of the most common template. A request with `temperature > 0` counts as distinct even when its text repeats, because it can return a new output. This stops a deterministic health check from being throttled, and it stops resampling from using the same exemption. The default of 0.5 is an unvalidated development value, and setting it to 0 restores throttling on all alerts.
 
 State keeps bounded count/time windows of hashed lexical features, template/domain fingerprints, optional embeddings and a bounded request-receipt cache. It does not keep raw prompt text. The cache is not a lifetime deduplication ledger; the API's durable idempotency mechanism remains authoritative. Scored text is bounded by `max_text_chars` and embedding width by 2,048. Prompts longer than that are only hashed whole, before the write transaction. State has a count cap of at most 512 rows per principal, but total principal cardinality is not globally bounded. Retention cleanup, fleet storage quotas and lifecycle administration remain work. Hashed features and embeddings can still reveal sensitive information and require appropriate access controls.
 

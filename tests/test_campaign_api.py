@@ -418,6 +418,31 @@ async def test_requests_refused_in_cooldown_cannot_be_replayed_unscored(
 
 
 @pytest.mark.asyncio
+async def test_exact_repeats_throttle_only_when_they_can_yield_new_samples(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, _, _ = _campaign_app(artifacts, tmp_path)
+	body = _request("ping")
+	sampled = body | {"temperature": 0.7}
+
+	async def statuses(payload: dict[str, Any], actor: str) -> list[int]:
+		return [
+			(
+				await client.post(
+					PATH,
+					json=payload,
+					headers={"X-Benchmark-Actor": actor, "X-Harness-Time": str(1000.0 + index)},
+				)
+			).status_code
+			for index in range(4)
+		]
+
+	async with _client(app) as client:
+		assert await statuses(body, "u1") == [200] * 4
+		assert (await statuses(sampled, "u2"))[-1] == 429
+
+
+@pytest.mark.asyncio
 async def test_questions_past_the_scored_text_bound_are_not_one_template(
 	artifacts: Artifacts, tmp_path: Path
 ) -> None:

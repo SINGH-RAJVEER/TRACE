@@ -140,6 +140,19 @@ def test_retry_rollback_and_expiry(tmp_path: Path, durable: bool) -> None:
 	assert blocked["status"] == "alert" and "cooldown_active" in blocked["reasons"]
 
 
+def test_exact_repeats_alert_but_only_resampling_can_throttle() -> None:
+	cfg = config(mode="throttle")
+	store = MemoryStore()
+	store.bind_campaign(cfg.digest)
+	observe(store, cfg, "1", "ping")
+	observe(store, cfg, "2", "ping", 2)
+	repeat = observe(store, cfg, "3", "ping", 3)
+	assert repeat["status"] == "alert" and not repeat["should_throttle"]
+	assert "exact_repeats_not_enforced" in repeat["reasons"]
+	observe(store, cfg, "4", "ping", 4, principal="bob", resampling=True)
+	assert observe(store, cfg, "5", "ping", 5, principal="bob", resampling=True)["should_throttle"]
+
+
 def test_questions_after_the_scored_prefix_are_not_one_template() -> None:
 	cfg = config(mode="throttle")
 	store = MemoryStore()

@@ -29,6 +29,7 @@ class CampaignConfig(BaseModel):
 	window_seconds: float = Field(default=86400, gt=0, le=31536000)
 	cooldown_seconds: float = Field(default=300, gt=0, le=31536000)
 	threshold: float = Field(default=0.8, ge=0, le=1)
+	min_variant_fraction: float = Field(default=0.5, ge=0, lt=1)
 	mode: Literal["observe", "throttle"] = "observe"
 
 	@model_validator(mode="after")
@@ -92,8 +93,13 @@ def observe_campaign(
 	domain: str,
 	embedding: Sequence[float] | None = None,
 	identity: tuple[str, str] | None = None,
+	resampling: bool = False,
 ) -> dict[str, Any]:
-	"""Score bounded `text`; `identity` separates prompts differing after that bound."""
+	"""Score bounded `text`; `identity` separates prompts differing after that bound.
+
+	`resampling` marks a request that can return a new output for identical input, so an
+	exact repeat of it is new collection rather than a repeated deterministic call.
+	"""
 	if any(
 		not isinstance(v, str) or not v.strip() or len(v) > 1024
 		for v in (principal, request_id, domain)
@@ -151,7 +157,7 @@ def observe_campaign(
 	template, exact = identity if identity is not None else text_identity(text)
 	fingerprint = hashlib.sha256(
 		json.dumps(
-			[text, template, exact, domain, vector],
+			[text, template, exact, domain, vector, resampling],
 			separators=(",", ":"),
 			ensure_ascii=False,
 		).encode()
@@ -181,11 +187,15 @@ def observe_campaign(
 	):
 		raise CampaignError("embedding dimension mismatch")
 	words = re.findall(r"\w+", text.lower())[:256]
+	variant = hashlib.sha256(
+		json.dumps([exact, request_id if resampling else None]).encode()
+	).hexdigest()
 	tokens = {hashlib.sha256(re.sub(r"\d+", "#", w).encode()).hexdigest()[:16] for w in words}
 	followup = bool(re.match(r"\s*(and|also|why|how about|what about|continue)\b", text, re.I))
 	row = {
 		"time": now,
 		"template": template,
+		"variant": variant,
 		"tokens": sorted(tokens),
 		"followup": followup,
 		"domain": hashlib.sha256(domain.encode()).hexdigest(),
@@ -195,6 +205,10 @@ def observe_campaign(
 	n = len(rows)
 	counts = Counter(r["template"] for r in rows)
 	repetition = (max(counts.values()) - 1) / max(1, n - 1)
+	modal_template, modal_count = counts.most_common(1)[0]
+	variant_fraction = len({r["variant"] for r in rows if r["template"] == modal_template}) / (
+		modal_count
+	)
 	lexical = max(
 		(
 			len(tokens & set(r["tokens"])) / max(1, len(tokens | set(r["tokens"])))
@@ -228,8 +242,11 @@ def observe_campaign(
 		and lexical > 0
 		and not followup
 	)
+	# Exact deterministic repeats, such as a health check, stay visible as alerts but add no
+	# new supervision, so they cannot start a cooldown alone.
+	enforceable = alert and variant_fraction > config.min_variant_fraction
 	until = state["until"] if active else None
-	if alert and until is None and config.mode == "throttle":
+	if enforceable and until is None and config.mode == "throttle":
 		until = now + config.cooldown_seconds
 	result = {
 		"version": config.version,
@@ -242,12 +259,14 @@ def observe_campaign(
 		"reasons": (
 			(["insufficient_samples"] if score is None else [])
 			+ (["repeated_independent_templates_and_lexical_overlap"] if alert else [])
+			+ (["exact_repeats_not_enforced"] if alert and not enforceable else [])
 			+ (["cooldown_active"] if until is not None else [])
 		),
 		"components": {
 			"received_seconds": received_at,
 			"ordering_adjusted": received_at != now,
 			"template_repetition": repetition,
+			"variant_fraction": variant_fraction,
 			"lexical_similarity": lexical,
 			"semantic_similarity": semantic,
 			"followup_fraction": 1 - independent,
