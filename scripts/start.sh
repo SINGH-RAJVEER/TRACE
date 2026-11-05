@@ -104,9 +104,11 @@ step() {
 # Offline outputs are deterministic, so an unfinished one is removed and rebuilt.
 fresh() { [ -f "$STEPS/$1.done" ] || rm -rf "${@:2}"; }
 
+# An empty PATTERN only requires success: vLLM's /health answers 200 with an empty body.
 wait_http() { # URL PATTERN SECONDS [PID]
 	local deadline=$((SECONDS + $3))
-	until curl -fsS "$1" 2>/dev/null | grep -q -- "$2"; do
+	until if [ -z "$2" ]; then curl -fsS -o /dev/null "$1" 2>/dev/null
+	else curl -fsS "$1" 2>/dev/null | grep -q -- "$2"; fi; do
 		if [ -n "${4:-}" ] && ! kill -0 "$4" 2>/dev/null; then return 1; fi
 		[ $SECONDS -lt $deadline ] || return 1
 		sleep 5
