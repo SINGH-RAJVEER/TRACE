@@ -14,10 +14,7 @@ class Settings(BaseSettings):
 	calibration_dir: Path = Field(
 		default=Path("artifacts/harness"), alias="HARNESS_CALIBRATION_DIR"
 	)
-	policy: Literal["mmd", "allow", "quota", "quota_tokens", "rate", "path"] = Field(
-		default="mmd", alias="HARNESS_POLICY"
-	)
-	path_calibration: Path | None = Field(default=None, alias="HARNESS_PATH_CALIBRATION")
+	policy: Literal["mmd", "allow", "quota", "rate"] = Field(default="mmd", alias="HARNESS_POLICY")
 	accumulator: str = Field(default="paper", alias="HARNESS_ACCUMULATOR")
 	thresholds: Literal["calibrated", "ville"] = Field(
 		default="calibrated", alias="HARNESS_THRESHOLDS"
@@ -59,7 +56,6 @@ class Settings(BaseSettings):
 	# Without it, state lives in this process and a restart renews every account. Use a new
 	# file for each arm; a file written under another policy or calibration is rejected.
 	state_db: Path | None = Field(default=None, alias="HARNESS_STATE_DB")
-	request_quota: int | None = Field(default=None, gt=0, alias="HARNESS_REQUEST_QUOTA")
 	output_token_budget: int | None = Field(default=None, gt=0, alias="HARNESS_OUTPUT_TOKEN_BUDGET")
 	organization_token_budget: int | None = Field(
 		default=None, gt=0, alias="HARNESS_ORGANIZATION_TOKEN_BUDGET"
@@ -135,25 +131,6 @@ class Settings(BaseSettings):
 
 	@model_validator(mode="after")
 	def validate_combinations(self) -> Settings:
-		if (self.policy == "path") != (self.path_calibration is not None):
-			raise ValueError("path policy requires HARNESS_PATH_CALIBRATION, exclusively")
-		if self.policy == "path" and self.scoring_mode == "off_path":
-			raise ValueError("path stops are incompatible with off_path scoring")
-		if self.policy == "path" and self.state_db is None:
-			raise ValueError("path stops require HARNESS_STATE_DB for durable campaign state")
-		if self.policy == "path":
-			if "l4_action" not in self.model_fields_set:
-				self.l4_action = "refuse"
-			if self.l4_action != "refuse":
-				raise ValueError("path policy supports terminal refusal only")
-		if self.policy == "quota_tokens" and (
-			self.state_db is None or self.output_token_budget is None
-		):
-			raise ValueError(
-				"quota_tokens requires HARNESS_STATE_DB and HARNESS_OUTPUT_TOKEN_BUDGET"
-			)
-		if self.request_quota is not None and self.policy not in {"quota", "quota_tokens"}:
-			raise ValueError("HARNESS_REQUEST_QUOTA requires quota or quota_tokens")
 		if self.review_enabled and self.state_db is None:
 			raise ValueError("review requires HARNESS_STATE_DB")
 		if self.review_verify_codes and not self.review_enabled:

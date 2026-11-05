@@ -39,9 +39,6 @@ TEACHER_MODEL_REVISION=${TEACHER_MODEL_REVISION:-c202236235762e1c871ad0ccb60c8ee
 TEACHER_URL=http://${TEACHER_HOST:-127.0.0.1}:${TEACHER_PORT:-8000}
 # Declared capacity thresholds for `distill gateway teacher-preflight`; empty skips the gate.
 TEACHER_PREFLIGHT_ARGS=${TEACHER_PREFLIGHT_ARGS:-}
-# Utility is bound to that preflight, at this declared offered rate and minimum completion rate.
-UTILITY_OFFERED_RPS=${UTILITY_OFFERED_RPS:-}
-UTILITY_MIN_COMPLETION_RATE=${UTILITY_MIN_COMPLETION_RATE:-}
 
 UV=(uv run --frozen --extra eval --extra embed)
 TOOLS=(env PYTHONPATH="$ROOT/scripts" "${UV[@]}" python "$ROOT/scripts/run_tools.py")
@@ -78,14 +75,6 @@ finish() {
 }
 trap 'finish 130 interrupted' INT TERM
 trap cleanup EXIT
-
-# Stop now rather than after the campaigns: utility cannot run without these declarations.
-if [ "$UTILITY" = 1 ] && {
-	[ -z "$TEACHER_PREFLIGHT_ARGS" ] || [ -z "$UTILITY_OFFERED_RPS" ] \
-		|| [ -z "$UTILITY_MIN_COMPLETION_RATE" ]
-}; then
-	finish 2 "UTILITY=1 needs TEACHER_PREFLIGHT_ARGS, UTILITY_OFFERED_RPS and UTILITY_MIN_COMPLETION_RATE; set them or UTILITY=0"
-fi
 
 # step NAME COMMAND...: run once, log its output to logs/NAME.log, time it, mark it done.
 step() {
@@ -154,8 +143,6 @@ UTILITY=$UTILITY
 TEACHER_MODEL=$TEACHER_MODEL
 TEACHER_MODEL_REVISION=$TEACHER_MODEL_REVISION
 TEACHER_PREFLIGHT_ARGS=$TEACHER_PREFLIGHT_ARGS
-UTILITY_OFFERED_RPS=$UTILITY_OFFERED_RPS
-UTILITY_MIN_COMPLETION_RATE=$UTILITY_MIN_COMPLETION_RATE
 EOF
 redact() { sed -E 's/^([A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD)[A-Z0-9_]*)=.+/\1=<redacted>/'; }
 env | grep -E '^(TEACHER|HARNESS|VLLM|HF|CUDA)_' | sort | redact > "$attempt/environment.env"
@@ -372,8 +359,7 @@ if [ "$UTILITY" = 1 ]; then
 		start_harness "$arm" "$dir" "$BENIGN/benign_test/requests.jsonl" \
 			|| finish 1 "harness did not start for utility/$arm; see $dir/harness.log"
 		step "$name" "${TOOLS[@]}" utility "$BENIGN/benign_test" "$TASKS_DIR" "$dir/credentials.json" \
-			"$dir/utility.json" "http://127.0.0.1:$HARNESS_RUN_PORT" "$CONCURRENCY" \
-			"$RUN/teacher-preflight.json" "$UTILITY_OFFERED_RPS" "$UTILITY_MIN_COMPLETION_RATE"
+			"$dir/utility.json" "http://127.0.0.1:$HARNESS_RUN_PORT" "$CONCURRENCY"
 		code=$?
 		stop_harness
 		[ "$code" -eq 0 ] || finish 1 "utility failed for $arm; see $LOGS/$name.log"

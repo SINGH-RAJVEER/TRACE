@@ -430,25 +430,11 @@ def evidence_calibrate_command(
 	output: Annotated[Path, typer.Option(dir_okay=False)],
 	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
-	coverage_seed: int | None = None,
-	coverage_width: int | None = None,
-	coverage_ridge: float | None = None,
 	device: str | None = None,
 ) -> None:
 	"""Fit separate opt-in evidence nulls using only the declared score-calibration role."""
 	from harness.corpus import CorpusIndex
 	from harness.evidence import file_hash, fit_evidence
-	from harness.logdet import CoverageSpec
-	from harness.path_runtime import encoder_contract
-
-	options = (coverage_seed, coverage_width, coverage_ridge)
-	if any(value is not None for value in options) and any(value is None for value in options):
-		raise typer.BadParameter("coverage requires explicit seed, width and ridge")
-	coverage = (
-		CoverageSpec(seed=coverage_seed, input_dim=coverage_width, ridge=coverage_ridge)
-		if coverage_seed is not None and coverage_width is not None and coverage_ridge is not None
-		else None
-	)
 
 	calibration, _ = load_calibration(calibration_dir)
 	rows = read_any_requests(score_calibration)
@@ -460,22 +446,15 @@ def evidence_calibrate_command(
 	encoder = make_encoder(embeddings, device)
 	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
 	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
-	null = fit_evidence(rows, vectors, calibration, corpus, coverage)
+	null = fit_evidence(rows, vectors, calibration, corpus)
 	artifact = {
 		"version": "evidence-v1",
 		"role": "score_calibration",
 		"requests_sha256": file_hash(score_calibration),
 		"calibration_sha256": file_hash(calibration_dir / "calibration.json"),
-		"encoder": encoder_contract(encoder.identity())
-		if coverage is not None
-		else encoder.identity(),
+		"encoder": encoder.identity(),
 		"null": null.model_dump(mode="json"),
 	}
-	if coverage is not None:
-		artifact["fit_accounts"] = sorted({row.account for row in rows})
-		artifact["fit_prompts"] = sorted(
-			{hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
-		)
 	output.parent.mkdir(parents=True, exist_ok=True)
 	with output.open("x", encoding="utf-8") as sink:
 		sink.write(json.dumps(artifact, indent="\t") + "\n")
@@ -511,7 +490,6 @@ def evidence_check_command(
 	"""Offline account and optional cluster evidence for benign or A1-A8 schedule files."""
 	from harness.corpus import CorpusIndex
 	from harness.evidence import check_evidence, file_hash
-	from harness.path_runtime import encoder_contract
 	from harness.signals import SignalCalibration
 
 	if reorder not in {"none", "topic"}:
@@ -524,19 +502,8 @@ def evidence_check_command(
 	null = SignalCalibration.model_validate(artifact["null"])
 	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
 	rows = read_any_requests(requests)
-	if null.coverage is not None and (
-		{row.account for row in rows} & set(artifact.get("fit_accounts", []))
-		or {hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
-		& set(artifact.get("fit_prompts", []))
-		or file_hash(requests) == artifact["requests_sha256"]
-	):
-		raise typer.BadParameter("coverage comparison requires held-out accounts and prompts")
 	encoder = make_encoder(embeddings, device)
-	if (
-		encoder_contract(encoder.identity()) != encoder_contract(artifact["encoder"])
-		if null.coverage is not None
-		else encoder.identity() != artifact["encoder"]
-	):
+	if encoder.identity() != artifact["encoder"]:
 		raise typer.BadParameter("evidence encoder differs from the calibrated encoder")
 	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
 	report = check_evidence(rows, vectors, calibration, null, corpus, reorder)
@@ -723,117 +690,3 @@ def separation_command(
 	with (output / "summary.md").open("x", encoding="utf-8") as sink:
 		sink.write(summary_markdown(report))
 	typer.echo(f"{report['decision']} ({output / 'summary.md'})")
-
-
-@app.command("path-calibrate")
-def path_calibrate_command(
-	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
-	campaigns: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
-	output: Annotated[Path, typer.Option(dir_okay=False)],
-	request_horizon: Annotated[int, typer.Option(min=2)],
-	stratum: Annotated[str, typer.Option()],
-	alpha: float = 0.01,
-	streams: str = "mmd",
-	weights: str | None = None,
-	evidence: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
-	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
-	device: str | None = None,
-) -> None:
-	"""Fit an unqualified terminal stop from complete benign principal paths, never test data."""
-	from harness.evidence import file_hash
-	from harness.path_calibration import PathScoring, fit_path_calibration
-	from harness.path_runtime import (
-		PathRecipe,
-		RuntimePathCalibration,
-		detector_hash,
-		encoder_contract,
-		path_look,
-	)
-	from harness.shadow import request_domain
-	from harness.signals import SignalCalibration
-
-	calibration, scorer = load_calibration(calibration_dir)
-	if request_horizon < scorer.window_size or request_horizon % scorer.window_size:
-		raise typer.BadParameter("request horizon must be a positive multiple of window size")
-	names = tuple(streams.split(","))
-	if set(names) - {"mmd", "coverage_mean_logdet"}:
-		raise typer.BadParameter("streams must be mmd and/or coverage_mean_logdet")
-	scoring = PathScoring(
-		name="prompt-path-v1",
-		streams=names,
-		weights=tuple(float(w) for w in weights.split(",")) if weights else None,
-	)
-	rows = read_requests(campaigns)
-	encoder = make_encoder(embeddings, device)
-	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
-	null = None
-	if evidence:
-		payload = json.loads(evidence.read_text())
-		if payload["calibration_sha256"] != file_hash(calibration_dir / "calibration.json"):
-			raise typer.BadParameter("evidence was fitted against a different calibration")
-		if encoder_contract(payload["encoder"]) != encoder_contract(encoder.identity()):
-			raise typer.BadParameter("evidence uses a different encoder")
-		if {row.account for row in rows} & set(payload.get("fit_accounts", [])) or {
-			hashlib.sha256(row.text.encode()).hexdigest() for row in rows
-		} & set(payload.get("fit_prompts", [])):
-			raise typer.BadParameter("path calibration must be disjoint from feature-null fitting")
-		null = SignalCalibration.model_validate(payload["null"])
-	if "coverage_mean_logdet" in names and (null is None or null.coverage is None):
-		raise typer.BadParameter("coverage requires --evidence with fitted coverage nulls")
-	recipe = PathRecipe(
-		detector_hash=detector_hash(calibration, scorer),
-		encoder=encoder_contract(encoder.identity()),
-		request_horizon=request_horizon,
-		window_size=scorer.window_size,
-		evidence=null,
-	)
-	groups: dict[str, list[int]] = {}
-	for i, row in enumerate(rows):
-		groups.setdefault(row.account, []).append(i)
-	paths = []
-	for indices in groups.values():
-		if len(indices) > request_horizon or len(indices) < scorer.window_size:
-			raise typer.BadParameter("each campaign needs one complete look and at most H prompts")
-		if len(indices) % scorer.window_size:
-			raise typer.BadParameter("campaign paths must end on a predetermined look")
-		path = []
-		for end in range(scorer.window_size, len(indices) + 1, scorer.window_size):
-			prefix = indices[:end]
-			values, reason = path_look(
-				recipe,
-				names,
-				vectors[prefix].tolist(),
-				[hashlib.sha256(rows[i].text.encode()).hexdigest() for i in prefix],
-				{request_domain(calibration.config.task, rows[i].text) for i in prefix},
-				calibration,
-				scorer,
-				stratum,
-			)
-			if values is None:
-				raise typer.BadParameter(f"benign campaign has an unsupported look: {reason}")
-			path.append(values)
-		paths.append(path)
-	fitted = fit_path_calibration(
-		paths,
-		scoring=scoring,
-		alpha=alpha,
-		horizon=request_horizon // scorer.window_size,
-		stratum=stratum,
-	)
-	artifact = RuntimePathCalibration(
-		recipe=recipe, calibration=fitted, benign_paths_sha256=file_hash(campaigns)
-	)
-	output.parent.mkdir(parents=True, exist_ok=True)
-	with output.open("x", encoding="utf-8") as sink:
-		sink.write(artifact.model_dump_json(indent=4).replace("    ", "\t") + "\n")
-	typer.echo(
-		json.dumps(
-			{
-				"calibration_hash": artifact.input_hash,
-				"campaigns": fitted.n,
-				"abstained": fitted.abstained,
-				"abstention_reason": fitted.abstention_reason,
-				"qualified": False,
-			}
-		)
-	)

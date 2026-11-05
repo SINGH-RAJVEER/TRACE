@@ -102,13 +102,8 @@ def compare_conditions(
 	*,
 	capacity_evidence: dict[str, Any] | None = None,
 	schedule_sha256: str | None = None,
-	utility_validity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-	"""Require explicitly declared matching dimensions before presenting a comparison.
-
-	A legitimate-utility comparison also needs `utility_validity` to be valid or to record an
-	override; the check is absent for hand-written conditions, so they need the override too.
-	"""
+	"""Require explicitly declared matching dimensions before presenting a comparison."""
 	if len(conditions) < 2:
 		raise ValueError("need at least two conditions")
 	fields = {
@@ -155,15 +150,11 @@ def compare_conditions(
 			):
 				issues.append("utility_observed")
 				break
-	validity = utility_validity or {}
-	if view == "legitimate_utility" and not (validity.get("valid") or validity.get("override")):
-		issues.append("utility_baseline_validity")
 	return {
 		"view": view,
 		"comparable": not issues,
 		"unmatched_or_missing": issues,
 		"conditions": conditions,
-		"utility_validity": utility_validity,
 		"note": "Declared matching requires independent verification against observed "
 		"outcomes and schedules.",
 	}

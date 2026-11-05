@@ -438,22 +438,14 @@ def binomial_upper(successes: int, trials: int, confidence: float = 0.95) -> flo
 	alpha = 1 - confidence
 
 	def cdf(rate: float) -> float:
-		# Log-space terms keep large trial counts from overflowing a float.
-		log_rate, log_rest = math.log(rate), math.log1p(-rate)
-		return math.fsum(
-			math.exp(
-				math.lgamma(trials + 1)
-				- math.lgamma(k + 1)
-				- math.lgamma(trials - k + 1)
-				+ k * log_rate
-				+ (trials - k) * log_rest
-			)
+		return sum(
+			math.comb(trials, k) * rate**k * (1 - rate) ** (trials - k)
 			for k in range(successes + 1)
 		)
 
 	low, high = successes / trials, 1.0
 	for _ in range(60):
-		middle = min(max((low + high) / 2, 1e-300), 1 - 1e-16)
+		middle = (low + high) / 2
 		low, high = (middle, high) if cdf(middle) > alpha else (low, middle)
 	return high
 
