@@ -129,6 +129,11 @@ def observe_campaign(
 	# Encoder awaits may reorder concurrent arrivals. Serialize event time at commit
 	# without dropping observations or letting a clock rollback revive expired state.
 	now = max(now, state["last"])
+	# A completed cooldown starts a fresh evidence window. Clearing receipts with it stops
+	# requests refused during the cooldown from being replayed later without being scored.
+	# Admitted retries stay protected by the API's durable idempotency record.
+	if state["until"] is not None and now >= state["until"]:
+		state = {**state, "rows": [], "receipts": [], "until": None}
 	fingerprint = hashlib.sha256(
 		json.dumps([text, domain, vector], separators=(",", ":"), ensure_ascii=False).encode()
 	).hexdigest()
@@ -143,24 +148,15 @@ def observe_campaign(
 			if result["should_throttle"]:
 				result["status"] = "alert"
 				result["reasons"] = ["cooldown_active"]
-			elif receipt["result"]["should_throttle"]:
-				result["status"] = "observed"
-				result["score"] = None
-				result["reasons"] = ["expired_retry_no_new_evidence"]
-			# A retained retry observes time without adding training evidence. Persist
-			# expiry so a subsequently reordered retry cannot resurrect this cooldown.
+			# A retained retry observes time without adding training evidence.
 			state["last"] = now
-			if state["until"] is not None and not active:
-				state["rows"] = []
-				state["until"] = None
 			result["evaluated_count"] = state["count"]
 			result["retained_count"] = len(state["rows"])
 			tx.put_campaign(key, state)
 			return result
-	# A completed cooldown starts a fresh evidence window. Blocked probing during
-	# cooldown cannot perpetually extend it, and old evidence cannot instantly rearm.
-	expired = state["until"] is not None and not active
-	rows = [] if expired else [r for r in state["rows"] if r["time"] > now - config.window_seconds]
+	# Blocked probing during cooldown cannot perpetually extend it, and old evidence cannot
+	# instantly rearm.
+	rows = [r for r in state["rows"] if r["time"] > now - config.window_seconds]
 	if vector is not None and any(
 		r["vector"] is not None and len(r["vector"]) != len(vector) for r in rows
 	):
@@ -221,14 +217,14 @@ def observe_campaign(
 		"version": config.version,
 		"config_sha256": config.digest,
 		"qualified": False,
-		"status": "warming"
-		if score is None
-		else ("alert" if alert or until is not None else "observed"),
+		"status": (
+			"alert" if alert or until is not None else ("warming" if score is None else "observed")
+		),
 		"score": score,
 		"reasons": (
-			["insufficient_samples"]
-			if score is None
-			else (["repeated_independent_templates_and_lexical_overlap"] if alert else [])
+			(["insufficient_samples"] if score is None else [])
+			+ (["repeated_independent_templates_and_lexical_overlap"] if alert else [])
+			+ (["cooldown_active"] if until is not None else [])
 		),
 		"components": {
 			"received_seconds": received_at,

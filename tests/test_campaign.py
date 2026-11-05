@@ -124,19 +124,19 @@ def test_retry_rollback_and_expiry(tmp_path: Path, durable: bool) -> None:
 		store.bind_campaign(cfg.digest)
 	active = observe(store, cfg, "3", "Solve problem 3", 3)
 	assert active["throttle_until"] == 12
-	retry = observe(store, cfg, "2", "Solve problem 2", 12)
+	# After expiry a retry is fresh evidence, so refused requests cannot be replayed unscored.
+	retry = observe(store, cfg, "3", "Solve problem 3", 12)
 	assert not retry["should_throttle"] and retry["throttle_until"] is None
-	late_retry = observe(store, cfg, "2", "Solve problem 2", 11)
-	assert not late_retry["should_throttle"]
-	assert late_retry["evaluated_count"] == 3 and late_retry["retained_count"] == 0
+	assert retry["evaluated_count"] == 4 and retry["retained_count"] == 1
+	late_retry = observe(store, cfg, "3", "Solve problem 3", 11)
+	assert late_retry["evaluated_count"] == 4 and late_retry["retained_count"] == 1
 	with store.transaction() as tx:
 		assert campaign_cooldown(tx, cfg, "alice", 11) is None
-	recovered = observe(store, cfg, "4", "Solve problem 4", 12)
-	assert recovered["retained_count"] == 1 and not recovered["should_throttle"]
-	assert recovered["evaluated_count"] == 4
-	adjusted = observe(store, cfg, "out-of-order", now=11)
-	assert adjusted["evaluated_count"] == 5
+	adjusted = observe(store, cfg, "out-of-order", "Solve problem 4", now=11)
+	assert adjusted["evaluated_count"] == 5 and adjusted["should_throttle"]
 	assert adjusted["components"]["ordering_adjusted"] is True
+	blocked = observe(store, cfg, "6", "Unrelated other words", 14)
+	assert blocked["status"] == "alert" and "cooldown_active" in blocked["reasons"]
 
 
 def test_window_bounds_and_vectors() -> None:

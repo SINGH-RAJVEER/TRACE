@@ -395,6 +395,29 @@ async def test_idempotent_retries_are_not_counted_and_replay_the_throttle(
 
 
 @pytest.mark.asyncio
+async def test_requests_refused_in_cooldown_cannot_be_replayed_unscored(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, log = _campaign_app(artifacts, tmp_path)
+	async with _client(app) as client:
+		responses = await _until_throttled(client)
+		until = responses[-1].json()["campaign"]["throttle_until"]
+		keys = [{"Idempotency-Key": f"banked-{index}"} for index in range(8)]
+		for index, headers in enumerate(keys):
+			refused = await _post(client, _templated(100 + index), until - 10, headers=headers)
+			assert refused.status_code == 429
+		served = teacher.calls
+		replays = [
+			await _post(client, _templated(100 + index), until + 10, headers=headers)
+			for index, headers in enumerate(keys)
+		]
+	# The window restarts at expiry, so replays are scored and earn a new cooldown.
+	assert [r.status_code for r in replays] == [200, 200] + [429] * 6
+	assert teacher.calls == served + 2
+	assert _events(log, "decision")[-1]["campaign"]["retained_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_restart_keeps_the_evidence_and_the_cooldown_until_it_expires(
 	artifacts: Artifacts, tmp_path: Path
 ) -> None:
