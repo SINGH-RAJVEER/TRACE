@@ -5,7 +5,7 @@ import json
 import time
 from collections import Counter
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -302,7 +302,6 @@ def test_cli_passes_online_contract_to_collection(
 	monkeypatch: pytest.MonkeyPatch,
 	tmp_path: Path,
 ) -> None:
-	from typing import Any
 
 	from distillation import campaign_timing, gateway_campaign, gateway_cli
 	from typer.testing import CliRunner
@@ -423,12 +422,13 @@ def test_schedule_transforms_are_opt_in_and_declared(option: str) -> None:
 	from distillation.attack_transforms import offline_rewrite, transform_inventory
 
 	rows, _ = campaign_schedule(pools=_pools(5), caps=CAPS, attack="A1", budget=9)
-	kwargs = {
+	options: dict[str, dict[str, Any]] = {
 		"paraphrase": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
 		"user_prefix": {"user_prefix": "Answer briefly."},
 		"assistant_prefill": {"assistant_prefill": "The answer is"},
 		"human_bursts": {"bursts": True},
-	}[option]
+	}
+	kwargs = options[option]
 	transformed, settings = transform_inventory(rows, **kwargs)
 	assert len(transformed) == len(rows)
 	assert settings
@@ -598,12 +598,13 @@ async def test_schedule_variant_contract_and_http_budget(tmp_path: Path, variant
 	rows, _ = campaign_schedule(
 		pools=_pools(3), caps=CAPS, attack="A1", budget=3, interval_seconds=0
 	)
-	settings = {
+	options: dict[str, dict[str, Any]] = {
 		"rewriter": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
 		"user_prefix": {"user_prefix": "Answer briefly."},
 		"assistant_prefill": {"assistant_prefill": "Answer:"},
 		"arrival_pattern": {"bursts": True},
-	}[variant]
+	}
+	settings = options[variant]
 	rows, declared = transform_inventory(rows, **settings)
 	schedule = tmp_path / "requests.jsonl"
 	write_jsonl(schedule, rows)
