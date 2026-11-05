@@ -52,6 +52,7 @@ from harness.campaign import (
 	campaign_key,
 	load_campaign_config,
 	observe_campaign,
+	text_identity,
 )
 from harness.deception import noise
 from harness.encoder import Encoder
@@ -1504,6 +1505,7 @@ def create_app(
 			else secrets.token_hex(16)
 		)
 		observe_failed = False
+		campaign_identity = text_identity(text) if campaign is not None else None
 		while True:
 			campaign_result = None
 			campaign_override = False
@@ -1562,6 +1564,7 @@ def create_app(
 									organization=organization,
 									request_id=campaign_request,
 									text=text[: campaign.max_text_chars],
+									identity=campaign_identity,
 									now=now,
 									domain=domain,
 									embedding=(

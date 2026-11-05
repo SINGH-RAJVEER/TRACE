@@ -13,6 +13,7 @@ from harness.campaign import (
 	campaign_cooldown,
 	load_campaign_config,
 	observe_campaign,
+	text_identity,
 )
 from harness.store import MemoryStore, SQLiteStore, StateStore
 from pydantic import ValidationError
@@ -137,6 +138,23 @@ def test_retry_rollback_and_expiry(tmp_path: Path, durable: bool) -> None:
 	assert adjusted["components"]["ordering_adjusted"] is True
 	blocked = observe(store, cfg, "6", "Unrelated other words", 14)
 	assert blocked["status"] == "alert" and "cooldown_active" in blocked["reasons"]
+
+
+def test_questions_after_the_scored_prefix_are_not_one_template() -> None:
+	cfg = config(mode="throttle")
+	store = MemoryStore()
+	store.bind_campaign(cfg.digest)
+	context = "shared document words " * 100
+	for index, question in enumerate(("Who signed it?", "When did it expire?", "Name the seller")):
+		result = observe(
+			store,
+			cfg,
+			str(index),
+			context[:64],
+			float(index),
+			identity=text_identity(context + question),
+		)
+	assert result["status"] == "observed" and not result["should_throttle"]
 
 
 def test_window_bounds_and_vectors() -> None:

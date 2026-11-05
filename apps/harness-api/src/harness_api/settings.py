@@ -107,7 +107,7 @@ class Settings(BaseSettings):
 	review_admin_key: str = Field(default="", alias="HARNESS_REVIEW_ADMIN_KEY")
 	review_verify_codes: set[str] = Field(default_factory=set, alias="HARNESS_REVIEW_VERIFY_CODES")
 
-	# Opt-in experimental campaign detector. The JSON file holds a `campaign-v1` config. In
+	# Opt-in experimental campaign detector. The JSON file holds a `campaign-v2` config. In
 	# observe mode it only records evidence; in throttle mode it can refuse requests, which
 	# needs the explicit diagnostic override because the score is not calibrated.
 	campaign_config: Path | None = Field(default=None, alias="HARNESS_CAMPAIGN_CONFIG")

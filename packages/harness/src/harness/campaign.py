@@ -21,7 +21,7 @@ class CampaignError(ValueError):
 
 class CampaignConfig(BaseModel):
 	model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, frozen=True)
-	version: Literal["campaign-v1"] = "campaign-v1"
+	version: Literal["campaign-v2"] = "campaign-v2"
 	namespace: str = Field(min_length=1, max_length=256)
 	window_size: int = Field(default=128, ge=1, le=512)
 	min_samples: int = Field(default=16, ge=1, le=512)
@@ -68,6 +68,18 @@ def campaign_cooldown(
 	return float(state["until"]) if max(now, state["last"]) < state["until"] else None
 
 
+def text_identity(text: str) -> tuple[str, str]:
+	"""Hash a whole prompt into its template and exact form.
+
+	Prompt length is unbounded, so callers compute this before opening the write transaction.
+	"""
+	normalized = " ".join(re.findall(r"\w+", text.lower()))
+	return (
+		hashlib.sha256(re.sub(r"\d+", "#", normalized).encode()).hexdigest(),
+		hashlib.sha256(normalized.encode()).hexdigest(),
+	)
+
+
 def observe_campaign(
 	tx: Transaction,
 	config: CampaignConfig,
@@ -79,7 +91,9 @@ def observe_campaign(
 	now: float,
 	domain: str,
 	embedding: Sequence[float] | None = None,
+	identity: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
+	"""Score bounded `text`; `identity` separates prompts differing after that bound."""
 	if any(
 		not isinstance(v, str) or not v.strip() or len(v) > 1024
 		for v in (principal, request_id, domain)
@@ -134,8 +148,13 @@ def observe_campaign(
 	# Admitted retries stay protected by the API's durable idempotency record.
 	if state["until"] is not None and now >= state["until"]:
 		state = {**state, "rows": [], "receipts": [], "until": None}
+	template, exact = identity if identity is not None else text_identity(text)
 	fingerprint = hashlib.sha256(
-		json.dumps([text, domain, vector], separators=(",", ":"), ensure_ascii=False).encode()
+		json.dumps(
+			[text, template, exact, domain, vector],
+			separators=(",", ":"),
+			ensure_ascii=False,
+		).encode()
 	).hexdigest()
 	active = state["until"] is not None and now < state["until"]
 	for receipt in state["receipts"]:
@@ -162,7 +181,6 @@ def observe_campaign(
 	):
 		raise CampaignError("embedding dimension mismatch")
 	words = re.findall(r"\w+", text.lower())[:256]
-	template = hashlib.sha256(re.sub(r"\d+", "#", " ".join(words)).encode()).hexdigest()
 	tokens = {hashlib.sha256(re.sub(r"\d+", "#", w).encode()).hexdigest()[:16] for w in words}
 	followup = bool(re.match(r"\s*(and|also|why|how about|what about|continue)\b", text, re.I))
 	row = {

@@ -418,6 +418,18 @@ async def test_requests_refused_in_cooldown_cannot_be_replayed_unscored(
 
 
 @pytest.mark.asyncio
+async def test_questions_past_the_scored_text_bound_are_not_one_template(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, _, _ = _campaign_app(artifacts, tmp_path, config={"max_text_chars": 64})
+	context = "shared document words " * 10
+	async with _client(app) as client:
+		for index in range(6):
+			response = await _post(client, f"{context} ask {chr(97 + index)}", 1000.0 + index)
+			assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_restart_keeps_the_evidence_and_the_cooldown_until_it_expires(
 	artifacts: Artifacts, tmp_path: Path
 ) -> None:

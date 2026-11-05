@@ -44,7 +44,7 @@ Set `HARNESS_CAMPAIGN_CONFIG` to a JSON file and `HARNESS_STATE_DB` to a persist
 
 ```json
 {
-	"version": "campaign-v1",
+	"version": "campaign-v2",
 	"namespace": "local-development",
 	"mode": "observe",
 	"window_size": 128,
@@ -58,13 +58,15 @@ Set `HARNESS_CAMPAIGN_CONFIG` to a JSON file and `HARNESS_STATE_DB` to a persist
 
 These values illustrate the schema; they are not validated operating thresholds. `mode: throttle` additionally requires `HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true`. This is a diagnostic opt-in, not a qualification override. Observation mode never requests campaign throttling. Statistical calibration, customer pilot evidence and supported production activation remain roadmap work.
 
-The canonical configuration digest binds durable state and the API policy revision. An incompatible configuration requires a new state file. Leaving the campaign setting unset retains legacy policy revisions and does not create campaign SQLite tables or metadata. Existing shadow scorers remain separate and telemetry-only.
+The canonical configuration digest binds durable state and the API policy revision. An incompatible configuration requires a new state file, so existing `campaign-v1` configurations and their state must be regenerated. Leaving the campaign setting unset retains legacy policy revisions and does not create campaign SQLite tables or metadata. Existing shadow scorers remain separate and telemetry-only.
 
 ## Evidence and state
 
 The first rule combines normalized template repetition, lexical overlap and a heuristic fraction of independent questions. Numeric slots are normalized and English follow-up prefixes reduce the score. Breadth, timing and optional semantic similarity are supporting telemetry, not independent evidence of downstream training. Semantic similarity is absent when usable embeddings are unavailable; no additional teacher call or mandatory encoder is introduced.
 
-State keeps bounded count/time windows of hashed lexical features, template/domain fingerprints, optional embeddings and a bounded request-receipt cache. It does not keep raw prompt text. The cache is not a lifetime deduplication ledger; the API's durable idempotency mechanism remains authoritative. Bound each prompt by `max_text_chars` and embedding width by 2,048. State has a count cap of at most 512 rows per principal, but total principal cardinality is not globally bounded. Retention cleanup, fleet storage quotas and lifecycle administration remain work. Hashed features and embeddings can still reveal sensitive information and require appropriate access controls.
+Templates are hashed over the full normalized prompt before the write transaction opens, so questions that differ only after the scored text bound are separate templates. An attacker can use the same property to vary a suffix, and any wording change already evades the exact template match.
+
+State keeps bounded count/time windows of hashed lexical features, template/domain fingerprints, optional embeddings and a bounded request-receipt cache. It does not keep raw prompt text. The cache is not a lifetime deduplication ledger; the API's durable idempotency mechanism remains authoritative. Scored text is bounded by `max_text_chars` and embedding width by 2,048. Prompts longer than that are only hashed whole, before the write transaction. State has a count cap of at most 512 rows per principal, but total principal cardinality is not globally bounded. Retention cleanup, fleet storage quotas and lifecycle administration remain work. Hashed features and embeddings can still reveal sensitive information and require appropriate access controls.
 
 Updates share the admission transaction and rollback with it. Evidence is keyed by deployment namespace and authenticated principal; changing organization metadata does not reset that history. This slice performs no inferred account linking or organization-wide campaign scoring. Count/time window expiry is explicit, and process restarts do not empty the state. Incompatible dimensions are refused. Observations that arrive out of order after encoder work use the last committed campaign time and record both received time and the ordering adjustment; their evidence is retained.
 
