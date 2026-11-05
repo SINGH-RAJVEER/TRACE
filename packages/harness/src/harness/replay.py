@@ -34,6 +34,7 @@ def make_policy(
 	deception_key: bytes | None = None,
 	actions: Literal["graduated", "direct"] = "graduated",
 	store: StateStore | None = None,
+	request_quota: int | None = None,
 ) -> Policy:
 	config = calibration.config
 	calibration.require_current_policy()
@@ -41,7 +42,13 @@ def make_policy(
 	if name == "allow":
 		return AllowPolicy(*horizon, store=store)
 	if name == "quota":
-		return QuotaPolicy(calibration.baselines["quota"].thresholds[0], *horizon, store=store)
+		return QuotaPolicy(
+			request_quota
+			if request_quota is not None
+			else calibration.baselines["quota"].thresholds[0],
+			*horizon,
+			store=store,
+		)
 	if name == "rate":
 		if "rate_per_minute" not in calibration.baselines:
 			raise ValueError("the calibration has no rate cutoff; its requests had no times")
