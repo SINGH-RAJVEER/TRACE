@@ -140,7 +140,7 @@ Fusion is a fixed convex mixture of calibrated horizon e-values, with fixed neut
 
 The current local role pools are insufficient for this fresh reference build: the GSM8K score-calibration pool has 682 prompts. Producing the new default reference set requires rebuilding larger source-disjoint role pools, not reusing held-out test prompts. The default uses 20 rather than 19 specialist accounts per domain, giving 40 single-domain horizons so the two-sided session ranks can resolve 0.05. This exceeds the requested 19 independent windows per domain.
 
-The development-only replay of these signals on the frozen v3 roles is recorded in [readings/v5-development-notes](../readings/v5-development-notes/README.md#shadow-evidence-replay). It used no teacher and no `benign_test`, and its ranks all abstain; it is not detection confirmation.
+The development-only replay of these signals on the frozen v3 roles is recorded in [the development notes at commit 1ee16618](https://github.com/SINGH-RAJVEER/TRACE/blob/1ee1661861382d92d922408f7e3dc50c2a18523f/readings/v5-development-notes/README.md#shadow-evidence-replay). It used no teacher and no `benign_test`, and its ranks all abstain; it is not detection confirmation.
 
 ### Adaptive collection options
 
@@ -189,4 +189,4 @@ The decision rule is fixed in code. A comparison survives when, under `all`, a s
 
 The source-connected grouping is `harness.separation_groups.connected_source_groups`: windows sharing any source identifier, including transitive overlaps, stay together. The helper reports an error when its seeded search finds no usable assignment.
 
-The 2026-11-02 development results of this study are recorded in [readings/v5-development-notes](../readings/v5-development-notes/README.md#separation-study-2026-11-02).
+The 2026-11-02 development results of this study are recorded in [the development notes at commit 1ee16618](https://github.com/SINGH-RAJVEER/TRACE/blob/1ee1661861382d92d922408f7e3dc50c2a18523f/readings/v5-development-notes/README.md#separation-study-2026-11-02).
