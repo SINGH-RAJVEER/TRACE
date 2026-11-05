@@ -35,8 +35,6 @@ In the API, `HARNESS_SHADOW_SCORERS=true` adds a `shadow` object to every `decis
 
 `harness shadow-check --calibration DIR --requests FILE [--reorder topic]` replays BenignRequest or gateway schedule lines through the shadow scorers only. It reports coverage and per-domain window summaries for each account horizon. `--reorder topic` sends each horizon grouped by domain, then by coverage cell, while keeping the original times.
 
-A development check of these scorers on the frozen v3 roles, inspected during development and not usable as confirmation, is recorded in [the development notes at commit 1ee16618](https://github.com/SINGH-RAJVEER/TRACE/blob/1ee1661861382d92d922408f7e3dc50c2a18523f/readings/v5-development-notes/README.md#shadow-scorers).
-
 **What this does not establish.** Neither score identifies extraction or intent. Coverage measures breadth, which benign generalists and broad researchers share, and splitting a campaign across accounts removes it. Conditional MMD can only flag traffic unlike a domain's specialists, such as foreign-source prompts. When an attacker's prompts follow the same distribution as benign traffic, every content-only score, these included, rejects attacker and benign accounts at the same rate. No false-positive rate, detection rate, or effect on student capability has been measured. Any use in a policy needs a fresh source-disjoint calibration and evaluation.
 
 ## Acquisition accounting
@@ -82,8 +80,6 @@ Decision events record a `reason`: `attempt_cap`, `quota`, `rate`, `detector`, o
 Budgets are access controls, not a detector. They limit what one account, or the accounts declared under one organization, can receive. They do not identify an attacker, and they do not change the upper-tail MMD miss described above.
 
 The bound depends on an accurate token count, traffic passing through this service, and an intact state file. Limits apply per principal, or per declared organization for the horizon and rolling organization budgets. An organization limit covers only principals the operator has mapped to that organization. The harness does not infer links between accounts, and it does not apply a ban or a limit across accounts the mapping does not join. A Sybil campaign such as A5 or A6, or account rotation, whose accounts are not mapped together gets one allowance per account, or per organization when the accounts sit in several declared organizations.
-
-The crash-test measurements and the audit's offline estimates behind this section are recorded in [the development notes at commit 1ee16618](https://github.com/SINGH-RAJVEER/TRACE/blob/1ee1661861382d92d922408f7e3dc50c2a18523f/readings/v5-development-notes/README.md#budget-enforcement). They cover one campaign, one seed and one account, and measure enforcement, not capability.
 
 **Not measured.** No rolling budget has been run with the real teacher, the encoder, or the MMD policy. No organization rolling budget has been run against any recorded campaign; its tests check enforcement with a stand-in teacher. Student capability under any budget, real legitimate traffic, adaptive attackers, account rotation, and how often real Sybil accounts would be declared under one organization are all unknown.
 
