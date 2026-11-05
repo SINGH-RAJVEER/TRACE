@@ -4,6 +4,42 @@ The campaign detector is an opt-in first implementation of the [detection roadma
 
 ## Configuration
 
+### Task runner flow
+
+`just start` and its alias `just harness` launch the product API. They no longer run the full study. Enter `devenv shell`, use `just setup` for core dependencies and `just setup-eval` for encoder/evaluation dependencies. The teacher model server and `just teacher` adapter are managed separately.
+
+```bash
+just campaign-config artifacts/campaign/config.json --namespace my-deployment
+just validate --config artifacts/campaign/config.json --state-db artifacts/campaign/state.sqlite3
+just start --config artifacts/campaign/config.json --state-db artifacts/campaign/state.sqlite3
+```
+
+Before validation/startup, set `HARNESS_ACCOUNTS_FILE` to your authenticated account mapping and `HARNESS_CALIBRATION_DIR` to an existing calibration matching `HARNESS_TASK`. Existing calibration remains necessary even for base policy `allow`. `validate` checks settings and prerequisite file paths, not upstream readiness, calibration adequacy or detection effectiveness. Actual startup loads and verifies API artifacts normally. No state database is created by validation. Product startup rejects test clocks and client-supplied benchmark identities.
+
+The generator creates a new JSON exclusively and defaults to observation mode; existing files are never replaced. `--mode throttle` writes a diagnostic configuration but does not enable its enforcement override. Startup requires the existing explicit `HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true` declaration to use that mode. Set `HARNESS_CAMPAIGN_CONFIG` and `HARNESS_STATE_DB` in `.env` to omit the corresponding start/validate flags. Product startup defaults the base policy to `allow` even if `.env` selects MMD; use `--base-policy mmd`, `quota`, `quota_tokens` or `rate` deliberately, with that policy's additional prerequisites.
+
+| Command | Purpose |
+| --- | --- |
+| `just setup`, `just setup-eval` | Frozen core dependencies, or encoder/evaluation extras |
+| `just teacher` | Teacher adapter only, using the configured upstream |
+| `just campaign-config OUTPUT --namespace NAME [--mode observe\|throttle]` | New versioned campaign configuration |
+| `just validate [--config FILE] [--state-db FILE] [--base-policy POLICY]` | Offline launch-setting and prerequisite-path validation |
+| `just start ...`, `just harness ...` | Campaign-protected API in the foreground |
+| `just harness-legacy` | Configured base-policy API with campaign settings explicitly disabled, including dotenv values |
+| `just study [RUN_ID]` | Retained corpus/calibration/teacher/attack/utility study; may launch GPU work and export readings |
+| `just baseline-gates [RUN_ID]` | Declared teacher headroom and clean-student GPU workflow |
+| `just calibrate ...`, `just recalibrate SOURCE OUTPUT [PROFILES]` | Existing calibration and source-disjoint profile preparation |
+| `just distill ...`, `just detector ...` | Pass-through corpus, collection, evaluation, replay, evidence and review CLIs |
+| `just checkpoint-export CAMPAIGN OUTPUT ...` | Exclusive receipt-ordered export; repeat `--response-count N` |
+| `just checkpoint-plan EXPORT SUITE OUTPUT --target-accuracy VALUE ...` | GSM8K student plan; accepts repeated `--seed` and explicit `--include-pending` |
+| `just checkpoint-execute OUTPUT`, `just checkpoint-summary OUTPUT` | Explicit GPU execution, then CPU reporting |
+| `just test [PYTEST_ARGS...]`, `just test-campaign`, `just test-checkpoints` | Full/custom tests or focused feature suites |
+| `just check`, `just format` | Lint/format/type/shell checks, or explicit Python formatting |
+| `just reading RUN_ID [NAME]`, `just backfill` | Explicit research export or historical index maintenance |
+| `just lock` | Explicit dependency-lock maintenance |
+
+`just study` preserves the previous `just start RUN_ID` workflow under `scripts/study.sh`; existing run paths and resume markers stay the same. Its harness processes use the legacy launcher so a product `.env` cannot silently enable the new detector in historical arms. It is not an automated campaign-detector qualification study. The new start command never invokes study preparation, GPU training or reading export. To inspect declarations without starting those workflows, use `just study --help` or `just baseline-gates --help`.
+
 Set `HARNESS_CAMPAIGN_CONFIG` to a JSON file and `HARNESS_STATE_DB` to a persistent state file. For an observation-only fixture configuration:
 
 ```json

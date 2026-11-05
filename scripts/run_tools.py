@@ -1,4 +1,4 @@
-"""Helpers for scripts/start.sh. Run inside the workspace environment.
+"""Helpers for scripts/study.sh. Run inside the workspace environment.
 
 corpus-ready TASK_DIR                    exit 0 when a task build is complete and partitioned
 caps MANIFEST                            print a benign schedule's per-domain output caps

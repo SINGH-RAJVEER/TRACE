@@ -16,6 +16,20 @@
 #   TEACHER_TERMS_REVIEW_ID review identifier that `distill baseline collect` records
 set -uo pipefail
 
+if [ "${1:-}" = --help ]; then
+	cat <<'HELP'
+Usage: just baseline-gates [RUN_ID]
+GPU workflow: teacher headroom, clean collection, student training and the clean gate.
+Requires MARGIN_POINTS, BENIGN_SCHEDULE, TEACHER_PREFLIGHT_ARGS and TEACHER_TERMS_REVIEW_ID.
+This command is separate from just start and does not qualify the campaign detector.
+HELP
+	exit 0
+fi
+if [ "$#" -gt 1 ]; then
+	echo "Usage: just baseline-gates [RUN_ID]" >&2
+	exit 2
+fi
+
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT" || exit 1
 
