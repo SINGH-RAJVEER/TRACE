@@ -4,7 +4,7 @@ Updated 2026-11-05. This is the active implementation and testing backlog for ex
 
 All checkboxes below describe remaining work. Existing plumbing is a starting point, not completion of these product requirements. Mark an item complete only with linked implementation, relevant checks and the evidence named in its section. Record software completion separately from measured detection performance and live operational qualification.
 
-An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage and Codex review. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
+An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
 
 ## Starting point and release order
 
