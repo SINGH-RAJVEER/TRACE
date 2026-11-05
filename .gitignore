@@ -32,6 +32,8 @@ data/
 
 # Logs
 *.log
+# Recorded study logs are evidence.
+!readings/**/*.log
 
 # OS files
 .DS_Store
