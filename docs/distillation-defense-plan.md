@@ -36,7 +36,7 @@ None of those commands alone establishes that extraction was prevented. CPU fixt
 3. Train prefix students from the same pinned base at each declared checkpoint and evaluate a locked source-disjoint suite.
 4. Compare the earliest checkpoint reaching the target with effective intervention and cumulative attacker cost. A target not reached within the experiment is censored, not impossible.
 
-The current curve subsets are hash-ordered. Historical matched-prefix controls match supervision volume and are not intervention-aligned learning curves. This chronological experiment is not implemented by restoration.
+The ordinary curve subsets are hash-ordered. Historical matched-prefix controls match supervision volume and are not intervention-aligned learning curves. The subsequent [checkpoint workflow](checkpoints.md) adds verified receipt-ordered exports and checkpoint students as separate opt-in tooling. It still requires a preregistered useful-capability target, a valid clean baseline and actual teacher/GPU execution before drawing effectiveness conclusions.
 
 ## Next implementation: detector versus quota
 

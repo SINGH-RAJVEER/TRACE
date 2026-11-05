@@ -126,6 +126,8 @@ The optional runner uses the [Qwen3.5 text-only model class](https://huggingface
 
 ## Acquisition manifests, math curves and clean-baseline gates
 
+For receipt-ordered campaign prefixes, intervention bounds and checkpoint students, use the [chronological checkpoint workflow](checkpoints.md). The ordinary learning-curve subsets described below are hash-ordered and cannot establish intervention timing.
+
 The restored tooling separates a valid extraction experiment from a successful defense. It has CPU fixture coverage; GPU execution, live teacher collection and actual student learning still require qualification on the intended host. Run `distill acquisition --help`, `distill baseline --help` and `distill learning-curve --help` for all options.
 
 `distill acquisition manifest --ledger LEDGER --response-policy clean --output MANIFEST` records frozen teacher settings, input and record hashes, prompt/completion identities, quality status, source families and reported usage. It rejects duplicate examples, repeated prompts under different IDs and mixed teacher settings. `clean` is an operator assertion that the outputs were delivered unmodified, not a verified property. A digest proves consistency, not provenance. New manifest and gate files are published exclusively with mode 0600, flushed before publication and never overwritten; adjust permissions deliberately if sharing them.
