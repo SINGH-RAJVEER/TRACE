@@ -3,7 +3,9 @@
 corpus-ready TASK_DIR                    exit 0 when a task build is complete and partitioned
 caps MANIFEST                            print a benign schedule's per-domain output caps
 accounts DIR REQUESTS...                 write DIR/credentials.json (mode 600) and accounts.json
-utility SCHEDULE TASKS KEYS OUTPUT URL N measure benign utility through a running harness
+utility SCHEDULE TASKS KEYS OUTPUT URL N [PREFLIGHT OFFERED_RPS MIN_COMPLETION]
+                                         measure benign utility, optionally bound to a passing
+                                         teacher preflight of the same schedule
 summary CAMPAIGN_JSON                    print a one-line campaign summary
 export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets,
                                          and replace its rows in READINGS/index.tsv
@@ -70,15 +72,37 @@ def accounts(directory: Path, schedules: list[Path]) -> None:
 
 
 def utility(
-	schedule: Path, tasks: Path, keys_file: Path, output: Path, url: str, concurrency: int
+	schedule: Path,
+	tasks: Path,
+	keys_file: Path,
+	output: Path,
+	url: str,
+	concurrency: int,
+	preflight: Path | None = None,
+	offered_rps: float | None = None,
+	min_completion_rate: float | None = None,
 ) -> None:
 	from distillation.io import read_jsonl
 	from distillation.schemas import GatewayRequest
 	from distillation.tasks import task_directory
+	from distillation.teacher_capacity import bind_utility_baseline
 	from distillation.utility import measure_utility
 	from distillation.workloads import task_references
 	from harness.calibration import BenignRequest
 
+	# Matches the default request deadline of measure_utility.
+	baseline = None
+	if any(value is not None for value in (preflight, offered_rps, min_completion_rate)):
+		if preflight is None or offered_rps is None or min_completion_rate is None:
+			raise ValueError("utility binding needs preflight, offered rate and minimum completion")
+		baseline = bind_utility_baseline(
+			preflight,
+			schedule_sha256=_sha256(schedule / "requests.jsonl"),
+			declared_offered_rps=offered_rps,
+			min_completion_rate=min_completion_rate,
+			concurrency=concurrency,
+			request_deadline=120,
+		)
 	manifest = json.loads((schedule / "manifest.json").read_text())
 	rows = read_jsonl(schedule / "requests.jsonl", GatewayRequest)
 	caps = manifest["max_output_tokens"]
@@ -108,6 +132,7 @@ def utility(
 			max_output_tokens=caps,
 			account_profiles={row.account: row.domain_profile or "unknown" for row in rows},
 			output=output,
+			baseline=baseline,
 			concurrency=concurrency,
 		)
 	)
@@ -258,8 +283,22 @@ def main() -> None:
 	elif command == "accounts":
 		accounts(Path(args[0]), [Path(arg) for arg in args[1:]])
 	elif command == "utility":
+		if len(args) not in (6, 9):
+			raise SystemExit(
+				"utility needs six arguments, optionally followed by three binding arguments"
+			)
 		schedule, tasks, keys, output = (Path(arg) for arg in args[:4])
-		utility(schedule, tasks, keys, output, args[4], int(args[5]))
+		utility(
+			schedule,
+			tasks,
+			keys,
+			output,
+			args[4],
+			int(args[5]),
+			Path(args[6]) if len(args) == 9 else None,
+			float(args[7]) if len(args) == 9 else None,
+			float(args[8]) if len(args) == 9 else None,
+		)
 	elif command == "summary":
 		summary(Path(args[0]))
 	elif command == "backfill":

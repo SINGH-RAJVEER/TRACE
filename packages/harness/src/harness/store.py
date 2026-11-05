@@ -42,6 +42,7 @@ from typing import Any, Literal, Protocol
 import numpy as np
 
 from harness.mmd import Array
+from harness.path_runtime import CampaignState
 from harness.pow import Challenge
 
 Settlement = Literal["released", "failed", "cancelled"]
@@ -60,6 +61,7 @@ class AccountState:
 	buffer_digests: list[str] = field(default_factory=list)
 	last_release: float = -math.inf
 	recent: deque[float] = field(default_factory=deque)
+	path: CampaignState | None = None
 
 
 @dataclass(frozen=True)
@@ -304,6 +306,8 @@ class Transaction(Protocol):
 
 
 class StateStore(Protocol):
+	def bind_path(self, calibration_hash: str) -> None: ...
+
 	def transaction(self) -> AbstractContextManager[Transaction]:
 		"""A Transaction that commits on exit; SQLite rolls back if the block raises."""
 		...
@@ -533,6 +537,13 @@ class MemoryStore:
 		self.aggregate_windows = 0
 		self.aggregate_alerts: dict[int, dict[str, Any]] = {}
 		self._lock = threading.RLock()
+		self._path_binding: str | None = None
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self._lock:
+			if self._path_binding not in {None, calibration_hash}:
+				raise ValueError("state store is bound to another path calibration")
+			self._path_binding = calibration_hash
 
 	@contextmanager
 	def transaction(self) -> Iterator[_MemoryTransaction]:
@@ -584,6 +595,7 @@ def _encode_state(state: AccountState) -> str:
 			"buffer_digests": state.buffer_digests,
 			"last_release": state.last_release,
 			"recent": list(state.recent),
+			**({"path": state.path.model_dump(mode="json")} if state.path is not None else {}),
 		}
 	)
 
@@ -601,6 +613,7 @@ def _decode_state(text: str) -> AccountState:
 		buffer_digests=data["buffer_digests"],
 		last_release=data["last_release"],
 		recent=deque(data["recent"]),
+		path=CampaignState.model_validate(data["path"]) if "path" in data else None,
 	)
 
 
@@ -996,6 +1009,16 @@ class SQLiteStore:
 			from harness.review import initialize
 
 			initialize(self._db)
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'path_calibration'").fetchone()
+			if row is not None and row[0] != calibration_hash:
+				raise ValueError("state store is bound to another path calibration")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta (key, value) VALUES ('path_calibration', ?)",
+				(calibration_hash,),
+			)
 
 	@contextmanager
 	def transaction(self) -> Iterator[_SQLiteTransaction]:

@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from harness.corpus import CorpusIndex, normalized, shingles
+from harness.logdet import CoverageSpec, length_bin
 from harness.shadow import minimum_null, upper_p
 
 
@@ -29,10 +30,14 @@ class SignalRow:
 
 
 class SignalCalibration(BaseModel):
+	# Frozen so scoring cannot swap the coverage spec that produced the stored nulls.
+	model_config = ConfigDict(frozen=True)
+
 	version: str = "horizon-signals-v1"
 	target: float = Field(default=0.05, gt=0, lt=1)
 	nulls: dict[str, dict[str, list[float]]] = Field(default_factory=dict)
 	corpus_digest: str | None = None
+	coverage: CoverageSpec | None = None
 
 
 def _entropy(values: Sequence[str]) -> float:
@@ -40,13 +45,21 @@ def _entropy(values: Sequence[str]) -> float:
 	return -sum((n / len(values)) * math.log(n / len(values)) for n in counts.values())
 
 
-def raw_signals(rows: Sequence[SignalRow], corpus: CorpusIndex | None = None) -> dict[str, float]:
+def raw_signals(
+	rows: Sequence[SignalRow],
+	corpus: CorpusIndex | None = None,
+	coverage: CoverageSpec | None = None,
+) -> dict[str, float]:
 	"""Sequence-dependent session/novelty summaries; corpus share is order invariant.
 
 	Follow-ups use lexical overlap with any prior prompt or explicit follow-up language;
 	rephrasing uses normalized trigram Jaccard >= .5 (including exact retries). Templates
 	replace numbers and quoted strings. Topic entropy is over directed domain transitions.
 	Novelty is mean Euclidean distance to the closest earlier embedding, excluding the first.
+	With a `coverage` spec, `coverage_mean_logdet` adds the mean per-request log-det gain
+	(see harness.logdet), excluding the first. It is a coverage proxy, not mutual information
+	or a learning prediction. It depends on request count, so its nulls are matched by
+	request-count band (see harness.logdet.length_bin). The cumulative sum is not exposed.
 	"""
 	if not rows:
 		return {}
@@ -124,6 +137,8 @@ def raw_signals(rows: Sequence[SignalRow], corpus: CorpusIndex | None = None) ->
 					]
 				)
 			)
+			if coverage is not None:
+				result["coverage_mean_logdet"] = float(np.mean(coverage.gains(embeddings)[1:]))
 	if corpus is not None:
 		result["corpus_match_share"] = sum(bool(corpus.match(r.text)["matched"]) for r in rows) / n
 	return result
@@ -135,18 +150,28 @@ def fit_signals(
 	profiles: Sequence[str],
 	target: float = 0.05,
 	corpus: CorpusIndex | None = None,
+	coverage: CoverageSpec | None = None,
 ) -> SignalCalibration:
 	"""Fit only from disjoint score_calibration account horizons, never locked/test data."""
 	nulls: dict[str, dict[str, list[float]]] = {}
 	for rows, profile in zip(horizons, profiles, strict=True):
-		for metric, value in raw_signals(rows, corpus).items():
+		for metric, value in raw_signals(rows, corpus, coverage).items():
+			if coverage is not None and metric == "novelty_mean_nn":
+				nulls.setdefault(profile, {}).setdefault(
+					f"{metric}[{length_bin(len(rows))}]", []
+				).append(value)
 			if len(rows) < 2 and metric in {"revisit_followup_rate", "rephrasing_rate"}:
 				continue
+			if metric == "coverage_mean_logdet":
+				# Coverage falls as a stream repeats its span, so its nulls are matched by
+				# request-count band rather than pooled across horizon lengths.
+				metric = f"{metric}[{length_bin(len(rows))}]"
 			nulls.setdefault(profile, {}).setdefault(metric, []).append(value)
 	return SignalCalibration(
 		target=target,
 		nulls={p: {k: sorted(v) for k, v in metrics.items()} for p, metrics in nulls.items()},
 		corpus_digest=corpus.digest if corpus is not None else None,
+		coverage=coverage,
 	)
 
 
@@ -161,8 +186,8 @@ def score_signals(
 	if (corpus.digest if corpus is not None else None) != calibration.corpus_digest:
 		raise ValueError("corpus index digest differs from signal calibration")
 	metrics: dict[str, Any] = {}
-	values = raw_signals(rows, corpus)
-	names = (
+	values = raw_signals(rows, corpus, calibration.coverage)
+	names: tuple[str, ...] = (
 		"request_count",
 		"revisit_followup_rate",
 		"rephrasing_rate",
@@ -174,11 +199,24 @@ def score_signals(
 		"novelty_mean_nn",
 		"corpus_match_share",
 	)
+	if calibration.coverage is not None:
+		names += ("coverage_mean_logdet",)
 	for name in names:
 		value = values.get(name)
-		one_sided = name in {"novelty_mean_nn", "corpus_match_share", "request_count"}
+		one_sided = name in {
+			"novelty_mean_nn",
+			"coverage_mean_logdet",
+			"corpus_match_share",
+			"request_count",
+		}
 		required = minimum_null(calibration.target if one_sided else calibration.target / 2)
-		null = calibration.nulls.get(profile, {}).get(name, [])
+		key = name
+		if (
+			name == "coverage_mean_logdet"
+			or (calibration.coverage is not None and name == "novelty_mean_nn")
+		) and len(rows) >= 2:
+			key = f"{name}[{length_bin(len(rows))}]"
+		null = calibration.nulls.get(profile, {}).get(key, [])
 		entry: dict[str, Any] = {
 			"value": value,
 			"null_horizons": len(null),
@@ -186,6 +224,8 @@ def score_signals(
 			"rank_floor": min(1.0, (1 if one_sided else 2) / (len(null) + 1)),
 			"p_value": None,
 		}
+		if key != name:
+			entry["length_band"] = key[len(name) + 1 : -1]
 		if value is None or (
 			len(rows) < 2 and name in {"revisit_followup_rate", "rephrasing_rate"}
 		):
@@ -193,7 +233,8 @@ def score_signals(
 				"statistic unavailable: insufficient observations, gaps, embeddings or corpus"
 			)
 		elif len(null) < required:
-			entry["abstain"] = f"need {required} benign {profile} horizons"
+			band = f" of {key[len(name) + 1 : -1]} requests" if key != name else ""
+			entry["abstain"] = f"need {required} benign {profile} horizons{band}"
 		else:
 			upper = upper_p(null, value)
 			lower = (1 + sum(v <= value for v in null)) / (len(null) + 1)

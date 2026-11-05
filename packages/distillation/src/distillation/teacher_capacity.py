@@ -2,15 +2,19 @@
 
 import asyncio
 import hashlib
+import json
 import math
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
 from pydantic import ValidationError
 
 from distillation.schemas import GatewayRequest, TeacherGeneration, TeacherGenerationRequest
+
+BINDING_VERSION = "utility-baseline-v1"
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,55 @@ def require_capacity_pass(result: dict[str, Any], *, schedule_sha256: str) -> No
 		or not all(value is True for value in result["checks"].values())
 	):
 		raise ValueError("a passing capacity preflight for this schedule is required")
+
+
+def bind_utility_baseline(
+	evidence: Path,
+	*,
+	schedule_sha256: str,
+	declared_offered_rps: float,
+	min_completion_rate: float,
+	concurrency: int,
+	request_deadline: float,
+) -> dict[str, Any]:
+	"""Refuse utility collection unless a passing preflight covers this schedule and rate.
+
+	Returns the binding a utility run stores. The preflight must have run this schedule at the
+	declared rate or above, with the same client concurrency and a timeout no longer than the
+	utility deadline, and have completed enough throughput to meet the declared completion floor.
+	"""
+	values = (declared_offered_rps, min_completion_rate)
+	if any(not math.isfinite(value) for value in values) or declared_offered_rps <= 0:
+		raise ValueError("the declared offered rate must be positive and finite")
+	if not 0 < min_completion_rate <= 1:
+		raise ValueError("the minimum completion rate must be in (0, 1]")
+	if not evidence.is_file():
+		raise ValueError(f"utility collection needs a teacher preflight report: {evidence}")
+	result = json.loads(evidence.read_text())
+	require_capacity_pass(result, schedule_sha256=schedule_sha256)
+	if result["offered_rps"] < declared_offered_rps:
+		raise ValueError(
+			f"the preflight offered {result['offered_rps']} requests per second, below the "
+			f"declared {declared_offered_rps}"
+		)
+	if result["completed_rps"] < min_completion_rate * declared_offered_rps:
+		raise ValueError(
+			f"the preflight completed {result['completed_rps']} requests per second, too few for "
+			f"completion rate {min_completion_rate} at {declared_offered_rps} offered"
+		)
+	if result["concurrency"] != concurrency:
+		raise ValueError("the preflight ran at a different client concurrency")
+	if result["timeout_seconds"] > request_deadline:
+		raise ValueError("the preflight allowed longer than the utility request deadline")
+	return {
+		"version": BINDING_VERSION,
+		"preflight_sha256": hashlib.sha256(evidence.read_bytes()).hexdigest(),
+		"schedule_sha256": schedule_sha256,
+		"declared_offered_rps": declared_offered_rps,
+		"preflight_offered_rps": result["offered_rps"],
+		"preflight_completed_rps": result["completed_rps"],
+		"min_completion_rate": min_completion_rate,
+	}
 
 
 async def preflight(

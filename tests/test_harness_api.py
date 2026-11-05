@@ -1259,8 +1259,8 @@ async def test_off_path_rollover_and_release_accounting(
 		teacher=Teacher(),
 		encoder=Encoder(),
 		calibration=calibration,
-		scorer=DelayedScorer(),
-		aggregate_scorer=aggregate,  # type: ignore[arg-type]
+		scorer=DelayedScorer(),  # type: ignore[arg-type]
+		aggregate_scorer=aggregate,
 		clock=lambda: 2,
 	)
 	async with (
@@ -1901,3 +1901,202 @@ async def test_review_grant_allows_only_one_policy_refusal(
 		assert (
 			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
 		).status_code == 403
+
+
+def _path_artifact(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	levels: list[float],
+	*,
+	campaigns: int = 99,
+	coverage: bool = False,
+) -> Any:
+	from harness.logdet import CoverageSpec
+	from harness.path_calibration import PathScoring, fit_path_calibration
+	from harness.path_runtime import PathRecipe, RuntimePathCalibration, detector_hash
+	from harness.signals import SignalRow, fit_signals
+
+	calibration, scorer, _ = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = levels
+	null = None
+	streams: tuple[str, ...] = ("mmd",)
+	weights = None
+	maxima = [[[10.0]]] * campaigns
+	if coverage:
+		spec = CoverageSpec(seed=7, input_dim=4)
+		rows = [SignalRow(str(i), float(i), (0.0,) * 4) for i in range(4)]
+		null = fit_signals([rows[:2]] * 19 + [rows] * 19, profiles=["all"] * 38, coverage=spec)
+		streams, weights = ("mmd", "coverage_mean_logdet"), (1.0, 100.0)
+		maxima = [[[10.0, 0.0]]] * campaigns
+	fitted = fit_path_calibration(
+		maxima,
+		scoring=PathScoring(name="prompt-path-v1", streams=streams, weights=weights),
+		alpha=0.01,
+		horizon=2,
+		stratum="all",
+	)
+	return RuntimePathCalibration(
+		recipe=PathRecipe(
+			detector_hash=detector_hash(calibration, scorer),
+			encoder={"model": "fake"},
+			request_horizon=4,
+			window_size=2,
+			evidence=null,
+		),
+		calibration=fitted,
+	)
+
+
+async def test_path_coverage_stops_before_dispatch_and_deduplicates_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+) -> None:
+	levels = [float("inf")] * 4
+	artifact = _path_artifact(artifacts, levels, coverage=True)
+	path = tmp_path / "path.json"
+	path.write_text(artifact.model_dump_json())
+	db = tmp_path / "path.db"
+	settings = dict(
+		HARNESS_POLICY="path",
+		HARNESS_PATH_CALIBRATION=path,
+		HARNESS_STATE_DB=db,
+		HARNESS_TEST_CLOCK=True,
+	)
+	app, teacher, log = _app(artifacts, tmp_path, levels, **settings)
+	headers = {"X-Benchmark-Actor": "a", "X-Harness-Time": "0", "Idempotency-Key": "first"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		first = await c.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		assert first.status_code == 200
+		assert (
+			await c.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		).content == first.content
+		headers["Idempotency-Key"] = "second"
+		stopped = await c.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert stopped.status_code == 403 and stopped.json()["detail"]["code"] == "path_stop"
+		assert teacher.calls == 1
+	# Reopening the same state file must retain both stop and retry outcomes.
+	app, teacher, _ = _app(artifacts, tmp_path, levels, **settings)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		retry = await c.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert retry.content == stopped.content
+		headers.update({"Idempotency-Key": "third", "X-Harness-Time": "999999"})
+		changed = _request("new context")
+		changed["messages"].insert(0, {"role": "system", "content": "a different context"})
+		later = await c.post("/v1/teacher/generate", json=changed, headers=headers)
+		assert later.status_code == 403 and later.json()["detail"]["code"] == "path_stop"
+		assert teacher.calls == 0
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	decisions = [e for e in events if e["event"] == "decision"]
+	assert len(decisions) == 2
+	assert [e["path"]["revision"] for e in decisions] == [1, 2]
+	assert decisions[-1]["reason"] == "path_stop"
+	for event in events:
+		if event["event"] in {"decision", "release"}:
+			assert event["path_policy"] == {
+				"calibration_hash": artifact.input_hash,
+				"policy_version": "prompt-path-v1",
+				"qualified": False,
+			}
+	# A different path null cannot reopen this ledger.
+	path.write_text(
+		_path_artifact(artifacts, levels, campaigns=98, coverage=True).model_dump_json()
+	)
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(artifacts, tmp_path, levels, **settings)
+
+
+async def test_path_abstention_and_mmd_baseline(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+) -> None:
+	levels = [float("inf")] * 4
+	for n, coverage in [(98, True), (99, False)]:
+		path = tmp_path / f"path-{n}.json"
+		path.write_text(
+			_path_artifact(artifacts, levels, campaigns=n, coverage=coverage).model_dump_json()
+		)
+		app, teacher, log = _app(
+			artifacts,
+			tmp_path,
+			levels,
+			HARNESS_POLICY="path",
+			HARNESS_PATH_CALIBRATION=path,
+			HARNESS_STATE_DB=tmp_path / f"state-{n}.db",
+		)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://test"
+		) as c:
+			for i in range(2):
+				response = await c.post(
+					"/v1/teacher/generate",
+					json=_request(str(i)),
+					headers={"X-Benchmark-Actor": "a"},
+				)
+				assert response.status_code == 200
+		assert teacher.calls == 2
+		events = [json.loads(line) for line in log.read_text().splitlines()]
+		last = [e for e in events if e["event"] == "decision"][-1]
+		assert last["path"]["status"] == ("abstain" if n == 98 else "continue")
+		if n == 98:
+			assert last["path"]["abstention_reason"] == "insufficient campaigns for alpha"
+			assert last["path"]["p_value"] is None
+
+
+def test_path_settings_require_durable_synchronous_state(tmp_path: Path) -> None:
+	base: dict[str, Any] = dict(
+		HARNESS_POLICY="path",
+		HARNESS_PATH_CALIBRATION=tmp_path / "path.json",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+	)
+	cases: list[tuple[dict[str, Any], str]] = [
+		({"HARNESS_STATE_DB": None}, "durable"),
+		({"HARNESS_SCORING_MODE": "off_path"}, "incompatible"),
+		({"HARNESS_POLICY": "mmd"}, "exclusively"),
+	]
+	for override, match in cases:
+		with pytest.raises(ValueError, match=match):
+			Settings(_env_file=None, **(base | override))  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("arm", ["allow", "mmd", "rate", "quota"])
+async def test_existing_arms_keep_legacy_event_schema_and_state_binding(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	arm: str,
+) -> None:
+	from harness_api.app import _policy_fields
+
+	levels = [float("inf")] * 4
+	if arm == "rate":
+		calibration, scorer, aggregate = artifacts
+		calibration = calibration.model_copy(deep=True)
+		calibration.baselines["rate_per_minute"] = calibration.baselines["quota"].model_copy(
+			deep=True
+		)
+		artifacts = (calibration, scorer, aggregate)
+	db = tmp_path / "legacy.db"
+	settings = dict(
+		HARNESS_POLICY=arm, HARNESS_STATE_DB=db, HARNESS_L4_ACTION="refuse", HARNESS_TEST_CLOCK=True
+	)
+	app, _, log = _app(artifacts, tmp_path, levels, **settings)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		response = await c.post(
+			"/v1/teacher/generate",
+			json=_request("first"),
+			headers={"X-Benchmark-Actor": "a", "X-Harness-Time": "0"},
+		)
+		assert response.status_code == 200
+	_app(artifacts, tmp_path, levels, **settings)
+	for event in (json.loads(line) for line in log.read_text().splitlines()):
+		assert "path" not in event and "path_policy" not in event
+	with sqlite3.connect(db) as connection:
+		state = json.loads(connection.execute("SELECT state FROM accounts").fetchone()[0])
+		assert "path" not in state
+	fields = _policy_fields(Settings(_env_file=None), artifacts[0])  # type: ignore[call-arg]
+	assert "path_calibration" not in fields and "path_policy_version" not in fields

@@ -6,6 +6,7 @@ includes the current request and is scored before the victim runs, so it can cha
 for that request (paper Section III-D).
 """
 
+import copy
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -17,12 +18,13 @@ from harness.calibration import Calibration, HarnessConfig
 from harness.deception import keyed_unit
 from harness.encoder import Encoder
 from harness.mmd import Array, WindowScorer, distinct
+from harness.path_runtime import CampaignState, RuntimePathCalibration, advance_campaign
 from harness.pow import Challenge, ChallengeBook
 from harness.serialization import detector_text
 from harness.store import AccountState, MemoryStore, StateStore, Transaction
 
 Action = Literal["serve", "challenge", "refuse"]
-Reason = Literal["attempt_cap", "quota", "rate", "detector"]
+Reason = Literal["attempt_cap", "quota", "rate", "detector", "path_stop"]
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,11 @@ class Decision:
 	# What restricted this request; None when nothing did. Telemetry, not shown to the client.
 	reason: Reason | None = None
 
+	@property
+	def path(self) -> dict[str, Any] | None:
+		"""Opt-in metadata; not a field in legacy decision serialization."""
+		return None
+
 	def client_view(self) -> dict[str, Any]:
 		view: dict[str, Any] = {"action": self.action, "release_at": self.release_at}
 		if self.challenge:
@@ -67,6 +74,11 @@ class Decision:
 		return view
 
 
+@dataclass(frozen=True)
+class PathAdmissionDecision(Decision):
+	path: dict[str, Any] | None = None
+
+
 class Policy(Protocol):
 	def admit_in_transaction(
 		self,
@@ -76,6 +88,7 @@ class Policy(Protocol):
 		now: float,
 		embedding: Array | None = None,
 		binding: str | None = None,
+		prepared: PreparedPathAdmission | None = None,
 	) -> Decision: ...
 
 	def admit(
@@ -147,6 +160,7 @@ class _HorizonPolicy:
 		now: float,
 		embedding: Array | None = None,
 		binding: str | None = None,
+		prepared: PreparedPathAdmission | None = None,
 	) -> Decision:
 		state = tx.account(account)
 		if state is None or now - state.horizon_start >= self.horizon_seconds:
@@ -172,6 +186,130 @@ class _HorizonPolicy:
 		binding: str | None,
 	) -> Decision:
 		raise NotImplementedError
+
+
+class StalePathAdmission(Exception):
+	"""Another admission committed first; prepare again against that prefix."""
+
+
+@dataclass(frozen=True)
+class PreparedPathAdmission:
+	account: str
+	digest: str
+	now: float
+	revision: int
+	state: CampaignState
+
+
+class PathStopPolicy(_HorizonPolicy):
+	"""Opt-in, unqualified terminal path stop, without intermediate detector actions."""
+
+	def __init__(
+		self,
+		calibration: Calibration,
+		scorer: WindowScorer,
+		path: RuntimePathCalibration,
+		*,
+		encoder: Encoder | None = None,
+		store: StateStore | None = None,
+	) -> None:
+		calibration.require_current_policy()
+		path = RuntimePathCalibration.model_validate_json(path.model_dump_json())
+		path.require_compatible(
+			calibration, scorer, encoder.identity() if encoder is not None else path.recipe.encoder
+		)
+		super().__init__(
+			calibration.config.horizon_seconds, calibration.config.horizon_attempts, store
+		)
+		self.calibration, self.scorer, self.path, self.encoder = calibration, scorer, path, encoder
+		assert path.input_hash is not None
+		self.store.bind_path(path.input_hash)
+
+	def prepare(
+		self,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> PreparedPathAdmission:
+		with self.store.transaction() as tx:
+			stored = tx.account(account)
+			prior = copy.deepcopy(stored.path) if stored is not None else None
+		assert self.path.input_hash is not None
+		prior = prior or CampaignState(calibration_hash=self.path.input_hash)
+		if embedding is None:
+			if self.encoder is None:
+				raise ValueError("pass an embedding or configure an encoder")
+			embedding = self.encoder.encode([detector_text(self.calibration.config.task, text)])[0]
+		advanced = advance_campaign(
+			self.path, prior, text, embedding.tolist(), self.calibration, self.scorer
+		)
+		return PreparedPathAdmission(
+			account, request_digest(binding or text), now, prior.revision, advanced
+		)
+
+	def admit(
+		self,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+	) -> Decision:
+		while True:
+			prepared = self.prepare(account, text, now, embedding, binding)
+			try:
+				with self.store.transaction() as tx:
+					return self.admit_in_transaction(
+						tx, account, text, now, embedding, binding, prepared
+					)
+			except StalePathAdmission:
+				continue
+
+	def admit_in_transaction(
+		self,
+		tx: Transaction,
+		account: str,
+		text: str,
+		now: float,
+		embedding: Array | None = None,
+		binding: str | None = None,
+		prepared: PreparedPathAdmission | None = None,
+	) -> Decision:
+		if prepared is None:
+			raise ValueError("path admission requires preparation outside the transaction")
+		if (prepared.account, prepared.digest, prepared.now) != (
+			account,
+			request_digest(binding or text),
+			now,
+		):
+			raise ValueError("prepared path admission belongs to another request")
+		state = tx.account(account)
+		revision = state.path.revision if state is not None and state.path is not None else 0
+		if revision != prepared.revision:
+			raise StalePathAdmission
+		if state is None or now - state.horizon_start >= self.horizon_seconds:
+			state = AccountState(horizon_start=now)
+		state.path = prepared.state
+		state.attempts += 1
+		reason: Reason | None = None
+		if state.path.stopped:
+			reason = "path_stop"
+		elif state.attempts > self.horizon_attempts:
+			reason = "attempt_cap"
+		state.level = 4 if reason is not None else 0
+		tx.put_account(account, state)
+		return PathAdmissionDecision(
+			account,
+			state.attempts,
+			state.level,
+			"refuse" if reason else "serve",
+			now,
+			horizon=state.horizon_start,
+			reason=reason,
+			path=state.path.telemetry(),
+		)
 
 
 class AllowPolicy(_HorizonPolicy):
