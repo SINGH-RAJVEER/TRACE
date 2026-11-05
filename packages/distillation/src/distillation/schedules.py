@@ -13,8 +13,8 @@ from distillation.schemas import GatewayRequest, PromptRecord
 from distillation.tasks import TASKS
 
 SCHEDULE_VERSION = "gateway-schedules-v2"
-Attack = Literal["A1", "A2", "A3", "A4", "A5", "A6", "A7"]
-ATTACKS: tuple[Attack, ...] = ("A1", "A2", "A3", "A4", "A5", "A6", "A7")
+Attack = Literal["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
+ATTACKS: tuple[Attack, ...] = ("A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8")
 # Strategies whose extraction prompts must come from independently pinned sources.
 EXTERNAL_ATTACKS = frozenset({"A3", "A7"})
 
@@ -67,6 +67,11 @@ def campaign_schedule(
 	cover_pools: Mapping[str, Sequence[PromptRecord]] | None = None,
 	cover_share: float = 0.5,
 	cover_allocation: Mapping[str, int] | None = None,
+	topic_sorted: bool = False,
+	deduplicate: bool = False,
+	answer_only: bool = False,
+	per_account_limit: int | None = None,
+	round_size: int = 16,
 ) -> tuple[list[GatewayRequest], dict[str, Any]]:
 	"""Pair prompt selection across strategies, changing order and account assignment only.
 
@@ -81,6 +86,35 @@ def campaign_schedule(
 	`interval_seconds`. A1, A2, A4, A5, and A6 select identical prompts for a matched seed,
 	pools, and allocation.
 	"""
+	if (
+		attack == "A8"
+		or topic_sorted
+		or deduplicate
+		or answer_only
+		or per_account_limit is not None
+	):
+		from distillation.adaptive import variant_schedule
+
+		return variant_schedule(
+			pools=pools,
+			caps=caps,
+			attack=attack,
+			budget=budget,
+			seed=seed,
+			campaign_id=campaign_id,
+			accounts=accounts,
+			allocation=allocation,
+			interval_seconds=interval_seconds,
+			deadline_seconds=deadline_seconds,
+			cover_pools=cover_pools,
+			cover_share=cover_share,
+			cover_allocation=cover_allocation,
+			topic_sorted=topic_sorted,
+			deduplicate=deduplicate,
+			answer_only=answer_only,
+			per_account_limit=per_account_limit,
+			round_size=round_size,
+		)
 	validate_pools(pools, caps)
 	domains = sorted(pools)
 	if attack not in ATTACKS:
@@ -238,7 +272,12 @@ def _select(
 	for domain, count in allocation.items():
 		pool = sorted(pools[domain], key=lambda prompt: prompt.example_id)
 		if count > len(pool):
-			raise ValueError(f"domain allocation exceeds {domain} pool size {len(pool)}")
+			# Name the binding pool and the largest even split, rather than skewing the mix.
+			fits = len(allocation) * min(len(pools[name]) for name in allocation)
+			raise ValueError(
+				f"{label} allocation requests {count} {domain} prompts, but the {domain} pool "
+				f"holds {len(pool)}; an even split over these pools fits at most {fits}"
+			)
 		random.Random(f"{seed}:{label}:{domain}").shuffle(pool)
 		selected[domain] = pool[:count]
 	return selected

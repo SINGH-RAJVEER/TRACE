@@ -13,3 +13,11 @@ This branch merges the two earlier archive branches. Both are parents of the mer
 - `corpora/`: the four seed-42 task builds used by the bounded study.
 
 Large files are in Git LFS, about 10 GB in total. To fetch only part of it, run `git lfs pull --include="readings/**"` after a clone made with `GIT_LFS_SKIP_SMUDGE=1`.
+
+## Research work
+
+The anti-distillation research and the tooling built for its plan were on `main` from `ba1ad344` until they were removed on 2026-11-05. The research head `480481e3` is a parent of this branch's merge, so its full history stays reachable. The merge replaced the top-level code described above with the code at that commit; the earlier top-level code is still at `313dcb8a` and the tag `archive-20261102`.
+
+- `research/`: the report, notes and saved papers. Start at `research/ANTI_DISTILLATION_RESEARCH.md`.
+- `TODO.md`: the open fixes and the phased research plan.
+- `readings/v3/`, `readings/v4/`, `readings/v5-development-notes/`, `readings/index.tsv`: the reorganized readings that this code, the docs and the report link to. The dated `readings/` directories above are unchanged alongside them.

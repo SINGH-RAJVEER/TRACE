@@ -14,9 +14,6 @@ dependencies = [
 coding = [
 	"distillation-core[coding]"
 ]
-train = [
-	"distillation-core[train]"
-]
 eval = [
 	"distillation-core[eval]"
 ]
@@ -59,8 +56,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-# The launcher bootstrap runs on any system Python before the workspace environment exists.
-per-file-target-version = { "scripts/*.py" = "py39" }
+# Frozen study outputs include historical scripts; preserve them byte-for-byte.
+extend-exclude = ["readings"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
@@ -73,9 +70,9 @@ quote-style = "double"
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-exclude = ["artifacts", "outputs"]
+exclude = ["artifacts"]
 
 [[tool.mypy.overrides]]
-module = ["accelerate.*", "datasets.*", "huggingface_hub.*", "peft.*", "safetensors.*", "tokenizers.*", "torch.*", "transformers.*", "trl.*"]
+module = ["datasets.*", "huggingface_hub.*", "peft.*", "torch.*", "transformers.*", "trl.*"]
 ignore_missing_imports = true
 follow_imports = "skip"

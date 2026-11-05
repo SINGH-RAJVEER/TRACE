@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import httpx
 import numpy as np
 import pytest
+from distillation.benchmarks.models import GenerationConfig
 from distillation.benchmarks.traffic import (
 	TrafficConfig,
 	TrafficSample,
@@ -22,6 +24,7 @@ from distillation.schemas import (
 	TeacherGenerationRequest,
 	TokenUsage,
 )
+from distillation.teacher import TeacherUpstreamError
 from harness.calibration import BenignRequest, Calibration, HarnessConfig, calibrate
 from harness.mmd import Array, WindowScorer
 from harness_api.app import create_app
@@ -165,6 +168,88 @@ async def _solved(client: httpx.AsyncClient, actor: str, text: str) -> httpx.Res
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("level", "status"), [(1, 200), (2, 200), (3, 428), (4, 428)])
+async def test_verified_risk_actions_at_each_level(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	level: int,
+	status: int,
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[-1.0] * level + [1e10] * (4 - level),
+		HARNESS_POLICY_VERSION="verify-risk-v2",
+		HARNESS_L4_ACTION="refuse",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == status
+		assert teacher.calls == (2 if status == 200 else 1)
+
+
+@pytest.mark.asyncio
+async def test_verified_risk_l4_recovers_one_request_and_respects_cap(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[-1.0] * 4,
+		HARNESS_POLICY_VERSION="verify-risk-v2",
+		HARNESS_L4_ACTION="refuse",
+	)
+	transport = httpx.ASGITransport(app=app)
+	async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == 428
+		challenge = response.json()["challenge"]
+		proof = (
+			f"{challenge['nonce']}:{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+		)
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("two"),
+				headers={"X-Benchmark-Actor": "bob", "X-Harness-Proof": proof},
+			)
+		).status_code == 403
+		# A mismatched redemption consumes the pending request, so obtain a fresh one.
+		response = await client.post(
+			"/v1/teacher/generate", json=_request("three"), headers=headers
+		)
+		challenge = response.json()["challenge"]
+		proof = (
+			f"{challenge['nonce']}:{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+		)
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("three"),
+				headers=headers | {"X-Harness-Proof": proof},
+			)
+		).status_code == 200
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("three"),
+				headers=headers | {"X-Harness-Proof": proof},
+			)
+		).status_code == 403
+		assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_authenticated_coding_endpoint_preserves_code_and_enforces_quota(
 	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
 ) -> None:
@@ -245,6 +330,39 @@ async def test_protected_collector_solves_real_api_challenges_and_collects_noise
 	assert gateway.challenges == 2
 	assert teacher.calls == 1
 	assert any(json.loads(line)["event"] == "noise" for line in log.read_text().splitlines())
+
+
+@pytest.mark.asyncio
+async def test_gateway_traffic_uses_news_template_and_domain(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	suite_path = tmp_path / "gateway-traffic.json"
+	suite = freeze_traffic(
+		suite_path, genuine_count=4, attack_count=4, duration_seconds=0.05, gateway_news=True
+	)
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_TASK="gateway",
+		HARNESS_GATEWAY_CAPS={"ag_news": 256, "squad": 256},
+	)
+	config = TrafficConfig(
+		experiment="gateway-news",
+		suite_path=suite_path,
+		output_dir=tmp_path / "results",
+		model="fake-model",
+		model_revision="fake-v1",
+		generation=GenerationConfig(max_output_tokens=256),
+		targets={
+			"after": TrafficTarget(
+				base_url="http://harness", service_revision="test", gateway_domain="ag_news"
+			)
+		},
+	)
+	run = await run_traffic(config, "after", transport=httpx.ASGITransport(app=app))
+	assert len(run.samples) == len(suite.requests) == teacher.calls
+	assert all(sample.succeeded and sample.http_status == 200 for sample in run.samples)
 
 
 @pytest.mark.asyncio
@@ -499,7 +617,7 @@ async def test_gateway_campaign_shares_quota_across_domains_and_budget_across_ac
 		decision_log=decisions,
 	)
 	summary = await collect_gateway(**kwargs)
-	assert summary["queries"] == 5
+	assert summary["attempts"] == 5
 	assert summary["blocked"] >= 1
 	assert summary["received"] == teacher.calls
 	events = [
@@ -573,8 +691,8 @@ async def test_gateway_challenge_binding_and_proofs_share_the_campaign_budget(
 		decision_log=decisions,
 		transport=Transport(app=app),
 	)
-	assert summary["queries"] == 3
-	assert summary["proof_requests"] == 1
+	assert summary["attempts"] == 3
+	assert summary["proof_attempts"] == 1
 	assert summary["received"] == teacher.calls == 2
 	assert summary["hashes"] >= 1
 	async with httpx.AsyncClient(transport=Transport(app=app), base_url="http://gateway") as client:
@@ -654,3 +772,1331 @@ async def test_http_refusal_spam_cannot_renew_an_account(
 		if json.loads(line)["event"] == "decision"
 	]
 	assert [e["attempt"] for e in decisions] == list(range(1, 12)) + [1]
+
+
+def _events(log: Path, kind: str) -> list[dict[str, Any]]:
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	return [event for event in events if event["event"] == kind]
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_account_state_and_redeems_a_proof_once(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	state = tmp_path / "state.sqlite3"
+	path = "/v1/teacher/generate"
+	actor = {"X-Benchmark-Actor": "u1"}
+	before, _, before_log = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_STATE_DB=state)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=before), base_url="http://harness"
+	) as client:
+		assert (await client.post(path, json=_request("q 1"), headers=actor)).status_code == 200
+		challenged = await client.post(path, json=_request("q 2"), headers=actor)
+	assert challenged.status_code == 428
+	challenge = challenged.json()["challenge"]
+	proof = actor | {
+		"X-Harness-Proof": f"{challenge['nonce']}:"
+		f"{solve_challenge(challenge['prefix'], challenge['difficulty'])}"
+	}
+	# A new process on the same state file: the challenge and the account's level survive.
+	after, teacher, after_log = _app(artifacts, tmp_path, [-1, -1, -1, 1e9], HARNESS_STATE_DB=state)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=after), base_url="http://harness"
+	) as client:
+		served = await client.post(path, json=_request("q 2"), headers=proof)
+		assert served.status_code == 200 and served.headers["x-harness-decision"] == "throttle"
+		assert (await client.post(path, json=_request("q 2"), headers=proof)).status_code == 403
+		assert (await client.post(path, json=_request("q 3"), headers=actor)).status_code == 428
+	assert teacher.calls == 1
+	assert [e["attempt"] for e in _events(before_log, "decision")] == [1, 2]
+	assert [e["attempt"] for e in _events(after_log, "decision")] == [3]
+	assert [(e["attempt"], e["status"]) for e in _events(before_log, "release")] == [
+		(1, "released")
+	]
+	assert [(e["attempt"], e["status"]) for e in _events(after_log, "release")] == [(2, "released")]
+	assert [e["solved"] for e in _events(after_log, "redeem")] == [True, False]
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(artifacts, tmp_path, [-1] * 4, HARNESS_STATE_DB=state)
+	# Legacy state cannot be resumed under the recoverable verification policy.
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(
+			artifacts,
+			tmp_path,
+			[-1, -1, -1, 1e9],
+			HARNESS_STATE_DB=state,
+			HARNESS_POLICY_VERSION="verify-risk-v2",
+		)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_near_limit_admissions_release_exactly_the_quota(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds = [3]
+	app, teacher, log = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = await asyncio.gather(
+			*(
+				client.post(
+					"/v1/teacher/generate",
+					json=_request(f"q {i}"),
+					headers={"X-Benchmark-Actor": "u1"},
+				)
+				for i in range(12)
+			)
+		)
+	assert sorted(r.status_code for r in responses) == [200] * 3 + [403] * 9
+	assert teacher.calls == 3
+	assert sorted(e["attempt"] for e in _events(log, "decision")) == list(range(1, 13))
+	releases = _events(log, "release")
+	assert sorted(e["attempt"] for e in releases) == [1, 2, 3]
+	assert all(e["status"] == "released" and e["output_tokens"] == 1 for e in releases)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_and_failed_releases_settle_without_refunding_the_admission(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds = [3]
+	state = tmp_path / "state.sqlite3"
+	app, teacher, log = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_STATE_DB=state,
+	)
+	entered = asyncio.Event()
+	mode = "hang"
+	generate = teacher.generate
+
+	async def controlled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		if mode == "hang":
+			entered.set()
+			await asyncio.Event().wait()
+		if mode == "fail":
+			raise TeacherUpstreamError("upstream down")
+		return await generate(request)
+
+	teacher.generate = controlled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "u1"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+
+		async def post(text: str) -> httpx.Response:
+			return await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+
+		# The client goes away while the teacher is generating.
+		pending = asyncio.create_task(post("q 1"))
+		await entered.wait()
+		pending.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await pending
+		mode = "fail"
+		assert (await post("q 2")).status_code == 502
+		mode = "serve"
+		assert (await post("q 3")).status_code == 200
+		# Neither the cancelled nor the failed attempt was refunded.
+		assert (await post("q 4")).status_code == 403
+	assert [(e["attempt"], e["status"]) for e in _events(log, "release")] == [
+		(1, "cancelled"),
+		(2, "failed"),
+		(3, "released"),
+	]
+	with sqlite3.connect(state) as db:
+		rows = db.execute("SELECT attempt, status FROM reservations ORDER BY attempt").fetchall()
+	assert rows == [(1, "cancelled"), (2, "failed"), (3, "released")]
+
+
+@pytest.mark.asyncio
+async def test_entitlement_idempotency_and_concurrent_reservations(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+		HARNESS_IN_FLIGHT_LIMIT=1,
+		HARNESS_STATE_DB=tmp_path / "state.db",
+	)
+	entered, resume = asyncio.Event(), asyncio.Event()
+	generate = teacher.generate
+
+	async def slow(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await resume.wait()
+		return await generate(request)
+
+	teacher.generate = slow  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "one"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		first = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		)
+		await entered.wait()
+		pending = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		conflict = await client.post(
+			"/v1/teacher/generate", json=_request("different"), headers=headers
+		)
+		other = await client.post(
+			"/v1/teacher/generate",
+			json=_request("other"),
+			headers=headers | {"Idempotency-Key": "two"},
+		)
+		assert (pending.status_code, conflict.status_code, other.status_code) == (409, 409, 429)
+		resume.set()
+		response = await first
+		retry = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		assert response.status_code == 200 and retry.json() == response.json()
+		assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_organization_budget_rejection_does_not_charge_principal(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {"principal": "a", "organization": "org"},
+				hashlib.sha256(b"b").hexdigest(): {"principal": "b", "organization": "org"},
+			}
+		)
+	)
+	app, teacher, log = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_ORGANIZATION_TOKEN_BUDGET=16,
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+		HARNESS_STATE_DB=tmp_path / "organization.db",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		a = await client.post(
+			"/v1/teacher/generate", json=_request("a"), headers={"Authorization": "Bearer a"}
+		)
+		b = await client.post(
+			"/v1/teacher/generate", json=_request("b"), headers={"Authorization": "Bearer b"}
+		)
+	assert a.status_code == 200 and b.status_code == 429 and teacher.calls == 1
+	# The refused admission still counted, so it is logged with its entitlement outcome.
+	assert [(e["account"], e["entitlement"]) for e in _events(log, "decision")] == [
+		("a", None),
+		("b", "token_budget_exceeded"),
+	]
+	with sqlite3.connect(tmp_path / "organization.db") as db:
+		assert db.execute("SELECT count(*) FROM reservations WHERE account = 'b'").fetchone() == (
+			0,
+		)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_keeps_reserved_tokens_and_key_pending(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[100, 100, 100, 100],
+		HARNESS_POLICY="allow",
+		HARNESS_OUTPUT_TOKEN_BUDGET=16,
+	)
+	entered = asyncio.Event()
+
+	async def stalled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await asyncio.Event().wait()
+		raise AssertionError("unreachable")
+
+	teacher.generate = stalled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "cancelled"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		task = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		)
+		await entered.wait()
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+		retry = await client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		other = await client.post(
+			"/v1/teacher/generate", json=_request("b"), headers=headers | {"Idempotency-Key": "new"}
+		)
+		assert retry.status_code == 409 and other.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_keyed_challenge_retries_and_redeems_once(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _app(artifacts, tmp_path, [-10, -10, -10, 100], HARNESS_L4_ACTION="refuse")
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "challenge"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		await client.post(
+			"/v1/teacher/generate", json=_request("warmup"), headers={"X-Benchmark-Actor": "a"}
+		)
+		first = await client.post("/v1/teacher/generate", json=_request("target"), headers=headers)
+		assert first.status_code == 428
+		retry = await client.post("/v1/teacher/generate", json=_request("target"), headers=headers)
+		assert retry.json() == first.json()
+		challenge = first.json()["challenge"]
+		counter = solve_challenge(challenge["prefix"], challenge["difficulty"])
+		proof = headers | {"X-Harness-Proof": f"{challenge['nonce']}:{counter}"}
+		done = await client.post("/v1/teacher/generate", json=_request("target"), headers=proof)
+		again = await client.post("/v1/teacher/generate", json=_request("target"), headers=proof)
+		assert done.status_code == 200 and again.json() == done.json()
+		assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_completed_key_survives_restart_and_unknown_usage_is_withheld(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	state = tmp_path / "state.db"
+	options = {
+		"HARNESS_POLICY": "allow",
+		"HARNESS_OUTPUT_TOKEN_BUDGET": 32,
+		"HARNESS_STATE_DB": state,
+	}
+	app, teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "saved"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://h"
+	) as client:
+		first = await client.post("/v1/teacher/generate", json=_request("hello"), headers=headers)
+	assert first.status_code == 200 and teacher.calls == 1
+	app2, teacher2, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	original = teacher2.generate
+
+	async def unknown(request: TeacherGenerationRequest) -> TeacherGeneration:
+		generation = await original(request)
+		generation.usage = TokenUsage()
+		return generation
+
+	teacher2.generate = unknown  # type: ignore[method-assign]
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app2), base_url="http://h"
+	) as client:
+		retry = await client.post("/v1/teacher/generate", json=_request("hello"), headers=headers)
+		unknown_result = await client.post(
+			"/v1/teacher/generate",
+			json=_request("new"),
+			headers=headers | {"Idempotency-Key": "unknown"},
+		)
+		assert retry.json() == first.json() and teacher2.calls == 1
+		assert unknown_result.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_concurrency_limit_is_shared_between_sqlite_workers(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = {
+		"HARNESS_POLICY": "allow",
+		"HARNESS_IN_FLIGHT_LIMIT": 1,
+		"HARNESS_STATE_DB": tmp_path / "state.db",
+	}
+	first_app, first_teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	second_app, second_teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	entered, resume = asyncio.Event(), asyncio.Event()
+	original = first_teacher.generate
+
+	async def slow(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await resume.wait()
+		return await original(request)
+
+	first_teacher.generate = slow  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a"}
+	async with (
+		httpx.AsyncClient(transport=httpx.ASGITransport(app=first_app), base_url="http://one") as a,
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=second_app), base_url="http://two"
+		) as b,
+	):
+		task = asyncio.create_task(
+			a.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		)
+		await entered.wait()
+		blocked = await b.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert blocked.status_code == 429 and blocked.json()["detail"]["code"] == "in_flight_limit"
+		resume.set()
+		assert (await task).status_code == 200
+		assert (
+			await b.post("/v1/teacher/generate", json=_request("third"), headers=headers)
+		).status_code == 200
+		assert second_teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_pending_key_is_conservative_across_worker_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = {"HARNESS_POLICY": "allow", "HARNESS_STATE_DB": tmp_path / "state.db"}
+	app, teacher, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+	entered = asyncio.Event()
+
+	async def stalled(request: TeacherGenerationRequest) -> TeacherGeneration:
+		entered.set()
+		await asyncio.Event().wait()
+		raise AssertionError("unreachable")
+
+	teacher.generate = stalled  # type: ignore[method-assign]
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "crash"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://one"
+	) as client:
+		task = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("request"), headers=headers)
+		)
+		await entered.wait()
+		app2, teacher2, _ = _app(artifacts, tmp_path, [100, 100, 100, 100], **options)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app2), base_url="http://two"
+		) as second:
+			result = await second.post(
+				"/v1/teacher/generate", json=_request("request"), headers=headers
+			)
+			assert result.status_code == 409 and teacher2.calls == 0
+		task.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await task
+
+
+async def test_encoder_microbatching_serves_concurrent_requests(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, log = _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_ENCODER_BATCH_WAIT_MS=10,
+		HARNESS_ENCODER_BATCH_SIZE=8,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		responses = await asyncio.gather(
+			*(
+				client.post(
+					"/v1/teacher/generate",
+					json=_request(f"test {i}"),
+					headers={"X-Benchmark-Actor": f"actor-{i}"},
+				)
+				for i in range(4)
+			)
+		)
+	assert [response.status_code for response in responses] == [200] * 4
+	assert teacher.calls == 4
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	assert events[0]["event"] == "encoder_config"
+	assert events[0]["batch_wait_ms"] == 10
+
+
+async def test_off_path_rollover_and_release_accounting(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = [-1, -1, -1, -1]
+	calibration.config.horizon_seconds = 10
+	started, resume = threading.Event(), threading.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	class DelayedScorer:
+		window_size = scorer.window_size
+		score = staticmethod(delayed)
+
+		def witness(self, window: Array) -> Array:
+			return scorer.witness(window)
+
+	log = tmp_path / "off-path.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_TEST_CLOCK=True,
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=DelayedScorer(),
+		aggregate_scorer=aggregate,  # type: ignore[arg-type]
+		clock=lambda: 2,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a", "X-Harness-Time": "1"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("a"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("b"), headers=headers)
+		).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("c"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request("d"),
+				headers=headers | {"X-Harness-Time": "20"},
+			)
+		).status_code == 200
+		resume.set()
+	# Shutdown drains the queue, including the stale score.
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	score_event = next(e for e in events if e["event"] == "off_path_score")
+	assert score_event["applied"] is False
+	assert score_event["released_responses"] == 3
+	assert score_event["total_released_tokens"] == 3
+
+
+async def test_off_path_queue_full_fails_closed(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	started, resume = threading.Event(), threading.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	log = tmp_path / "full.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_SCORING_QUEUE_CAPACITY=1,
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for i in range(2):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(str(i)), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		for i in range(2, 5):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(str(i)), headers=headers)
+			).status_code == 200
+		full = await client.post("/v1/teacher/generate", json=_request("5"), headers=headers)
+		assert full.status_code == 503
+		assert full.json()["detail"]["code"] == "scoring_unavailable"
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("6"), headers=headers)
+		).status_code == 503
+		resume.set()
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	assert any(event["event"] == "off_path_queue_error" for event in events)
+	assert any(event["event"] == "off_path_score_error" for event in events)
+
+
+async def test_off_path_cancellation_and_unknown_usage(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	calibration, scorer, aggregate = artifacts
+	score_started, resume = threading.Event(), threading.Event()
+	teacher_started = asyncio.Event()
+	original = scorer.score
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		score_started.set()
+		assert resume.wait(5)
+		return float(original(*args, **kwargs))
+
+	class BlockingTeacher(Teacher):
+		async def generate(self, request: TeacherGenerationRequest) -> TeacherGeneration:
+			if request.messages[-1].content == "cancel":
+				teacher_started.set()
+				await asyncio.Event().wait()
+			generation = await super().generate(request)
+			generation.usage = TokenUsage()
+			return generation
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	log = tmp_path / "cancel.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=BlockingTeacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for text in ("first", "second"):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(score_started.wait, 2)
+		request = asyncio.create_task(
+			client.post("/v1/teacher/generate", json=_request("cancel"), headers=headers)
+		)
+		await asyncio.wait_for(teacher_started.wait(), 2)
+		request.cancel()
+		with pytest.raises(asyncio.CancelledError):
+			await request
+		resume.set()
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	score_event = next(e for e in events if e["event"] == "off_path_score")
+	assert score_event["released_responses"] == 1
+	assert score_event["unknown_token_responses"] == 1
+	assert score_event["total_released_tokens"] is None
+	assert score_event["inflight_at_enforcement"] == 0
+
+
+async def test_off_path_late_escalation(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	import threading
+
+	from harness_api.app import DecisionLog
+
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = [-1, -1, -1, -1]
+	started, resume = threading.Event(), threading.Event()
+	applied = asyncio.Event()
+	original_score, original_write = scorer.score, DecisionLog.write
+
+	def delayed(*args: Any, **kwargs: Any) -> float:
+		started.set()
+		assert resume.wait(5)
+		return float(original_score(*args, **kwargs))
+
+	def observe(self: DecisionLog, event: str, **fields: Any) -> None:
+		original_write(self, event, **fields)
+		if event == "off_path_score":
+			applied.set()
+
+	monkeypatch.setattr(scorer, "score", delayed)
+	monkeypatch.setattr(DecisionLog, "write", observe)
+	log = tmp_path / "late.jsonl"
+	app = create_app(
+		settings=Settings(
+			_env_file=None,
+			HARNESS_TRUST_ACTOR_HEADER=True,  # type: ignore[call-arg]
+			HARNESS_L4_ACTION="refuse",
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_DECISION_LOG=log,
+		),
+		teacher=Teacher(),
+		encoder=Encoder(),
+		calibration=calibration,
+		scorer=scorer,
+		aggregate_scorer=aggregate,
+	)
+	async with (
+		app.router.lifespan_context(app),
+		httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://harness"
+		) as client,
+	):
+		headers = {"X-Benchmark-Actor": "a"}
+		for text in ("first", "second"):
+			assert (
+				await client.post("/v1/teacher/generate", json=_request(text), headers=headers)
+			).status_code == 200
+		assert await asyncio.to_thread(started.wait, 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("overshoot"), headers=headers)
+		).status_code == 200
+		resume.set()
+		await asyncio.wait_for(applied.wait(), 2)
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("blocked"), headers=headers)
+		).status_code == 403
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	event = next(e for e in events if e["event"] == "off_path_score")
+	assert event["escalated"] is True
+	assert event["released_responses"] == 2
+	assert event["total_released_tokens"] == 2
+
+
+def test_off_path_scoring_rejects_a_durable_state_file(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	with pytest.raises(ValueError, match="HARNESS_STATE_DB"):
+		_app(
+			artifacts,
+			tmp_path,
+			[-1] * 4,
+			HARNESS_SCORING_MODE="off_path",
+			HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		)
+
+
+def _rolling_app(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path, **limits: Any
+) -> tuple[Any, Teacher, Path]:
+	return _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_TEST_CLOCK=True,
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		**limits,
+	)
+
+
+async def _ask_at(client: httpx.AsyncClient, text: str, now: float) -> httpx.Response:
+	return await client.post(
+		"/v1/teacher/generate",
+		json=_request(text),
+		headers={"X-Benchmark-Actor": "u1", "X-Harness-Time": str(now)},
+	)
+
+
+@pytest.mark.asyncio
+async def test_spent_rolling_budget_refuses_before_embedding_across_horizons_and_restarts(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	encoded: list[str] = []
+	original = Encoder.encode
+
+	def counted(self: Encoder, texts: list[str]) -> Array:
+		encoded.extend(texts)
+		return original(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", counted)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = [await _ask_at(client, f"q {i}", 10.0) for i in range(3)]
+		assert [r.status_code for r in responses] == [200, 200, 429]
+		assert responses[2].json()["detail"]["code"] == "rolling_budget_exceeded"
+		assert responses[2].headers["x-harness-decision"] == "block"
+		assert len(encoded) == 2
+		# A new policy horizon renews attempts but not the budget.
+		assert (await _ask_at(client, "next day", 10.0 + 90_000)).status_code == 429
+	assert teacher.calls == 2 and len(encoded) == 2
+
+	decisions = _events(log, "decision")
+	assert [e["entitlement"] for e in decisions] == [None, None, *["rolling_budget_exceeded"] * 2]
+	assert decisions[2]["level"] == 4 and decisions[2]["attempt"] is None
+	releases = _events(log, "release")
+	assert len({e["policy_revision"] for e in decisions + releases}) == 1
+
+	restarted, teacher, _ = _rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=restarted), base_url="http://harness"
+	) as client:
+		assert (await _ask_at(client, "after restart", 100.0)).status_code == 429
+		assert (await _ask_at(client, "a week later", 10.0 + 604_801)).status_code == 200
+	assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rolling_settings_change_the_state_scope_only_when_set(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	_rolling_app(artifacts, tmp_path)
+	_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_WINDOW_SECONDS=3600)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=2)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=2)
+
+
+@pytest.mark.asyncio
+async def test_spent_organization_rolling_budget_refuses_every_member_before_embedding(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	encoded: list[str] = []
+	original = Encoder.encode
+
+	def counted(self: Encoder, texts: list[str]) -> Array:
+		encoded.extend(texts)
+		return original(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", counted)
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {"principal": "a", "organization": "org"},
+				hashlib.sha256(b"b").hexdigest(): {"principal": "b", "organization": "org"},
+				hashlib.sha256(b"c").hexdigest(): "c",
+			}
+		)
+	)
+	app, teacher, log = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=2,
+	)
+
+	async def ask(client: httpx.AsyncClient, key: str, text: str, now: float) -> httpx.Response:
+		return await client.post(
+			"/v1/teacher/generate",
+			json=_request(text),
+			headers={"Authorization": f"Bearer {key}", "X-Harness-Time": str(now)},
+		)
+
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		responses = [
+			await ask(client, "a", "q 0", 10.0),
+			await ask(client, "b", "q 1", 10.0),
+			await ask(client, "b", "q 2", 10.0),
+			await ask(client, "a", "next day", 10.0 + 90_000),
+			await ask(client, "c", "no organization", 10.0),
+		]
+	assert [r.status_code for r in responses] == [200, 200, 429, 429, 403]
+	assert responses[2].json()["detail"]["code"] == "organization_rolling_budget_exceeded"
+	assert responses[2].headers["x-harness-decision"] == "block"
+	assert responses[4].json()["detail"]["code"] == "organization_required"
+	# The two refused members cost no embedding; the unmapped principal is refused at admission.
+	assert teacher.calls == 2 and len(encoded) == 3
+	decisions = _events(log, "decision")
+	assert [e["entitlement"] for e in decisions] == [
+		None,
+		None,
+		"organization_rolling_budget_exceeded",
+		"organization_rolling_budget_exceeded",
+		"organization_required",
+	]
+	assert decisions[2]["attempt"] is None and decisions[4]["attempt"] is not None
+
+
+@pytest.mark.asyncio
+async def test_shadow_scorers_log_without_changing_any_decision(tmp_path: Path) -> None:
+	from harness.shadow import ShadowConfig
+
+	requests = [BenignRequest(account=f"a{i // 20}", text=f"q {i}") for i in range(400)]
+	calibration, references = calibrate(
+		config=HarnessConfig(
+			window_size=2,
+			reference_windows=2,
+			bandwidth_sample=20,
+			aggregate_window_size=10,
+			aggregate_reference_windows=2,
+		),
+		encoder=Encoder(),
+		fitting=requests[:100],
+		score_calibration=requests[100:200],
+		policy_calibration=requests[200:],
+		shadow=ShadowConfig(target=0.2, cells=4, checkpoints=(2, 5)),
+	)
+	assert calibration._aggregate_references is not None
+	shadowed = (
+		calibration,
+		WindowScorer(references, calibration.sigma),
+		WindowScorer(calibration._aggregate_references, calibration.sigma),
+	)
+	logs = []
+	for enabled in (False, True):
+		app, _, log = _app(shadowed, tmp_path, [-1, -1, -1, 1e9], HARNESS_SHADOW_SCORERS=enabled)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://test"
+		) as client:
+			for i in range(12):
+				await client.post(
+					"/v1/teacher/generate",
+					json=_request(f"probe {i % 9}"),
+					headers={"X-Benchmark-Actor": "alice"},
+				)
+		logs.append(_events(log, "decision"))
+	plain, shadow = logs
+	fields = ("attempt", "level", "action", "reason", "p_value", "statistic")
+	assert [[e[f] for f in fields] for e in plain] == [[e[f] for f in fields] for e in shadow]
+	assert all("shadow" not in event for event in plain)
+	assert {e["action"] for e in plain} == {"serve", "challenge"}
+
+	coverage = [event["shadow"]["coverage"] for event in shadow]
+	# Nine distinct prompts: the three repeats add requests but no coverage.
+	assert [c["distinct"] for c in coverage] == [min(i + 1, 9) for i in range(12)]
+	assert sum(event["shadow"]["conditional"] is not None for event in shadow) == 6
+
+
+@pytest.mark.asyncio
+async def test_supervision_budget_refuses_before_embedding_and_changes_scope(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	weights = tmp_path / "weights.json"
+	weights.write_text(json.dumps({"version": 1, "weights": {"text": 2}}))
+	app, teacher, log = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ROLLING_SUPERVISION_BUDGET=1,
+		HARNESS_SUPERVISION_WEIGHTS_FILE=weights,
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		response = await _ask_at(client, "hello", 0)
+	assert response.json()["detail"]["code"] == "supervision_budget_exceeded"
+	assert teacher.calls == 0
+	decisions = [json.loads(line) for line in log.read_text().splitlines()]
+	assert decisions[-1]["attempt"] is None
+	weights.write_text(json.dumps({"version": 1, "weights": {"text": 3}}))
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(
+			artifacts,
+			tmp_path,
+			HARNESS_ROLLING_SUPERVISION_BUDGET=1,
+			HARNESS_SUPERVISION_WEIGHTS_FILE=weights,
+		)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_tier_fraction_promotes_from_durable_history(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = dict(
+		HARNESS_ROLLING_REQUEST_BUDGET=4,
+		HARNESS_TRUST_TIERS=True,
+		HARNESS_NEW_TIER_FRACTION=0.5,
+		HARNESS_NEW_TIER_MIN_AGE_SECONDS=10,
+		HARNESS_NEW_TIER_MIN_RELEASES=2,
+	)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, **options)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		assert (await _ask_at(client, "first", 0)).status_code == 200
+		assert (await _ask_at(client, "second", 1)).status_code == 200
+		refused = await _ask_at(client, "third", 2)
+		assert refused.json()["detail"]["code"] == "tier_budget_exceeded"
+	assert teacher.calls == 2
+	assert json.loads(log.read_text().splitlines()[-1])["attempt"] is None
+	restarted, _, _ = _rolling_app(artifacts, tmp_path, **options)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+	) as client:
+		assert (await _ask_at(client, "third", 10)).status_code == 200
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ROLLING_REQUEST_BUDGET=4)
+
+
+@pytest.mark.asyncio
+async def test_verified_organization_contract_overrides_shared_limit(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(b"a").hexdigest(): {
+					"principal": "a",
+					"organization": "org",
+					"tier": "verified",
+					"contractual_rolling_budget": {"requests": 2},
+				},
+				hashlib.sha256(b"b").hexdigest(): {
+					"principal": "b",
+					"organization": "org",
+					"tier": "established",
+				},
+			}
+		)
+	)
+	app, teacher, _ = _rolling_app(
+		artifacts,
+		tmp_path,
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_TRUST_TIERS=True,
+		HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET=1,
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		responses = []
+		for key in ("a", "b", "a"):
+			responses.append(
+				await client.post(
+					"/v1/teacher/generate",
+					json=_request(key),
+					headers={"Authorization": f"Bearer {key}", "X-Harness-Time": "1"},
+				)
+			)
+	assert [response.status_code for response in responses] == [200, 200, 429]
+	assert responses[-1].json()["detail"]["code"] == "organization_rolling_budget_exceeded"
+	assert teacher.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_review_api_and_verification(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, _, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="allow",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="separate-key",
+		HARNESS_ROLLING_REQUEST_BUDGET=1,
+		HARNESS_REVIEW_VERIFY_CODES=["rolling_budget_exceeded"],
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		).status_code == 200
+		response = await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		assert response.status_code == 428
+		detail = response.json()["detail"]
+		assert detail["limit_code"] == "rolling_budget_exceeded" and detail["scope"] == "principal"
+		assert (await client.get("/admin/reviews")).status_code == 401
+		admin = {"X-Harness-Admin-Key": "separate-key"}
+		ref = detail["appeal_ref"]
+		assert (await client.get(f"/admin/reviews/{ref}", headers=admin)).status_code == 200
+		decision = {
+			"action": "restore",
+			"operator": "op",
+			"reason": "reviewed",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		assert (
+			await client.post(f"/admin/reviews/{ref}/decisions", json=decision, headers=admin)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("four"), headers=headers)
+		).status_code == 428
+
+
+@pytest.mark.asyncio
+async def test_review_grant_allows_only_one_policy_refusal(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer, aggregate = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.baselines["quota"].thresholds[0] = 0
+	app, _, _ = _app(
+		(calibration, scorer, aggregate),
+		tmp_path,
+		[1e10] * 4,
+		HARNESS_POLICY="quota",
+		HARNESS_L4_ACTION="refuse",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+		HARNESS_REVIEW_ENABLED=True,
+		HARNESS_REVIEW_ADMIN_KEY="admin",
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		headers = {"X-Benchmark-Actor": "alice"}
+		first = await client.post("/v1/teacher/generate", json=_request("one"), headers=headers)
+		assert first.status_code == 403
+		ref = first.json()["detail"]["appeal_ref"]
+		decision = {
+			"action": "grant",
+			"operator": "op",
+			"reason": "verified",
+			"requests": 1,
+			"expires_at": 4102444800,
+		}
+		response = await client.post(
+			f"/admin/reviews/{ref}/decisions",
+			json=decision,
+			headers={"X-Harness-Admin-Key": "admin"},
+		)
+		assert response.status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("two"), headers=headers)
+		).status_code == 200
+		assert (
+			await client.post("/v1/teacher/generate", json=_request("three"), headers=headers)
+		).status_code == 403
+
+
+def _path_artifact(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	levels: list[float],
+	*,
+	campaigns: int = 99,
+	coverage: bool = False,
+) -> Any:
+	from harness.logdet import CoverageSpec
+	from harness.path_calibration import PathScoring, fit_path_calibration
+	from harness.path_runtime import PathRecipe, RuntimePathCalibration, detector_hash
+	from harness.signals import SignalRow, fit_signals
+
+	calibration, scorer, _ = artifacts
+	calibration = calibration.model_copy(deep=True)
+	calibration.thresholds["paper"].thresholds = levels
+	null = None
+	streams: tuple[str, ...] = ("mmd",)
+	weights = None
+	maxima = [[[10.0]]] * campaigns
+	if coverage:
+		spec = CoverageSpec(seed=7, input_dim=4)
+		rows = [SignalRow(str(i), float(i), (0.0,) * 4) for i in range(4)]
+		null = fit_signals([rows[:2]] * 19 + [rows] * 19, profiles=["all"] * 38, coverage=spec)
+		streams, weights = ("mmd", "coverage_mean_logdet"), (1.0, 100.0)
+		maxima = [[[10.0, 0.0]]] * campaigns
+	fitted = fit_path_calibration(
+		maxima,
+		scoring=PathScoring(name="prompt-path-v1", streams=streams, weights=weights),
+		alpha=0.01,
+		horizon=2,
+		stratum="all",
+	)
+	return RuntimePathCalibration(
+		recipe=PathRecipe(
+			detector_hash=detector_hash(calibration, scorer),
+			encoder={"model": "fake"},
+			request_horizon=4,
+			window_size=2,
+			evidence=null,
+		),
+		calibration=fitted,
+	)
+
+
+async def test_path_coverage_stops_before_dispatch_and_deduplicates_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+) -> None:
+	levels = [float("inf")] * 4
+	artifact = _path_artifact(artifacts, levels, coverage=True)
+	path = tmp_path / "path.json"
+	path.write_text(artifact.model_dump_json())
+	db = tmp_path / "path.db"
+	settings = dict(
+		HARNESS_POLICY="path",
+		HARNESS_PATH_CALIBRATION=path,
+		HARNESS_STATE_DB=db,
+		HARNESS_TEST_CLOCK=True,
+	)
+	app, teacher, log = _app(artifacts, tmp_path, levels, **settings)
+	headers = {"X-Benchmark-Actor": "a", "X-Harness-Time": "0", "Idempotency-Key": "first"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		first = await c.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		assert first.status_code == 200
+		assert (
+			await c.post("/v1/teacher/generate", json=_request("first"), headers=headers)
+		).content == first.content
+		headers["Idempotency-Key"] = "second"
+		stopped = await c.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert stopped.status_code == 403 and stopped.json()["detail"]["code"] == "path_stop"
+		assert teacher.calls == 1
+	# Reopening the same state file must retain both stop and retry outcomes.
+	app, teacher, _ = _app(artifacts, tmp_path, levels, **settings)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		retry = await c.post("/v1/teacher/generate", json=_request("second"), headers=headers)
+		assert retry.content == stopped.content
+		headers.update({"Idempotency-Key": "third", "X-Harness-Time": "999999"})
+		changed = _request("new context")
+		changed["messages"].insert(0, {"role": "system", "content": "a different context"})
+		later = await c.post("/v1/teacher/generate", json=changed, headers=headers)
+		assert later.status_code == 403 and later.json()["detail"]["code"] == "path_stop"
+		assert teacher.calls == 0
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	decisions = [e for e in events if e["event"] == "decision"]
+	assert len(decisions) == 2
+	assert [e["path"]["revision"] for e in decisions] == [1, 2]
+	assert decisions[-1]["reason"] == "path_stop"
+	for event in events:
+		if event["event"] in {"decision", "release"}:
+			assert event["path_policy"] == {
+				"calibration_hash": artifact.input_hash,
+				"policy_version": "prompt-path-v1",
+				"qualified": False,
+			}
+	# A different path null cannot reopen this ledger.
+	path.write_text(
+		_path_artifact(artifacts, levels, campaigns=98, coverage=True).model_dump_json()
+	)
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		_app(artifacts, tmp_path, levels, **settings)
+
+
+async def test_path_abstention_and_mmd_baseline(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+) -> None:
+	levels = [float("inf")] * 4
+	for n, coverage in [(98, True), (99, False)]:
+		path = tmp_path / f"path-{n}.json"
+		path.write_text(
+			_path_artifact(artifacts, levels, campaigns=n, coverage=coverage).model_dump_json()
+		)
+		app, teacher, log = _app(
+			artifacts,
+			tmp_path,
+			levels,
+			HARNESS_POLICY="path",
+			HARNESS_PATH_CALIBRATION=path,
+			HARNESS_STATE_DB=tmp_path / f"state-{n}.db",
+		)
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://test"
+		) as c:
+			for i in range(2):
+				response = await c.post(
+					"/v1/teacher/generate",
+					json=_request(str(i)),
+					headers={"X-Benchmark-Actor": "a"},
+				)
+				assert response.status_code == 200
+		assert teacher.calls == 2
+		events = [json.loads(line) for line in log.read_text().splitlines()]
+		last = [e for e in events if e["event"] == "decision"][-1]
+		assert last["path"]["status"] == ("abstain" if n == 98 else "continue")
+		if n == 98:
+			assert last["path"]["abstention_reason"] == "insufficient campaigns for alpha"
+			assert last["path"]["p_value"] is None
+
+
+def test_path_settings_require_durable_synchronous_state(tmp_path: Path) -> None:
+	base: dict[str, Any] = dict(
+		HARNESS_POLICY="path",
+		HARNESS_PATH_CALIBRATION=tmp_path / "path.json",
+		HARNESS_STATE_DB=tmp_path / "state.db",
+	)
+	cases: list[tuple[dict[str, Any], str]] = [
+		({"HARNESS_STATE_DB": None}, "durable"),
+		({"HARNESS_SCORING_MODE": "off_path"}, "incompatible"),
+		({"HARNESS_POLICY": "mmd"}, "exclusively"),
+	]
+	for override, match in cases:
+		with pytest.raises(ValueError, match=match):
+			Settings(_env_file=None, **(base | override))  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("arm", ["allow", "mmd", "rate", "quota"])
+async def test_existing_arms_keep_legacy_event_schema_and_state_binding(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer],
+	tmp_path: Path,
+	arm: str,
+) -> None:
+	from harness_api.app import _policy_fields
+
+	levels = [float("inf")] * 4
+	if arm == "rate":
+		calibration, scorer, aggregate = artifacts
+		calibration = calibration.model_copy(deep=True)
+		calibration.baselines["rate_per_minute"] = calibration.baselines["quota"].model_copy(
+			deep=True
+		)
+		artifacts = (calibration, scorer, aggregate)
+	db = tmp_path / "legacy.db"
+	settings = dict(
+		HARNESS_POLICY=arm, HARNESS_STATE_DB=db, HARNESS_L4_ACTION="refuse", HARNESS_TEST_CLOCK=True
+	)
+	app, _, log = _app(artifacts, tmp_path, levels, **settings)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as c:
+		response = await c.post(
+			"/v1/teacher/generate",
+			json=_request("first"),
+			headers={"X-Benchmark-Actor": "a", "X-Harness-Time": "0"},
+		)
+		assert response.status_code == 200
+	_app(artifacts, tmp_path, levels, **settings)
+	for event in (json.loads(line) for line in log.read_text().splitlines()):
+		assert "path" not in event and "path_policy" not in event
+	with sqlite3.connect(db) as connection:
+		state = json.loads(connection.execute("SELECT state FROM accounts").fetchone()[0])
+		assert "path" not in state
+	fields = _policy_fields(Settings(_env_file=None), artifacts[0])  # type: ignore[call-arg]
+	assert "path_calibration" not in fields and "path_policy_version" not in fields

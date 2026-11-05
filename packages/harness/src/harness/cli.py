@@ -1,11 +1,13 @@
 """Command-line interface for calibrating the harness and replaying request streams."""
 
+import hashlib
 import json
 import os
 import secrets
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
+import numpy as np
 import typer
 
 from harness.calibration import (
@@ -13,11 +15,15 @@ from harness.calibration import (
 	HarnessConfig,
 	calibrate,
 	load_calibration,
+	load_shadow,
 	pooled_accounts,
 	save_calibration,
 )
-from harness.replay import replay
-from harness.serialization import Task
+from harness.encoder import Encoder
+from harness.mmd import Array
+from harness.replay import replay, shadow_check
+from harness.serialization import Task, detector_text, gateway_turn
+from harness.shadow import ShadowConfig
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 KEY_ENV = "HARNESS_DECEPTION_KEY"
@@ -49,6 +55,66 @@ def read_requests(path: Path) -> list[BenignRequest]:
 		return [BenignRequest.model_validate_json(line) for line in source if line.strip()]
 
 
+def read_any_requests(path: Path) -> list[BenignRequest]:
+	"""BenignRequest lines, or gateway schedule lines converted as `detector-input` does."""
+	rows: list[BenignRequest] = []
+	with path.open(encoding="utf-8") as source:
+		for line in source:
+			if not line.strip():
+				continue
+			value = json.loads(line)
+			if "prompt" not in value:
+				rows.append(BenignRequest.model_validate(value))
+				continue
+			prompt = value["prompt"]
+			turn = next(m["content"] for m in reversed(prompt["prompt"]) if m["role"] == "user")
+			rows.append(
+				BenignRequest(
+					account=value["account"],
+					text=gateway_turn(prompt["task"], turn),
+					time=value.get("time"),
+					example_id=prompt.get("example_id"),
+					client_type=value.get("client_type"),
+				)
+			)
+	return rows
+
+
+class CachedEncoder:
+	"""Precomputed embeddings keyed by the SHA-256 hex of each detector text.
+
+	The npz holds `keys` and `vectors`, as the audit's embedding cache does, so offline checks
+	run without the BGE model. A missing text is an error, never a silent substitute.
+	"""
+
+	def __init__(self, path: Path) -> None:
+		with np.load(path) as data:
+			self.index = {str(key): row for row, key in enumerate(data["keys"])}
+			self.vectors = np.asarray(data["vectors"], dtype=np.float64)
+		self.path = path
+
+	def encode(self, texts: list[str]) -> Array:
+		try:
+			rows = [self.index[hashlib.sha256(text.encode()).hexdigest()] for text in texts]
+		except KeyError as error:
+			raise ValueError(f"{self.path} has no embedding for a requested text") from error
+		return self.vectors[rows]
+
+	def identity(self) -> dict[str, Any]:
+		return {
+			"model": "cached",
+			"sha256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
+		}
+
+
+def make_encoder(embeddings: Path | None, device: str | None) -> Encoder:
+	if embeddings is not None:
+		return CachedEncoder(embeddings)
+	from harness.encoder import BGEEncoder
+
+	return BGEEncoder(device=device)
+
+
 @app.command("calibrate")
 def calibrate_command(
 	fitting: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
@@ -62,24 +128,86 @@ def calibrate_command(
 		),
 	] = "text",
 	window_size: Annotated[int, typer.Option(min=2)] = 100,
+	mixture_control_required: bool = False,
+	validation_report: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	allow_invalid_workload: bool = False,
 	seed: int = 42,
 	device: str | None = None,
+	shadow: Annotated[
+		bool, typer.Option(help="Also fit the shadow scorers; telemetry only, no thresholds.")
+	] = False,
+	shadow_target: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.05,
+	shadow_cells: Annotated[int, typer.Option(min=2)] = 128,
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
 ) -> None:
 	"""Fit references, window p-values, and level thresholds on three benign request files.
 
 	Each file holds BenignRequest JSON lines: account, text, and optional time in seconds.
-	The three files must be disjoint; no attack traffic is used.
+	The three files must be disjoint; no attack traffic is used. Without --shadow the artifact
+	is the same as before the shadow scorers existed.
 	"""
-	from harness.encoder import BGEEncoder
+	paths = {
+		"reference_fit": fitting,
+		"score_calibration": score_calibration,
+		"policy_development": policy_calibration,
+	}
+	rows = {role: read_requests(path) for role, path in paths.items()}
+	new_workload = any(
+		row.workload_version == "gateway-clients-v5" for values in rows.values() for row in values
+	)
+	validation = None
+	if new_workload:
+		issues = []
+		if any(
+			row.workload_version != "gateway-clients-v5"
+			for values in rows.values()
+			for row in values
+		):
+			issues.append("mixed or missing workload versions")
+		if validation_report is None:
+			issues.append("validation report is required")
+		else:
+			validation = json.loads(validation_report.read_text())
+			if validation.get("version") != "role-validation-v1" or not validation.get("passed"):
+				issues.append("role validation did not pass")
+			for role, path in paths.items():
+				if (
+					validation.get("detector_sha256", {}).get(role)
+					!= hashlib.sha256(path.read_bytes()).hexdigest()
+				):
+					issues.append(f"{role} detector input hash mismatch")
+		if issues and not allow_invalid_workload:
+			raise typer.BadParameter("; ".join(issues))
+		validation = {
+			"passed": not issues,
+			"reasons": issues,
+			"override": bool(issues and allow_invalid_workload),
+			"report_sha256": hashlib.sha256(validation_report.read_bytes()).hexdigest()
+			if validation_report
+			else None,
+		}
 
 	calibration, references = calibrate(
-		config=HarnessConfig(task=task, window_size=window_size, seed=seed),
-		encoder=BGEEncoder(device=device),
-		fitting=read_requests(fitting),
-		score_calibration=read_requests(score_calibration),
-		policy_calibration=read_requests(policy_calibration),
+		config=HarnessConfig(
+			task=task,
+			window_size=window_size,
+			seed=seed,
+			mixture_control_required=mixture_control_required,
+		),
+		encoder=make_encoder(embeddings, device),
+		fitting=rows["reference_fit"],
+		score_calibration=rows["score_calibration"],
+		policy_calibration=rows["policy_development"],
 		log=lambda message: typer.echo(f"calibrate: {message}", err=True),
+		input_validation=validation,
+		shadow=ShadowConfig(target=shadow_target, cells=shadow_cells) if shadow else None,
 	)
+	calibration.input_validation = validation
 	save_calibration(output_dir, calibration, references)
 	typer.echo(
 		json.dumps(
@@ -149,6 +277,44 @@ def replay_command(
 	typer.echo(json.dumps(summary, indent="\t"))
 
 
+@app.command("shadow-check")
+def shadow_check_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+	reorder: Annotated[
+		str, typer.Option(help="none, or topic: group each horizon by domain and cell")
+	] = "none",
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
+	device: str | None = None,
+) -> None:
+	"""Replay a request file through the shadow scorers only and report both scores.
+
+	Accepts BenignRequest lines or gateway schedule lines. No policy runs. This is an offline
+	development check: it does not measure false positives or confirm detection.
+	"""
+	if reorder not in {"none", "topic"}:
+		raise typer.BadParameter("reorder must be none or topic")
+	order: Literal["none", "topic"] = "topic" if reorder == "topic" else "none"
+	calibration, _ = load_calibration(calibration_dir)
+	if load_shadow(calibration_dir, calibration) is None:
+		raise typer.BadParameter("the calibration has no shadow scorers; recalibrate with --shadow")
+	rows = read_any_requests(requests)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	report = shadow_check(calibration=calibration, requests=rows, embeddings=vectors, reorder=order)
+	text = json.dumps(report, indent="\t")
+	if output:
+		output.parent.mkdir(parents=True, exist_ok=True)
+		output.write_text(text + "\n", encoding="utf-8")
+	typer.echo(text)
+
+
 @app.command("watermark")
 def watermark_command(
 	task: Annotated[str, typer.Option(help="ag_news, squad, or gsm8k")],
@@ -186,7 +352,7 @@ def bench_command(
 	encode: Annotated[bool, typer.Option(help="time the BGE encoder too")] = True,
 	device: str | None = None,
 ) -> None:
-	"""Time the harness's own serving costs, unit by unit, for the paper's Table X.
+	"""Time the harness's own serving costs, unit by unit.
 
 	Replays up to --limit requests from a request file as one account. Victim inference is
 	excluded; measure it with the traffic benchmark at the same load and hardware.
@@ -240,3 +406,434 @@ def pool_accounts_command(
 	output.parent.mkdir(parents=True, exist_ok=True)
 	output.write_text("".join(row.model_dump_json() + "\n" for row in rows), encoding="utf-8")
 	typer.echo(f"wrote {len(rows):,} requests in {len({r.account for r in rows}):,} accounts")
+
+
+@app.command("adequacy")
+def adequacy_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+) -> None:
+	"""Write the selected MMD and quota adequacy verdict; fail when inadequate."""
+	calibration, _ = load_calibration(calibration_dir)
+	report = calibration.adequacy(accumulators=("paper", "instantaneous"), baselines=("quota",))
+	with output.open("x", encoding="utf-8") as target:
+		json.dump(report, target, indent="\t")
+		target.write("\n")
+	if not report["passed"]:
+		raise typer.Exit(code=1)
+
+
+@app.command("evidence-calibrate")
+def evidence_calibrate_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	score_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	coverage_seed: int | None = None,
+	coverage_width: int | None = None,
+	coverage_ridge: float | None = None,
+	device: str | None = None,
+) -> None:
+	"""Fit separate opt-in evidence nulls using only the declared score-calibration role."""
+	from harness.corpus import CorpusIndex
+	from harness.evidence import file_hash, fit_evidence
+	from harness.logdet import CoverageSpec
+	from harness.path_runtime import encoder_contract
+
+	options = (coverage_seed, coverage_width, coverage_ridge)
+	if any(value is not None for value in options) and any(value is None for value in options):
+		raise typer.BadParameter("coverage requires explicit seed, width and ridge")
+	coverage = (
+		CoverageSpec(seed=coverage_seed, input_dim=coverage_width, ridge=coverage_ridge)
+		if coverage_seed is not None and coverage_width is not None and coverage_ridge is not None
+		else None
+	)
+
+	calibration, _ = load_calibration(calibration_dir)
+	rows = read_any_requests(score_calibration)
+	from harness.calibration import requests_sha256
+
+	if requests_sha256(rows) != calibration.sha256.get("score_calibration"):
+		raise typer.BadParameter("input must be the calibration's declared score_calibration role")
+	load_shadow(calibration_dir, calibration)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
+	null = fit_evidence(rows, vectors, calibration, corpus, coverage)
+	artifact = {
+		"version": "evidence-v1",
+		"role": "score_calibration",
+		"requests_sha256": file_hash(score_calibration),
+		"calibration_sha256": file_hash(calibration_dir / "calibration.json"),
+		"encoder": encoder_contract(encoder.identity())
+		if coverage is not None
+		else encoder.identity(),
+		"null": null.model_dump(mode="json"),
+	}
+	if coverage is not None:
+		artifact["fit_accounts"] = sorted({row.account for row in rows})
+		artifact["fit_prompts"] = sorted(
+			{hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
+		)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(artifact, indent="\t") + "\n")
+
+
+@app.command("corpus-index")
+def corpus_index_command(
+	sources: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+) -> None:
+	"""Index an operator's JSON mapping of pinned source labels to prompt strings."""
+	from harness.corpus import CorpusIndex
+
+	if output.exists():
+		raise typer.BadParameter("corpus index output already exists")
+	index = CorpusIndex.from_sources(json.loads(sources.read_text()))
+	index.save(output)
+	typer.echo(json.dumps({"sha256": index.digest, "output": str(output)}))
+
+
+@app.command("evidence-check")
+def evidence_check_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	evidence: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path | None, typer.Option(dir_okay=False)] = None,
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	links: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	reorder: str = "none",
+	device: str | None = None,
+) -> None:
+	"""Offline account and optional cluster evidence for benign or A1-A8 schedule files."""
+	from harness.corpus import CorpusIndex
+	from harness.evidence import check_evidence, file_hash
+	from harness.path_runtime import encoder_contract
+	from harness.signals import SignalCalibration
+
+	if reorder not in {"none", "topic"}:
+		raise typer.BadParameter("reorder must be none or topic")
+	calibration, _ = load_calibration(calibration_dir)
+	artifact = json.loads(evidence.read_text())
+	if artifact["calibration_sha256"] != file_hash(calibration_dir / "calibration.json"):
+		raise typer.BadParameter("evidence was fitted against a different calibration")
+	load_shadow(calibration_dir, calibration)
+	null = SignalCalibration.model_validate(artifact["null"])
+	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
+	rows = read_any_requests(requests)
+	if null.coverage is not None and (
+		{row.account for row in rows} & set(artifact.get("fit_accounts", []))
+		or {hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
+		& set(artifact.get("fit_prompts", []))
+		or file_hash(requests) == artifact["requests_sha256"]
+	):
+		raise typer.BadParameter("coverage comparison requires held-out accounts and prompts")
+	encoder = make_encoder(embeddings, device)
+	if (
+		encoder_contract(encoder.identity()) != encoder_contract(artifact["encoder"])
+		if null.coverage is not None
+		else encoder.identity() != artifact["encoder"]
+	):
+		raise typer.BadParameter("evidence encoder differs from the calibrated encoder")
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	report = check_evidence(rows, vectors, calibration, null, corpus, reorder)
+	if calibration.shadow is not None:
+		load_shadow(calibration_dir, calibration)
+		report["existing_shadow"] = shadow_check(
+			calibration=calibration,
+			requests=rows,
+			embeddings=vectors,
+			reorder="topic" if reorder == "topic" else "none",
+		)
+	if links:
+		from harness.evidence import cluster_evidence
+
+		report["clusters"] = cluster_evidence(
+			rows, vectors, calibration, null, json.loads(links.read_text()), corpus
+		)
+	text = json.dumps(report, indent="\t")
+	if output:
+		output.parent.mkdir(parents=True, exist_ok=True)
+		with output.open("x", encoding="utf-8") as sink:
+			sink.write(text + "\n")
+	typer.echo(text)
+
+
+review_app = typer.Typer(no_args_is_help=True)
+app.add_typer(review_app, name="review")
+
+
+def _review_db(path: Path) -> Any:
+	import sqlite3
+
+	if not path.is_file():
+		raise typer.BadParameter("state database does not exist")
+	db = sqlite3.connect(path, isolation_level=None)
+	if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'review_appeals'").fetchone():
+		db.close()
+		raise typer.BadParameter("review is not enabled in this database")
+	return db
+
+
+@review_app.command("list")
+def review_list(state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")]) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		typer.echo(json.dumps(review.list_appeals(db), indent=4))
+
+
+@review_app.command("show")
+def review_show(
+	ref: str, state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")]
+) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		result = review.show(db, ref)
+		if result is None:
+			raise typer.BadParameter("unknown appeal")
+		typer.echo(json.dumps(result, indent=4))
+
+
+@review_app.command("decide")
+def review_decide(
+	ref: str,
+	action: Annotated[str, typer.Option()],
+	operator: Annotated[str, typer.Option()],
+	reason: Annotated[str, typer.Option()],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	requests: int = 0,
+	tokens: int = 0,
+	expires_at: float | None = None,
+) -> None:
+	from harness import review
+
+	with _review_db(state_db) as db:
+		try:
+			db.execute("BEGIN IMMEDIATE")
+			result = review.decide(
+				db,
+				ref,
+				action=action,
+				operator=operator,
+				reason=reason,
+				requests=requests,
+				tokens=tokens,
+				expires_at=expires_at,
+			)
+			db.execute("COMMIT")
+		except ValueError as error:
+			db.execute("ROLLBACK")
+			raise typer.BadParameter(str(error)) from error
+		typer.echo(result)
+
+
+@app.command("separation")
+def separation_command(
+	benign: Annotated[
+		list[Path],
+		typer.Option(exists=True, dir_okay=False, help="Benign development role; repeatable."),
+	],
+	attack: Annotated[
+		list[str], typer.Option(help="NAME=PATH of a gateway schedule or ledger; repeatable.")
+	],
+	output: Annotated[Path, typer.Option(file_okay=False)],
+	embeddings: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True, dir_okay=False, help="Cached embeddings npz instead of the BGE model."
+		),
+	] = None,
+	calibration_dir: Annotated[
+		Path | None,
+		typer.Option(
+			"--calibration", exists=True, file_okay=False, help="Pooled MMD baseline references."
+		),
+	] = None,
+	topic_fitting: Annotated[
+		Path | None,
+		typer.Option(exists=True, dir_okay=False, help="Requests for the topic cells' k-means."),
+	] = None,
+	order: Annotated[str, typer.Option(help="schedule, topic, or both")] = "both",
+	window_size: int = 100,
+	source_key: Annotated[
+		str, typer.Option(help="group_id, source_id, or content_sha256")
+	] = "group_id",
+	topic_cells: int = 8,
+	permutations: int = 999,
+	bootstrap: int = 2000,
+	seed: int = 42,
+	device: str | None = None,
+) -> None:
+	"""Development-only separation study: C2ST, learned MMD, pooled MMD and volume features.
+
+	Writes report.json and summary.md. Results are development evidence and never feed
+	calibration or enforcement. Locked benign_test inputs are refused.
+	"""
+	from harness.separation import StudyConfig, run_study, summary_markdown
+
+	attacks: list[tuple[str, Path]] = []
+	for value in attack:
+		name, separator, path = value.partition("=")
+		if not separator or not name or not Path(path).is_file():
+			raise typer.BadParameter(f"attack must be NAME=PATH of an existing file: {value}")
+		attacks.append((name, Path(path)))
+	paths = [*benign, *(p for _, p in attacks), *([topic_fitting] if topic_fitting else [])]
+	if any("benign_test" in part for p in paths for part in p.parts):
+		raise typer.BadParameter("the separation study must not read benign_test")
+	orders: dict[str, list[Literal["schedule", "topic"]]] = {
+		"schedule": ["schedule"],
+		"topic": ["topic"],
+		"both": ["schedule", "topic"],
+	}
+	if order not in orders:
+		raise typer.BadParameter("order must be schedule, topic, or both")
+	if output.exists() and any(output.iterdir()):
+		raise typer.BadParameter("output directory already has files")
+	config = StudyConfig.model_validate(
+		{
+			"window_size": window_size,
+			"source_key": source_key,
+			"topic_cells": topic_cells,
+			"permutations": permutations,
+			"bootstrap": bootstrap,
+			"seed": seed,
+		}
+	)
+	scorer = None
+	if calibration_dir is not None:
+		calibration, fixed = load_calibration(calibration_dir)
+		scorer = (fixed, calibration.config.distinct_prompts)
+	report = run_study(
+		benign=benign,
+		attacks=attacks,
+		encoder=make_encoder(embeddings, device),
+		config=config,
+		orders=orders[order],
+		scorer=scorer,
+		topic_fitting=topic_fitting,
+	)
+	output.mkdir(parents=True, exist_ok=True)
+	with (output / "report.json").open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(report, indent="\t") + "\n")
+	with (output / "summary.md").open("x", encoding="utf-8") as sink:
+		sink.write(summary_markdown(report))
+	typer.echo(f"{report['decision']} ({output / 'summary.md'})")
+
+
+@app.command("path-calibrate")
+def path_calibrate_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	campaigns: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	request_horizon: Annotated[int, typer.Option(min=2)],
+	stratum: Annotated[str, typer.Option()],
+	alpha: float = 0.01,
+	streams: str = "mmd",
+	weights: str | None = None,
+	evidence: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+) -> None:
+	"""Fit an unqualified terminal stop from complete benign principal paths, never test data."""
+	from harness.evidence import file_hash
+	from harness.path_calibration import PathScoring, fit_path_calibration
+	from harness.path_runtime import (
+		PathRecipe,
+		RuntimePathCalibration,
+		detector_hash,
+		encoder_contract,
+		path_look,
+	)
+	from harness.shadow import request_domain
+	from harness.signals import SignalCalibration
+
+	calibration, scorer = load_calibration(calibration_dir)
+	if request_horizon < scorer.window_size or request_horizon % scorer.window_size:
+		raise typer.BadParameter("request horizon must be a positive multiple of window size")
+	names = tuple(streams.split(","))
+	if set(names) - {"mmd", "coverage_mean_logdet"}:
+		raise typer.BadParameter("streams must be mmd and/or coverage_mean_logdet")
+	scoring = PathScoring(
+		name="prompt-path-v1",
+		streams=names,
+		weights=tuple(float(w) for w in weights.split(",")) if weights else None,
+	)
+	rows = read_requests(campaigns)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	null = None
+	if evidence:
+		payload = json.loads(evidence.read_text())
+		if payload["calibration_sha256"] != file_hash(calibration_dir / "calibration.json"):
+			raise typer.BadParameter("evidence was fitted against a different calibration")
+		if encoder_contract(payload["encoder"]) != encoder_contract(encoder.identity()):
+			raise typer.BadParameter("evidence uses a different encoder")
+		if {row.account for row in rows} & set(payload.get("fit_accounts", [])) or {
+			hashlib.sha256(row.text.encode()).hexdigest() for row in rows
+		} & set(payload.get("fit_prompts", [])):
+			raise typer.BadParameter("path calibration must be disjoint from feature-null fitting")
+		null = SignalCalibration.model_validate(payload["null"])
+	if "coverage_mean_logdet" in names and (null is None or null.coverage is None):
+		raise typer.BadParameter("coverage requires --evidence with fitted coverage nulls")
+	recipe = PathRecipe(
+		detector_hash=detector_hash(calibration, scorer),
+		encoder=encoder_contract(encoder.identity()),
+		request_horizon=request_horizon,
+		window_size=scorer.window_size,
+		evidence=null,
+	)
+	groups: dict[str, list[int]] = {}
+	for i, row in enumerate(rows):
+		groups.setdefault(row.account, []).append(i)
+	paths = []
+	for indices in groups.values():
+		if len(indices) > request_horizon or len(indices) < scorer.window_size:
+			raise typer.BadParameter("each campaign needs one complete look and at most H prompts")
+		if len(indices) % scorer.window_size:
+			raise typer.BadParameter("campaign paths must end on a predetermined look")
+		path = []
+		for end in range(scorer.window_size, len(indices) + 1, scorer.window_size):
+			prefix = indices[:end]
+			values, reason = path_look(
+				recipe,
+				names,
+				vectors[prefix].tolist(),
+				[hashlib.sha256(rows[i].text.encode()).hexdigest() for i in prefix],
+				{request_domain(calibration.config.task, rows[i].text) for i in prefix},
+				calibration,
+				scorer,
+				stratum,
+			)
+			if values is None:
+				raise typer.BadParameter(f"benign campaign has an unsupported look: {reason}")
+			path.append(values)
+		paths.append(path)
+	fitted = fit_path_calibration(
+		paths,
+		scoring=scoring,
+		alpha=alpha,
+		horizon=request_horizon // scorer.window_size,
+		stratum=stratum,
+	)
+	artifact = RuntimePathCalibration(
+		recipe=recipe, calibration=fitted, benign_paths_sha256=file_hash(campaigns)
+	)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(artifact.model_dump_json(indent=4).replace("    ", "\t") + "\n")
+	typer.echo(
+		json.dumps(
+			{
+				"calibration_hash": artifact.input_hash,
+				"campaigns": fitted.n,
+				"abstained": fitted.abstained,
+				"abstention_reason": fitted.abstention_reason,
+				"qualified": False,
+			}
+		)
+	)

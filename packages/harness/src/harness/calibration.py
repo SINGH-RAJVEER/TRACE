@@ -15,15 +15,20 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from harness.accumulators import DEFAULT_ACCUMULATORS, AccumulatorSpec
 from harness.encoder import Encoder
 from harness.mmd import SCALES, Array, WindowScorer, median_bandwidth
 from harness.serialization import SERIALIZATION, Task, detector_text
+from harness.shadow import ShadowCalibration, ShadowConfig, calibrate_shadow
 
 LEVELS = 4
 HORIZON_POLICY = "time-reset-attempt-cap-v1"
+# Pooled-mixture windows ranking below the per-account null median at this share or more mean
+# the upper-tail score cannot flag traffic that resembles the benign mixture.
+MIXTURE_WARNING_SHARE = 0.9
+MIXTURE_WINDOWS = 50
 
 
 class HarnessConfig(BaseModel):
@@ -61,6 +66,18 @@ class HarnessConfig(BaseModel):
 	aggregate_alert_rate: float = Field(default=0.05, gt=0, lt=1)
 	seed: int = 42
 	aggregate_enabled: bool = True
+	mixture_control_required: bool = False
+
+	@field_validator("level_targets")
+	@classmethod
+	def valid_targets(
+		cls, values: tuple[float, float, float, float]
+	) -> tuple[float, float, float, float]:
+		if any(not 0 < value < 1 for value in values) or any(
+			a < b for a, b in zip(values, values[1:], strict=False)
+		):
+			raise ValueError("level targets must be in (0, 1) and nonincreasing")
+		return values
 
 
 class BenignRequest(BaseModel):
@@ -74,6 +91,7 @@ class BenignRequest(BaseModel):
 	example_id: str | None = None
 	source_group: str | None = None
 	client_type: str | None = None
+	workload_version: str | None = None
 
 
 class LevelThresholds(BaseModel):
@@ -83,6 +101,8 @@ class LevelThresholds(BaseModel):
 	units: int
 	# One-sided 95% Clopper-Pearson upper bounds on each achieved rate over `units`.
 	upper95: list[float] = Field(default_factory=list)
+	# Absent in legacy artifacts. These counts distinguish detector evidence from quota.
+	level_results: list[dict[str, Any]] | None = None
 
 
 class AggregateCalibration(BaseModel):
@@ -93,6 +113,21 @@ class AggregateCalibration(BaseModel):
 	achieved: float
 	null_windows: int
 	interleaving: Literal["time", "round_robin"]
+
+
+class MixtureControl(BaseModel):
+	"""Score-calibration requests shuffled across accounts, scored as one broad client.
+
+	`share_below_null_median` is the share of these pooled windows whose upper-tail p-value
+	exceeds 0.5, so they score below the median benign account window. Exchangeable benign
+	accounts give about half; a share near one means a broad client looks more ordinary than
+	ordinary users, and the upper-tail test cannot flag same-distribution extraction.
+	"""
+
+	windows: int
+	median_p_value: float
+	min_p_value: float
+	share_below_null_median: float
 
 
 class Calibration(BaseModel):
@@ -116,7 +151,42 @@ class Calibration(BaseModel):
 	sha256: dict[str, str] = Field(default_factory=dict)
 	aggregate: AggregateCalibration | None = None
 	aggregate_skipped: str | None = None
+	# Missing in artifacts calibrated before the control existed; they report no warning.
+	mixture_control: MixtureControl | None = None
+	input_validation: dict[str, Any] | None = None
+	# Shadow scorers from `calibrate --shadow`. Left out of the dump when absent, so a legacy
+	# artifact serializes, and hashes into policy revisions and state scopes, as before.
+	shadow: ShadowCalibration | None = Field(default=None, exclude_if=lambda value: value is None)
 	_aggregate_references: Array | None = PrivateAttr(default=None)
+
+	def _level_report(
+		self, level: int, accumulators: tuple[str, ...], scored: int, null_windows: int
+	) -> dict[str, Any]:
+		"""One level's target, the sample sizes that resolve it, and its fitted evidence."""
+		target = self.config.level_targets[level - 1]
+		minimum_policy = math.ceil(1 / target)
+		results: dict[str, dict[str, Any] | None] = {}
+		for name in accumulators:
+			fitted = self.thresholds.get(name)
+			level_results = fitted.level_results if fitted is not None else None
+			results[name] = (
+				level_results[level - 1]
+				if level_results is not None and len(level_results) >= level
+				else None
+			)
+		legacy = any(
+			name not in self.thresholds or self.thresholds[name].level_results is None
+			for name in accumulators
+		)
+		return {
+			"target": target,
+			"minimum_policy_horizons": minimum_policy,
+			"minimum_score_windows": minimum_policy - 1,
+			"resolution_sufficient": scored >= minimum_policy
+			and (not accumulators or null_windows >= minimum_policy - 1),
+			"evidence_version": "legacy-inferred" if legacy else "level-results-v1",
+			"results": results,
+		}
 
 	def adequacy(
 		self,
@@ -124,6 +194,7 @@ class Calibration(BaseModel):
 		accumulators: tuple[str, ...] = (),
 		baselines: tuple[str, ...] = (),
 		allow_resolution_limited: bool = False,
+		levels: tuple[int, ...] = (1, 2, 3, 4),
 	) -> dict[str, Any]:
 		"""Minimum resolution for selected study defenses, not a false-positive guarantee.
 
@@ -133,12 +204,16 @@ class Calibration(BaseModel):
 		and small-sample level ties into warnings; invalid fits still fail closed. Legacy
 		artifacts without scored counts fail closed.
 		"""
-		target = min(self.config.level_targets)
+		if not levels or any(level not in range(1, LEVELS + 1) for level in levels):
+			raise ValueError("levels must select L1 through L4")
+		target = min(self.config.level_targets[level - 1] for level in levels)
 		minimum_policy = math.ceil(1 / target)
 		minimum_score = minimum_policy - 1
 		null_windows = self.counts.get("score_calibration_independent_windows", 0)
 		scored = self.counts.get("policy_calibration_scored_horizons", 0)
 		reasons: list[str] = []
+		if self.input_validation is not None and not self.input_validation.get("passed"):
+			reasons.append("workload input validation failed or was overridden")
 		resolution_reasons: list[str] = []
 		if accumulators:
 			if null_windows < minimum_score:
@@ -160,11 +235,35 @@ class Calibration(BaseModel):
 					)
 				):
 					reasons.append(f"{name}: level thresholds are collapsed or invalid")
-				elif len(set(fitted.thresholds)) != LEVELS:
+				elif len({fitted.thresholds[level - 1] for level in levels}) != len(set(levels)):
 					if scored < minimum_policy or null_windows < minimum_score:
 						resolution_reasons.append(f"{name}: level thresholds are collapsed")
 					else:
 						reasons.append(f"{name}: level thresholds are collapsed or invalid")
+				if fitted is not None and fitted.level_results is not None:
+					for level in levels:
+						if len(fitted.level_results) < level:
+							reasons.append(f"{name}: L{level} evidence missing")
+						elif fitted.level_results[level - 1].get("scored") != scored:
+							reasons.append(
+								f"{name}: L{level} evidence has incompatible denominator"
+							)
+						else:
+							result = fitted.level_results[level - 1]
+							if (
+								len(fitted.thresholds) < level
+								or result.get("target") != self.config.level_targets[level - 1]
+								or result.get("threshold") != fitted.thresholds[level - 1]
+								or any(
+									key not in result
+									for key in ("reached", "capped", "upper95", "censored")
+								)
+							):
+								reasons.append(f"{name}: L{level} evidence missing or incompatible")
+							elif result.get("achieved", 1.0) > self.config.level_targets[level - 1]:
+								reasons.append(
+									f"{name}: L{level} target exceeded by mandatory caps"
+								)
 		for name in baselines:
 			fitted = self.baselines.get(name)
 			if fitted is None:
@@ -180,6 +279,20 @@ class Calibration(BaseModel):
 		warnings = resolution_reasons if allow_resolution_limited else []
 		if not allow_resolution_limited:
 			reasons = resolution_reasons + reasons
+		detectability: list[str] = []
+		control = self.mixture_control
+		if accumulators and control and control.share_below_null_median >= MIXTURE_WARNING_SHARE:
+			detectability.append(
+				f"{control.share_below_null_median:.0%} of {control.windows} pooled benign-mixture "
+				f"windows score below the median benign account window (median p "
+				f"{control.median_p_value:.3f}); the upper-tail score cannot flag traffic that "
+				"resembles the benign mixture"
+			)
+		if accumulators and self.config.mixture_control_required:
+			if control is None or control.windows <= 0:
+				reasons.append("required mixture control is missing or has no windows")
+			elif detectability:
+				reasons.append("required mixture control failed: " + detectability[0])
 		return {
 			"rule": "calibration-resolution-v2",
 			"status": "invalid" if reasons else "resolution-limited" if warnings else "adequate",
@@ -192,8 +305,14 @@ class Calibration(BaseModel):
 			"minimum_score_windows": minimum_score,
 			"minimum_policy_horizons": minimum_policy,
 			"nonoverlapping_score_windows": null_windows,
+			"detectability_warnings": detectability,
+			"mixture_control_required": self.config.mixture_control_required,
 			"empirical_p_value_floor": 1 / (len(self.calibration_scores) + 1),
 			"scored_policy_horizons": scored,
+			"levels": {
+				f"L{level}": self._level_report(level, accumulators, scored, null_windows)
+				for level in levels
+			},
 			"policy_horizons": self.counts.get("policy_calibration_horizons", 0),
 			"interpretation": "minimum resolution only; not evidence of population error control",
 		}
@@ -291,6 +410,21 @@ def interleave(
 	return order, "round_robin"
 
 
+def horizon_indices(
+	requests: list[BenignRequest], seconds: float, attempts: int
+) -> list[list[int]]:
+	"""Row indices of each account horizon, in order, without the attempts past the cap."""
+	rows: dict[str, list[int]] = {}
+	for index, request in enumerate(requests):
+		rows.setdefault(request.account, []).append(index)
+	result: list[list[int]] = []
+	for account, stream in account_streams(requests).items():
+		indices = iter(rows[account])
+		for horizon in horizons(stream, seconds):
+			result.append([next(indices) for _ in horizon][:attempts])
+	return result
+
+
 def complete_windows(count: int, size: int, stride: int | None = None) -> list[range]:
 	return [range(start, start + size) for start in range(0, count - size + 1, stride or size)]
 
@@ -304,14 +438,22 @@ def binomial_upper(successes: int, trials: int, confidence: float = 0.95) -> flo
 	alpha = 1 - confidence
 
 	def cdf(rate: float) -> float:
-		return sum(
-			math.comb(trials, k) * rate**k * (1 - rate) ** (trials - k)
+		# Log-space terms keep large trial counts from overflowing a float.
+		log_rate, log_rest = math.log(rate), math.log1p(-rate)
+		return math.fsum(
+			math.exp(
+				math.lgamma(trials + 1)
+				- math.lgamma(k + 1)
+				- math.lgamma(trials - k + 1)
+				+ k * log_rate
+				+ (trials - k) * log_rest
+			)
 			for k in range(successes + 1)
 		)
 
 	low, high = successes / trials, 1.0
 	for _ in range(60):
-		middle = (low + high) / 2
+		middle = min(max((low + high) / 2, 1e-300), 1 - 1e-16)
 		low, high = (middle, high) if cdf(middle) > alpha else (low, middle)
 	return high
 
@@ -336,6 +478,7 @@ def nested_thresholds(
 	"""Fit the remaining escalation allowance after mandatory attempt-cap refusals."""
 	if not values:
 		raise ValueError("threshold calibration needs at least one benign unit")
+	targets = list(targets)
 	forced = [False] * len(values) if forced is None else forced
 	if len(forced) != len(values):
 		raise ValueError("forced refusals must match calibration units")
@@ -354,11 +497,66 @@ def nested_thresholds(
 		achieved=[count / len(values) for count in exceeded],
 		units=len(values),
 		upper95=[binomial_upper(count, len(values)) for count in exceeded],
+		level_results=[
+			{
+				"target": target,
+				"threshold": threshold,
+				"scored": len(values),
+				"reached": count,
+				"detector_reached": sum(value > threshold for value in values),
+				"capped": sum(forced),
+				"achieved": count / len(values),
+				"upper95": binomial_upper(count, len(values)),
+			}
+			for target, threshold, count in zip(targets, thresholds, exceeded, strict=True)
+		],
+	)
+
+
+def mixture_control(
+	calibration: Calibration,
+	scorer: WindowScorer,
+	requests: list[BenignRequest],
+	embedded: Array,
+	windows: int = MIXTURE_WINDOWS,
+) -> MixtureControl | None:
+	"""Rank pooled-mixture windows of benign requests in the per-account null.
+
+	A seeded shuffle across accounts stands for a client that samples the whole benign task
+	mixture, as multiplexed extraction does. `embedded` holds one row per request, in order.
+	None when the requests cannot fill one window.
+	"""
+	size = calibration.config.window_size
+	order = random.Random(calibration.config.seed + 2).sample(range(len(requests)), len(requests))
+	spans = complete_windows(len(order), size)[:windows]
+	if not spans:
+		return None
+	p_values = sorted(
+		calibration.p_value(
+			scorer.score(
+				embedded[[order[i] for i in span]],
+				[requests[order[i]].text for i in span]
+				if calibration.config.distinct_prompts
+				else None,
+			)
+		)
+		for span in spans
+	)
+	return MixtureControl(
+		windows=len(p_values),
+		median_p_value=float(np.median(p_values)),
+		min_p_value=p_values[0],
+		share_below_null_median=sum(p > 0.5 for p in p_values) / len(p_values),
 	)
 
 
 def requests_sha256(requests: list[BenignRequest]) -> str:
-	payload = "\n".join(request.model_dump_json() for request in requests)
+	payload = "\n".join(
+		request.model_dump_json(
+			exclude={"workload_version"} if request.workload_version is None else set()
+		)
+		for request in requests
+	)
 	return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -386,8 +584,24 @@ def calibrate(
 	score_calibration: list[BenignRequest],
 	policy_calibration: list[BenignRequest],
 	log: Callable[[str], None] | None = None,
+	input_validation: dict[str, Any] | None = None,
+	shadow: ShadowConfig | None = None,
 ) -> tuple[Calibration, Array]:
-	"""Build the calibration artifact and the reference windows it scores against."""
+	"""Build the calibration artifact and the reference windows it scores against.
+
+	With `shadow`, also fit the shadow scorers from the fitting and score-calibration roles.
+	They are telemetry only and leave every other field of the artifact unchanged.
+	"""
+
+	if (
+		any(
+			row.workload_version == "gateway-clients-v5"
+			for role in (fitting, score_calibration, policy_calibration)
+			for row in role
+		)
+		and input_validation is None
+	):
+		raise ValueError("v5 workload requires input validation")
 
 	def report(message: str) -> None:
 		if log:
@@ -490,6 +704,7 @@ def calibrate(
 		encoder=encoder.identity(),
 		serialization=SERIALIZATION,
 		horizon_policy=HORIZON_POLICY,
+		input_validation=input_validation,
 		sigma=sigma,
 		calibration_scores=null_scores,
 		thresholds={},
@@ -527,6 +742,11 @@ def calibrate(
 		name: nested_thresholds(values, config.level_targets, scored_capped)
 		for name, values in maxima.items()
 	}
+	for level_fit in calibration.thresholds.values():
+		assert level_fit.level_results is not None
+		for result in level_fit.level_results:
+			result["horizons"] = len(units)
+			result["censored"] = len(units) - len(scored_units)
 	calibration.counts = {
 		"fitting_requests": len(fitting),
 		"score_calibration_requests": len(score_calibration),
@@ -558,7 +778,29 @@ def calibrate(
 			block_target,
 			scored_capped,
 		)
+	calibration.mixture_control = mixture_control(
+		calibration, scorer, score_calibration, null_embedded
+	)
 	_calibrate_aggregate(calibration, fitted, sigma, score_calibration, null_embedded, report)
+	if shadow is not None:
+		report("fitting shadow scorers")
+		calibration.shadow = calibrate_shadow(
+			settings=shadow,
+			task=config.task,
+			window_size=size,
+			reference_windows=config.reference_windows,
+			bandwidth_sample=config.bandwidth_sample,
+			scales=config.scales,
+			horizon_streams=lambda rows: horizon_indices(
+				list(rows), config.horizon_seconds, config.horizon_attempts
+			),
+			fitting=fitting,
+			fitted=fitted,
+			score_calibration=score_calibration,
+			null_embedded=null_embedded,
+			seed=config.seed,
+			distinct_prompts=config.distinct_prompts,
+		)
 	calibration.encoder = encoder.identity()
 	calibration.sha256 = {
 		"fitting": requests_sha256(fitting),
@@ -627,6 +869,11 @@ def save_calibration(directory: Path, calibration: Calibration, references: Arra
 		calibration.sha256["aggregate_references"] = hashlib.sha256(
 			(directory / "aggregate_references.npy").read_bytes()
 		).hexdigest()
+	if calibration.shadow is not None:
+		np.savez(directory / "shadow.npz", allow_pickle=False, **calibration.shadow.arrays())
+		calibration.sha256["shadow"] = hashlib.sha256(
+			(directory / "shadow.npz").read_bytes()
+		).hexdigest()
 	(directory / "calibration.json").write_text(
 		json.dumps(calibration.model_dump(mode="json"), indent="\t") + "\n", encoding="utf-8"
 	)
@@ -660,3 +907,15 @@ def load_aggregate(directory: Path, calibration: Calibration) -> WindowScorer | 
 	):
 		raise ValueError("aggregate reference windows differ from the calibration artifact")
 	return WindowScorer(np.load(path), calibration.sigma, calibration.config.scales)
+
+
+def load_shadow(directory: Path, calibration: Calibration) -> ShadowCalibration | None:
+	"""The shadow scorers with their arrays attached, or None when calibration skipped them."""
+	if calibration.shadow is None:
+		return None
+	path = directory / "shadow.npz"
+	if hashlib.sha256(path.read_bytes()).hexdigest() != calibration.sha256.get("shadow"):
+		raise ValueError("shadow arrays differ from the calibration artifact")
+	with np.load(path) as arrays:
+		calibration.shadow.attach({name: arrays[name] for name in arrays.files})
+	return calibration.shadow

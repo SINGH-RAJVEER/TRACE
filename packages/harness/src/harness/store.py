@@ -1,0 +1,1035 @@
+"""Enforcement state: account horizons, open challenges, the release ledger, idempotency
+records, and the aggregate monitor's stream.
+
+Every policy decision reads and writes state inside one store transaction, so an admission,
+its attempt count, and any challenge it issues commit together. `MemoryStore` keeps state in
+this process, as offline replays and simulations need. `SQLiteStore` keeps it in a file, so a
+restart neither renews an account's horizon nor forgets an open challenge, and separate
+connections admit against the same counters one transaction at a time.
+
+The release ledger separates admission from delivered output. The server reserves an
+admission before it calls the teacher or builds noise, and settles the reservation once:
+released (output made available to the client), failed (upstream error), or cancelled (the
+client went away before anything was emitted). A reservation is keyed by its admission, so
+an admission releases at most once. A reservation left unsettled by a crash stays outstanding
+and counts as acquired, because the output may have been emitted before the crash.
+
+A reservation also holds the output tokens it may release and, under an in-flight limit, a
+lease. Its charge is the actual output tokens once released, and the reserved tokens while
+outstanding or after a failure or cancellation, which are never refunded. An outstanding
+reservation holds a concurrency slot until its lease ends; a live worker cannot release after
+that (`settle` refuses), so a crashed reservation frees its slot without letting two workers
+emit under it. It keeps its token charge in the horizon it was admitted in.
+
+An optional rolling budget reads the same charges over a fixed span of time rather than a
+horizon, so a horizon renewal does not refill it. It applies to one principal or to one declared
+organization. Noise releases no teacher output, so it draws nothing from a rolling budget.
+"""
+
+import base64
+import copy
+import json
+import math
+import sqlite3
+import threading
+from collections import deque
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
+from typing import Any, Literal, Protocol
+
+import numpy as np
+
+from harness.mmd import Array
+from harness.path_runtime import CampaignState
+from harness.pow import Challenge
+
+Settlement = Literal["released", "failed", "cancelled"]
+
+
+@dataclass
+class AccountState:
+	horizon_start: float
+	attempts: int = 0
+	level: int = 0
+	statistic: float = 0.0
+	windows: int = 0
+	# Windows handed to an off-path scorer in this horizon, scored or not.
+	submitted_windows: int = 0
+	buffer: list[Array] = field(default_factory=list)
+	buffer_digests: list[str] = field(default_factory=list)
+	last_release: float = -math.inf
+	recent: deque[float] = field(default_factory=deque)
+	path: CampaignState | None = None
+
+
+@dataclass(frozen=True)
+class Reservation:
+	"""One admission's claim to release output, keyed by account, horizon, and attempt."""
+
+	account: str
+	horizon_start: float
+	attempt: int
+	request_digest: str
+	reserved_at: float
+	deceive: bool = False
+	status: Literal["reserved"] | Settlement = "reserved"
+	settled_at: float | None = None
+	output_tokens: int | None = None
+	# The output allowance held while outstanding: the request's max_output_tokens.
+	reserved_tokens: int = 0
+	# The shared organization scope the reservation also counts against, if any.
+	organization: str | None = None
+	organization_horizon: float | None = None
+	# End of the lease: past it the reservation holds no slot and can no longer be released.
+	# None never expires.
+	expires_at: float | None = None
+	domain: str = "text"
+	clean: bool = True
+
+	@property
+	def key(self) -> str:
+		return admission_key(self.account, self.horizon_start, self.attempt)
+
+	@property
+	def charged_tokens(self) -> int:
+		"""Output tokens charged: the actual count once released, else the reservation."""
+		if self.status == "released" and self.output_tokens is not None:
+			return self.output_tokens
+		return self.reserved_tokens
+
+	def live(self, now: float) -> bool:
+		"""Outstanding and inside its lease: it holds a slot and may still release."""
+		return self.status == "reserved" and (self.expires_at is None or now <= self.expires_at)
+
+
+@dataclass(frozen=True)
+class Usage:
+	"""Release outcomes for one account horizon. `acquired` counts outstanding reservations
+	as released, since a crash after emission leaves them unsettled."""
+
+	reserved: int
+	released: int
+	failed: int
+	cancelled: int
+	output_tokens: int | None
+
+	@property
+	def acquired(self) -> int:
+		return self.released + self.reserved
+
+
+@dataclass(frozen=True)
+class Exposure:
+	"""What a scope has acquired or may still acquire in one horizon: its reservations, their
+	charged output tokens, and the live reservations holding a concurrency slot. Live
+	reservations from an earlier horizon are included, so a rollover does not free them."""
+
+	requests: int
+	tokens: int
+	in_flight: int
+
+
+@dataclass(frozen=True)
+class Outcome:
+	"""A stored response, returned again for a retry with the same idempotency key."""
+
+	status_code: int
+	body: str
+	headers: dict[str, str]
+
+
+@dataclass(frozen=True)
+class IdempotencyRecord:
+	"""A client key bound to one request digest. Without an outcome the request is pending."""
+
+	account: str
+	key: str
+	request_digest: str
+	created_at: float
+	outcome: Outcome | None = None
+
+
+Scope = Literal["account", "organization"]
+
+
+@dataclass(frozen=True)
+class RollingBudget:
+	"""What one account, or one organization, may acquire in any span of `window_seconds`,
+	whatever the horizon."""
+
+	window_seconds: float
+	requests: int | None = None
+	tokens: int | None = None
+	scope: Scope = "account"
+
+	def exceeded(self, tx: Transaction, name: str, reserved_tokens: int, now: float) -> bool:
+		used = tx.rolling_exposure(name, now - self.window_seconds, self.scope)
+		credit = tx.credits(self.scope, name, "rolling", now, None, self.window_seconds)
+		return (self.requests is not None and used.requests >= self.requests + credit.requests) or (
+			self.tokens is not None and used.tokens + reserved_tokens > self.tokens + credit.tokens
+		)
+
+
+@dataclass(frozen=True)
+class SupervisionBudget:
+	window_seconds: float
+	limit: float
+	weights: dict[str, float]
+	repeat_factor: float
+
+	def exceeded(self, tx: Transaction, row: Reservation, now: float) -> bool:
+		rows = tx.reservations_for(row.account, now - self.window_seconds)
+		seen: dict[str, list[float]] = {}
+		total = 0.0
+		for item in sorted(rows, key=lambda item: item.reserved_at):
+			if item.deceive:
+				continue
+			repeated = any(t <= item.reserved_at for t in seen.get(item.request_digest, []))
+			factor = self.repeat_factor if repeated else 1.0
+			total += self.weights[item.domain] * item.charged_tokens * factor
+			if item.status == "released" and item.settled_at is not None:
+				seen.setdefault(item.request_digest, []).append(item.settled_at)
+		repeated = any(t <= now for t in seen.get(row.request_digest, []))
+		factor = self.repeat_factor if repeated else 1.0
+		return total + self.weights[row.domain] * row.reserved_tokens * factor > self.limit
+
+
+@dataclass(frozen=True)
+class TierBudget:
+	fraction: float
+	minimum_age: float
+	minimum_releases: int
+	tiers: dict[str, str]
+	contracts: dict[str, RollingBudget]
+
+	def is_new(self, tx: Transaction, account: str, now: float) -> bool:
+		if self.tiers.get(account, "new") != "new":
+			return False
+		rows = tx.reservations_for(account)
+		if not rows:
+			return True
+		return not (
+			now - min(row.reserved_at for row in rows) >= self.minimum_age
+			and sum(row.status == "released" and not row.deceive and row.clean for row in rows)
+			>= self.minimum_releases
+		)
+
+
+def rolling_refusal(
+	tx: Transaction,
+	row: Reservation,
+	now: float,
+	rolling: RollingBudget | None,
+	organization_rolling: RollingBudget | None,
+	supervision: SupervisionBudget | None,
+	tier: TierBudget | None,
+) -> str | None:
+	if rolling is not None and rolling.exceeded(tx, row.account, row.reserved_tokens, now):
+		return "rolling_budget_exceeded"
+	if tier is not None and tier.is_new(tx, row.account, now) and rolling is not None:
+		reduced = RollingBudget(
+			rolling.window_seconds,
+			math.floor(rolling.requests * tier.fraction) if rolling.requests is not None else None,
+			math.floor(rolling.tokens * tier.fraction) if rolling.tokens is not None else None,
+		)
+		if reduced.exceeded(tx, row.account, row.reserved_tokens, now):
+			return "tier_budget_exceeded"
+	if supervision is not None:
+		if tier is not None and tier.is_new(tx, row.account, now):
+			reduced_supervision = replace(supervision, limit=supervision.limit * tier.fraction)
+			if reduced_supervision.exceeded(tx, row, now):
+				return "tier_budget_exceeded"
+		if supervision.exceeded(tx, row, now):
+			return "supervision_budget_exceeded"
+	shared = (
+		tier.contracts.get(row.organization, organization_rolling)
+		if tier and row.organization
+		else organization_rolling
+	)
+	if (
+		shared is not None
+		and row.organization is not None
+		and shared.exceeded(tx, row.organization, row.reserved_tokens, now)
+	):
+		return "organization_rolling_budget_exceeded"
+	return None
+
+
+def admission_key(account: str, horizon_start: float, attempt: int) -> str:
+	return json.dumps([account, horizon_start, attempt])
+
+
+def _exposure(rows: list[Reservation], now: float) -> Exposure:
+	return Exposure(
+		requests=len(rows),
+		tokens=sum(row.charged_tokens for row in rows),
+		in_flight=sum(row.live(now) for row in rows),
+	)
+
+
+class Transaction(Protocol):
+	def account(self, name: str) -> AccountState | None: ...
+	def put_account(self, name: str, state: AccountState) -> None: ...
+	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None: ...
+	def put_challenge(self, challenge: Challenge, held: dict[str, Any]) -> None: ...
+	def delete_challenge(self, nonce: str) -> None: ...
+	def expire_challenges(self, now: float) -> None: ...
+	def reserve(self, reservation: Reservation) -> bool: ...
+	def settle(
+		self, key: str, status: Settlement, now: float, output_tokens: int | None = None
+	) -> bool: ...
+	def reservation(self, key: str) -> Reservation | None: ...
+	def usage(self, account: str, horizon_start: float) -> Usage: ...
+	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure: ...
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure: ...
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]: ...
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure: ...
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool: ...
+	def unlinked(self, account: str, organization: str | None) -> bool: ...
+	def organization(self, name: str) -> float | None: ...
+	def put_organization(self, name: str, horizon_start: float) -> None: ...
+	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
+	def put_idempotency(self, record: IdempotencyRecord) -> None: ...
+	def append_aggregate(self, embedding: Array, account: str, now: float) -> int: ...
+	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]: ...
+	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None: ...
+
+
+class StateStore(Protocol):
+	def bind_path(self, calibration_hash: str) -> None: ...
+
+	def transaction(self) -> AbstractContextManager[Transaction]:
+		"""A Transaction that commits on exit; SQLite rolls back if the block raises."""
+		...
+
+
+def reserve_entitlement(
+	tx: Transaction,
+	reservation: Reservation,
+	*,
+	now: float,
+	horizon_seconds: float,
+	principal_budget: int | None,
+	organization_budget: int | None,
+	in_flight_limit: int | None,
+	rolling: RollingBudget | None = None,
+	organization_rolling: RollingBudget | None = None,
+	supervision: SupervisionBudget | None = None,
+	tier: TierBudget | None = None,
+) -> tuple[Reservation | None, str | None]:
+	"""Check both scopes and reserve atomically inside the caller's admission transaction."""
+	organization = reservation.organization
+	unlinked = tx.unlinked(reservation.account, organization)
+	if unlinked:
+		organization = None
+		reservation = replace(reservation, organization=None)
+	if (
+		(organization_budget is not None or organization_rolling is not None)
+		and organization is None
+		and not unlinked
+	):
+		return None, "organization_required"
+	org_horizon = None
+	if organization is not None:
+		org_horizon = tx.organization(organization)
+		if org_horizon is None or now - org_horizon >= horizon_seconds:
+			org_horizon = now
+	account_usage = tx.exposure("account", reservation.account, reservation.horizon_start, now)
+	org_usage = (
+		tx.exposure("organization", organization, org_horizon, now)
+		if organization is not None and org_horizon is not None
+		else None
+	)
+	if (
+		principal_budget is not None
+		and account_usage.tokens + reservation.reserved_tokens
+		> principal_budget
+		+ tx.credits(
+			"account", reservation.account, "horizon", now, reservation.horizon_start, None
+		).tokens
+	) or (
+		org_usage is not None
+		and organization_budget is not None
+		and org_usage.tokens + reservation.reserved_tokens
+		> organization_budget
+		+ tx.credits("organization", organization or "", "horizon", now, org_horizon, None).tokens
+	):
+		return None, "token_budget_exceeded"
+	reason = rolling_refusal(tx, reservation, now, rolling, organization_rolling, supervision, tier)
+	if reason is not None:
+		return None, reason
+	if in_flight_limit is not None and account_usage.in_flight >= in_flight_limit:
+		return None, "in_flight_limit"
+	reservation = replace(reservation, organization_horizon=org_horizon)
+	if not tx.reserve(reservation):
+		return None, "already_released"
+	if organization is not None and org_horizon is not None:
+		tx.put_organization(organization, org_horizon)
+	return reservation, None
+
+
+def _usage(rows: list[Reservation]) -> Usage:
+	count = {status: 0 for status in ("reserved", "released", "failed", "cancelled")}
+	for row in rows:
+		count[row.status] += 1
+	return Usage(
+		reserved=count["reserved"],
+		released=count["released"],
+		failed=count["failed"],
+		cancelled=count["cancelled"],
+		output_tokens=None
+		if any(row.status == "released" and row.output_tokens is None for row in rows)
+		else sum(row.output_tokens or 0 for row in rows if row.status == "released"),
+	)
+
+
+def _settled(
+	row: Reservation, status: Settlement, now: float, output_tokens: int | None
+) -> Reservation:
+	return Reservation(
+		**(asdict(row) | {"status": status, "settled_at": now, "output_tokens": output_tokens})
+	)
+
+
+class _MemoryTransaction:
+	def __init__(self, store: MemoryStore) -> None:
+		self.store = store
+
+	def account(self, name: str) -> AccountState | None:
+		return self.store.accounts.get(name)
+
+	def put_account(self, name: str, state: AccountState) -> None:
+		self.store.accounts[name] = state
+
+	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None:
+		return self.store.challenges.get(nonce)
+
+	def put_challenge(self, challenge: Challenge, held: dict[str, Any]) -> None:
+		self.store.challenges[challenge.nonce] = (challenge, held)
+
+	def delete_challenge(self, nonce: str) -> None:
+		self.store.challenges.pop(nonce, None)
+
+	def expire_challenges(self, now: float) -> None:
+		for nonce in [n for n, (c, _) in self.store.challenges.items() if c.expires_at < now]:
+			del self.store.challenges[nonce]
+
+	def reserve(self, reservation: Reservation) -> bool:
+		if reservation.key in self.store.reservations:
+			return False
+		self.store.reservations[reservation.key] = reservation
+		return True
+
+	def settle(
+		self, key: str, status: Settlement, now: float, output_tokens: int | None = None
+	) -> bool:
+		row = self.store.reservations.get(key)
+		if row is None or row.status != "reserved":
+			return False
+		if status == "released" and not row.live(now):
+			return False
+		self.store.reservations[key] = _settled(row, status, now, output_tokens)
+		return True
+
+	def reservation(self, key: str) -> Reservation | None:
+		return self.store.reservations.get(key)
+
+	def usage(self, account: str, horizon_start: float) -> Usage:
+		return _usage(
+			[
+				row
+				for row in self.store.reservations.values()
+				if (row.account, row.horizon_start) == (account, horizon_start)
+			]
+		)
+
+	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure:
+		rows = []
+		for row in self.store.reservations.values():
+			owner, horizon = (
+				(row.account, row.horizon_start)
+				if scope == "account"
+				else (row.organization, row.organization_horizon)
+			)
+			if owner == name and (horizon == horizon_start or row.status == "reserved"):
+				rows.append(row)
+		return _exposure(rows, now)
+
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure:
+		rows = [
+			row
+			for row in self.store.reservations.values()
+			if (row.account if scope == "account" else row.organization) == name
+			and row.reserved_at > since
+			and not row.deceive
+		]
+		return Exposure(len(rows), sum(row.charged_tokens for row in rows), 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		return [
+			row
+			for row in self.store.reservations.values()
+			if row.account == account and (since is None or row.reserved_at > since)
+		]
+
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		return Exposure(0, 0, 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return False
+
+	def organization(self, name: str) -> float | None:
+		return self.store.organizations.get(name)
+
+	def put_organization(self, name: str, horizon_start: float) -> None:
+		self.store.organizations[name] = horizon_start
+
+	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None:
+		return self.store.idempotency.get((account, key))
+
+	def put_idempotency(self, record: IdempotencyRecord) -> None:
+		self.store.idempotency[(record.account, record.key)] = record
+
+	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
+		self.store.aggregate.append((np.asarray(embedding, dtype=np.float64), account, now))
+		return len(self.store.aggregate)
+
+	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]:
+		rows, self.store.aggregate = self.store.aggregate, []
+		self.store.aggregate_windows += 1
+		return self.store.aggregate_windows - 1, rows
+
+	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None:
+		self.store.aggregate_alerts[index] = alert
+
+
+class MemoryStore:
+	"""State in this process. A restart loses it; use it for replays and simulations."""
+
+	def __init__(self) -> None:
+		self.accounts: dict[str, AccountState] = {}
+		self.challenges: dict[str, tuple[Challenge, dict[str, Any]]] = {}
+		self.reservations: dict[str, Reservation] = {}
+		self.organizations: dict[str, float] = {}
+		self.idempotency: dict[tuple[str, str], IdempotencyRecord] = {}
+		self.aggregate: list[tuple[Array, str, float]] = []
+		self.aggregate_windows = 0
+		self.aggregate_alerts: dict[int, dict[str, Any]] = {}
+		self._lock = threading.RLock()
+		self._path_binding: str | None = None
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self._lock:
+			if self._path_binding not in {None, calibration_hash}:
+				raise ValueError("state store is bound to another path calibration")
+			self._path_binding = calibration_hash
+
+	@contextmanager
+	def transaction(self) -> Iterator[_MemoryTransaction]:
+		with self._lock:
+			snapshot = copy.deepcopy(
+				(
+					self.accounts,
+					self.challenges,
+					self.reservations,
+					self.organizations,
+					self.idempotency,
+					self.aggregate,
+					self.aggregate_windows,
+					self.aggregate_alerts,
+				)
+			)
+			try:
+				yield _MemoryTransaction(self)
+			except BaseException:
+				(
+					self.accounts,
+					self.challenges,
+					self.reservations,
+					self.organizations,
+					self.idempotency,
+					self.aggregate,
+					self.aggregate_windows,
+					self.aggregate_alerts,
+				) = snapshot
+				raise
+
+
+def _array(values: Array) -> str:
+	return base64.b64encode(np.asarray(values, dtype=np.float64).tobytes()).decode()
+
+
+def _encode_state(state: AccountState) -> str:
+	return json.dumps(
+		{
+			"horizon_start": state.horizon_start,
+			"attempts": state.attempts,
+			"level": state.level,
+			"statistic": state.statistic,
+			"windows": state.windows,
+			"submitted_windows": state.submitted_windows,
+			# Embeddings round-trip exactly as float64 bytes, so a resumed window scores the
+			# same as an uninterrupted one.
+			"buffer": [_array(row) for row in state.buffer],
+			"buffer_digests": state.buffer_digests,
+			"last_release": state.last_release,
+			"recent": list(state.recent),
+			**({"path": state.path.model_dump(mode="json")} if state.path is not None else {}),
+		}
+	)
+
+
+def _decode_state(text: str) -> AccountState:
+	data = json.loads(text)
+	return AccountState(
+		horizon_start=data["horizon_start"],
+		attempts=data["attempts"],
+		level=data["level"],
+		statistic=data["statistic"],
+		windows=data["windows"],
+		submitted_windows=data.get("submitted_windows", 0),
+		buffer=[np.frombuffer(base64.b64decode(row), dtype=np.float64) for row in data["buffer"]],
+		buffer_digests=data["buffer_digests"],
+		last_release=data["last_release"],
+		recent=deque(data["recent"]),
+		path=CampaignState.model_validate(data["path"]) if "path" in data else None,
+	)
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS accounts (name TEXT PRIMARY KEY, state TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS challenges (
+	nonce TEXT PRIMARY KEY, expires_at REAL NOT NULL, challenge TEXT NOT NULL, held TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS challenges_expiry ON challenges (expires_at);
+CREATE TABLE IF NOT EXISTS reservations (
+	key TEXT PRIMARY KEY,
+	account TEXT NOT NULL,
+	horizon_start REAL NOT NULL,
+	attempt INTEGER NOT NULL,
+	request_digest TEXT NOT NULL,
+	reserved_at REAL NOT NULL,
+	deceive INTEGER NOT NULL,
+	status TEXT NOT NULL,
+	settled_at REAL,
+	output_tokens INTEGER
+);
+CREATE INDEX IF NOT EXISTS reservations_horizon ON reservations (account, horizon_start);
+CREATE INDEX IF NOT EXISTS reservations_rolling ON reservations (account, reserved_at);
+CREATE TABLE IF NOT EXISTS organizations (name TEXT PRIMARY KEY, horizon_start REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS idempotency (
+	account TEXT NOT NULL,
+	key TEXT NOT NULL,
+	request_digest TEXT NOT NULL,
+	created_at REAL NOT NULL,
+	outcome TEXT,
+	PRIMARY KEY (account, key)
+);
+CREATE TABLE IF NOT EXISTS aggregate (
+	seq INTEGER PRIMARY KEY AUTOINCREMENT,
+	embedding TEXT NOT NULL,
+	account TEXT NOT NULL,
+	time REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS aggregate_alerts (window INTEGER PRIMARY KEY, alert TEXT NOT NULL);
+"""
+
+# Reservation columns added after the first durable ledger; older files gain them on open.
+_ADDED_COLUMNS = {
+	"reserved_tokens": "INTEGER NOT NULL DEFAULT 0",
+	"organization": "TEXT",
+	"organization_horizon": "REAL",
+	"expires_at": "REAL",
+	"domain": "TEXT NOT NULL DEFAULT 'text'",
+	"clean": "INTEGER NOT NULL DEFAULT 1",
+}
+
+_RESERVATION_COLUMNS = (
+	"account, horizon_start, attempt, request_digest, reserved_at, deceive, status, "
+	"settled_at, output_tokens, reserved_tokens, organization, organization_horizon, "
+	"expires_at, domain, clean"
+)
+
+
+def _reservation(row: tuple[Any, ...]) -> Reservation:
+	(
+		account,
+		horizon,
+		attempt,
+		digest,
+		reserved_at,
+		deceive,
+		status,
+		settled_at,
+		tokens,
+		reserved_tokens,
+		organization,
+		organization_horizon,
+		expires_at,
+		domain,
+		clean,
+	) = row
+	return Reservation(
+		account=account,
+		horizon_start=horizon,
+		attempt=attempt,
+		request_digest=digest,
+		reserved_at=reserved_at,
+		deceive=bool(deceive),
+		status=status,
+		settled_at=settled_at,
+		output_tokens=tokens,
+		reserved_tokens=reserved_tokens,
+		organization=organization,
+		organization_horizon=organization_horizon,
+		expires_at=expires_at,
+		domain=domain,
+		clean=bool(clean),
+	)
+
+
+def _outcome(text: str | None) -> Outcome | None:
+	return None if text is None else Outcome(**json.loads(text))
+
+
+class _SQLiteTransaction:
+	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
+		self.db = connection
+		self.review_enabled = review_enabled
+
+	def account(self, name: str) -> AccountState | None:
+		row = self.db.execute("SELECT state FROM accounts WHERE name = ?", (name,)).fetchone()
+		return None if row is None else _decode_state(row[0])
+
+	def put_account(self, name: str, state: AccountState) -> None:
+		self.db.execute(
+			"INSERT INTO accounts (name, state) VALUES (?, ?) "
+			"ON CONFLICT (name) DO UPDATE SET state = excluded.state",
+			(name, _encode_state(state)),
+		)
+
+	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None:
+		row = self.db.execute(
+			"SELECT challenge, held FROM challenges WHERE nonce = ?", (nonce,)
+		).fetchone()
+		if row is None:
+			return None
+		return Challenge(**json.loads(row[0])), json.loads(row[1])
+
+	def put_challenge(self, challenge: Challenge, held: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO challenges (nonce, expires_at, challenge, held) VALUES (?, ?, ?, ?)",
+			(
+				challenge.nonce,
+				challenge.expires_at,
+				json.dumps(asdict(challenge)),
+				json.dumps(held),
+			),
+		)
+
+	def delete_challenge(self, nonce: str) -> None:
+		self.db.execute("DELETE FROM challenges WHERE nonce = ?", (nonce,))
+
+	def expire_challenges(self, now: float) -> None:
+		self.db.execute("DELETE FROM challenges WHERE expires_at < ?", (now,))
+
+	def reserve(self, reservation: Reservation) -> bool:
+		cursor = self.db.execute(
+			f"INSERT INTO reservations (key, {_RESERVATION_COLUMNS}) "
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
+			(
+				reservation.key,
+				reservation.account,
+				reservation.horizon_start,
+				reservation.attempt,
+				reservation.request_digest,
+				reservation.reserved_at,
+				int(reservation.deceive),
+				reservation.status,
+				reservation.settled_at,
+				reservation.output_tokens,
+				reservation.reserved_tokens,
+				reservation.organization,
+				reservation.organization_horizon,
+				reservation.expires_at,
+				reservation.domain,
+				int(reservation.clean),
+			),
+		)
+		return cursor.rowcount == 1
+
+	def settle(
+		self, key: str, status: Settlement, now: float, output_tokens: int | None = None
+	) -> bool:
+		# A release must land inside the lease; failures and cancellations may settle late.
+		cursor = self.db.execute(
+			"UPDATE reservations SET status = ?, settled_at = ?, output_tokens = ? "
+			"WHERE key = ? AND status = 'reserved' "
+			"AND (? != 'released' OR expires_at IS NULL OR ? <= expires_at)",
+			(status, now, output_tokens, key, status, now),
+		)
+		return cursor.rowcount == 1
+
+	def reservation(self, key: str) -> Reservation | None:
+		row = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations WHERE key = ?", (key,)
+		).fetchone()
+		return None if row is None else _reservation(row)
+
+	def usage(self, account: str, horizon_start: float) -> Usage:
+		rows = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations "
+			"WHERE account = ? AND horizon_start = ?",
+			(account, horizon_start),
+		).fetchall()
+		return _usage([_reservation(row) for row in rows])
+
+	def exposure(self, scope: Scope, name: str, horizon_start: float, now: float) -> Exposure:
+		owner, horizon = (
+			("account", "horizon_start")
+			if scope == "account"
+			else ("organization", "organization_horizon")
+		)
+		rows = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations WHERE {owner} = ? AND "
+			f"({horizon} = ? OR status = 'reserved')",
+			(name, horizon_start),
+		).fetchall()
+		return _exposure([_reservation(row) for row in rows], now)
+
+	def rolling_exposure(self, name: str, since: float, scope: Scope = "account") -> Exposure:
+		owner = "account" if scope == "account" else "organization"
+		requests, tokens = self.db.execute(
+			"SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'released' THEN "
+			"COALESCE(output_tokens, reserved_tokens) ELSE reserved_tokens END), 0) "
+			f"FROM reservations WHERE {owner} = ? AND reserved_at > ? AND deceive = 0",
+			(name, since),
+		).fetchone()
+		return Exposure(requests, tokens, 0)
+
+	def reservations_for(self, account: str, since: float | None = None) -> list[Reservation]:
+		rows = self.db.execute(
+			f"SELECT {_RESERVATION_COLUMNS} FROM reservations WHERE account = ? "
+			"AND (? IS NULL OR reserved_at > ?)",
+			(account, since, since),
+		).fetchall()
+		return [_reservation(row) for row in rows]
+
+	def credits(
+		self,
+		scope: Scope,
+		name: str,
+		kind: str,
+		now: float,
+		horizon: float | None,
+		window: float | None,
+	) -> Exposure:
+		if not self.review_enabled:
+			return Exposure(0, 0, 0)
+		row = self.db.execute(
+			"SELECT COALESCE(SUM(c.requests), 0), COALESCE(SUM(c.tokens), 0) FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+			"WHERE appeal_id = d.appeal_id) "
+			"AND scope = ? AND name = ? AND kind = ? AND starts_at <= ? AND expires_at > ? "
+			"AND ((kind = 'rolling' AND window_seconds = ?) OR (kind = 'horizon' AND horizon = ?))",
+			(scope, name, kind, now, now, window, horizon),
+		).fetchone()
+		return Exposure(row[0], row[1], 0)
+
+	def allowance(self, account: str, code: str, now: float, tokens: int) -> bool:
+		if not self.review_enabled:
+			return False
+		rows = self.db.execute(
+			"SELECT c.requests, c.tokens, c.starts_at FROM review_credits c "
+			"JOIN review_decisions d ON d.id = c.decision_id "
+			"JOIN review_appeals a ON a.id = d.appeal_id "
+			"WHERE c.kind = 'policy' AND c.name = ? AND a.code = ? "
+			"AND c.starts_at <= ? AND c.expires_at > ? "
+			"AND d.rowid = (SELECT MAX(rowid) FROM review_decisions WHERE appeal_id = d.appeal_id)",
+			(account, code, now, now),
+		).fetchall()
+		for requests, allowance_tokens, start in rows:
+			used = self.rolling_exposure(account, start - 1e-9)
+			if (not requests or used.requests < requests) and (
+				not allowance_tokens or used.tokens + tokens <= allowance_tokens
+			):
+				return True
+		return False
+
+	def unlinked(self, account: str, organization: str | None) -> bool:
+		return bool(
+			self.review_enabled
+			and organization
+			and self.db.execute(
+				"SELECT 1 FROM review_unlinks u JOIN review_decisions d ON d.id = u.decision_id "
+				"WHERE d.rowid = (SELECT MAX(rowid) FROM review_decisions "
+				"WHERE appeal_id = d.appeal_id) "
+				"AND account = ? AND organization = ? LIMIT 1",
+				(account, organization),
+			).fetchone()
+		)
+
+	def organization(self, name: str) -> float | None:
+		row = self.db.execute(
+			"SELECT horizon_start FROM organizations WHERE name = ?", (name,)
+		).fetchone()
+		return None if row is None else row[0]
+
+	def put_organization(self, name: str, horizon_start: float) -> None:
+		self.db.execute(
+			"INSERT INTO organizations (name, horizon_start) VALUES (?, ?) "
+			"ON CONFLICT (name) DO UPDATE SET horizon_start = excluded.horizon_start",
+			(name, horizon_start),
+		)
+
+	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None:
+		row = self.db.execute(
+			"SELECT request_digest, created_at, outcome FROM idempotency "
+			"WHERE account = ? AND key = ?",
+			(account, key),
+		).fetchone()
+		if row is None:
+			return None
+		return IdempotencyRecord(account, key, row[0], row[1], _outcome(row[2]))
+
+	def put_idempotency(self, record: IdempotencyRecord) -> None:
+		self.db.execute(
+			"INSERT INTO idempotency (account, key, request_digest, created_at, outcome) "
+			"VALUES (?, ?, ?, ?, ?) ON CONFLICT (account, key) DO UPDATE SET "
+			"request_digest = excluded.request_digest, created_at = excluded.created_at, "
+			"outcome = excluded.outcome",
+			(
+				record.account,
+				record.key,
+				record.request_digest,
+				record.created_at,
+				None if record.outcome is None else json.dumps(asdict(record.outcome)),
+			),
+		)
+
+	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
+		self.db.execute(
+			"INSERT INTO aggregate (embedding, account, time) VALUES (?, ?, ?)",
+			(_array(embedding), account, now),
+		)
+		return int(self.db.execute("SELECT COUNT(*) FROM aggregate").fetchone()[0])
+
+	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]:
+		rows = self.db.execute(
+			"SELECT embedding, account, time FROM aggregate ORDER BY seq"
+		).fetchall()
+		self.db.execute("DELETE FROM aggregate")
+		found = self.db.execute("SELECT value FROM meta WHERE key = 'aggregate_windows'").fetchone()
+		index = 0 if found is None else int(found[0])
+		self.db.execute(
+			"INSERT INTO meta (key, value) VALUES ('aggregate_windows', ?) "
+			"ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+			(str(index + 1),),
+		)
+		return index, [
+			(np.frombuffer(base64.b64decode(embedding), dtype=np.float64), account, time)
+			for embedding, account, time in rows
+		]
+
+	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO aggregate_alerts (window, alert) VALUES (?, ?)", (index, json.dumps(alert))
+		)
+
+
+class SQLiteStore:
+	"""State in a SQLite file that survives restarts.
+
+	Each transaction takes SQLite's write lock before reading (BEGIN IMMEDIATE), so admissions
+	from separate connections or processes are serialized against the same counters. `scope`
+	names the policy and calibration the state belongs to; opening a file written under
+	another scope fails, so a new arm cannot inherit an old arm's counters.
+	"""
+
+	def __init__(
+		self, path: Path, scope: str, *, timeout_seconds: float = 30.0, review_enabled: bool = False
+	) -> None:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		self.path = path
+		self.review_enabled = review_enabled
+		self._db = sqlite3.connect(
+			path, isolation_level=None, check_same_thread=False, timeout=timeout_seconds
+		)
+		self._lock = threading.Lock()
+		self._db.execute("PRAGMA journal_mode = WAL")
+		self._db.execute("PRAGMA synchronous = FULL")
+		self._db.executescript(_SCHEMA)
+		with self.transaction() as tx:
+			present = {row[1] for row in tx.db.execute("PRAGMA table_info(reservations)")}
+			for column, kind in _ADDED_COLUMNS.items():
+				if column not in present:
+					tx.db.execute(f"ALTER TABLE reservations ADD COLUMN {column} {kind}")
+			tx.db.execute(
+				"CREATE INDEX IF NOT EXISTS reservations_organization "
+				"ON reservations (organization, organization_horizon)"
+			)
+			tx.db.execute(
+				"CREATE INDEX IF NOT EXISTS reservations_organization_rolling "
+				"ON reservations (organization, reserved_at)"
+			)
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'scope'").fetchone()
+			if row is None:
+				tx.db.execute("INSERT INTO meta (key, value) VALUES ('scope', ?)", (scope,))
+		if row is not None and row[0] != scope:
+			self._db.close()
+			raise ValueError(
+				f"{path} holds state for another policy or calibration; "
+				"use a new state file for each arm"
+			)
+
+		if review_enabled:
+			from harness.review import initialize
+
+			initialize(self._db)
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'path_calibration'").fetchone()
+			if row is not None and row[0] != calibration_hash:
+				raise ValueError("state store is bound to another path calibration")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta (key, value) VALUES ('path_calibration', ?)",
+				(calibration_hash,),
+			)
+
+	@contextmanager
+	def transaction(self) -> Iterator[_SQLiteTransaction]:
+		with self._lock:
+			self._db.execute("BEGIN IMMEDIATE")
+			try:
+				yield _SQLiteTransaction(self._db, self.review_enabled)
+			except BaseException:
+				self._db.execute("ROLLBACK")
+				raise
+			self._db.execute("COMMIT")
+
+	def close(self) -> None:
+		self._db.close()

@@ -1,8 +1,7 @@
-"""Versioned evaluation artifacts and configuration."""
+"""Frozen benchmark suites, generation settings and JSON artifact helpers."""
 
 import hashlib
 import json
-import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -10,16 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from distillation.io import canonical_json
-from distillation.schemas import Message, TokenUsage
+from distillation.schemas import Message
 
-# The initial victim is the reference; reevaluation measures serving drift.
-Slot = Literal["teacher", "student_before", "teacher_after", "student_after"]
-SLOTS: tuple[Slot, ...] = ("teacher", "student_before", "teacher_after", "student_after")
-STAGE_SLOTS: dict[str, tuple[Slot, ...]] = {
-	"before": ("teacher", "student_before"),
-	"after": ("teacher_after", "student_after"),
-	"all": SLOTS,
-}
 SCORER_VERSION = "generated-answer-v1"
 
 
@@ -108,104 +99,6 @@ class GenerationConfig(StrictModel):
 	seed: int = 42
 	temperature: Literal[0] = 0
 	enable_thinking: Literal[False] = False
-
-
-class ModelConfig(StrictModel):
-	backend: Literal["openai", "teacher_api", "local"]
-	model: str = Field(min_length=1)
-	revision: str = Field(min_length=1)
-	base_url: str = ""
-	api_key_env: str = ""
-	adapter_path: Path | None = None
-	tokenizer_model: str | None = None
-	tokenizer_revision: str | None = None
-	chat_template_path: Path | None = None
-	eos_token: str | None = None
-	precision: Literal["bf16", "fp16", "fp32"] = "bf16"
-	load_in_4bit: bool = False
-	device: str = "auto"
-	timeout_seconds: float = Field(default=120, gt=0)
-
-	@model_validator(mode="after")
-	def validate_backend(self) -> ModelConfig:
-		if self.backend != "local" and not self.base_url:
-			raise ValueError("remote models require base_url")
-		if self.backend != "local" and self.adapter_path:
-			raise ValueError("serve adapters under a distinct remote model ID")
-		if self.tokenizer_model and not self.tokenizer_revision:
-			raise ValueError("tokenizer_model requires tokenizer_revision")
-		return self
-
-
-class EvaluationConfig(StrictModel):
-	experiment: str = Field(min_length=1)
-	suite_path: Path
-	output_dir: Path = Path("outputs/tasks/ag_news")
-	generation: GenerationConfig = Field(default_factory=GenerationConfig)
-	models: dict[Slot, ModelConfig]
-	training_paths: list[Path] = Field(default_factory=list)
-	dimensions: dict[str, str | int] = Field(default_factory=dict)
-
-
-def load_config(path: Path) -> EvaluationConfig:
-	with path.open("rb") as source:
-		return EvaluationConfig.model_validate(tomllib.load(source))
-
-
-class SampleResult(StrictModel):
-	item_id: str
-	benchmark: str
-	category: str
-	response: str
-	prediction: str | None
-	correct: bool
-	# Token F1 against the best gold answer, for SQuAD; None for other metrics.
-	f1: float | None = Field(default=None, ge=0, le=1)
-	status: Literal["ok", "invalid", "truncated", "error", "timeout"]
-	latency_seconds: float = Field(ge=0)
-	usage: TokenUsage = Field(default_factory=TokenUsage)
-	finish_reason: str | None = None
-	request_id: str | None = None
-	served_model: str | None = None
-	# Coding-only ordered call/output hashes, measured in an independent sandbox replay.
-	functional_trace: dict[str, str | int | bool] | None = None
-
-
-class EvaluationRun(StrictModel):
-	version: Literal[1] = 1
-	id: str
-	experiment: str
-	slot: Slot
-	started_at: datetime
-	completed_at: datetime
-	suite_sha256: str
-	scorer_version: str = SCORER_VERSION
-	generation: GenerationConfig
-	model: ModelConfig
-	training_sha256: dict[str, str] = Field(default_factory=dict)
-	artifact_sha256: dict[str, str] = Field(default_factory=dict)
-	packages: dict[str, str] = Field(default_factory=dict)
-	platform: str = ""
-	code_revision: str = ""
-	demo: bool = False
-	samples: list[SampleResult]
-	dimensions: dict[str, str | int] = Field(default_factory=dict)
-	coding_runtime: dict[str, str | int | float] = Field(default_factory=dict)
-	# How a local model ran: generation batch size and whether its adapter was merged.
-	execution: dict[str, str | int | bool] = Field(default_factory=dict)
-
-	def comparison_key(self) -> str:
-		payload = [
-			self.experiment,
-			self.suite_sha256,
-			self.scorer_version,
-			self.generation.model_dump(),
-			self.demo,
-			self.dimensions,
-		]
-		if self.coding_runtime:
-			payload.append(self.coding_runtime)
-		return hashlib.sha256(canonical_json(payload).encode()).hexdigest()[:16]
 
 
 def save_json(path: Path, value: BaseModel | dict[str, object]) -> None:

@@ -16,10 +16,8 @@ from distillation.schemas import GatewayRequest, Message, PromptRecord, PromptSo
 from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX, SQUAD_PROMPT
 from distillation.workloads import (
 	CLIENT_TYPES,
-	LEGACY_CONCENTRATED_SHARE,
 	assign_types,
 	client_shares,
-	clients,
 	mixed_clients,
 )
 from typer.testing import CliRunner
@@ -117,7 +115,7 @@ def test_mixed_benign_profiles_preserve_domain_identity_and_disclose_realized_mi
 		accounts=10,
 		generalist_share=share,
 		requests_per_account=30,
-		concentrated=LEGACY_CONCENTRATED_SHARE,
+		concentrated=0.4,
 	)
 	by_account: dict[str, list[GatewayRequest]] = defaultdict(list)
 	for row in rows:
@@ -155,7 +153,7 @@ def test_mixed_benign_profiles_preserve_domain_identity_and_disclose_realized_mi
 		accounts=10,
 		generalist_share=share,
 		requests_per_account=30,
-		concentrated=LEGACY_CONCENTRATED_SHARE,
+		concentrated=0.4,
 	)
 
 
@@ -209,24 +207,18 @@ def test_benign_account_lengths_are_heavy_tailed_and_capacity_limited() -> None:
 
 def test_concentrated_share_sets_the_benign_client_mix() -> None:
 	# The v1 equal split is plain round-robin; other shares are met to within one slot.
-	assert assign_types(10, client_shares(LEGACY_CONCENTRATED_SHARE)) == [
-		CLIENT_TYPES[i % 5] for i in range(10)
-	]
+	assert assign_types(10, client_shares(0.4)) == [CLIENT_TYPES[i % 5] for i in range(10)]
 	for share in (0.0, 0.1, 0.4):
 		counts = Counter(assign_types(127, client_shares(share)))
 		for kind, expected in client_shares(share).items():
 			assert abs(counts[kind] - expected * 127) < 1
 	with pytest.raises(ValueError, match="concentrated share"):
 		client_shares(0.9)
-	prompts = [prompt for pool in _pools(100).values() for prompt in pool]
-	broad = clients(prompts, "fitting", concentrated=0.0)
-	assert {r.client_type for r in broad} == {"batch", "bursty", "short"}
-	assert len(broad) == len(prompts)
 
 
 def test_gateway_rejects_unusable_pools_and_impossible_allocations() -> None:
 	pools = _pools(10)
-	with pytest.raises(ValueError, match="pool size"):
+	with pytest.raises(ValueError, match="an even split over these pools fits at most"):
 		campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=31)
 	with pytest.raises(ValueError, match="at least one account per domain"):
 		campaign_schedule(pools=pools, caps=CAPS, attack="A5", budget=12, accounts=2)
@@ -316,7 +308,13 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
 			)
 		)
 		(directory / "manifest.json").write_text(
-			json.dumps({"task": domain, "max_output_tokens": caps[domain]})
+			json.dumps(
+				{
+					"task": domain,
+					"max_output_tokens": caps[domain],
+					"attacker_partitions": {"version": "attacker-partition-v1"},
+				}
+			)
 		)
 	runner = CliRunner()
 	common = ["--tasks-dir", str(tmp_path / "tasks")]
@@ -363,14 +361,17 @@ def test_gateway_cli_writes_hashed_inputs_without_overwriting_them(
 	)
 	assert result.exit_code == 0, result.output
 	assert json.loads(result.output)["generalist_share_achieved"] == 0.4
-	assert json.loads(result.output)["topic_order"] == "category"
+	assert json.loads(result.output)["topic_order"] == (
+		"category-balanced selection, topic-ordered account blocks"
+	)
 	assert json.loads(result.output)["specialist_scope"]["gsm8k"] == "domain only"
 	assert json.loads(result.output)["specialist_scope"]["ag_news"] == "topic ordered"
 	rows = read_jsonl(tmp_path / "benign" / "requests.jsonl", GatewayRequest)
 	for account in {row.account for row in rows}:
 		account_rows = [row for row in rows if row.account == account]
 		if account_rows[0].domain_profile == "specialist" and account_rows[0].domain != "gsm8k":
-			assert {int(row.prompt.source.source_id) % 2 for row in account_rows} == {0}
+			topics = [int(row.prompt.source.source_id) % 2 for row in account_rows]
+			assert topics == sorted(topics)
 	result = runner.invoke(
 		app,
 		[
@@ -439,7 +440,7 @@ async def test_live_campaign_charges_failures_and_wakes_future_accounts_when_bud
 			attempt_budget=2,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == calls == 2
+	assert result["attempts"] == calls == 2
 	assert result["failed"] == result["received"] == 1
 	assert result["pending"] == 0
 
@@ -473,7 +474,7 @@ async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path:
 			deadline_seconds=0.02,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == result["deadline"] == 2
+	assert result["attempts"] == result["deadline"] == 2
 	assert result["pending"] == result["received"] == 0
 	assert set(result["termination_by_account"].values()) == {"deadline"}
 
@@ -596,3 +597,79 @@ def test_full_cover_traffic_mirrors_the_extraction_allocation() -> None:
 			cover_pools=pools,
 			cover_allocation={**allocation, "squad": 5},
 		)
+
+
+def test_detector_input_preserves_gateway_serialization_and_checks_hash(tmp_path: Path) -> None:
+	from harness.calibration import BenignRequest
+	from harness.serialization import gateway_turn
+
+	rows, manifest = campaign_schedule(pools=_pools(), caps=CAPS, attack="A1", budget=6)
+	directory = tmp_path / "schedule"
+	directory.mkdir()
+	path = directory / "requests.jsonl"
+	write_jsonl(path, rows)
+	manifest["sha256"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()}
+	(directory / "manifest.json").write_text(json.dumps(manifest))
+	output = tmp_path / "detector.jsonl"
+	runner = CliRunner()
+	result = runner.invoke(
+		app, ["detector-input", "--input-dir", str(directory), "--output", str(output)]
+	)
+	assert result.exit_code == 0, result.output
+	converted = read_jsonl(output, BenignRequest)
+	assert len(converted) == len(rows)
+	for original, detector in zip(rows, converted, strict=True):
+		assert detector.account == original.account
+		assert detector.example_id == original.prompt.example_id
+		assert detector.source_group == f"{original.domain}:{original.prompt.source.group_id}"
+		assert detector.text == gateway_turn(original.domain, original.prompt.prompt[-1].content)
+	assert (
+		runner.invoke(
+			app, ["detector-input", "--input-dir", str(directory), "--output", str(output)]
+		).exit_code
+		!= 0
+	)
+	path.write_text(path.read_text() + "\n")
+	assert (
+		runner.invoke(
+			app,
+			[
+				"detector-input",
+				"--input-dir",
+				str(directory),
+				"--output",
+				str(tmp_path / "other.jsonl"),
+			],
+		).exit_code
+		!= 0
+	)
+
+
+def test_gateway_schedule_defaults_to_an_even_6000_attempts(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+	from distillation import gateway_cli
+
+	pools = _pools(2_000)
+	captured: dict[str, object] = {}
+	monkeypatch.setattr(gateway_cli, "_pools", lambda *args, **kwargs: (pools, CAPS, {}))
+
+	def capture(output: Path, rows: list[GatewayRequest], manifest: dict[str, object]) -> None:
+		captured.update(manifest)
+		captured["request_count"] = len(rows)
+
+	monkeypatch.setattr(gateway_cli, "_write", capture)
+	result = CliRunner().invoke(
+		app, ["schedule", "--attack", "A1", "--output", str(tmp_path / "campaign")]
+	)
+	assert result.exit_code == 0, result.output
+	assert captured["attempt_budget"] == 6_000
+	assert captured["request_count"] == 6_000
+	assert captured["domain_allocation"] == {domain: 2_000 for domain in CAPS}
+
+
+def test_uneven_pools_name_the_short_domain_instead_of_skewing_the_mix() -> None:
+	pools = _pools(100)
+	pools["gsm8k"] = pools["gsm8k"][:40]
+	with pytest.raises(ValueError, match="gsm8k pool holds 40; an even split .* at most 120"):
+		campaign_schedule(pools=pools, caps=CAPS, attack="A1", budget=150)

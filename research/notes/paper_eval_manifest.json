@@ -1,0 +1,42 @@
+[
+	{
+		"file": "PAPER_EVAL_2023_False_Promise_2305.15717v1.pdf",
+		"sha256": "d407a2c435f7d2fc84e10f4393ea6ce7955350740f564bad949bd00ae18246b4",
+		"bytes": 1051380,
+		"pages": 15,
+		"source": "https://arxiv.org/pdf/2305.15717v1",
+		"arxiv_version": "2305.15717v1",
+		"title": "None",
+		"extracted_characters": 52759
+	},
+	{
+		"file": "PAPER_EVAL_2023_QLoRA_2305.14314v1.pdf",
+		"sha256": "33a4e757c19d6ea8d3cca8958fce8fe405e290272e135c99ee66065c775d5bd1",
+		"bytes": 1065470,
+		"pages": 26,
+		"source": "https://arxiv.org/pdf/2305.14314v1",
+		"arxiv_version": "2305.14314v1",
+		"title": "None",
+		"extracted_characters": 87877
+	},
+	{
+		"file": "PAPER_EVAL_2025_s1_2501.19393v3.pdf",
+		"sha256": "598932c9f96849cd52495d8b3e12ba4d224e41d5588d2278a78f76c744d8a3bc",
+		"bytes": 1480533,
+		"pages": 46,
+		"source": "https://arxiv.org/pdf/2501.19393v3",
+		"arxiv_version": "2501.19393v3",
+		"title": "s1: Simple test-time scaling",
+		"extracted_characters": 135161
+	},
+	{
+		"file": "PAPER_EVAL_2026_Lifecycle_Extraction_Benchmark_2610.00839v2.pdf",
+		"sha256": "7b806eb4110f019773bfb2ad25f16c5f74e155513a95781b745d0aba248c5723",
+		"bytes": 608189,
+		"pages": 24,
+		"source": "https://arxiv.org/pdf/2610.00839v2",
+		"arxiv_version": "2610.00839v2",
+		"title": "Do Defenses Against LLM Extraction Work Across Attacks? A Lifecycle Benchmark of Black-Box Model Extraction",
+		"extracted_characters": 86526
+	}
+]

@@ -1,5 +1,6 @@
 import hashlib
 import math
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from harness.calibration import (
 	calibrate,
 	fit_threshold,
 	load_calibration,
+	load_shadow,
 	nested_thresholds,
 	peak_per_minute,
 	pooled_accounts,
@@ -24,7 +26,10 @@ from harness.calibration import (
 from harness.mmd import Array, WindowScorer, kernel, mmd2_unbiased
 from harness.policy import AllowPolicy, MMDPolicy, Policy, QuotaPolicy, RatePolicy
 from harness.pow import solve
-from harness.replay import replay
+from harness.replay import replay, shadow_check
+from harness.serialization import gateway_turn
+from harness.shadow import ShadowConfig, ShadowMonitor, rarefied
+from harness.store import MemoryStore, Reservation, SQLiteStore
 
 DIMENSION = 8
 
@@ -97,6 +102,82 @@ def test_thresholds_use_strict_exceedance_and_report_achieved_rates() -> None:
 	assert forced.thresholds == [3, 4, 4]
 	assert forced.achieved == [0.4, 0.2, 0.2]
 	assert nested_thresholds([1, 2], [0.01], [True, True]).achieved == [1.0]
+	assert forced.level_results is not None
+	assert [row["target"] for row in forced.level_results] == [0.4, 0.2, 0.01]
+	assert [row["reached"] for row in forced.level_results] == [2, 1, 1]
+	assert [row["capped"] for row in forced.level_results] == [1, 1, 1]
+	assert forced.level_results[0]["scored"] == 5
+
+
+def test_level_resolution_and_legacy_evidence(calibrated: tuple[Calibration, WindowScorer]) -> None:
+	calibration = calibrated[0].model_copy(deep=True)
+	report = calibration.adequacy(accumulators=("paper",), levels=(1, 4))
+	assert report["levels"]["L1"]["minimum_policy_horizons"] == 10
+	assert report["levels"]["L4"]["minimum_policy_horizons"] == 100
+	result = report["levels"]["L1"]["results"]["paper"]
+	assert result["scored"] == 200 and result["censored"] == 0
+	assert result["upper95"] >= result["achieved"]
+	calibration.thresholds["paper"].level_results = None
+	legacy = Calibration.model_validate_json(calibration.model_dump_json())
+	assert (
+		legacy.adequacy(accumulators=("paper",))["levels"]["L1"]["evidence_version"]
+		== "legacy-inferred"
+	)
+	calibration.thresholds["paper"].level_results = []
+	assert not calibration.adequacy(accumulators=("paper",), levels=(4,))["passed"]
+	with pytest.raises(ValueError):
+		HarnessConfig(level_targets=(0.1, 0.2, 0.02, 0.01))
+
+
+def test_risk_verification_rejects_stale_and_capped_proofs(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	calibration, scorer = calibrated
+	calibration = calibration.model_copy(deep=True)
+	calibration.config.horizon_attempts = 4
+	horizon = calibration.config.horizon_seconds
+	policy = MMDPolicy(calibration, scorer, difficulty=1, policy_version="verify-risk-v2")
+
+	def set_level(level: int) -> None:
+		with policy.store.transaction() as tx:
+			state = tx.account("a")
+			assert state is not None
+			state.level = level
+			tx.put_account("a", state)
+
+	def challenge(text: str, now: float) -> tuple[str, int]:
+		decision = policy.admit("a", text, now, embedding=np.zeros(DIMENSION))
+		assert decision.action == "challenge" and decision.challenge is not None
+		return decision.challenge.nonce, solve(decision.challenge)[0]
+
+	policy.admit("a", "first", 0, embedding=np.zeros(DIMENSION))
+	set_level(3)
+	# A valid proof releases only its request and leaves the level and attempts unchanged.
+	nonce, counter = challenge("second", 1)
+	held = policy.redeem(nonce, "a", "second", counter, 1)
+	assert held is not None and held.level == 3 and not held.deceive
+	state = policy.state("a")
+	assert state is not None and (state.level, state.attempts) == (3, 2)
+	# A stronger current level rejects a proof issued at a weaker one.
+	nonce, counter = challenge("third", 2)
+	set_level(4)
+	assert policy.redeem(nonce, "a", "third", counter, 2) is None
+	# L4 still offers a proof rather than refusing, but an exhausted cap rejects it.
+	nonce, counter = challenge("fourth", 3)
+	assert policy.admit("a", "fifth", 4, embedding=np.zeros(DIMENSION)).action == "refuse"
+	assert policy.redeem(nonce, "a", "fourth", counter, 4) is None
+	# An expired horizon rejects an unexpired proof before a new admission resets the state.
+	policy = MMDPolicy(
+		calibration,
+		scorer,
+		difficulty=1,
+		challenge_ttl=2 * horizon,
+		policy_version="verify-risk-v2",
+	)
+	policy.admit("a", "first", 0, embedding=np.zeros(DIMENSION))
+	set_level(3)
+	nonce, counter = challenge("second", 1)
+	assert policy.redeem(nonce, "a", "second", counter, horizon) is None
 
 
 def test_calibration_adequacy_rejects_small_pools_and_overlapping_window_inflation(
@@ -111,6 +192,7 @@ def test_calibration_adequacy_rejects_small_pools_and_overlapping_window_inflati
 	calibration.calibration_scores = [0.0] * 1000
 	calibration.thresholds["paper"].thresholds = [1.0] * 4
 	calibration.thresholds["paper"].units = 2
+	calibration.thresholds["paper"].level_results = None
 	report = calibration.adequacy(accumulators=("paper",))
 	assert report["passed"] is False
 	assert report["minimum_score_windows"] == 99
@@ -118,6 +200,79 @@ def test_calibration_adequacy_rejects_small_pools_and_overlapping_window_inflati
 	assert report["nonoverlapping_score_windows"] == 5
 	assert report["empirical_p_value_floor"] == pytest.approx(1 / 1001)
 	assert len(report["reasons"]) == 3
+
+
+class ClusteredEncoder:
+	"""Each benign account asks about one of eight topics, as a specialist does."""
+
+	def encode(self, texts: list[str]) -> Array:
+		centers = np.random.default_rng(0).normal(size=(8, DIMENSION)) * 3
+		rows = []
+		for text in texts:
+			seed = int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+			vector = centers[int(text.split()[1]) % 8] + np.random.default_rng(seed).normal(
+				size=DIMENSION
+			)
+			rows.append(vector / np.linalg.norm(vector))
+		return np.array(rows)
+
+	def identity(self) -> dict[str, Any]:
+		return {"model": "clustered"}
+
+
+def test_mixture_control_warns_when_broad_traffic_scores_below_benign_accounts(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	# Exchangeable benign accounts: a pooled mixture ranks like any account, so no warning.
+	control = calibrated[0].mixture_control
+	assert control is not None and control.share_below_null_median < 0.9
+	assert calibrated[0].adequacy(accumulators=("paper",))["detectability_warnings"] == []
+	# Topic-concentrated accounts: every pooled window sits below the account null.
+	specialists, _ = calibrate(
+		config=HarnessConfig(window_size=10, reference_windows=3, bandwidth_sample=60),
+		encoder=ClusteredEncoder(),
+		fitting=_benign("fit", 16, 30),
+		score_calibration=_benign("score", 40, 50),
+		policy_calibration=_benign("policy", 200, 20),
+	)
+	assert specialists.mixture_control is not None
+	assert specialists.mixture_control.share_below_null_median >= 0.9
+	report = specialists.adequacy(accumulators=("paper",))
+	assert len(report["detectability_warnings"]) == 1
+	# A warning describes what the study can show; it never changes the gate's verdict.
+	unchecked = specialists.model_copy(update={"mixture_control": None})
+	plain = unchecked.adequacy(accumulators=("paper",))
+	assert (report["passed"], report["status"]) == (plain["passed"], plain["status"])
+	assert specialists.adequacy()["detectability_warnings"] == []
+
+
+def test_calibrations_without_a_mixture_control_load_and_report_no_warning(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	raw = calibrated[0].model_dump(mode="json")
+	raw.pop("mixture_control")
+	legacy = Calibration.model_validate(raw)
+	assert legacy.mixture_control is None
+	assert legacy.adequacy(accumulators=("paper",))["detectability_warnings"] == []
+
+
+def test_required_mixture_control_is_recorded_and_fails_closed(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	artifact = calibrated[0].model_copy(deep=True)
+	artifact.config.mixture_control_required = True
+	assert artifact.mixture_control is not None
+	artifact.mixture_control.share_below_null_median = 0.9
+	roundtrip = Calibration.model_validate(artifact.model_dump(mode="json"))
+	report = roundtrip.adequacy(accumulators=("paper",))
+	assert report["mixture_control_required"] is True
+	assert not report["passed"]
+	assert any("required mixture control failed" in reason for reason in report["reasons"])
+	roundtrip.mixture_control = None
+	assert (
+		"required mixture control is missing or has no windows"
+		in roundtrip.adequacy(accumulators=("paper",), allow_resolution_limited=True)["reasons"]
+	)
 
 
 def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
@@ -128,6 +283,7 @@ def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
 	calibration.counts["score_calibration_independent_windows"] = 99
 	calibration.thresholds["paper"].thresholds = [1.0, 2.0, 3.0, 4.0]
 	calibration.thresholds["paper"].units = 100
+	calibration.thresholds["paper"].level_results = None
 	assert calibration.adequacy(accumulators=("paper",))["passed"] is True
 	calibration.thresholds["instantaneous"].thresholds = [1.0] * 4
 	assert calibration.adequacy(accumulators=("instantaneous",))["passed"] is False
@@ -139,56 +295,6 @@ def test_calibration_adequacy_checks_selected_defenses_and_legacy_counts(
 	assert calibration.adequacy(accumulators=(), baselines=("quota",))["passed"] is True
 	calibration.baselines["quota"].units = 12
 	assert calibration.adequacy(accumulators=(), baselines=("quota",))["passed"] is False
-
-
-def test_study_blocks_cached_degenerate_calibration_even_with_allow_undetected(
-	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
-) -> None:
-	import json
-
-	from distillation.launcher import Launcher, LaunchError, TaskPipeline
-	from distillation.study import Study
-
-	calibration = calibrated[0].model_copy(deep=True)
-	calibration.counts["score_calibration_independent_windows"] = 5
-	calibration.thresholds["paper"].thresholds = [1.0] * 4
-	path = tmp_path / "cached"
-	save_calibration(path, calibration, calibrated[1].references)
-	pipeline = TaskPipeline(Launcher("test"), "fixture", ["ag_news"], [42], [1], tmp_path, 1, False)
-	study = Study(pipeline, tmp_path / "study", "", "", 8000, "", 8003, path, "refuse")
-	study.allow_undetected = True
-	study.arms = ("full",)
-	with pytest.raises(LaunchError, match="ag_news: inadequate calibration"):
-		study.require_calibration("ag_news", path)
-	report = json.loads((study.root / "ag_news/calibration-adequacy.json").read_text())
-	assert report["passed"] is False
-	assert report["nonoverlapping_score_windows"] == 5
-	assert (
-		json.loads((study.root / "status.json").read_text())["status"] == "calibration_gate_failed"
-	)
-	# The same cached artifact has enough quota horizons; a thin MMD null is arm-specific.
-	study.arms = ("quota",)
-	study.require_calibration("ag_news", path)
-	assert json.loads((study.root / "ag_news/calibration-adequacy.json").read_text())["passed"]
-
-	# GSM8K may proceed with sample-resolution warnings, including collapsed levels.
-	study.arms = ("full",)
-	study.require_calibration("gsm8k", path)
-	report = json.loads((study.root / "gsm8k/calibration-adequacy.json").read_text())
-	assert report["passed"] is True
-	assert report["status"] == "resolution-limited"
-	assert report["warnings"]
-	# The exception does not admit absent counts, missing fits, or invalid thresholds.
-	for values in ([float("nan")] * 4, [4.0, 3.0, 2.0, 1.0]):
-		calibration.thresholds["paper"].thresholds = values
-		assert not calibration.adequacy(accumulators=("paper",), allow_resolution_limited=True)[
-			"passed"
-		]
-	calibration.thresholds["paper"].thresholds = [1.0] * 4
-	calibration.counts.pop("policy_calibration_scored_horizons")
-	assert not calibration.adequacy(accumulators=("paper",), allow_resolution_limited=True)[
-		"passed"
-	]
 
 
 def test_pooled_accounts_break_up_source_ordered_groups() -> None:
@@ -318,11 +424,31 @@ def test_graduated_actions_space_challenge_and_refuse(
 	challenge = decisions[10]
 	counter, _ = solve(challenge.challenge)  # type: ignore[arg-type]
 	assert challenge.client_view()["challenge"]["prefix"].endswith(":")
-	assert not policy.redeem(challenge, "different text", counter, now=100.0)
-	assert policy.redeem(challenge, "q 10", counter, now=100.0)
-	assert not policy.redeem(challenge, "q 10", counter, now=100.0)
+	nonce = challenge.challenge.nonce  # type: ignore[union-attr]
+	assert policy.redeem(nonce, "a", "different text", counter, now=100.0) is None
+	assert policy.redeem(nonce, "other", "q 10", counter, now=100.0) is None
+	held = policy.redeem(nonce, "a", "q 10", counter, now=100.0)
+	assert held is not None and held.release_at == challenge.release_at == 102.0
+	assert (held.attempt, held.horizon) == (challenge.attempt, challenge.horizon) == (11, 100.0)
+	assert policy.redeem(nonce, "a", "q 10", counter, now=100.0) is None
 	late = decisions[11]
-	assert not policy.redeem(late, "q 11", solve(late.challenge)[0], now=1000.0)  # type: ignore[arg-type]
+	late_nonce = late.challenge.nonce  # type: ignore[union-attr]
+	assert policy.redeem(late_nonce, "a", "q 11", solve(late.challenge)[0], now=1000.0) is None  # type: ignore[arg-type]
+	# An outstanding proof cannot bypass a later policy escalation.
+	escalated = policy.admit("c", "warmup", now=100.0)
+	for i in range(9):
+		escalated = policy.admit("c", f"escalate {i}", now=100.0)
+	assert escalated.challenge is not None
+	escalation_counter, _ = solve(escalated.challenge)
+	with policy.store.transaction() as tx:
+		state = tx.account("c")
+		assert state is not None
+		state.level = 4
+		tx.put_account("c", state)
+	assert (
+		policy.redeem(escalated.challenge.nonce, "c", "escalate 8", escalation_counter, now=100.0)
+		is None
+	)
 	forced.thresholds["paper"].thresholds = [-1, -1, -1, -1]
 	blocked = MMDPolicy(forced, scorer, encoder=FakeEncoder())
 	outcome = [blocked.admit("b", f"q {i}", now=0.0) for i in range(12)]
@@ -398,8 +524,8 @@ def test_mmd_attempt_cap_refuses_without_reset_even_for_deception(
 	decisions = [policy.admit("a", f"q{i}", 0) for i in range(31)]
 	assert all(d.action == "serve" for d in decisions[:10])
 	assert all(d.action == "refuse" and d.level == 4 for d in decisions[10:])
-	assert policy.accounts["a"].windows == 1
-	assert policy.accounts["a"].attempts == 31
+	state = policy.state("a")
+	assert state is not None and (state.windows, state.attempts) == (1, 31)
 	# The undefended arm must remain undefended at the same count.
 	allow = AllowPolicy(86400, 10)
 	assert all(allow.admit("a", "q", 0).action == "serve" for _ in range(31))
@@ -499,3 +625,356 @@ def test_legacy_horizon_calibration_requires_regeneration(
 		path.write_text(json.dumps(payload))
 	with pytest.raises(ValueError, match="recalibrate in a new directory"):
 		load_calibration(tmp_path)
+
+
+def _forced(calibration: Calibration, levels: list[float]) -> Calibration:
+	forced = calibration.model_copy(deep=True)
+	forced.config.horizon_seconds = 100
+	forced.config.horizon_attempts = 12
+	forced.thresholds["paper"].thresholds = levels
+	return forced
+
+
+def test_durable_state_resumes_the_horizon_window_and_cap_after_restart(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer = calibrated
+	forced = _forced(calibration, [1e9] * 4)
+	texts = [f"q {i}" for i in range(13)]
+	uninterrupted = MMDPolicy(forced, scorer, encoder=FakeEncoder())
+	expected = [uninterrupted.admit("a", text, 0.0) for text in texts]
+	path = tmp_path / "state.sqlite3"
+
+	def restarted() -> MMDPolicy:
+		return MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+
+	# Restart halfway through the first window and again after the cap is reached.
+	before = [restarted().admit("a", text, 0.0) for text in texts[:5]]
+	after = restarted()
+	resumed = before + [after.admit("a", text, 0.0) for text in texts[5:]]
+	assert [d.attempt for d in resumed] == list(range(1, 14))
+	assert resumed[9].window_completed and resumed[9].p_value == expected[9].p_value
+	assert (
+		[d.action for d in resumed] == [d.action for d in expected] == ["serve"] * 12 + ["refuse"]
+	)
+	assert restarted().admit("a", "spam", 99.999).action == "refuse"
+	fresh = restarted().admit("a", "fresh", 100.0)
+	assert (fresh.attempt, fresh.action, fresh.horizon) == (1, "serve", 100.0)
+	with pytest.raises(ValueError, match="another policy or calibration"):
+		SQLiteStore(path, "another arm")
+
+
+def test_challenges_survive_restart_and_redeem_once(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	calibration, scorer = calibrated
+	forced = _forced(calibration, [-1, -1, -1, 1e9])
+	path = tmp_path / "state.sqlite3"
+	first = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	decisions = [first.admit("a", f"q {i}", 0.0) for i in range(10)]
+	assert decisions[9].action == "challenge" and decisions[9].challenge is not None
+	counter, _ = solve(decisions[9].challenge)
+	nonce = decisions[9].challenge.nonce
+	# Two processes sharing the file after a restart: the proof releases once in total.
+	second = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	third = MMDPolicy(forced, scorer, encoder=FakeEncoder(), store=SQLiteStore(path, "arm"))
+	held = second.redeem(nonce, "a", "q 9", counter, 1.0)
+	assert held is not None and (held.attempt, held.level, held.horizon) == (10, 3, 0.0)
+	assert third.redeem(nonce, "a", "q 9", counter, 1.0) is None
+	assert second.redeem(nonce, "a", "q 9", counter, 1.0) is None
+	# The level persisted, so the next request after the restart is challenged too.
+	assert third.admit("a", "q 10", 2.0).action == "challenge"
+
+
+def test_concurrent_connections_admit_exactly_the_cap(tmp_path: Path) -> None:
+	path = tmp_path / "state.sqlite3"
+	workers = 4
+	policies = [QuotaPolicy(5, 100, 1000, store=SQLiteStore(path, "arm")) for _ in range(workers)]
+	start = threading.Barrier(workers)
+	results: list[list[tuple[int, str]]] = [[] for _ in range(workers)]
+
+	def run(worker: int) -> None:
+		start.wait()
+		for _ in range(10):
+			decision = policies[worker].admit("a", "q", 1.0)
+			results[worker].append((decision.attempt, decision.action))
+
+	threads = [threading.Thread(target=run, args=(w,)) for w in range(workers)]
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()
+	decisions = sorted(d for worker in results for d in worker)
+	assert [attempt for attempt, _ in decisions] == list(range(1, 41))
+	assert [action for _, action in decisions] == ["serve"] * 5 + ["refuse"] * 35
+
+
+@pytest.mark.parametrize("durable", [False, True])
+def test_release_ledger_settles_once_and_keeps_unsettled_reservations(
+	durable: bool, tmp_path: Path
+) -> None:
+	path = tmp_path / "state.sqlite3"
+
+	def open_store() -> MemoryStore | SQLiteStore:
+		return SQLiteStore(path, "arm") if durable else memory
+
+	memory = MemoryStore()
+	served, crashed = (
+		Reservation(account="a", horizon_start=0.0, attempt=n, request_digest="d", reserved_at=0)
+		for n in (1, 2)
+	)
+	store = open_store()
+	with store.transaction() as tx:
+		assert tx.reserve(served) and not tx.reserve(served)
+		assert tx.settle(served.key, "released", 1.0, 7)
+		assert not tx.settle(served.key, "cancelled", 2.0)
+		# The process dies after reserving this one, possibly after emitting its output.
+		assert tx.reserve(crashed)
+	with open_store().transaction() as tx:
+		usage = tx.usage("a", 0.0)
+		assert (usage.released, usage.reserved, usage.acquired, usage.output_tokens) == (1, 1, 2, 7)
+		assert not tx.reserve(crashed)
+		assert tx.usage("a", 100.0).acquired == 0
+
+
+def _gateway(
+	prefix: str, plan: dict[str, tuple[str, ...]], per_account: int
+) -> list[BenignRequest]:
+	"""Gateway requests per account, cycling through each account's domains."""
+	return [
+		BenignRequest(
+			account=f"{prefix}-{account}",
+			text=gateway_turn(domains[i % len(domains)], f"{prefix} {account} {i}"),
+			time=float(i),
+			source_group=f"{prefix}-{account}-{i}",
+		)
+		for account, domains in plan.items()
+		for i in range(per_account)
+	]
+
+
+@pytest.fixture(scope="module")
+def shadowed() -> tuple[Calibration, Array]:
+	"""Many ag_news specialists, one squad specialist, and two generalists."""
+	plan = {f"news{a}": ("ag_news",) for a in range(6)} | {
+		"qa": ("squad",),
+		"broad0": ("ag_news", "squad"),
+		"broad1": ("ag_news", "squad"),
+	}
+	score = _gateway("score", plan, 20)
+	# The single squad specialist holds one window, too few to rank at the target.
+	score = [row for row in score if row.account != "score-qa" or (row.time or 0.0) < 10]
+	return calibrate(
+		config=HarnessConfig(
+			task="gateway", window_size=10, reference_windows=3, bandwidth_sample=60
+		),
+		encoder=FakeEncoder(),
+		fitting=_gateway("fit", {f"f{a}": ("ag_news", "squad") for a in range(4)}, 40),
+		score_calibration=score,
+		policy_calibration=_gateway("policy", {f"p{a}": ("ag_news",) for a in range(20)}, 20),
+		shadow=ShadowConfig(target=0.2, cells=8, checkpoints=(5, 10, 20)),
+	)
+
+
+def test_legacy_artifacts_load_and_serialize_without_shadow_fields(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path
+) -> None:
+	legacy = calibrated[0]
+	assert legacy.shadow is None
+	# Absent shadow fields leave the dump, and every hash taken of it, as it was.
+	assert "shadow" not in legacy.model_dump_json()
+	save_calibration(tmp_path, legacy.model_copy(deep=True), calibrated[1].references)
+	loaded, _ = load_calibration(tmp_path)
+	assert loaded.model_dump_json() == legacy.model_dump_json()
+	assert load_shadow(tmp_path, loaded) is None and "shadow" not in loaded.sha256
+
+
+def test_shadow_scorers_round_trip_and_never_set_thresholds(
+	shadowed: tuple[Calibration, Array], tmp_path: Path
+) -> None:
+	calibration, references = shadowed
+	plain, _ = calibrate(
+		config=calibration.config,
+		encoder=FakeEncoder(),
+		fitting=_gateway("fit", {f"f{a}": ("ag_news", "squad") for a in range(4)}, 40),
+		score_calibration=_gateway("score", {"news0": ("ag_news",)}, 20),
+		policy_calibration=_gateway("policy", {f"p{a}": ("ag_news",) for a in range(20)}, 20),
+	)
+	assert plain.shadow is None
+	save_calibration(tmp_path, calibration.model_copy(deep=True), references)
+	loaded, _ = load_calibration(tmp_path)
+	shadow = load_shadow(tmp_path, loaded)
+	assert shadow is not None and calibration.shadow is not None
+	assert shadow.model_dump() == calibration.shadow.model_dump()
+	assert np.array_equal(shadow.arrays()["centroids"], calibration.shadow.arrays()["centroids"])
+	assert loaded.thresholds == calibration.thresholds
+
+
+def test_conditional_scorer_abstains_on_a_tiny_null(shadowed: tuple[Calibration, Array]) -> None:
+	calibration = shadowed[0]
+	shadow = calibration.shadow
+	assert shadow is not None and shadow.minimum_null == 4
+	assert shadow.domains["ag_news"].abstain is None
+	assert shadow.domains["ag_news"].independent_windows == 12
+	squad = shadow.domains["squad"]
+	assert squad.independent_windows == 1 and squad.abstain is not None
+	monitor = ShadowMonitor(
+		shadow, task="gateway", window_size=10, scales=calibration.config.scales
+	)
+	results = {}
+	for domain in ("ag_news", "squad"):
+		for i in range(10):
+			text = gateway_turn(domain, f"probe {domain} {i}")
+			embedding = FakeEncoder().encode([f"{domain}\nprobe {domain} {i}"])[0]
+			report = monitor.observe("probe", 0.0, text, embedding, text)
+		results[domain] = report["conditional"]
+	assert results["ag_news"]["abstain"] is None
+	assert 0 < results["ag_news"]["p_value"] <= 1
+	assert results["squad"]["p_value"] is None and results["squad"]["score"] is None
+	assert "needs 4" in results["squad"]["abstain"]
+
+
+def test_reordering_a_fixed_prompt_set_leaves_coverage_unchanged(
+	shadowed: tuple[Calibration, Array],
+) -> None:
+	calibration = shadowed[0]
+	assert calibration.shadow is not None
+	rows = _gateway("probe", {"a": ("ag_news", "squad")}, 60)
+	# Repeats count once, wherever they arrive.
+	rows += rows[:15]
+	embeddings = FakeEncoder().encode([row.text for row in rows])
+	logged = shadow_check(calibration=calibration, requests=rows, embeddings=embeddings)
+	sorted_ = shadow_check(
+		calibration=calibration, requests=rows, embeddings=embeddings, reorder="topic"
+	)
+	permutation = np.random.default_rng(3).permutation(len(rows))
+	shuffled = shadow_check(
+		calibration=calibration,
+		requests=[rows[i].model_copy(update={"time": float(n)}) for n, i in enumerate(permutation)],
+		embeddings=embeddings[permutation],
+	)
+	coverage = logged["units"][0]["coverage"]
+	assert coverage["distinct"] == 60 and coverage["profile"] == "multi_domain"
+	assert sorted_["units"][0]["coverage"] == coverage
+	assert shuffled["units"][0]["coverage"] == coverage
+	# Every profile is ranked or abstains with a reason; the generalist null is too small.
+	ranks = coverage["ranks"]
+	assert ranks["all"]["checkpoint"] == 20 and ranks["all"]["p_value"] is not None
+	assert ranks["multi_domain"]["p_value"] is None and ranks["multi_domain"]["abstain"]
+	# Rarefaction is exact: a full-size subset occupies every cell.
+	assert rarefied([3, 1, 2], 6) == pytest.approx(3.0)
+	assert rarefied([1, 1], 1) == pytest.approx(1.0)
+
+
+def test_offline_evidence_isolated_from_policy_and_legacy_artifact(
+	calibrated: tuple[Calibration, WindowScorer],
+) -> None:
+	from harness.evidence import check_evidence, fit_evidence
+
+	calibration, scorer = calibrated
+	before = calibration.model_dump_json()
+	rows = _benign("score-evidence", 40, 10)
+	vectors = FakeEncoder().encode([row.text for row in rows])
+	null = fit_evidence(rows, vectors, calibration)
+	plain = MMDPolicy(calibration, scorer)
+	observed = MMDPolicy(calibration, scorer)
+	report = check_evidence(rows, vectors, calibration, null)
+	for i, row in enumerate(rows):
+		assert plain.admit(
+			row.account, row.text, row.time or 0, embedding=vectors[i]
+		) == observed.admit(row.account, row.text, row.time or 0, embedding=vectors[i])
+	assert report["horizons"] == 40
+	assert "fusion" in report["units"][0]["signals"]
+	assert calibration.model_dump_json() == before
+	assert calibration.shadow is None
+
+
+def test_evidence_cli_round_trip_and_role_guard(
+	calibrated: tuple[Calibration, WindowScorer], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import json
+
+	from harness.calibration import requests_sha256
+	from harness.cli import app
+	from typer.testing import CliRunner
+
+	calibration, scorer = calibrated
+	calibration = calibration.model_copy(deep=True)
+	rows = _benign("evidence", 40, 10)
+	calibration.sha256["score_calibration"] = requests_sha256(rows)
+	save_calibration(tmp_path / "cal", calibration, scorer.references)
+	path = tmp_path / "score.jsonl"
+	path.write_text("\n".join(row.model_dump_json() for row in rows) + "\n")
+	monkeypatch.setattr("harness.cli.make_encoder", lambda *args: FakeEncoder())
+	runner = CliRunner()
+	evidence = tmp_path / "evidence.json"
+	result = runner.invoke(
+		app,
+		[
+			"evidence-calibrate",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--score-calibration",
+			str(path),
+			"--output",
+			str(evidence),
+		],
+	)
+	assert result.exit_code == 0, result.output + str(result.exception)
+	result = runner.invoke(
+		app,
+		[
+			"evidence-check",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--evidence",
+			str(evidence),
+			"--requests",
+			str(path),
+		],
+	)
+	assert result.exit_code == 0, result.output + str(result.exception)
+	assert json.loads(result.output)["horizons"] == 40
+	path.write_text(rows[0].model_dump_json() + "\n")
+	result = runner.invoke(
+		app,
+		[
+			"evidence-calibrate",
+			"--calibration",
+			str(tmp_path / "cal"),
+			"--score-calibration",
+			str(path),
+			"--output",
+			str(tmp_path / "bad.json"),
+		],
+	)
+	assert result.exit_code != 0
+	assert not (tmp_path / "bad.json").exists()
+
+
+def test_cluster_evidence_reports_pooled_scores_without_policy_changes(
+	shadowed: tuple[Calibration, Array],
+) -> None:
+	from harness.evidence import cluster_evidence, fit_evidence
+
+	calibration, _ = shadowed
+	before = calibration.model_dump_json()
+	rows = _gateway("cluster", {"one": ("ag_news",), "two": ("squad",)}, 10)
+	vectors = FakeEncoder().encode([row.text for row in rows])
+	null = fit_evidence(rows, vectors, calibration)
+	report = cluster_evidence(
+		rows,
+		vectors,
+		calibration,
+		null,
+		{
+			"organizations": {"cluster-one": "org", "cluster-two": "org"},
+			"benign_truth": {"cluster-one": "one", "cluster-two": "two"},
+		},
+	)
+	assert report["enforcement"] is False
+	assert report["benign_link_errors"]["false_merges"] == 1
+	cluster = report["clusters"][0]
+	assert cluster["ranks"]["coverage"] is not None
+	assert cluster["ranks"]["signals"]["metrics"]["novelty_mean_nn"]["value"] is not None
+	assert calibration.model_dump_json() == before

@@ -14,13 +14,19 @@ class Settings(BaseSettings):
 	calibration_dir: Path = Field(
 		default=Path("artifacts/harness"), alias="HARNESS_CALIBRATION_DIR"
 	)
-	policy: Literal["mmd", "allow", "quota", "rate"] = Field(default="mmd", alias="HARNESS_POLICY")
+	policy: Literal["mmd", "allow", "quota", "quota_tokens", "rate", "path"] = Field(
+		default="mmd", alias="HARNESS_POLICY"
+	)
+	path_calibration: Path | None = Field(default=None, alias="HARNESS_PATH_CALIBRATION")
 	accumulator: str = Field(default="paper", alias="HARNESS_ACCUMULATOR")
 	thresholds: Literal["calibrated", "ville"] = Field(
 		default="calibrated", alias="HARNESS_THRESHOLDS"
 	)
 	# "direct" replaces the graduated actions with blocking at the L4 threshold (an ablation).
 	actions: Literal["graduated", "direct"] = Field(default="graduated", alias="HARNESS_ACTIONS")
+	policy_version: Literal["legacy-v1", "verify-risk-v2"] = Field(
+		default="legacy-v1", alias="HARNESS_POLICY_VERSION"
+	)
 	l4_action: Literal["refuse", "deceive"] = Field(default="deceive", alias="HARNESS_L4_ACTION")
 	deception_rate: float = Field(default=1.0, ge=0, le=1, alias="HARNESS_DECEPTION_RATE")
 	# Hex secret, at least 16 bytes. Without it, the key file is read, or created on first start.
@@ -49,10 +55,75 @@ class Settings(BaseSettings):
 	# Test only: take the time from X-Harness-Time and never wait in real time.
 	test_clock: bool = Field(default=False, alias="HARNESS_TEST_CLOCK")
 
+	# Durable enforcement state: account horizons, open challenges, and the release ledger.
+	# Without it, state lives in this process and a restart renews every account. Use a new
+	# file for each arm; a file written under another policy or calibration is rejected.
+	state_db: Path | None = Field(default=None, alias="HARNESS_STATE_DB")
+	request_quota: int | None = Field(default=None, gt=0, alias="HARNESS_REQUEST_QUOTA")
+	output_token_budget: int | None = Field(default=None, gt=0, alias="HARNESS_OUTPUT_TOKEN_BUDGET")
+	organization_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ORGANIZATION_TOKEN_BUDGET"
+	)
+	in_flight_limit: int | None = Field(default=None, gt=0, alias="HARNESS_IN_FLIGHT_LIMIT")
+	reservation_lease_seconds: float = Field(
+		default=600, gt=0, alias="HARNESS_RESERVATION_LEASE_SECONDS"
+	)
+	# Limits over a rolling window, which a policy horizon does not renew: per principal, and
+	# per declared organization over the same window.
+	rolling_window_seconds: float = Field(
+		default=604_800, gt=0, alias="HARNESS_ROLLING_WINDOW_SECONDS"
+	)
+	rolling_request_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ROLLING_REQUEST_BUDGET"
+	)
+	rolling_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ROLLING_TOKEN_BUDGET"
+	)
+	organization_rolling_request_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ORGANIZATION_ROLLING_REQUEST_BUDGET"
+	)
+	organization_rolling_token_budget: int | None = Field(
+		default=None, gt=0, alias="HARNESS_ORGANIZATION_ROLLING_TOKEN_BUDGET"
+	)
+
+	rolling_supervision_budget: float | None = Field(
+		default=None, gt=0, allow_inf_nan=False, alias="HARNESS_ROLLING_SUPERVISION_BUDGET"
+	)
+	supervision_weights_file: Path | None = Field(
+		default=None, alias="HARNESS_SUPERVISION_WEIGHTS_FILE"
+	)
+	supervision_repeat_factor: float = Field(
+		default=1, ge=0, le=1, alias="HARNESS_SUPERVISION_REPEAT_FACTOR"
+	)
+	trust_tiers: bool = Field(default=False, alias="HARNESS_TRUST_TIERS")
+	new_tier_fraction: float = Field(default=0.5, gt=0, le=1, alias="HARNESS_NEW_TIER_FRACTION")
+	new_tier_min_age_seconds: float = Field(
+		default=604800, ge=0, allow_inf_nan=False, alias="HARNESS_NEW_TIER_MIN_AGE_SECONDS"
+	)
+	new_tier_min_releases: int = Field(default=10, ge=1, alias="HARNESS_NEW_TIER_MIN_RELEASES")
+
+	# Review is opt-in and requires a durable state database.
+	review_enabled: bool = Field(default=False, alias="HARNESS_REVIEW_ENABLED")
+	review_admin_key: str = Field(default="", alias="HARNESS_REVIEW_ADMIN_KEY")
+	review_verify_codes: set[str] = Field(default_factory=set, alias="HARNESS_REVIEW_VERIFY_CODES")
+
+	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
+	# only: no level, action, or response depends on them. Not part of the policy revision.
+	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
+
 	decision_log: Path = Field(
-		default=Path("outputs/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
+		default=Path("artifacts/harness/decisions.jsonl"), alias="HARNESS_DECISION_LOG"
 	)
 	encoder_device: str | None = Field(default=None, alias="HARNESS_ENCODER_DEVICE")
+	encoder_batch_size: int = Field(default=64, ge=1, alias="HARNESS_ENCODER_BATCH_SIZE")
+	encoder_batch_wait_ms: float = Field(
+		default=0, ge=0, le=1000, alias="HARNESS_ENCODER_BATCH_WAIT_MS"
+	)
+	encoder_queue_capacity: int = Field(default=1024, ge=1, alias="HARNESS_ENCODER_QUEUE_CAPACITY")
+	scoring_mode: Literal["synchronous", "off_path"] = Field(
+		default="synchronous", alias="HARNESS_SCORING_MODE"
+	)
+	scoring_queue_capacity: int = Field(default=128, ge=1, alias="HARNESS_SCORING_QUEUE_CAPACITY")
 	# Victim tokenizer for recounting output tokens. Without it, output token counts are
 	# omitted from every response, so a deceived response cannot be told apart by its count.
 	tokenizer_model: str = Field(default="", alias="HARNESS_TOKENIZER_MODEL")
@@ -63,7 +134,30 @@ class Settings(BaseSettings):
 	log_level: str = Field(default="info", alias="HARNESS_LOG_LEVEL")
 
 	@model_validator(mode="after")
-	def coding_l4(self) -> Settings:
+	def validate_combinations(self) -> Settings:
+		if (self.policy == "path") != (self.path_calibration is not None):
+			raise ValueError("path policy requires HARNESS_PATH_CALIBRATION, exclusively")
+		if self.policy == "path" and self.scoring_mode == "off_path":
+			raise ValueError("path stops are incompatible with off_path scoring")
+		if self.policy == "path" and self.state_db is None:
+			raise ValueError("path stops require HARNESS_STATE_DB for durable campaign state")
+		if self.policy == "path":
+			if "l4_action" not in self.model_fields_set:
+				self.l4_action = "refuse"
+			if self.l4_action != "refuse":
+				raise ValueError("path policy supports terminal refusal only")
+		if self.policy == "quota_tokens" and (
+			self.state_db is None or self.output_token_budget is None
+		):
+			raise ValueError(
+				"quota_tokens requires HARNESS_STATE_DB and HARNESS_OUTPUT_TOKEN_BUDGET"
+			)
+		if self.request_quota is not None and self.policy not in {"quota", "quota_tokens"}:
+			raise ValueError("HARNESS_REQUEST_QUOTA requires quota or quota_tokens")
+		if self.review_enabled and self.state_db is None:
+			raise ValueError("review requires HARNESS_STATE_DB")
+		if self.review_verify_codes and not self.review_enabled:
+			raise ValueError("review verification requires HARNESS_REVIEW_ENABLED")
 		if self.task in {"coding", "gateway"} and "l4_action" not in self.model_fields_set:
 			self.l4_action = "refuse"
 		if self.task in {"coding", "gateway"} and self.l4_action != "refuse":
@@ -76,4 +170,6 @@ class Settings(BaseSettings):
 			raise ValueError(
 				"gateway mode requires positive caps for at least two supported domains"
 			)
+		if (self.rolling_supervision_budget is None) != (self.supervision_weights_file is None):
+			raise ValueError("supervision budget and weights file must be configured together")
 		return self

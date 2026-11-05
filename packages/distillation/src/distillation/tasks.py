@@ -22,8 +22,8 @@ from coding import DEFAULT_POOL_SIZE, DEFAULT_QUALIFICATION_WORKERS
 from pydantic import BaseModel, ConfigDict, Field
 
 from distillation.benchmarks.models import BenchmarkItem, DatasetSource, FrozenSuite, save_json
-from distillation.io import canonical_json, read_jsonl, write_jsonl
-from distillation.schemas import LedgerRecord, Message, PromptRecord, PromptSource, SFTRecord
+from distillation.io import canonical_json, write_jsonl
+from distillation.schemas import Message, PromptRecord, PromptSource
 
 
 @dataclass(frozen=True)
@@ -208,6 +208,39 @@ def _role(seed: int, task: str, group: str) -> Role:
 	raise AssertionError("role shares must cover the hash range")
 
 
+# Attacker source groups are sealed into two disjoint partitions. Exploratory prompts serve
+# development campaigns and detector selection; confirmatory prompts stay unqueried until a
+# preregistered evaluation, so inspected campaigns never count as untouched tests.
+AttackerPartition = Literal["exploratory", "confirmatory"]
+ATTACKER_PARTITIONS: tuple[AttackerPartition, ...] = ("exploratory", "confirmatory")
+ATTACKER_PARTITION_VERSION = "attacker-partition-v1"
+CONFIRMATORY_SHARE = 0.5
+
+
+def attacker_partition(seed: int, task: str, group: str) -> AttackerPartition:
+	"""Assign each complete attacker source group to one partition."""
+	value = _digest(seed, "attacker-partition", task, group) % 1_000_000
+	return "confirmatory" if value < round(CONFIRMATORY_SHARE * 1_000_000) else "exploratory"
+
+
+def attacker_file(partition: AttackerPartition) -> str:
+	return "attacker.jsonl" if partition == "exploratory" else "attacker-confirmatory.jsonl"
+
+
+def partition_manifest(
+	counts: dict[AttackerPartition, int], groups: dict[AttackerPartition, int]
+) -> dict[str, Any]:
+	if not all(counts.get(partition) for partition in ATTACKER_PARTITIONS):
+		raise ValueError("attacker pool cannot supply both exploratory and confirmatory prompts")
+	return {
+		"version": ATTACKER_PARTITION_VERSION,
+		"confirmatory_share": CONFIRMATORY_SHARE,
+		"files": {partition: attacker_file(partition) for partition in ATTACKER_PARTITIONS},
+		"prompts": {partition: counts[partition] for partition in ATTACKER_PARTITIONS},
+		"groups": {partition: groups.get(partition, 0) for partition in ATTACKER_PARTITIONS},
+	}
+
+
 def _truncate(text: str, limit: int) -> tuple[str, bool]:
 	if len(text) <= limit:
 		return text, False
@@ -326,15 +359,14 @@ def task_directory(
 	*,
 	coding_pool_size: int = DEFAULT_POOL_SIZE,
 	seed: int = 42,
-	root: Path = Path("data/tasks"),
+	root: Path = Path("data"),
 ) -> Path:
+	names = {"ag_news": "news", "squad": "question_answering", "gsm8k": "math"}
 	name = (
 		f"coding-subset-{coding_pool_size}-s{seed}"
 		if task == "coding" and coding_pool_size
-		else task
+		else names.get(task, task)
 	)
-	if task in {"ag_news", "squad"}:
-		name = f"{task}-split-v2-s{seed}"
 	return root / name
 
 
@@ -417,7 +449,21 @@ def build_task(
 
 	output_dir.mkdir(parents=True, exist_ok=True)
 	attacker = by_role.get("attacker", [])
-	write_jsonl(output_dir / "attacker.jsonl", [record(example, "train") for example in attacker])
+	partitions: dict[AttackerPartition, list[TaskExample]] = {p: [] for p in ATTACKER_PARTITIONS}
+	for example in attacker:
+		partitions[attacker_partition(seed, task, example.group)].append(example)
+	partitioned = partition_manifest(
+		{partition: len(examples) for partition, examples in partitions.items()},
+		{
+			partition: len({example.group for example in examples})
+			for partition, examples in partitions.items()
+		},
+	)
+	for partition, examples in partitions.items():
+		write_jsonl(
+			output_dir / attacker_file(partition),
+			[record(example, "train") for example in examples],
+		)
 	write_jsonl(
 		output_dir / "gold-answers.jsonl",
 		[
@@ -492,6 +538,7 @@ def build_task(
 		"groups": {
 			role: len({example.group for example in by_role.get(role, [])}) for role in ROLES
 		},
+		"attacker_partitions": partitioned,
 		"development_suite_items": len(development_suite.items),
 		"test_suite_items": len(test_suite.items),
 		"truncated": dict(truncated),
@@ -504,73 +551,3 @@ def build_task(
 		json.dumps(manifest, indent="\t", sort_keys=True) + "\n", encoding="utf-8"
 	)
 	return manifest
-
-
-def budget_run(
-	*,
-	task_dir: Path,
-	budget: int,
-	seed: int,
-	output_dir: Path,
-	ledger_path: Path | None = None,
-) -> dict[str, Any]:
-	"""Take the first `budget` attacker prompts in a seeded order, so budgets nest per seed.
-
-	Writes prompts.jsonl and the matching gold-train.jsonl. With a ledger, also writes the
-	subset of its records for these prompts, in prompt order, counts prompts it lacks, and
-	refuses records collected with a different output limit from the task's.
-	"""
-	pool = read_jsonl(task_dir / "attacker.jsonl", PromptRecord)
-	if not 1 <= budget <= len(pool):
-		raise ValueError(f"budget must be between 1 and the attacker pool size, {len(pool)}")
-	ordered = sorted(pool, key=lambda prompt: _digest(seed, "order", prompt.example_id))
-	selected = ordered[:budget]
-	gold = {
-		record.example_id: record
-		for record in read_jsonl(task_dir / "gold-answers.jsonl", GoldRecord)
-	}
-	write_jsonl(output_dir / "prompts.jsonl", selected)
-	write_jsonl(
-		output_dir / "gold-train.jsonl",
-		[
-			SFTRecord(
-				prompt=prompt.prompt,
-				completion=[Message(role="assistant", content=gold[prompt.example_id].completion)],
-			)
-			for prompt in selected
-		],
-	)
-	summary: dict[str, Any] = {
-		"task_dir": str(task_dir),
-		"budget": budget,
-		"seed": seed,
-		"pool": len(pool),
-	}
-	if ledger_path:
-		records = {record.example_id: record for record in read_jsonl(ledger_path, LedgerRecord)}
-		subset: list[LedgerRecord] = [
-			records[prompt.example_id] for prompt in selected if prompt.example_id in records
-		]
-		limit = json.loads((task_dir / "manifest.json").read_text())["max_output_tokens"]
-		for record in subset:
-			if record.teacher.parameters.get("max_output_tokens") != limit:
-				raise ValueError(
-					f"{record.example_id} was collected with a different max_output_tokens; "
-					f"collect this task with --max-output-tokens {limit}"
-				)
-		write_jsonl(output_dir / "ledger.jsonl", subset)
-		summary["ledger"] = str(ledger_path)
-		summary["collected"] = len(subset)
-		summary["missing"] = budget - len(subset)
-		# The collector rejects nonterminal finishes, such as hitting the output limit, and
-		# preparation drops them, so these responses were received but cannot train.
-		summary["rejected_by_collector"] = sum(r.quality.status == "rejected" for r in subset)
-		summary["finish_reasons"] = dict(Counter(str(r.finish_reason) for r in subset))
-	summary["sha256"] = {
-		path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-		for path in sorted(output_dir.glob("*.jsonl"))
-	}
-	(output_dir / "budget.json").write_text(
-		json.dumps(summary, indent="\t", sort_keys=True) + "\n", encoding="utf-8"
-	)
-	return summary

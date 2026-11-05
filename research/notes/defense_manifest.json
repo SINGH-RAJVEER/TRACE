@@ -1,0 +1,109 @@
+[
+	{
+		"file": "PAPER_DEFENSE_Antidistillation_Sampling_2504.13146v5.pdf",
+		"url": "https://arxiv.org/pdf/2504.13146v5",
+		"version_date": "2025-10-26",
+		"bytes": 2331238,
+		"sha256": "67302a8a791862f68be2027cee8f2ff25ea018172ec1a40dc2afa46a2debed0b",
+		"pages": 22,
+		"extracted_chars": 60493,
+		"title": "Antidistillation Sampling",
+		"verified_on": "2026-11-03",
+		"version": "2504.13146v5"
+	},
+	{
+		"file": "PAPER_DEFENSE_DOGe_2505.19504v2.pdf",
+		"url": "https://arxiv.org/pdf/2505.19504v2",
+		"version_date": "2025-10-19",
+		"bytes": 2806801,
+		"sha256": "8b57120257632a5272cdd1186d74fee31ba718c9998a7a93a1c64ddc990deee8",
+		"pages": 22,
+		"extracted_chars": 79769,
+		"title": "DOGe: Defensive Output Generation for LLM Protection Against Knowledge Distillation",
+		"verified_on": "2026-11-03",
+		"version": "2505.19504v2"
+	},
+	{
+		"file": "PAPER_DEFENSE_Trace_Rewriting_2602.15143v2.pdf",
+		"url": "https://arxiv.org/pdf/2602.15143v2",
+		"version_date": "2026-04-16",
+		"bytes": 817703,
+		"sha256": "d6e94d58be2e75a03d1d32b223be0faa40c6671ec827784ec71289b70d1d2762",
+		"pages": 18,
+		"extracted_chars": 70739,
+		"title": "Protecting Language Models Against Unauthorized Distillation through Trace Rewriting",
+		"verified_on": "2026-11-03",
+		"version": "2602.15143v2"
+	},
+	{
+		"file": "PAPER_DEFENSE_Lossless_Anti_Distillation_Sampling_2605.18829v2.pdf",
+		"url": "https://arxiv.org/pdf/2605.18829v2",
+		"version_date": "2026-09-24",
+		"bytes": 669484,
+		"sha256": "9aa7c5d6b20e5eb0ad4c191ca32e8661914bd01d0f720d3f370cbf57e6243359",
+		"pages": 29,
+		"extracted_chars": 95809,
+		"title": "Lossless Anti-Distillation Sampling",
+		"verified_on": "2026-11-03",
+		"version": "2605.18829v2"
+	},
+	{
+		"file": "PAPER_DEFENSE_DistillGuard_2603.07835v1.pdf",
+		"url": "https://arxiv.org/pdf/2603.07835v1",
+		"version_date": "2026-03-08",
+		"bytes": 348927,
+		"sha256": "9be3d0d35a82e2a12f48b209358262d85356a47fc977c59f21cbbe1aae102ead",
+		"pages": 14,
+		"extracted_chars": 53693,
+		"title": "DistillGuard: Evaluating Defenses Against LLM Knowledge Distillation",
+		"verified_on": "2026-11-03",
+		"version": "2603.07835v1"
+	},
+	{
+		"file": "PAPER_DEFENSE_Watermark_Basins_2610.37266v1.pdf",
+		"url": "https://arxiv.org/pdf/2610.37266v1",
+		"version_date": "2026-10-27",
+		"bytes": 1943935,
+		"sha256": "4b5bdb7edfa78d973cd3c63eeccf609cc03851e50f5b0e6c8dd6597ccf657c6e",
+		"pages": 32,
+		"extracted_chars": 114530,
+		"title": "Watermark Basins: Black-Box Detection of Distilled LLMs",
+		"verified_on": "2026-11-03",
+		"version": "2610.37266v1"
+	},
+	{
+		"file": "PAPER_DEFENSE_Watermark_Removal_2502.11598v2.pdf",
+		"url": "https://arxiv.org/pdf/2502.11598v2",
+		"version_date": "2025-05-24",
+		"bytes": 2090867,
+		"sha256": "41e33b10d2d804f567728a2742872968912b387b33a2af6e64b4017e0792f7b6",
+		"pages": 24,
+		"extracted_chars": 80643,
+		"title": "Can LLM Watermarks Robustly Prevent Unauthorized Knowledge Distillation?",
+		"verified_on": "2026-11-03",
+		"version": "2502.11598v2"
+	},
+	{
+		"file": "PAPER_DEFENSE_Learnability_Antidistillation_Traces_EMNLP_2026.pdf",
+		"url": "https://aclanthology.org/2026.findings-emnlp.867.pdf",
+		"version_date": "2026-10",
+		"bytes": 2039526,
+		"sha256": "8512d60f6b43cee8d0ed97199243b729b37870d429b6ca5be159ac8e81b66e95",
+		"pages": 24,
+		"extracted_chars": 89767,
+		"title": "On the Learnability of Antidistillation Reasoning Traces",
+		"verified_on": "2026-11-03",
+		"version": "2026.findings-emnlp.867.pdf"
+	},
+	{
+		"file": "PAPER_DEFENSE_Knowledge_Honeypot_2606.15810v1.pdf",
+		"url": "https://arxiv.org/pdf/2606.15810v1",
+		"version_date": "2026-06-14",
+		"bytes": 731944,
+		"sha256": "4c3a409cc425a63a40a38099507fa5289d01f7417028ed3177c2cc4f99944d4a",
+		"pages": 16,
+		"title": "Let Them Steal: Trapping Large Language Model Extraction Attacks with Knowledge Honeypot",
+		"verified_on": "2026-11-03",
+		"version": "2606.15810v1"
+	}
+]
