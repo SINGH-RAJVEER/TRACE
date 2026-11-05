@@ -4,6 +4,8 @@
 
 This is the first `scripts/start.sh` run on the rebuilt corpus. It uses fresh benign roles (gateway-clients-v3, 125 accounts per role), the sealed exploratory attacker partition, one seed, and three arms per attack. No setting was tuned on its results. A student was not trained on these responses, so the reading measures what each control released, not what a student learned from it.
 
+On `main`, `readings/v5` holds only the files stored outside Git LFS (this README, checksums, provenance, timeline, settings and outcomes). The complete reading, with the LFS-tracked logs, ledgers, decisions, state databases, schedules, calibration and corpus, is on branch `study/v5-account-controls`.
+
 ## Settings
 
 ```
