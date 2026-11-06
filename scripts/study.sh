@@ -257,7 +257,7 @@ for attack in $ATTACKS; do
 done
 
 # 6. Teacher: reuse a healthy one, otherwise start vLLM and the teacher API.
-if curl -fsS "$TEACHER_URL/healthz" > /dev/null 2>&1; then
+if curl -fsS "$TEACHER_URL/healthz" 2> /dev/null | grep -q '"ready"'; then
 	note "using the teacher API already serving at $TEACHER_URL"
 else
 	if ! curl -fsS "http://127.0.0.1:$VLLM_PORT/health" > /dev/null 2>&1; then
@@ -278,7 +278,7 @@ else
 	TEACHER_UPSTREAM_BASE_URL=http://127.0.0.1:$VLLM_PORT/v1 "${UV[@]}" teacher-api \
 		>> "$LOGS/teacher-api.log" 2>&1 &
 	PIDS+=($!)
-	wait_http "$TEACHER_URL/healthz" "" 300 $! || finish 1 "teacher API did not start"
+	wait_http "$TEACHER_URL/healthz" '"ready"' 300 $! || finish 1 "teacher API not ready; check TEACHER_TERMS_REVIEW_ID"
 fi
 note "teacher ready"
 CONTACTED=1
