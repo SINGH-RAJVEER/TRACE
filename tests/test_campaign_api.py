@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 from distillation.benchmarks.traffic_runner import solve_challenge
 from harness import campaign as campaign_module
@@ -759,3 +760,155 @@ async def test_out_of_order_timestamp_preserves_the_observation(
 	assert decisions[1]["campaign"]["evaluated_count"] == 2
 	assert decisions[1]["campaign"]["components"]["ordering_adjusted"] is True
 	assert not _events(log, "campaign_error")
+
+
+def test_session_encoder_identity_is_checked_before_opening_state(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	with pytest.raises(ValueError, match="campaign encoder representation"):
+		_campaign_app(
+			artifacts,
+			tmp_path,
+			mode="observe",
+			config={"session": {"encoder_identity": {"model": "different"}}},
+		)
+	assert not (tmp_path / "state.sqlite3").exists()
+
+
+@pytest.mark.asyncio
+async def test_session_encoding_uses_bound_input_and_durable_retry(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	encoded: list[str] = []
+	real_encode = Encoder.encode
+
+	def record(self: Encoder, texts: list[str]) -> Any:
+		encoded.extend(texts)
+		return real_encode(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", record)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		mode="observe",
+		config={"max_text_chars": 32, "session": {"encoder_identity": {"model": "fake"}}},
+	)
+	text = "Explain the water cycle and its impact on a coastal ecosystem"
+	async with _client(app) as client:
+		first = await _post(client, text, 1000.0, headers={"Idempotency-Key": "bounded"})
+		retry = await _post(client, text, 1001.0, headers={"Idempotency-Key": "bounded"})
+	assert first.status_code == retry.status_code == 200
+	assert first.json() == retry.json() and teacher.calls == 1
+	assert encoded == [text, text[:32]]
+	with sqlite3.connect(tmp_path / "state.sqlite3") as connection:
+		state = json.loads(connection.execute("SELECT state FROM campaign").fetchone()[0])
+	assert state["count"] == 1
+	assert state["rows"][0]["vector"] is not None
+	assert _events(log, "decision")[0]["campaign"]["qualified"] is False
+
+
+@pytest.mark.asyncio
+async def test_session_without_encoder_contract_does_not_reuse_unbound_base_vectors(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, _ = _campaign_app(artifacts, tmp_path, mode="observe", config={"session": {}})
+	async with _client(app) as client:
+		assert (await _post(client, "Explain evaporation", 1000.0)).status_code == 200
+	assert teacher.calls == 1
+	with sqlite3.connect(tmp_path / "state.sqlite3") as connection:
+		state = json.loads(connection.execute("SELECT state FROM campaign").fetchone()[0])
+	assert state["rows"][0]["vector"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_initializes_encoder_for_allow_policy_without_base_monitor(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from harness import encoder as encoder_module
+	from test_harness_api import Teacher
+
+	constructed: list[dict[str, Any]] = []
+	encoded: list[str] = []
+
+	class SessionEncoder(Encoder):
+		def identity(self) -> dict[str, Any]:
+			return {"model": "fake", "encoded": len(encoded), "truncated": 0}
+
+		def encode(self, texts: list[str]) -> Any:
+			encoded.extend(texts)
+			return super().encode(texts)
+
+	def factory(**kwargs: Any) -> SessionEncoder:
+		constructed.append(kwargs)
+		return SessionEncoder()
+
+	monkeypatch.setattr(encoder_module, "BGEEncoder", factory)
+	settings = Settings(  # type: ignore[call-arg]
+		_env_file=None,
+		HARNESS_TRUST_ACTOR_HEADER=True,
+		HARNESS_POLICY="allow",
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		HARNESS_CAMPAIGN_CONFIG=_config(
+			tmp_path, mode="observe", session={"encoder_identity": {"model": "fake"}}
+		),
+		HARNESS_DECISION_LOG=tmp_path / "decisions.jsonl",
+		HARNESS_DECEPTION_KEY_FILE=tmp_path / "key",
+	)
+	teacher = Teacher()
+	app = app_module.create_app(
+		settings=settings, teacher=teacher, calibration=artifacts[0], scorer=artifacts[1]
+	)
+	async with _client(app) as client:
+		assert (await _post(client, "Explain evaporation")).status_code == 200
+	assert len(constructed) == 1
+	assert encoded == ["Explain evaporation"]
+	assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_session_shared_truncated_prefix_does_not_supply_semantic_evidence(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		config={"max_text_chars": 32, "session": {"encoder_identity": {"model": "fake"}}},
+	)
+	prefix = "Return only the answer for this shared document context. " * 3
+	async with _client(app) as client:
+		for index, suffix in enumerate(["tides", "volcanoes", "astronomy", "botany"]):
+			assert (await _post(client, prefix + suffix, 1000.0 + index)).status_code == 200
+	assert teacher.calls == 4
+	last = _events(log, "decision")[-1]["campaign"]
+	assert last["components"]["semantic_repetition"] == 0
+	assert last["score"] == 0
+
+
+@pytest.mark.asyncio
+async def test_session_paraphrase_embeddings_reach_online_score(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	def paraphrases(self: Encoder, texts: list[str]) -> Any:
+		return np.tile([1.0, 0.0, 0.0, 0.0], (len(texts), 1))
+
+	monkeypatch.setattr(Encoder, "encode", paraphrases)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		config={"session": {"encoder_identity": {"model": "fake"}}},
+	)
+	prompts = [
+		"Which liquid falls from clouds? Answer only",
+		"Name the precipitation made of water. Just the answer",
+		"Identify what wets the ground during a storm. No explanation",
+	]
+	async with _client(app) as client:
+		responses = [
+			await _post(client, prompt, 1000.0 + index) for index, prompt in enumerate(prompts)
+		]
+	assert [response.status_code for response in responses] == [200, 200, 429]
+	assert teacher.calls == 2
+	evidence = _events(log, "campaign_throttle")[-1]["campaign"]
+	assert evidence["qualified"] is False
+	assert evidence["components"]["semantic_repetition"] == 1
+	assert evidence["components"]["template_repetition"] == 0

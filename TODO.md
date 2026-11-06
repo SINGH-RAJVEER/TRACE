@@ -55,6 +55,8 @@ Completion evidence: T0 proves durable, ordered, bounded state under retries, wo
 
 Completion evidence: deterministic fixtures establish feature semantics and resource bounds; T1/T3 show which features retain detection value after task, topic, source, volume and timing controls. Compare existing shadows and each candidate individually before fusion. Sources: [PRADA](https://arxiv.org/html/1805.02628v3), [SEAT](https://people.eecs.berkeley.edu/~daw/papers/seat-aisec21.pdf), [VarDetect](https://arxiv.org/pdf/2107.05166) and [LLM MMD](https://arxiv.org/html/2606.05725v1). Their published thresholds do not transfer to TRACE.
 
+Implementation note: the opt-in `semantic-session-v1` experiment now covers a bounded current-anchor semantic family, repeat/resampling controls, shared lightweight session definitions and an explicit frozen maximum of lexical and semantic/session contributions. Deterministic CPU/API controls exercise missingness, long prefixes and legitimate workflows. This is partial development work for D2.2/D2.4 and D3.1/D3.2/D3.5; the checkboxes remain open pending representative cohorts, replay/qualification and the broader contracts below. Multiscale scoring and conditional MMD are follow-on work. See [campaign configuration and limits](docs/campaign.md#opt-in-semantic-session-experiment).
+
 ## D3. Implement a combined campaign scorer
 
 - [ ] D3.1 Start with a transparent frozen combination of supported signals. Retain component values, reference support, contributions and abstention reasons with each score. A raw score is not automatically a probability of distillation.
