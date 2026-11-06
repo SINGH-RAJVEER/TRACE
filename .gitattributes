@@ -287,3 +287,11 @@ readings/v3/**/*.npy filter=lfs diff=lfs merge=lfs -text
 readings/v4/**/*.jsonl filter=lfs diff=lfs merge=lfs -text
 readings/v4/**/*.json filter=lfs diff=lfs merge=lfs -text
 readings/v4/**/*.npy filter=lfs diff=lfs merge=lfs -text
+
+# v5 reading from the study/v5-account-controls branch, stored in Git LFS.
+readings/v5/**/*.jsonl filter=lfs diff=lfs merge=lfs -text
+readings/v5/**/*.json filter=lfs diff=lfs merge=lfs -text
+readings/v5/**/*.npy filter=lfs diff=lfs merge=lfs -text
+readings/v5/**/*.sqlite3 filter=lfs diff=lfs merge=lfs -text
+readings/v5/**/*.log filter=lfs diff=lfs merge=lfs -text
+readings/v5/**/*.sqlite filter=lfs diff=lfs merge=lfs -text
