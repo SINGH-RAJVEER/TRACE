@@ -1,6 +1,6 @@
 # Restoring TRACE evaluation and experimental defenses
 
-The restoration uses archive/study-20261102 at b779c479767ac69ff83baf71e2ef04ad889190f4. It brings back selected code with compatibility and correctness fixes, rather than merging the archive branch. Frozen readings, corpora, legacy workspaces and research artifacts remain outside the restoration. The methods are in [evaluation](evaluation.md) and [harness](harness.md).
+The restoration uses commit b779c479767ac69ff83baf71e2ef04ad889190f4 in the history of the `archive` branch. It brings back selected code with compatibility and correctness fixes, rather than merging the archive branch. Frozen readings, corpora, legacy workspaces and research artifacts remain outside the restoration. The methods are in [evaluation](evaluation.md) and [harness](harness.md).
 
 ## Agreed scope
 
