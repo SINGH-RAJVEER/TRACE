@@ -233,7 +233,15 @@ def observe_campaign(
 		"vector": vector,
 	}
 	if config.session is not None:
-		row["truncated"] = identity is not None and identity != text_identity(text)
+		encoder_identity = config.session.encoder_identity or {}
+		max_tokens = encoder_identity.get("max_tokens")
+		# BGE WordPiece uses at most one token per UTF-8 byte, plus CLS/SEP.
+		# The protocol has no per-row truncation receipt. Exclude uncertain inputs
+		# conservatively rather than treating an encoder-truncated prefix as a prompt.
+		token_limit_uncertain = isinstance(max_tokens, int) and len(text.encode()) + 2 > max_tokens
+		row["truncated"] = (
+			identity is not None and identity != text_identity(text)
+		) or token_limit_uncertain
 		parts = shingles(text)
 		row["shingles"] = sorted(hashlib.sha256(p.encode()).hexdigest()[:16] for p in parts)
 		row["answer_only"] = answer_only(text)
@@ -340,7 +348,11 @@ def observe_campaign(
 			"semantic_pairs_available": available,
 			"semantic_pairs_missing": n - 1 - available,
 			"semantic_missingness": (
-				"current_embedding_missing"
+				"encoder_not_configured"
+				if config.session.encoder_identity is None
+				else "truncated_current_input"
+				if row["truncated"]
+				else "current_embedding_missing"
 				if vector is None
 				else "partial_history"
 				if available < n - 1

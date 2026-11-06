@@ -373,3 +373,21 @@ def test_session_encoder_contract_and_state_binding(tmp_path: Path) -> None:
 	store.bind_campaign(config().digest)
 	with pytest.raises(ValueError, match="another campaign"):
 		store.bind_campaign(cfg.digest)
+
+
+def test_session_excludes_possible_encoder_token_truncation() -> None:
+	from harness.campaign import SessionConfig
+
+	cfg = config(session=SessionConfig(encoder_identity={"model": "fixture", "max_tokens": 32}))
+	store = MemoryStore()
+	for i, text in enumerate(
+		(
+			"Answer only: " + "context " * 10 + "first",
+			"Just the answer: " + "context " * 10 + "second",
+		)
+	):
+		result = observe(store, cfg, str(i), text, float(i), embedding=[1.0, 0.0])
+	assert result["components"]["semantic_repetition"] == 0
+	assert result["components"]["truncated_count"] == 2
+	assert result["components"]["semantic_missingness"] == "truncated_current_input"
+	assert result["score"] == 0
