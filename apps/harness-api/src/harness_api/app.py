@@ -52,6 +52,7 @@ from harness.campaign import (
 	campaign_key,
 	load_campaign_config,
 	observe_campaign,
+	prepare_session_observation,
 	text_identity,
 )
 from harness.deception import noise
@@ -1473,6 +1474,7 @@ def create_app(
 			return spent
 		embedding = None
 		campaign_embedding = None
+		campaign_semantic_complete: bool | None = None
 		if needs_embeddings and encoder is not None:
 			try:
 				encoded_text = detector_text(served_task, text) if base_needs_embeddings else None
@@ -1484,18 +1486,28 @@ def create_app(
 					)
 				if campaign_needs_embeddings:
 					assert campaign is not None
-					# semantic-session-v1 embeds the bounded raw turn, independent of the
-					# base policy's task serialization. Reuse only identical encoder inputs.
+					# Tokenizer work happens before the write transaction. Unknown or
+					# truncated representations cannot supply semantic evidence.
 					campaign_text = text[: campaign.max_text_chars]
-					campaign_embedding = (
-						embedding
-						if campaign_text == encoded_text
-						else (
-							await batcher.encode(campaign_text)
-							if batcher is not None
-							else (await asyncio.to_thread(encoder.encode, [campaign_text]))[0]
+					complete = getattr(encoder, "input_complete", None)
+					if campaign_text != text:
+						campaign_semantic_complete = False
+					elif callable(complete):
+						campaign_semantic_complete = await asyncio.to_thread(
+							complete, campaign_text
 						)
-					)
+						if not isinstance(campaign_semantic_complete, bool):
+							raise ValueError("encoder completeness must be a boolean")
+					if campaign_semantic_complete is True:
+						campaign_embedding = (
+							embedding
+							if campaign_text == encoded_text
+							else (
+								await batcher.encode(campaign_text)
+								if batcher is not None
+								else (await asyncio.to_thread(encoder.encode, [campaign_text]))[0]
+							)
+						)
 			except asyncio.QueueFull:
 				return _error(503, "encoder_overloaded", "encoder queue is full", None)
 			except Exception:
@@ -1539,6 +1551,11 @@ def create_app(
 		)
 		observe_failed = False
 		campaign_identity = text_identity(text) if campaign is not None else None
+		campaign_session_observation = (
+			prepare_session_observation(text[: campaign.max_text_chars])
+			if campaign is not None and campaign.session is not None
+			else None
+		)
 		while True:
 			campaign_result = None
 			campaign_override = False
@@ -1599,6 +1616,8 @@ def create_app(
 									text=text[: campaign.max_text_chars],
 									identity=campaign_identity,
 									resampling=request.temperature > 0,
+									semantic_complete=campaign_semantic_complete,
+									session_observation=campaign_session_observation,
 									now=now,
 									domain=domain,
 									embedding=(

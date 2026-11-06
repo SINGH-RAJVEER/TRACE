@@ -6,6 +6,8 @@ import math
 import re
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass
+from itertools import islice
 from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -13,7 +15,11 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness.corpus import shingles
-from harness.session_features import answer_only, followup_language
+from harness.session_features import (
+	online_answer_only,
+	online_contextual_language,
+	online_workflow_language,
+)
 from harness.store import Transaction
 
 
@@ -25,7 +31,7 @@ class SessionConfig(BaseModel):
 	"""Frozen uncalibrated combination, explicitly separate from campaign-v2."""
 
 	model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, frozen=True)
-	version: Literal["semantic-session-v1"] = "semantic-session-v1"
+	version: Literal["semantic-session-v2"] = "semantic-session-v2"
 	encoder_identity: dict[str, Any] | None = None
 	semantic_threshold: float = Field(default=0.9, gt=0, le=1)
 
@@ -72,9 +78,20 @@ class CampaignConfig(BaseModel):
 		).hexdigest()
 
 
+def _unique_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+	result: dict[str, Any] = {}
+	for key, value in pairs:
+		if key in result:
+			raise ValueError(f"duplicate campaign configuration member: {key}")
+		result[key] = value
+	return result
+
+
 def load_campaign_config(path: Path) -> CampaignConfig:
 	try:
-		return CampaignConfig.model_validate_json(path.read_text())
+		return CampaignConfig.model_validate(
+			json.loads(path.read_text(), object_pairs_hook=_unique_members)
+		)
 	except (ValueError, OSError) as exc:
 		raise CampaignError(str(exc)) from exc
 
@@ -106,6 +123,32 @@ def text_identity(text: str) -> tuple[str, str]:
 	)
 
 
+@dataclass(frozen=True)
+class SessionObservation:
+	"""Bounded text features prepared before taking the write transaction."""
+
+	scored_identity: tuple[str, str]
+	shingles: tuple[str, ...]
+	answer_only: bool
+	contextual: bool
+	workflow: bool
+	lexical_complete: bool
+
+
+def prepare_session_observation(text: str) -> SessionObservation:
+	# Cap retained and compared shingles independently of max_text_chars.
+	bounded_words = [m.group() for m in islice(re.finditer(r"\w+", text), 257)]
+	parts = shingles(" ".join(bounded_words[:256]))
+	return SessionObservation(
+		scored_identity=text_identity(text),
+		shingles=tuple(sorted(hashlib.sha256(p.encode()).hexdigest()[:16] for p in parts)),
+		answer_only=online_answer_only(text),
+		contextual=online_contextual_language(text),
+		workflow=online_workflow_language(text),
+		lexical_complete=len(bounded_words) <= 256,
+	)
+
+
 def observe_campaign(
 	tx: Transaction,
 	config: CampaignConfig,
@@ -119,6 +162,8 @@ def observe_campaign(
 	embedding: Sequence[float] | None = None,
 	identity: tuple[str, str] | None = None,
 	resampling: bool = False,
+	semantic_complete: bool | None = None,
+	session_observation: SessionObservation | None = None,
 ) -> dict[str, Any]:
 	"""Score bounded `text`; `identity` separates prompts differing after that bound.
 
@@ -152,6 +197,13 @@ def observe_campaign(
 		and embedding is not None
 	):
 		raise CampaignError("session embeddings require a bound encoder identity")
+	if semantic_complete is not None and not isinstance(semantic_complete, bool):
+		raise CampaignError("invalid semantic completeness receipt")
+	prepared = None
+	if config.session is not None:
+		prepared = session_observation or prepare_session_observation(text)
+		if prepared.scored_identity != text_identity(text):
+			raise CampaignError("session observation differs from scored text")
 	vector = None
 	if embedding is not None:
 		try:
@@ -186,9 +238,21 @@ def observe_campaign(
 	if state["until"] is not None and now >= state["until"]:
 		state = {**state, "rows": [], "receipts": [], "until": None}
 	template, exact = identity if identity is not None else text_identity(text)
+	fingerprint_inputs: list[Any] = [text, template, exact, domain, vector, resampling]
+	if prepared is not None:
+		fingerprint_inputs.extend(
+			[
+				semantic_complete,
+				prepared.shingles,
+				prepared.answer_only,
+				prepared.contextual,
+				prepared.workflow,
+				prepared.lexical_complete,
+			]
+		)
 	fingerprint = hashlib.sha256(
 		json.dumps(
-			[text, template, exact, domain, vector, resampling],
+			fingerprint_inputs,
 			separators=(",", ":"),
 			ensure_ascii=False,
 		).encode()
@@ -232,27 +296,18 @@ def observe_campaign(
 		"domain": hashlib.sha256(domain.encode()).hexdigest(),
 		"vector": vector,
 	}
-	if config.session is not None:
-		encoder_identity = config.session.encoder_identity or {}
-		max_tokens = encoder_identity.get("max_tokens")
-		# BGE WordPiece uses at most one token per UTF-8 byte, plus CLS/SEP.
-		# The protocol has no per-row truncation receipt. Exclude uncertain inputs
-		# conservatively rather than treating an encoder-truncated prefix as a prompt.
-		token_limit_uncertain = isinstance(max_tokens, int) and len(text.encode()) + 2 > max_tokens
+	if prepared is not None:
 		row["truncated"] = (
-			identity is not None and identity != text_identity(text)
-		) or token_limit_uncertain
-		parts = shingles(text)
-		row["shingles"] = sorted(hashlib.sha256(p.encode()).hexdigest()[:16] for p in parts)
-		row["answer_only"] = answer_only(text)
-		row["contextual"] = followup_language(text)
-		row["workflow"] = bool(
-			re.search(
-				r"\b(edit|revise|rewrite|debug|explain|teach|hint|feedback|proofread|clarify)\b",
-				text,
-				re.I,
-			)
+			identity is not None and identity != prepared.scored_identity
+		) or semantic_complete is False
+		row["semantic_complete"] = semantic_complete is True and not row["truncated"]
+		row["lexical_complete"] = prepared.lexical_complete and (
+			identity is None or identity == prepared.scored_identity
 		)
+		row["shingles"] = list(prepared.shingles)
+		row["answer_only"] = prepared.answer_only
+		row["contextual"] = prepared.contextual
+		row["workflow"] = prepared.workflow
 	rows = (rows + [row])[-config.window_size :]
 	n = len(rows)
 	counts = Counter(r["template"] for r in rows)
@@ -310,8 +365,8 @@ def observe_campaign(
 			if (
 				vector is not None
 				and other is not None
-				and not row["truncated"]
-				and not prior["truncated"]
+				and row["semantic_complete"]
+				and prior["semantic_complete"]
 			):
 				available += 1
 				cosine = sum(x * y for x, y in zip(vector, other, strict=True))
@@ -324,20 +379,41 @@ def observe_campaign(
 			len(parts_now & set(r["shingles"])) / max(1, len(parts_now | set(r["shingles"])))
 			for r in rows[:-1]
 		]
-		# Bounded current-to-history analogues of offline raw_signals.
+		# Bounded current-to-history analogues of offline raw_signals. Repeated
+		# lexical near-duplicates supply an encoder-free route, corroborated by
+		# answer-format preference; a single similar pair cannot dominate a window.
 		rephrasing = max(overlaps, default=0.0)
+		rephrase_family = [row] + [
+			r
+			for r, overlap in zip(rows[:-1], overlaps, strict=True)
+			if overlap >= 0.6 and row["lexical_complete"] and r["lexical_complete"]
+		]
+		rephrasing_repetition = (len(rephrase_family) - 1) / max(1, n - 1)
 		contextual_share = sum(r["contextual"] for r in rows) / n
 		workflow_share = sum(r["workflow"] for r in rows) / n
 		answer_share = sum(r["answer_only"] for r in rows) / n
 		control = 1 - max(contextual_share, workflow_share)
-		lexical_evidence = repetition * lexical
-		semantic_evidence = semantic_repetition * answer_share
-		combined = max(lexical_evidence, semantic_evidence) * control
+		# Preserve v2's lexical discount. New workflow hints cannot erase an
+		# existing lexical detection. The new routes use window-level context,
+		# never a veto from a single current prefix or an unanchored common word.
+		lexical_evidence = repetition * lexical * independent
+		semantic_evidence = semantic_repetition * answer_share * control
+		rephrasing_evidence = rephrasing_repetition * answer_share * control
+		contributions = {
+			"lexical": lexical_evidence,
+			"semantic": semantic_evidence,
+			"rephrasing": rephrasing_evidence,
+		}
+		selected_route = max(contributions, key=lambda route: contributions[route])
+		combined = contributions[selected_route]
 		score = combined if n >= config.min_samples else None
 		alert = score is not None and score >= config.threshold and combined > 0
-		semantic_route = semantic_evidence > lexical_evidence
 		selected = (
-			family if semantic_route else [r for r in rows if r["template"] == modal_template]
+			family
+			if selected_route == "semantic"
+			else rephrase_family
+			if selected_route == "rephrasing"
+			else [r for r in rows if r["template"] == modal_template]
 		)
 		variant_fraction = len({r["variant"] for r in selected}) / len(selected)
 		enforceable = alert and variant_fraction > config.min_variant_fraction
@@ -352,6 +428,8 @@ def observe_campaign(
 				if config.session.encoder_identity is None
 				else "truncated_current_input"
 				if row["truncated"]
+				else "unknown_completeness"
+				if semantic_complete is None
 				else "current_embedding_missing"
 				if vector is None
 				else "partial_history"
@@ -361,6 +439,7 @@ def observe_campaign(
 				else None
 			),
 			"rephrasing_similarity": rephrasing,
+			"rephrasing_repetition": rephrasing_repetition,
 			"template_diversity": len(counts) / n,
 			"answer_only_share": answer_share,
 			"contextual_language_share": contextual_share,
@@ -369,10 +448,11 @@ def observe_campaign(
 				a["domain"] != b["domain"] for a, b in zip(rows[:-1], rows[1:], strict=True)
 			)
 			/ max(1, n - 1),
-			"lexical_contribution": lexical_evidence * control,
-			"semantic_contribution": semantic_evidence * control,
+			"lexical_contribution": lexical_evidence,
+			"semantic_contribution": semantic_evidence,
+			"rephrasing_contribution": rephrasing_evidence,
 			"workflow_multiplier": control,
-			"selected_route": "semantic" if semantic_route else "lexical",
+			"selected_route": selected_route,
 			"selected_variant_fraction": variant_fraction,
 		}
 		if available < n - 1 or n == 1:

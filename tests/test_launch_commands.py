@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from harness.campaign import CampaignConfig, load_campaign_config
+from harness.campaign import CampaignConfig, SessionConfig, load_campaign_config
 from harness_api import app as app_module
 from harness_api.launcher import main, prepare_settings
 
@@ -36,6 +36,7 @@ def test_config_creation_is_explicit_and_exclusive(tmp_path: Path) -> None:
 	path = tmp_path / "nested" / "config.json"
 	main(["config", str(path), "--namespace", "fixture"])
 	assert load_campaign_config(path).mode == "observe"
+	assert '"session"' not in path.read_text()
 	original = path.read_bytes()
 	with pytest.raises(SystemExit) as error:
 		main(["config", str(path), "--namespace", "replacement", "--mode", "throttle"])
@@ -47,7 +48,21 @@ def test_validation_has_no_server_or_state_side_effects(
 ) -> None:
 	campaign, state = launch_files
 	main(["validate", "--config", str(campaign), "--state-db", str(state)])
-	assert "base_policy=allow" in capsys.readouterr().out
+	output = capsys.readouterr().out
+	assert "base_policy=allow" in output
+	assert "session=disabled" in output
+	assert not state.exists()
+
+
+def test_validation_prints_enabled_session_version(
+	launch_files: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+	campaign, state = launch_files
+	campaign.write_text(
+		CampaignConfig(namespace="fixture", session=SessionConfig()).model_dump_json()
+	)
+	main(["validate", "--config", str(campaign), "--state-db", str(state)])
+	assert "session=semantic-session-v2" in capsys.readouterr().out
 	assert not state.exists()
 
 

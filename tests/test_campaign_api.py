@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -799,11 +800,11 @@ async def test_session_encoding_uses_bound_input_and_durable_retry(
 		retry = await _post(client, text, 1001.0, headers={"Idempotency-Key": "bounded"})
 	assert first.status_code == retry.status_code == 200
 	assert first.json() == retry.json() and teacher.calls == 1
-	assert encoded == [text, text[:32]]
+	assert encoded == [text]
 	with sqlite3.connect(tmp_path / "state.sqlite3") as connection:
 		state = json.loads(connection.execute("SELECT state FROM campaign").fetchone()[0])
 	assert state["count"] == 1
-	assert state["rows"][0]["vector"] is not None
+	assert state["rows"][0]["vector"] is None
 	assert _events(log, "decision")[0]["campaign"]["qualified"] is False
 
 
@@ -831,6 +832,9 @@ async def test_session_initializes_encoder_for_allow_policy_without_base_monitor
 	encoded: list[str] = []
 
 	class SessionEncoder(Encoder):
+		def input_complete(self, text: str) -> bool:
+			return True
+
 		def identity(self) -> dict[str, Any]:
 			return {"model": "fake", "encoded": len(encoded), "truncated": 0}
 
@@ -892,6 +896,7 @@ async def test_session_paraphrase_embeddings_reach_online_score(
 		return np.tile([1.0, 0.0, 0.0, 0.0], (len(texts), 1))
 
 	monkeypatch.setattr(Encoder, "encode", paraphrases)
+	monkeypatch.setattr(Encoder, "input_complete", lambda self, text: True, raising=False)
 	app, teacher, log = _campaign_app(
 		artifacts,
 		tmp_path,
@@ -912,3 +917,67 @@ async def test_session_paraphrase_embeddings_reach_online_score(
 	assert evidence["qualified"] is False
 	assert evidence["components"]["semantic_repetition"] == 1
 	assert evidence["components"]["template_repetition"] == 0
+
+
+def test_bge_completeness_uses_tokenizer_budget_not_bytes() -> None:
+	from harness.encoder import BGEEncoder
+
+	encoder = BGEEncoder.__new__(BGEEncoder)
+	encoder._lock = threading.Lock()
+	encoder.max_tokens = 512
+	seen: list[dict[str, Any]] = []
+
+	def tokenize(text: str, **kwargs: Any) -> dict[str, list[int]]:
+		seen.append(kwargs)
+		return {"input_ids": [0] * (len(text.split()) + 2)}
+
+	encoder.tokenizer = tokenize
+	long_complete = "evaporation precipitation " * 30
+	assert len(long_complete.encode()) > 512
+	assert encoder.input_complete(long_complete)
+	assert not encoder.input_complete("rain " * 511)
+	assert seen == [{"add_special_tokens": True, "truncation": False}] * 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("complete", [True, False, None])
+async def test_session_semantics_require_explicit_complete_representation(
+	artifacts: Artifacts,
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	complete: bool | None,
+) -> None:
+	monkeypatch.setattr(
+		Encoder,
+		"encode",
+		lambda self, texts: np.tile([1.0, 0.0, 0.0, 0.0], (len(texts), 1)),
+	)
+	if complete is not None:
+		monkeypatch.setattr(Encoder, "input_complete", lambda self, text: complete, raising=False)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		mode="observe",
+		config={"session": {"encoder_identity": {"model": "fake"}}},
+	)
+	# Deliberately distinct text with a scripted common semantic direction. All inputs
+	# exceed the former byte guard, without needing a model or tokenizer download.
+	prompts = [
+		"evaporation " * 60 + "Return only the final numeric answer, prefixed by ####.",
+		"precipitation " * 60 + "Answer with only the topic name.",
+		"condensation " * 60 + "Output only the result.",
+	]
+	async with _client(app) as client:
+		for index, prompt in enumerate(prompts):
+			assert len(prompt.encode()) > 512
+			assert (await _post(client, prompt, 1000.0 + index)).status_code == 200
+	assert teacher.calls == 3
+	last = _events(log, "decision")[-1]["campaign"]["components"]
+	assert last["semantic_repetition"] == (1 if complete is True else 0)
+	if complete is True:
+		assert last["semantic_contribution"] > 0
+		assert last["semantic_missingness"] is None
+	elif complete is None:
+		assert last["semantic_missingness"] == "unknown_completeness"
+	else:
+		assert last["semantic_missingness"] == "truncated_current_input"

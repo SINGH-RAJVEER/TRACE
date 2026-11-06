@@ -27,6 +27,8 @@ def observe(
 	now: float = 1,
 	**kwargs: Any,
 ) -> dict[str, Any]:
+	if config.session is not None and "semantic_complete" not in kwargs:
+		kwargs["semantic_complete"] = True if kwargs.get("embedding") is not None else None
 	with store.transaction() as tx:
 		return observe_campaign(
 			tx,
@@ -238,17 +240,9 @@ def session_config(**kwargs: Any) -> CampaignConfig:
 
 
 def test_session_disabled_preserves_v2_digest() -> None:
-	import hashlib
-
-	cfg = config()
-	legacy = cfg.model_dump(mode="json", exclude={"session"})
-	assert (
-		cfg.digest
-		== hashlib.sha256(
-			json.dumps(legacy, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-		).hexdigest()
-	)
-	assert session_config().digest != cfg.digest
+	# Literal from the pre-extension campaign-v2 configuration at 6dc9b252.
+	assert config().digest == "ac6a126e8909c94e52c815c34fb7b962aed7202f2400d8399bea962f9c970ae9"
+	assert session_config().digest != config().digest
 
 
 def test_semantic_paraphrases_and_workflow_controls() -> None:
@@ -375,7 +369,7 @@ def test_session_encoder_contract_and_state_binding(tmp_path: Path) -> None:
 		store.bind_campaign(cfg.digest)
 
 
-def test_session_excludes_possible_encoder_token_truncation() -> None:
+def test_session_excludes_reported_encoder_token_truncation() -> None:
 	from harness.campaign import SessionConfig
 
 	cfg = config(session=SessionConfig(encoder_identity={"model": "fixture", "max_tokens": 32}))
@@ -386,8 +380,156 @@ def test_session_excludes_possible_encoder_token_truncation() -> None:
 			"Just the answer: " + "context " * 10 + "second",
 		)
 	):
-		result = observe(store, cfg, str(i), text, float(i), embedding=[1.0, 0.0])
+		result = observe(
+			store, cfg, str(i), text, float(i), embedding=[1.0, 0.0], semantic_complete=False
+		)
 	assert result["components"]["semantic_repetition"] == 0
 	assert result["components"]["truncated_count"] == 2
 	assert result["components"]["semantic_missingness"] == "truncated_current_input"
+	assert result["components"]["semantic_contribution"] == 0
+
+
+@pytest.mark.parametrize("embedding", [None, [1.0, 0.0]])
+@pytest.mark.parametrize(
+	"template", ["What about chapter {}?", "And for the year {}?", "Why did test {} fail?"]
+)
+def test_session_preserves_followup_sweep_discount(
+	template: str, embedding: list[float] | None
+) -> None:
+	cfg = CampaignConfig(
+		namespace="followups", min_samples=16, mode="throttle", session=session_config().session
+	)
+	store = MemoryStore()
+	for i in range(16):
+		result = observe(store, cfg, str(i), template.format(i), float(i), embedding=embedding)
 	assert result["score"] == 0
+	assert not result["should_throttle"]
+
+
+@pytest.mark.parametrize(
+	"template", ["Explain concept number {} in one paragraph", "Name a word that rhymes with {}"]
+)
+def test_session_keeps_legacy_lexical_detections(template: str) -> None:
+	cfg = session_config(mode="throttle")
+	store = MemoryStore()
+	for i in range(2):
+		result = observe(store, cfg, str(i), template.format(i), float(i))
+	assert result["score"] == 1 and result["should_throttle"]
+	assert result["components"]["lexical_contribution"] == 1
+
+
+@pytest.mark.parametrize(
+	"instruction",
+	[
+		"Return only the final numeric answer, prefixed by ####.",
+		"Output only the result.",
+		"Respond with just the number.",
+		"Reply with one word.",
+	],
+)
+def test_session_online_answer_formats_contribute(instruction: str) -> None:
+	from harness.session_features import online_answer_only
+
+	assert online_answer_only(instruction)
+	cfg = session_config()
+	store = MemoryStore()
+	for i, question in enumerate(("Calculate seven plus two", "Find the sum of nine and four")):
+		result = observe(
+			store, cfg, str(i), question + ". " + instruction, float(i), embedding=[1.0, 0.0]
+		)
+	assert result["components"]["semantic_contribution"] == 1
+	assert result["status"] == "alert"
+
+
+def test_session_actual_task_templates_and_common_words() -> None:
+	from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX, SQUAD_PROMPT
+	from harness.session_features import online_answer_only
+
+	for text in (
+		AG_NEWS_PROMPT.format(text="A team won a match"),
+		SQUAD_PROMPT.format(context="The sky is blue", question="What color is the sky?"),
+		"Calculate seven plus two" + GSM8K_EVAL_SUFFIX,
+	):
+		assert online_answer_only(text)
+	cfg = session_config()
+	store = MemoryStore()
+	for i, question in enumerate(
+		("Identify the value that completes this", "Find that missing result")
+	):
+		result = observe(
+			store, cfg, str(i), question + ". Answer only.", float(i), embedding=[1.0, 0.0]
+		)
+	assert result["score"] == 1
+	assert result["components"]["workflow_multiplier"] == 1
+
+
+def test_session_encoder_free_rephrasing_is_scored_and_bounded() -> None:
+	from harness.campaign import SessionConfig, prepare_session_observation
+
+	cfg = config(session=SessionConfig())
+	store = MemoryStore()
+	for i, suffix in enumerate(("morning", "evening")):
+		text = "Answer only: report the result of adding seven and two in the " + suffix
+		result = observe(
+			store,
+			cfg,
+			str(i),
+			text,
+			float(i),
+			session_observation=prepare_session_observation(text),
+		)
+	assert result["components"]["selected_route"] == "rephrasing"
+	assert result["components"]["rephrasing_contribution"] == 1
+	assert result["components"]["semantic_contribution"] == 0
+	assert result["status"] == "alert"
+	prepared = prepare_session_observation(" ".join(f"token{i}" for i in range(1000)))
+	assert len(prepared.shingles) <= 254
+	assert not prepared.lexical_complete
+	with pytest.raises(CampaignError, match="differs from scored text"):
+		observe(store, cfg, "wrong-preparation", "another text", 3.0, session_observation=prepared)
+
+
+def test_session_semantic_completeness_is_per_input_and_bound_to_retry() -> None:
+	cfg = session_config()
+	store = MemoryStore()
+	text = "Answer only: " + "some context " * 40
+	assert len(text.encode()) > 512
+	for i in range(2):
+		result = observe(
+			store,
+			cfg,
+			str(i),
+			text + str(i),
+			float(i),
+			embedding=[1.0, 0.0],
+			semantic_complete=True,
+		)
+	assert result["components"]["semantic_contribution"] == 1
+	unknown = observe(
+		store, cfg, "unknown", "another question", 3.0, embedding=[1.0, 0.0], semantic_complete=None
+	)
+	assert unknown["components"]["semantic_missingness"] == "unknown_completeness"
+	assert unknown["components"]["truncated_count"] == 0
+	with pytest.raises(CampaignError, match="different content"):
+		observe(
+			store,
+			cfg,
+			"unknown",
+			"another question",
+			3.0,
+			embedding=[1.0, 0.0],
+			semantic_complete=False,
+		)
+
+
+def test_session_old_contract_and_duplicate_config_rejected(tmp_path: Path) -> None:
+	from harness.campaign import SessionConfig
+
+	with pytest.raises(ValidationError):
+		SessionConfig(version="semantic-session-v1")  # type: ignore[arg-type]
+	path = tmp_path / "duplicate.json"
+	path.write_text(
+		'{"namespace":"test","session":{"version":"semantic-session-v2"},"session":null}'
+	)
+	with pytest.raises(CampaignError, match="duplicate"):
+		load_campaign_config(path)
