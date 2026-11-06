@@ -4,7 +4,7 @@ Updated 2026-11-05. This is the active implementation and testing backlog for ex
 
 All checkboxes below describe remaining work. Existing plumbing is a starting point, not completion of these product requirements. Mark an item complete only with linked implementation, relevant checks and the evidence named in its section. Record software completion separately from measured detection performance and live operational qualification.
 
-An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage and Codex review. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
+An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
 
 ## Starting point and release order
 
@@ -54,6 +54,8 @@ Completion evidence: T0 proves durable, ordered, bounded state under retries, wo
 - [ ] D2.7 Version feature extraction and any learned similarity encoder. Cache safely within the tenant/contract scope, bound encode cost and test feature failures, long inputs and missing embeddings without substituting fake evidence.
 
 Completion evidence: deterministic fixtures establish feature semantics and resource bounds; T1/T3 show which features retain detection value after task, topic, source, volume and timing controls. Compare existing shadows and each candidate individually before fusion. Sources: [PRADA](https://arxiv.org/html/1805.02628v3), [SEAT](https://people.eecs.berkeley.edu/~daw/papers/seat-aisec21.pdf), [VarDetect](https://arxiv.org/pdf/2107.05166) and [LLM MMD](https://arxiv.org/html/2606.05725v1). Their published thresholds do not transfer to TRACE.
+
+Implementation note: the opt-in `semantic-session-v2` experiment covers bounded current-anchor semantic and lexical-rephrasing families, repeat/resampling controls, lightweight session definitions and a frozen maximum of legacy lexical and corroborated session contributions. Its revised contract preserves the legacy lexical contribution, caps rephrasing state, and checks semantic input completeness outside the admission transaction. Deterministic CPU/API controls exercise missingness, long prefixes, actual answer-format instructions and legitimate workflows. This is partial development work for D2.2/D2.4 and D3.1/D3.2/D3.5; the checkboxes remain open pending representative cohorts, replay/qualification and the broader contracts below. Multiscale scoring and conditional MMD are follow-on work. See [campaign configuration and limits](docs/campaign.md#opt-in-semantic-session-experiment).
 
 ## D3. Implement a combined campaign scorer
 

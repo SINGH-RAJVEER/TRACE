@@ -57,6 +57,16 @@ class BGEEncoder:
 		with self._lock:
 			return self._encode(texts)
 
+	def input_complete(self, text: str) -> bool:
+		"""Check this input's actual token budget without running the model.
+
+		This optional serving capability stays outside the Encoder protocol and its
+		calibration identity. Callers must invoke it before opening a write transaction.
+		"""
+		with self._lock:
+			ids = self.tokenizer(text, add_special_tokens=True, truncation=False)["input_ids"]
+			return len(ids) <= self.max_tokens
+
 	def _encode(self, texts: list[str]) -> Array:
 		rows: list[Array] = []
 		for start in range(0, len(texts), self.batch_size):

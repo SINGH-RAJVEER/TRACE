@@ -68,7 +68,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 			campaign = CampaignConfig(namespace=args.namespace, mode=args.mode)
 			args.output.parent.mkdir(parents=True, exist_ok=True)
 			with args.output.open("x") as stream:
-				stream.write(json.dumps(campaign.model_dump(mode="json"), indent="\t") + "\n")
+				stream.write(
+					json.dumps(campaign.model_dump(mode="json", exclude_none=True), indent="\t")
+					+ "\n"
+				)
 			print(f"Created {args.output}; mode={campaign.mode}; qualified=false")
 			return
 		if args.command == "legacy":
@@ -77,9 +80,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 			)
 		else:
 			settings, campaign = prepare_settings(args.config, args.state_db, args.base_policy)
+			session = campaign.session.version if campaign.session is not None else "disabled"
 			print(
 				f"Campaign {campaign.digest}; mode={campaign.mode}; qualified=false; "
-				f"base_policy={settings.policy}"
+				f"base_policy={settings.policy}; session={session}"
 			)
 			if args.command == "validate":
 				print(

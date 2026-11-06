@@ -6,10 +6,12 @@ import asyncio
 import hashlib
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 from distillation.benchmarks.traffic_runner import solve_challenge
 from harness import campaign as campaign_module
@@ -395,6 +397,66 @@ async def test_idempotent_retries_are_not_counted_and_replay_the_throttle(
 
 
 @pytest.mark.asyncio
+async def test_requests_refused_in_cooldown_cannot_be_replayed_unscored(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, log = _campaign_app(artifacts, tmp_path)
+	async with _client(app) as client:
+		responses = await _until_throttled(client)
+		until = responses[-1].json()["campaign"]["throttle_until"]
+		keys = [{"Idempotency-Key": f"banked-{index}"} for index in range(8)]
+		for index, headers in enumerate(keys):
+			refused = await _post(client, _templated(100 + index), until - 10, headers=headers)
+			assert refused.status_code == 429
+		served = teacher.calls
+		replays = [
+			await _post(client, _templated(100 + index), until + 10, headers=headers)
+			for index, headers in enumerate(keys)
+		]
+	# The window restarts at expiry, so replays are scored and earn a new cooldown.
+	assert [r.status_code for r in replays] == [200, 200] + [429] * 6
+	assert teacher.calls == served + 2
+	assert _events(log, "decision")[-1]["campaign"]["retained_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_exact_repeats_throttle_only_when_they_can_yield_new_samples(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, _, _ = _campaign_app(artifacts, tmp_path)
+	body = _request("ping")
+	sampled = body | {"temperature": 0.7}
+
+	async def statuses(payload: dict[str, Any], actor: str) -> list[int]:
+		return [
+			(
+				await client.post(
+					PATH,
+					json=payload,
+					headers={"X-Benchmark-Actor": actor, "X-Harness-Time": str(1000.0 + index)},
+				)
+			).status_code
+			for index in range(4)
+		]
+
+	async with _client(app) as client:
+		assert await statuses(body, "u1") == [200] * 4
+		assert (await statuses(sampled, "u2"))[-1] == 429
+
+
+@pytest.mark.asyncio
+async def test_questions_past_the_scored_text_bound_are_not_one_template(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, _, _ = _campaign_app(artifacts, tmp_path, config={"max_text_chars": 64})
+	context = "shared document words " * 10
+	async with _client(app) as client:
+		for index in range(6):
+			response = await _post(client, f"{context} ask {chr(97 + index)}", 1000.0 + index)
+			assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_restart_keeps_the_evidence_and_the_cooldown_until_it_expires(
 	artifacts: Artifacts, tmp_path: Path
 ) -> None:
@@ -699,3 +761,223 @@ async def test_out_of_order_timestamp_preserves_the_observation(
 	assert decisions[1]["campaign"]["evaluated_count"] == 2
 	assert decisions[1]["campaign"]["components"]["ordering_adjusted"] is True
 	assert not _events(log, "campaign_error")
+
+
+def test_session_encoder_identity_is_checked_before_opening_state(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	with pytest.raises(ValueError, match="campaign encoder representation"):
+		_campaign_app(
+			artifacts,
+			tmp_path,
+			mode="observe",
+			config={"session": {"encoder_identity": {"model": "different"}}},
+		)
+	assert not (tmp_path / "state.sqlite3").exists()
+
+
+@pytest.mark.asyncio
+async def test_session_encoding_uses_bound_input_and_durable_retry(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	encoded: list[str] = []
+	real_encode = Encoder.encode
+
+	def record(self: Encoder, texts: list[str]) -> Any:
+		encoded.extend(texts)
+		return real_encode(self, texts)
+
+	monkeypatch.setattr(Encoder, "encode", record)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		mode="observe",
+		config={"max_text_chars": 32, "session": {"encoder_identity": {"model": "fake"}}},
+	)
+	text = "Explain the water cycle and its impact on a coastal ecosystem"
+	async with _client(app) as client:
+		first = await _post(client, text, 1000.0, headers={"Idempotency-Key": "bounded"})
+		retry = await _post(client, text, 1001.0, headers={"Idempotency-Key": "bounded"})
+	assert first.status_code == retry.status_code == 200
+	assert first.json() == retry.json() and teacher.calls == 1
+	assert encoded == [text]
+	with sqlite3.connect(tmp_path / "state.sqlite3") as connection:
+		state = json.loads(connection.execute("SELECT state FROM campaign").fetchone()[0])
+	assert state["count"] == 1
+	assert state["rows"][0]["vector"] is None
+	assert _events(log, "decision")[0]["campaign"]["qualified"] is False
+
+
+@pytest.mark.asyncio
+async def test_session_without_encoder_contract_does_not_reuse_unbound_base_vectors(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, _ = _campaign_app(artifacts, tmp_path, mode="observe", config={"session": {}})
+	async with _client(app) as client:
+		assert (await _post(client, "Explain evaporation", 1000.0)).status_code == 200
+	assert teacher.calls == 1
+	with sqlite3.connect(tmp_path / "state.sqlite3") as connection:
+		state = json.loads(connection.execute("SELECT state FROM campaign").fetchone()[0])
+	assert state["rows"][0]["vector"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_initializes_encoder_for_allow_policy_without_base_monitor(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	from harness import encoder as encoder_module
+	from test_harness_api import Teacher
+
+	constructed: list[dict[str, Any]] = []
+	encoded: list[str] = []
+
+	class SessionEncoder(Encoder):
+		def input_complete(self, text: str) -> bool:
+			return True
+
+		def identity(self) -> dict[str, Any]:
+			return {"model": "fake", "encoded": len(encoded), "truncated": 0}
+
+		def encode(self, texts: list[str]) -> Any:
+			encoded.extend(texts)
+			return super().encode(texts)
+
+	def factory(**kwargs: Any) -> SessionEncoder:
+		constructed.append(kwargs)
+		return SessionEncoder()
+
+	monkeypatch.setattr(encoder_module, "BGEEncoder", factory)
+	settings = Settings(  # type: ignore[call-arg]
+		_env_file=None,
+		HARNESS_TRUST_ACTOR_HEADER=True,
+		HARNESS_POLICY="allow",
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		HARNESS_CAMPAIGN_CONFIG=_config(
+			tmp_path, mode="observe", session={"encoder_identity": {"model": "fake"}}
+		),
+		HARNESS_DECISION_LOG=tmp_path / "decisions.jsonl",
+		HARNESS_DECEPTION_KEY_FILE=tmp_path / "key",
+	)
+	teacher = Teacher()
+	app = app_module.create_app(
+		settings=settings, teacher=teacher, calibration=artifacts[0], scorer=artifacts[1]
+	)
+	async with _client(app) as client:
+		assert (await _post(client, "Explain evaporation")).status_code == 200
+	assert len(constructed) == 1
+	assert encoded == ["Explain evaporation"]
+	assert teacher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_session_shared_truncated_prefix_does_not_supply_semantic_evidence(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		config={"max_text_chars": 32, "session": {"encoder_identity": {"model": "fake"}}},
+	)
+	prefix = "Return only the answer for this shared document context. " * 3
+	async with _client(app) as client:
+		for index, suffix in enumerate(["tides", "volcanoes", "astronomy", "botany"]):
+			assert (await _post(client, prefix + suffix, 1000.0 + index)).status_code == 200
+	assert teacher.calls == 4
+	last = _events(log, "decision")[-1]["campaign"]
+	assert last["components"]["semantic_repetition"] == 0
+	assert last["score"] == 0
+
+
+@pytest.mark.asyncio
+async def test_session_paraphrase_embeddings_reach_online_score(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	def paraphrases(self: Encoder, texts: list[str]) -> Any:
+		return np.tile([1.0, 0.0, 0.0, 0.0], (len(texts), 1))
+
+	monkeypatch.setattr(Encoder, "encode", paraphrases)
+	monkeypatch.setattr(Encoder, "input_complete", lambda self, text: True, raising=False)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		config={"session": {"encoder_identity": {"model": "fake"}}},
+	)
+	prompts = [
+		"Which liquid falls from clouds? Answer only",
+		"Name the precipitation made of water. Just the answer",
+		"Identify what wets the ground during a storm. No explanation",
+	]
+	async with _client(app) as client:
+		responses = [
+			await _post(client, prompt, 1000.0 + index) for index, prompt in enumerate(prompts)
+		]
+	assert [response.status_code for response in responses] == [200, 200, 429]
+	assert teacher.calls == 2
+	evidence = _events(log, "campaign_throttle")[-1]["campaign"]
+	assert evidence["qualified"] is False
+	assert evidence["components"]["semantic_repetition"] == 1
+	assert evidence["components"]["template_repetition"] == 0
+
+
+def test_bge_completeness_uses_tokenizer_budget_not_bytes() -> None:
+	from harness.encoder import BGEEncoder
+
+	encoder = BGEEncoder.__new__(BGEEncoder)
+	encoder._lock = threading.Lock()
+	encoder.max_tokens = 512
+	seen: list[dict[str, Any]] = []
+
+	def tokenize(text: str, **kwargs: Any) -> dict[str, list[int]]:
+		seen.append(kwargs)
+		return {"input_ids": [0] * (len(text.split()) + 2)}
+
+	encoder.tokenizer = tokenize
+	long_complete = "evaporation precipitation " * 30
+	assert len(long_complete.encode()) > 512
+	assert encoder.input_complete(long_complete)
+	assert not encoder.input_complete("rain " * 511)
+	assert seen == [{"add_special_tokens": True, "truncation": False}] * 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("complete", [True, False, None])
+async def test_session_semantics_require_explicit_complete_representation(
+	artifacts: Artifacts,
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	complete: bool | None,
+) -> None:
+	monkeypatch.setattr(
+		Encoder,
+		"encode",
+		lambda self, texts: np.tile([1.0, 0.0, 0.0, 0.0], (len(texts), 1)),
+	)
+	if complete is not None:
+		monkeypatch.setattr(Encoder, "input_complete", lambda self, text: complete, raising=False)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		mode="observe",
+		config={"session": {"encoder_identity": {"model": "fake"}}},
+	)
+	# Deliberately distinct text with a scripted common semantic direction. All inputs
+	# exceed the former byte guard, without needing a model or tokenizer download.
+	prompts = [
+		"evaporation " * 60 + "Return only the final numeric answer, prefixed by ####.",
+		"precipitation " * 60 + "Answer with only the topic name.",
+		"condensation " * 60 + "Output only the result.",
+	]
+	async with _client(app) as client:
+		for index, prompt in enumerate(prompts):
+			assert len(prompt.encode()) > 512
+			assert (await _post(client, prompt, 1000.0 + index)).status_code == 200
+	assert teacher.calls == 3
+	last = _events(log, "decision")[-1]["campaign"]["components"]
+	assert last["semantic_repetition"] == (1 if complete is True else 0)
+	if complete is True:
+		assert last["semantic_contribution"] > 0
+		assert last["semantic_missingness"] is None
+	elif complete is None:
+		assert last["semantic_missingness"] == "unknown_completeness"
+	else:
+		assert last["semantic_missingness"] == "truncated_current_input"

@@ -52,12 +52,14 @@ from harness.campaign import (
 	campaign_key,
 	load_campaign_config,
 	observe_campaign,
+	prepare_session_observation,
+	text_identity,
 )
 from harness.deception import noise
 from harness.encoder import Encoder
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
-from harness.path_runtime import RuntimePathCalibration
+from harness.path_runtime import RuntimePathCalibration, encoder_contract
 from harness.policy import (
 	Decision,
 	MMDPolicy,
@@ -345,6 +347,19 @@ def create_app(
 	campaign = (
 		load_campaign_config(config.campaign_config) if config.campaign_config is not None else None
 	)
+	campaign_needs_embeddings = (
+		campaign is not None
+		and campaign.session is not None
+		and campaign.session.encoder_identity is not None
+	)
+	if campaign_needs_embeddings:
+		if encoder is None:
+			from harness.encoder import BGEEncoder
+
+			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+		assert campaign is not None and campaign.session is not None
+		if encoder_contract(encoder.identity()) != campaign.session.encoder_identity:
+			raise ValueError("campaign encoder representation differs from configured identity")
 	if (
 		campaign is not None
 		and campaign.mode == "throttle"
@@ -545,7 +560,8 @@ def create_app(
 		and calibration.aggregate is not None
 		else None
 	)
-	needs_embeddings = config.policy in {"mmd", "path"} or monitor is not None
+	base_needs_embeddings = config.policy in {"mmd", "path"} or monitor is not None
+	needs_embeddings = base_needs_embeddings or campaign_needs_embeddings
 	shadow: ShadowMonitor | None = None
 	if config.shadow_scorers:
 		if calibration.shadow is None:
@@ -1457,19 +1473,49 @@ def create_app(
 			)
 			return spent
 		embedding = None
+		campaign_embedding = None
+		campaign_semantic_complete: bool | None = None
 		if needs_embeddings and encoder is not None:
 			try:
-				encoded_text = detector_text(served_task, text)
-				embedding = (
-					await batcher.encode(encoded_text)
-					if batcher is not None
-					else (await asyncio.to_thread(encoder.encode, [encoded_text]))[0]
-				)
+				encoded_text = detector_text(served_task, text) if base_needs_embeddings else None
+				if encoded_text is not None:
+					embedding = (
+						await batcher.encode(encoded_text)
+						if batcher is not None
+						else (await asyncio.to_thread(encoder.encode, [encoded_text]))[0]
+					)
+				if campaign_needs_embeddings:
+					assert campaign is not None
+					# Tokenizer work happens before the write transaction. Unknown or
+					# truncated representations cannot supply semantic evidence.
+					campaign_text = text[: campaign.max_text_chars]
+					complete = getattr(encoder, "input_complete", None)
+					if campaign_text != text:
+						campaign_semantic_complete = False
+					elif callable(complete):
+						campaign_semantic_complete = await asyncio.to_thread(
+							complete, campaign_text
+						)
+						if not isinstance(campaign_semantic_complete, bool):
+							raise ValueError("encoder completeness must be a boolean")
+					if campaign_semantic_complete is True:
+						campaign_embedding = (
+							embedding
+							if campaign_text == encoded_text
+							else (
+								await batcher.encode(campaign_text)
+								if batcher is not None
+								else (await asyncio.to_thread(encoder.encode, [campaign_text]))[0]
+							)
+						)
 			except asyncio.QueueFull:
 				return _error(503, "encoder_overloaded", "encoder queue is full", None)
 			except Exception:
 				log.write("encoder_error", account=account, request_digest=digest)
 				return _error(503, "encoder_error", "encoder failed", None)
+		if campaign is not None and campaign.session is None:
+			# Preserve v2 telemetry when the experimental extension is disabled.
+			campaign_embedding = embedding
 		if shadow is not None and embedding is None and encoder is not None:
 			# Shadow-only encoding happens before anything commits; a failure only skips it.
 			try:
@@ -1504,6 +1550,12 @@ def create_app(
 			else secrets.token_hex(16)
 		)
 		observe_failed = False
+		campaign_identity = text_identity(text) if campaign is not None else None
+		campaign_session_observation = (
+			prepare_session_observation(text[: campaign.max_text_chars])
+			if campaign is not None and campaign.session is not None
+			else None
+		)
 		while True:
 			campaign_result = None
 			campaign_override = False
@@ -1562,11 +1614,15 @@ def create_app(
 									organization=organization,
 									request_id=campaign_request,
 									text=text[: campaign.max_text_chars],
+									identity=campaign_identity,
+									resampling=request.temperature > 0,
+									semantic_complete=campaign_semantic_complete,
+									session_observation=campaign_session_observation,
 									now=now,
 									domain=domain,
 									embedding=(
-										np.asarray(embedding, dtype=np.float64).tolist()
-										if embedding is not None
+										np.asarray(campaign_embedding, dtype=np.float64).tolist()
+										if campaign_embedding is not None
 										else None
 									),
 								)

@@ -13,6 +13,10 @@ setup:
 setup-eval:
 	uv sync --frozen --all-packages --extra eval --extra embed
 
+# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
+teacher-gguf *args:
+	bash scripts/teacher-gguf.sh "$@"
+
 # Start the teacher adapter; the upstream model server must already be available.
 teacher:
 	uv run --frozen teacher-api

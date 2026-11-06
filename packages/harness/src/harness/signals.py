@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from harness.corpus import CorpusIndex, normalized, shingles
 from harness.logdet import CoverageSpec, length_bin
+from harness.session_features import answer_only, followup_language
 from harness.shadow import minimum_null, upper_p
 
 
@@ -79,12 +80,7 @@ def raw_signals(
 			),
 			default=0.0,
 		)
-		followups += bool(prior_sizes) and (
-			near >= 0.25
-			or bool(
-				re.search(r"\b(also|instead|again|previous|that|follow.up)\b", row.text.lower())
-			)
-		)
+		followups += bool(prior_sizes) and (near >= 0.25 or followup_language(row.text))
 		rephrases += bool(prior_sizes) and near >= 0.5
 		for part in current:
 			postings.setdefault(part, []).append(len(prior_sizes))
@@ -102,16 +98,7 @@ def raw_signals(
 		"revisit_followup_rate": followups / max(1, n - 1),
 		"rephrasing_rate": rephrases / max(1, n - 1),
 		"template_diversity": len(templates) / n,
-		"answer_only_share": sum(
-			bool(
-				re.search(
-					r"\b(answer only|only (?:the )?answer|no explanation|just (?:the )?answer)\b",
-					r.text.lower(),
-				)
-			)
-			for r in rows
-		)
-		/ n,
+		"answer_only_share": sum(answer_only(r.text) for r in rows) / n,
 	}
 	if len(gaps) and float(np.mean(gaps)) > 0:
 		result["interarrival_cv"] = float(np.std(gaps) / np.mean(gaps))

@@ -8,6 +8,8 @@
 		python314
 		# Interpreter for the separate vLLM teacher environment in .venv-vllm.
 		python312
+		# Local GGUF teacher server. Vulkan reaches both the NVIDIA and AMD GPUs.
+		(llama-cpp.override { vulkanSupport = true; })
 		uv
 		bun
 		# Native compilation for Python extensions.
