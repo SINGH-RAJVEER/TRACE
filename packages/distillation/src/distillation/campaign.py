@@ -200,8 +200,8 @@ def policy_binding(log: bytes, campaign: dict[str, Any] | None) -> dict[str, Any
 	declared = campaign["digest"] if campaign else None
 	if digests - ({declared} if declared else set()):
 		problems.append("detector evidence from an undeclared campaign configuration")
-	if declared and decisions and declared not in digests:
-		problems.append("no decision carries evidence from the declared campaign configuration")
+	if declared and (decisions or revisions) and declared not in digests:
+		problems.append("no row carries evidence from the declared campaign configuration")
 	if throttles and (campaign is None or campaign["mode"] != "throttle"):
 		problems.append("campaign throttle logged by an arm that did not declare throttling")
 	status = "conflict" if problems else "bound" if revisions else "unknown"

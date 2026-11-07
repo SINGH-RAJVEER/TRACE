@@ -575,8 +575,7 @@ async def test_padded_copy_of_the_draft_is_never_released_or_retained(
 	artifacts: Artifacts, tmp_path: Path
 ) -> None:
 	async def padded(request: TeacherGenerationRequest) -> TeacherGeneration:
-		padding = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron"
-		return generation(f"{padding} pi rho sigma tau upsilon {EXPLANATION}")
+		return generation(" ".join(f"{word}, padding" for word in EXPLANATION.split()))
 
 	app, log, state = make_app(artifacts, tmp_path, Teacher(rewrite=padded))
 	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "copy"}

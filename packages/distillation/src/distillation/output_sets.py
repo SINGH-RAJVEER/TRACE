@@ -7,6 +7,7 @@ No teacher or model is loaded here. Every recipe operates on one frozen acquisit
 import hashlib
 import json
 import math
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -53,6 +54,7 @@ INSTRUCTIONS = {
 # A development value, not a measured boundary between rewriting and copying.
 MAX_COPIED_FRACTION = 0.8
 _COPY_SHINGLE = 5
+_WORD = re.compile(r"\w+")
 
 
 def _copied_share(words: list[str], other: list[str]) -> float:
@@ -64,10 +66,33 @@ def _copied_share(words: list[str], other: list[str]) -> float:
 	return sum(gram in seen for gram in grams) / len(grams)
 
 
+def _ordered_share(source: list[str], candidate: list[str]) -> float:
+	"""The longest common subsequence as a share of the source, in bit-parallel form."""
+	if not source:
+		return 0.0
+	masks: dict[str, int] = {}
+	for index, word in enumerate(source):
+		masks[word] = masks.get(word, 0) | 1 << index
+	full = (1 << len(source)) - 1
+	row = full
+	for word in candidate:
+		matches = row & masks.get(word, 0)
+		row = ((row + matches) | (row - matches)) & full
+	return (len(source) - row.bit_count()) / len(source)
+
+
 def copied_fraction(candidate: str, source: str) -> float:
-	"""How much of either text is the other, so padding cannot hide a complete copy."""
-	words, original = candidate.casefold().split(), source.casefold().split()
-	return max(_copied_share(words, original), _copied_share(original, words))
+	"""How much of the source survives in the candidate, despite padding between its words.
+
+	Words ignore case and punctuation. Reordered single words, synonyms, translation and
+	encodings all evade this, so it is a heuristic and never shows the draft cannot be recovered.
+	"""
+	words, original = _WORD.findall(candidate.casefold()), _WORD.findall(source.casefold())
+	return max(
+		_copied_share(words, original),
+		_copied_share(original, words),
+		_ordered_share(original, words),
+	)
 
 
 class Codec(Protocol):

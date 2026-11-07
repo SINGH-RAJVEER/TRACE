@@ -281,6 +281,8 @@ def export_campaign_checkpoints(
 		):
 			raise CheckpointError("ambiguous policy attribution")
 		policy_ids.add(ident)
+	if attributed and summary.get("attribution_complete") is not True:
+		raise CheckpointError("incomplete policy attribution")
 	records: dict[str, LedgerRecord] = {}
 	try:
 		for row in _lines(data["ledger"]):

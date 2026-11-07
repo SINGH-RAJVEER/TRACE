@@ -161,6 +161,7 @@ For example, a monitor JSON can declare:
 	"version": "campaign-coverage-v1",
 	"spec": {"seed": 42, "input_dim": 384, "dim": 64, "ridge": 1.0},
 	"encoder_identity": {"model": "replace-with-actual-stable-identity"},
+	"serialization": "raw_turn",
 	"domain": "text",
 	"max_text_chars": 4096,
 	"looks": [16, 32, 64, 128],

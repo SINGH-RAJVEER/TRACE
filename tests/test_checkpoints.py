@@ -689,3 +689,15 @@ async def test_unbound_collection_keeps_the_legacy_contract_and_failures(tmp_pat
 	assert set(manifest["interventions"]) == {"first_alert", "first_restriction", "first_refusal"}
 	assert manifest["interventions"]["first_restriction"]["status"] == "unknown"
 	assert "restricted" not in manifest["checkpoints"][-1]["cost"]["outcomes"]
+
+
+@pytest.mark.asyncio
+async def test_a_declared_campaign_needs_its_own_evidence_to_bind(tmp_path: Path) -> None:
+	def script(request: httpx.Request, count: int, rows: list[dict[str, Any]]) -> httpx.Response:
+		rows.append({"event": "release", "policy_revision": "revision"})
+		return _served(request, count)
+
+	summary, _, campaign = await _bound_campaign(tmp_path, script, mode="observe", budget=3)
+	assert summary["policy_binding"]["status"] == "conflict"
+	with pytest.raises(CheckpointError, match="conflict"):
+		export_campaign_checkpoints(campaign, tmp_path / "export")

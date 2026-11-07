@@ -20,6 +20,7 @@ from distillation.output_sets import (
 	Recipe,
 	Rewrite,
 	build_arm,
+	copied_fraction,
 	loss_values,
 	select_training_set,
 	tensor_loss,
@@ -515,3 +516,15 @@ def test_comparison_refuses_a_clean_candidate(
 	decl["development"]["candidate"]["recipe"] = "clean"
 	report = comparison_report(decl, gate_report=gate)
 	assert "the candidate must use a protective output recipe" in report["refusal_reasons"]
+
+
+def test_copied_fraction_sees_through_padding_case_and_punctuation() -> None:
+	source = "Add the two totals together to reach the final total"
+	words = source.split()
+	assert copied_fraction(f"pad {source} pad", source) == 1.0
+	assert copied_fraction(source.upper(), source) == 1.0
+	assert copied_fraction(" ".join(f"{word}," for word in words), source) == 1.0
+	assert copied_fraction(" ".join(f"{word} pad" for word in words), source) == 1.0
+	chunks = [" ".join(words[i : i + 3]) for i in range(0, len(words), 3)]
+	assert copied_fraction(" padding here ".join(chunks), source) == 1.0
+	assert copied_fraction("Sum both quantities to obtain the aggregate", source) < 0.5
