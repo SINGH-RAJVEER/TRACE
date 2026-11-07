@@ -96,6 +96,8 @@ COLUMNS = (
 	"campaign_digest",
 	"output_receipts",
 	"output_receipt_mismatches",
+	# Campaign rows: the teacher's reasoning mode, on, off or empty when unknown.
+	"teacher_thinking",
 )
 KEY = ("run_id", "kind", "attack", "arm", "stratum")
 RESTRICTION_COLUMNS = ("campaign", "entitlement", "rate", "output")
@@ -184,6 +186,23 @@ def _attributed_fields(report: dict[str, Any], summary: dict[str, Any] | None) -
 	}
 
 
+def _teacher_thinking(contract: dict[str, Any] | None, ledger: Path) -> str | None:
+	"""on or off from the requested mode, else from the teacher-reported mode in the ledger.
+
+	Contracts before teachers reasoned by default requested non-thinking explicitly.
+	"""
+	requested = ((contract or {}).get("options") or {}).get("enable_thinking")
+	if isinstance(requested, bool):
+		return "on" if requested else "off"
+	if ledger.is_file():
+		with ledger.open() as stream:
+			for line in stream:
+				reported = (json.loads(line).get("teacher") or {}).get("thinking")
+				if isinstance(reported, bool):
+					return "on" if reported else "off"
+	return None
+
+
 def campaign_row(
 	directory: Path,
 	schedule_dir: Path | None,
@@ -226,6 +245,7 @@ def campaign_row(
 	report = load_campaign_summary(campaign) or {}
 	levels = report.get("levels") or {}
 	return {
+		"teacher_thinking": _teacher_thinking(contract, campaign / "ledger.jsonl"),
 		"kind": "campaign",
 		"attack": attack,
 		"arm": arm,
@@ -688,6 +708,7 @@ def comparison_from_index(
 	conditions: list[dict[str, Any]] = []
 	outcomes: dict[str, Any] = {}
 	studies: set[str] = set()
+	modes: set[str] = set()
 	for arm in arms:
 		selected = [
 			r
@@ -718,6 +739,10 @@ def comparison_from_index(
 		for field in ("policy", "accumulator", "partition"):
 			if len({r[field] for r in complete}) > 1:
 				raise ValueError(f"arm {arm} pools runs with different {field} values")
+		modes.update(r["teacher_thinking"] for r in complete)
+		if len(modes) > 1:
+			# A reasoning teacher answers differently, so its arms are not comparable.
+			raise ValueError("compared runs differ or are unknown in teacher reasoning mode")
 
 		def shared(field: str, rows: list[dict[str, str]] = complete) -> float | None:
 			values = {r[field] for r in rows}

@@ -182,7 +182,11 @@ async def test_dense_locked_rewrites_only_the_explanation_and_accounts_for_both_
 	body = first.json()
 	assert body["message"]["content"] == RELEASED
 	assert body["finish_reason"] == "stop"
-	assert body["usage"] == {"input_tokens": None, "output_tokens": count(RELEASED)}
+	assert body["usage"] == {
+		"input_tokens": None,
+		"output_tokens": count(RELEASED),
+		"reasoning_tokens": None,
+	}
 	rewrite = teacher.requests[1]
 	assert len(teacher.requests) == 4
 	assert rewrite.messages[0].content == f"{DENSE_INSTRUCTION}\n\n{EXPLANATION}"
@@ -294,7 +298,11 @@ async def test_a_failed_rewrite_uses_the_declared_fallback_and_never_the_draft(
 		assert first.status_code == 200
 		assert first.json()["message"]["content"] == "#### 42"
 		# Neither call's provider count reaches the client.
-		assert first.json()["usage"] == {"input_tokens": None, "output_tokens": count("#### 42")}
+		assert first.json()["usage"] == {
+			"input_tokens": None,
+			"output_tokens": count("#### 42"),
+			"reasoning_tokens": None,
+		}
 		assert record["outcome"] == "fallback_final_answer"
 		assert record["fallback"] == "final_answer"
 		assert record["released_sha256"] == sha256("#### 42")

@@ -16,6 +16,7 @@ from distillation.gateway_cli import app as gateway_app
 from distillation.learning_curve_cli import app as learning_curve_app
 from distillation.output_study_cli import app as output_study_app
 from distillation.progress import console
+from distillation.watermark_cli import app as watermark_app
 
 app = typer.Typer(no_args_is_help=True)
 tasks_app = typer.Typer(no_args_is_help=True)
@@ -30,6 +31,7 @@ traffic_app = typer.Typer(no_args_is_help=True)
 app.add_typer(traffic_app, name="traffic")
 acquisition_app = typer.Typer(no_args_is_help=True)
 app.add_typer(acquisition_app, name="acquisition")
+app.add_typer(watermark_app, name="watermark")
 
 
 @acquisition_app.command("manifest")

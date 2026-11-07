@@ -204,6 +204,13 @@ class TierBudget:
 	tiers: dict[str, str]
 	contracts: dict[str, RollingBudget]
 
+	def level(self, tx: Transaction, account: str, now: float) -> str:
+		"""The effective tier: a declared new principal is established once promoted."""
+		declared = self.tiers.get(account, "new")
+		if declared != "new":
+			return declared
+		return "new" if self.is_new(tx, account, now) else "established"
+
 	def is_new(self, tx: Transaction, account: str, now: float) -> bool:
 		if self.tiers.get(account, "new") != "new":
 			return False
@@ -272,6 +279,9 @@ def _exposure(rows: list[Reservation], now: float) -> Exposure:
 class Transaction(Protocol):
 	def campaign(self, key: str) -> dict[str, Any] | None: ...
 	def put_campaign(self, key: str, value: dict[str, Any]) -> None: ...
+	def linkage(self, key: str) -> dict[str, Any] | None: ...
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None: ...
+	def linkage_keys(self, prefix: str) -> list[str]: ...
 	def account(self, name: str) -> AccountState | None: ...
 	def put_account(self, name: str, state: AccountState) -> None: ...
 	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None: ...
@@ -313,6 +323,7 @@ class Transaction(Protocol):
 class StateStore(Protocol):
 	def enable_output_receipts(self) -> None: ...
 	def bind_campaign(self, config_hash: str) -> None: ...
+	def bind_linkage(self, config_hash: str) -> None: ...
 	def bind_path(self, calibration_hash: str) -> None: ...
 
 	def transaction(self) -> AbstractContextManager[Transaction]:
@@ -419,6 +430,15 @@ class _MemoryTransaction:
 
 	def put_campaign(self, key: str, value: dict[str, Any]) -> None:
 		self.store.campaigns[key] = copy.deepcopy(value)
+
+	def linkage(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.links.get(key))
+
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None:
+		self.store.links[key] = copy.deepcopy(value)
+
+	def linkage_keys(self, prefix: str) -> list[str]:
+		return sorted(key for key in self.store.links if key.startswith(prefix))
 
 	def __init__(self, store: MemoryStore) -> None:
 		self.store = store
@@ -559,9 +579,17 @@ class MemoryStore:
 		self._campaign_binding: str | None = None
 		self.campaigns: dict[str, dict[str, Any]] = {}
 		self.output_receipts: dict[str, tuple[str, float, dict[str, Any]]] = {}
+		self._linkage_binding: str | None = None
+		self.links: dict[str, dict[str, Any]] = {}
 
 	def enable_output_receipts(self) -> None:
 		pass
+
+	def bind_linkage(self, config_hash: str) -> None:
+		with self._lock:
+			if self._linkage_binding not in {None, config_hash}:
+				raise ValueError("state store is bound to another linkage config")
+			self._linkage_binding = config_hash
 
 	def bind_campaign(self, config_hash: str) -> None:
 		with self._lock:
@@ -590,6 +618,7 @@ class MemoryStore:
 					self.aggregate_alerts,
 					self.campaigns,
 					self.output_receipts,
+					self.links,
 				)
 			)
 			try:
@@ -606,6 +635,7 @@ class MemoryStore:
 					self.aggregate_alerts,
 					self.campaigns,
 					self.output_receipts,
+					self.links,
 				) = snapshot
 				raise
 
@@ -767,6 +797,24 @@ class _SQLiteTransaction:
 			"ON CONFLICT(key) DO UPDATE SET state=excluded.state",
 			(key, json.dumps(value, allow_nan=False)),
 		)
+
+	def linkage(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute("SELECT state FROM linkage WHERE key = ?", (key,)).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO linkage VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
+
+	def linkage_keys(self, prefix: str) -> list[str]:
+		# Keys are hex digests with ASCII prefixes, so a range scan selects the prefix.
+		rows = self.db.execute(
+			"SELECT key FROM linkage WHERE key >= ? AND key < ? ORDER BY key",
+			(prefix, prefix + "\uffff"),
+		).fetchall()
+		return [row[0] for row in rows]
 
 	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
@@ -1082,6 +1130,16 @@ class SQLiteStore:
 			)
 			tx.db.execute(
 				"CREATE TABLE IF NOT EXISTS campaign (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
+
+	def bind_linkage(self, config_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'linkage_config'").fetchone()
+			if row is not None and row[0] != config_hash:
+				raise ValueError("state store is bound to another linkage config")
+			tx.db.execute("INSERT OR IGNORE INTO meta VALUES ('linkage_config', ?)", (config_hash,))
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS linkage (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
 			)
 
 	def bind_path(self, calibration_hash: str) -> None:

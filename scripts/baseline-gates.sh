@@ -120,7 +120,7 @@ start_teacher() {
 		--served-model-name "$TEACHER_MODEL" --host 127.0.0.1 --port "$VLLM_PORT" \
 		--max-model-len "${VLLM_MAX_MODEL_LEN:-8192}" \
 		--gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.90}" \
-		--default-chat-template-kwargs '{"enable_thinking": false}' --language-model-only \
+		--reasoning-parser qwen3 --language-model-only \
 		${VLLM_EXTRA_ARGS:-} >> "$LOGS/vllm.log" 2>&1 8>&- &
 	PIDS+=($!)
 	wait_http "http://127.0.0.1:$VLLM_PORT/health" "${VLLM_STARTUP_TIMEOUT:-1800}" $! \

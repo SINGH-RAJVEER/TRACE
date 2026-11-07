@@ -40,7 +40,14 @@ from distillation.schemas import (
 	TeacherGenerationRequest,
 	TokenUsage,
 )
-from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
+from distillation.teacher import (
+	THINK_CLOSE,
+	THINK_OPEN,
+	Teacher,
+	TeacherAPIGateway,
+	TeacherUpstreamError,
+)
+from distillation.watermark import key_id as watermark_key_id
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from harness import review
@@ -57,6 +64,16 @@ from harness.campaign import (
 )
 from harness.deception import noise
 from harness.encoder import Encoder
+from harness.linkage import (
+	ClusterBudget,
+	content_signal,
+	declared_signals,
+	load_linkage_config,
+	network_signal,
+)
+from harness.linkage import (
+	observe as observe_linkage,
+)
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
 from harness.path_runtime import RuntimePathCalibration, encoder_contract
@@ -99,7 +116,7 @@ from harness_api.output_policy import (
 	ProviderCall,
 	apply_policy,
 )
-from harness_api.settings import Settings
+from harness_api.settings import TIERS, Settings
 
 
 class ScoringUnavailable(Exception):
@@ -122,6 +139,13 @@ def decision_header(decision: Decision) -> str:
 
 
 ROLLING_REFUSALS = {
+	"cluster_rolling_budget_exceeded": (
+		429,
+		"the rolling budget shared by linked accounts is used up",
+		"block",
+	),
+	"tier_output_cap_exceeded": (403, "this tier cannot request that much output", "block"),
+	"sampling_tier_required": (403, "this tier cannot set sampling parameters", "block"),
 	"supervision_budget_exceeded": (429, "supervision budget is used up", "block"),
 	"tier_budget_exceeded": (429, "tier budget is used up", "block"),
 	"rolling_budget_exceeded": (429, "the account's rolling budget is used up", "block"),
@@ -258,6 +282,20 @@ def _policy_fields(
 			if settings.accounts_file
 			else None,
 		]
+	if settings.watermark:
+		fields["watermark"] = settings.watermark_namespace
+	if settings.linkage_config is not None:
+		fields["linkage"] = [
+			hashlib.sha256(settings.linkage_config.read_bytes()).hexdigest(),
+			settings.rolling_window_seconds,
+			settings.cluster_rolling_request_budget,
+			settings.cluster_rolling_token_budget,
+		]
+	# Omitted when unset, so files written without release-detail tiers keep their scope.
+	if settings.tier_output_caps:
+		fields["tier_output_caps"] = dict(sorted(settings.tier_output_caps.items()))
+	if settings.sampling_min_tier is not None:
+		fields["sampling_min_tier"] = settings.sampling_min_tier
 	# Present only when the campaign detector is configured, so other state keeps its scope.
 	if campaign is not None:
 		fields["campaign"] = {
@@ -297,6 +335,26 @@ def _scope(
 		else None
 	)
 	return canonical_json(fields)
+
+
+def _attributes(settings: Settings) -> dict[str, dict[str, str]]:
+	"""Declared linkage attributes per principal. Every key of a principal must agree."""
+	if settings.accounts_file is None:
+		return {}
+	result: dict[str, dict[str, str]] = {}
+	for entry in json.loads(settings.accounts_file.read_text()).values():
+		if isinstance(entry, str):
+			entry = {"principal": entry}
+		declared = entry.get("attributes", {})
+		if not isinstance(declared, dict) or not all(
+			isinstance(k, str) and isinstance(v, str) and k and v for k, v in declared.items()
+		):
+			raise ValueError("account attributes must map names to nonblank strings")
+		principal = entry["principal"]
+		if principal in result and result[principal] != declared:
+			raise ValueError("a principal must declare the same attributes for every key")
+		result[principal] = declared
+	return result
 
 
 def _accounts(settings: Settings) -> dict[str, tuple[str, str | None]]:
@@ -408,6 +466,21 @@ def create_app(
 	output_policy = config.output_policy
 	if output_policy is not None:
 		store.enable_output_receipts()
+	linkage = (
+		load_linkage_config(config.linkage_config) if config.linkage_config is not None else None
+	)
+	attributes = _attributes(config) if linkage is not None else {}
+	if linkage is not None:
+		store.bind_linkage(linkage.digest)
+	cluster_budget = (
+		ClusterBudget(
+			config.rolling_window_seconds,
+			config.cluster_rolling_request_budget,
+			config.cluster_rolling_token_budget,
+		)
+		if config.cluster_rolling_request_budget or config.cluster_rolling_token_budget
+		else None
+	)
 	# Binds every logged event to the exact policy and calibration behind it.
 	policy_revision = hashlib.sha256(
 		canonical_json(_policy_fields(config, calibration, path, campaign)).encode()
@@ -1088,9 +1161,36 @@ def create_app(
 			headers={"X-Harness-Decision": "throttle"},
 		)
 
-	async def call_teacher(request: TeacherGenerationRequest) -> TeacherGeneration:
+	def detail_refusal(
+		tx: Transaction, account: str, request: TeacherGenerationRequest, now: float
+	) -> str | None:
+		"""Refuse detail the principal's trust tier does not grant, before any embedding."""
+		if tier is None or not (config.tier_output_caps or config.sampling_min_tier):
+			return None
+		level = tier.level(tx, account, now)
+		cap = next((c for name, c in config.tier_output_caps.items() if name == level), None)
+		if cap is not None and request.max_output_tokens > cap:
+			return "tier_output_cap_exceeded"
+		sampled = request.temperature != 0 or any(
+			value is not None for value in (request.seed, request.top_p, request.top_k)
+		)
+		if (
+			sampled
+			and config.sampling_min_tier is not None
+			and TIERS.index(level) < TIERS.index(config.sampling_min_tier)
+		):
+			return "sampling_tier_required"
+		return None
+
+	async def call_teacher(request: TeacherGenerationRequest, account: str) -> TeacherGeneration:
+		if config.watermark:
+			request = request.model_copy(
+				update={"watermark_key": watermark_key_id(config.watermark_namespace, account)}
+			)
 		started = time.perf_counter()
 		generation = await upstream.generate(request)
+		if config.watermark and generation.watermarked is not True:
+			raise TeacherUpstreamError("the teacher did not apply the watermark")
 		latencies.append(time.perf_counter() - started)
 		template[:] = [generation]
 		return generation
@@ -1108,6 +1208,8 @@ def create_app(
 			usage=TokenUsage(),
 			request_id=_mimic(model.request_id),
 			endpoint=model.endpoint,
+			# A missing mode would tell noise apart from a real reasoning response.
+			thinking=model.thinking,
 		)
 
 	async def release(
@@ -1253,7 +1355,7 @@ def create_app(
 				generation = fabricate(content)
 			else:
 				# Until one real response has been seen there is no shape to copy.
-				generation = await call_teacher(request)
+				generation = await call_teacher(request, decision.account)
 		except TeacherUpstreamError as error:
 			failed = _error(
 				502, "teacher_upstream_error", str(error), headers["X-Harness-Decision"]
@@ -1265,8 +1367,24 @@ def create_app(
 					error=type(error).__name__,
 				)
 			return failed, None
+		if content is None and any(
+			marker in generation.message.content for marker in (THINK_OPEN, THINK_CLOSE)
+		):
+			# The teacher should already withhold reasoning; never release a trace that leaks.
+			leak = _error(502, "reasoning_withheld", "teacher reasoning cannot be released", None)
+			if attempt is not None:
+				attempt.calls["draft"] = ProviderCall(
+					"error", max_output_tokens=request.max_output_tokens, error="reasoning_leak"
+				)
+			return leak, None
+		# Reasoning length is teacher compute, and whether a response carries a watermark is
+		# for attribution, so neither is part of what a client receives.
+		generation.usage = generation.usage.model_copy(update={"reasoning_tokens": None})
+		generation.watermarked = None
 		if attempt is not None:
-			return await release_under_policy(attempt, request, generation, headers)
+			return await release_under_policy(
+				attempt, request, generation, headers, decision.account
+			)
 		tokens = generation.usage.output_tokens if content is None else None
 		if content is not None:
 			generation.message = Message(role="assistant", content=content)
@@ -1284,6 +1402,7 @@ def create_app(
 		request: TeacherGenerationRequest,
 		draft: TeacherGeneration,
 		headers: dict[str, str],
+		account: str,
 	) -> tuple[JSONResponse, int | None]:
 		"""Replace the draft before any response exists. No store transaction is open here.
 
@@ -1293,7 +1412,10 @@ def create_app(
 		"""
 		assert token_counter is not None
 		try:
-			released = await apply_policy(attempt, request, draft, upstream.generate, token_counter)
+			# Rewrites go through call_teacher so they carry the same watermark key.
+			released = await apply_policy(
+				attempt, request, draft, lambda r: call_teacher(r, account), token_counter
+			)
 		except Exception as error:
 			attempt.failure = f"internal_error:{type(error).__name__}"
 			released = None
@@ -1391,6 +1513,8 @@ def create_app(
 		if identity is None:
 			return _error(401, "unauthorized", "unknown API key", None)
 		account, organization = identity
+		if request.watermark_key is not None:
+			return _error(422, "invalid_field", "watermark_key is set by the service", None)
 		if score_failure:
 			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		now = now_from(x_harness_time)
@@ -1551,12 +1675,37 @@ def create_app(
 			organization=organization,
 			domain=domain,
 		)
+		linked: dict[str, Any] | None = None
 		with store.transaction() as tx:
 			# Admission drops an unlinked principal's organization; the early check matches it.
 			if tx.unlinked(account, organization):
 				candidate = replace(candidate, organization=None)
-			code = rolling_refusal(
-				tx, candidate, now, rolling, organization_rolling, supervision, tier
+			if linkage is not None:
+				# Evidence from refused requests counts too: probing from a second account
+				# after a refusal is part of what links them.
+				signals = declared_signals(attributes.get(account, {}))
+				signals += [
+					signal
+					for signal in (
+						network_signal(
+							linkage, http_request.client.host if http_request.client else None
+						),
+						content_signal(linkage, text),
+					)
+					if signal is not None
+				]
+				linked = observe_linkage(tx, linkage, account, signals, now)
+			code = (
+				detail_refusal(tx, account, request, now)
+				or rolling_refusal(
+					tx, candidate, now, rolling, organization_rolling, supervision, tier
+				)
+				or (
+					"cluster_rolling_budget_exceeded"
+					if cluster_budget is not None
+					and cluster_budget.exceeded(tx, account, request.max_output_tokens, now)
+					else None
+				)
 			)
 			if code is not None:
 				status_code, message, header = ROLLING_REFUSALS[code]
@@ -1573,6 +1722,17 @@ def create_app(
 					window=config.rolling_window_seconds,
 				)
 				remember(tx, account, idempotency_key, digest, now, spent)
+		if linked is not None and linked["events"]:
+			log.write(
+				"linkage",
+				time=now,
+				account=account,
+				cluster=linked["cluster"],
+				size=linked["size"],
+				events=linked["events"],
+				qualified=False,
+				policy_revision=policy_revision,
+			)
 		if spent is not None:
 			log.write(
 				"decision",
@@ -1698,6 +1858,13 @@ def create_app(
 							tx, candidate, now, rolling, organization_rolling, supervision, tier
 						)
 						if supervision is not None or tier is not None
+						else None
+					) or (
+						# Rechecked in the admission transaction, so concurrent members of
+						# one cluster cannot both pass the early check and overshoot.
+						"cluster_rolling_budget_exceeded"
+						if cluster_budget is not None
+						and cluster_budget.exceeded(tx, account, request.max_output_tokens, now)
 						else None
 					)
 					if code is not None:

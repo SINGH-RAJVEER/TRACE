@@ -573,7 +573,6 @@ async def _teacher_scores(
 			request = TeacherGenerationRequest(
 				messages=item.messages,
 				max_output_tokens=MATH_RECIPE["evaluation_max_new_tokens"],
-				enable_thinking=False,
 			)
 			async with semaphore:
 				try:
@@ -682,7 +681,6 @@ def collect_clean(
 				terms_review_id=terms_review_id,
 				concurrency=concurrency,
 				max_output_tokens=max_output_tokens,
-				enable_thinking=False,
 			),
 		)
 	)

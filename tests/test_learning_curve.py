@@ -620,7 +620,7 @@ def test_evaluations_write_score_files_the_gate_reads(
 		revision="t1",
 		transport=httpx.MockTransport(teacher),
 	)
-	assert seen[0]["enable_thinking"] is False and seen[0]["max_output_tokens"] == 512
+	assert seen[0]["enable_thinking"] is None and seen[0]["max_output_tokens"] == 512
 	report = headroom_gate(base_path, teacher_path, suite, margin_points=10, replicates=1000)
 	assert report["results"]["teacher_accuracy"] == 1 and report["passed"] is True
 
@@ -666,7 +666,7 @@ def test_clean_collection_selects_deterministically_and_feeds_the_manifest(
 	)
 
 	def teacher(request: httpx.Request) -> httpx.Response:
-		assert json.loads(request.content)["enable_thinking"] is False
+		assert json.loads(request.content)["enable_thinking"] is None
 		return httpx.Response(
 			200,
 			json={

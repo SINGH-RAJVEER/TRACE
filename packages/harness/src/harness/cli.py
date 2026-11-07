@@ -632,6 +632,85 @@ def review_decide(
 		typer.echo(result)
 
 
+linkage_app = typer.Typer(no_args_is_help=True)
+app.add_typer(linkage_app, name="linkage")
+
+
+def _linkage_tx(path: Path, config_path: Path) -> Any:
+	import sqlite3
+
+	from harness.linkage import load_linkage_config
+	from harness.store import _SQLiteTransaction
+
+	if not path.is_file():
+		raise typer.BadParameter("state database does not exist")
+	config = load_linkage_config(config_path)
+	db = sqlite3.connect(path, isolation_level=None)
+	bound = db.execute("SELECT value FROM meta WHERE key = 'linkage_config'").fetchone()
+	if bound is None or bound[0] != config.digest:
+		db.close()
+		raise typer.BadParameter("the database is not bound to this linkage config")
+	return db, _SQLiteTransaction(db), config
+
+
+@linkage_app.command("show")
+def linkage_show(
+	principal: str,
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+) -> None:
+	"""The principal's inferred cluster and the signal kinds behind each pair link."""
+	from harness.linkage import cluster_id, members, strength
+
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		cluster = members(tx, principal)
+		pairs = []
+		for index, left in enumerate(cluster):
+			for right in cluster[index + 1 :]:
+				evidence = tx.linkage(
+					"e:" + json.dumps(sorted((left, right)), separators=(",", ":"))
+				)
+				if evidence:
+					pairs.append(
+						{
+							"pair": [left, right],
+							"evidence": evidence,
+							"strength": strength(linkage, evidence),
+						}
+					)
+		result = {"cluster": cluster_id(linkage, cluster), "members": cluster, "pairs": pairs}
+		typer.echo(json.dumps({**result, "qualified": False}, indent=4))
+
+
+@linkage_app.command("sever")
+def linkage_sever(
+	left: str,
+	right: str,
+	operator: Annotated[str, typer.Option()],
+	reason: Annotated[str, typer.Option()],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+) -> None:
+	"""Record that two principals are unrelated and rebuild their cluster without that link."""
+	import time
+
+	from harness.linkage import LinkageError, sever
+
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		try:
+			db.execute("BEGIN IMMEDIATE")
+			groups = sever(
+				tx, linkage, left, right, operator=operator, reason=reason, now=time.time()
+			)
+			db.execute("COMMIT")
+		except LinkageError as error:
+			db.execute("ROLLBACK")
+			raise typer.BadParameter(str(error)) from error
+		typer.echo(json.dumps({"clusters": groups}, indent=4))
+
+
 @app.command("separation")
 def separation_command(
 	benign: Annotated[

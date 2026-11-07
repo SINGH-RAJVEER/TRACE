@@ -93,6 +93,7 @@ class Teacher:
 			finish_reason="stop",
 			usage=TokenUsage(input_tokens=5, output_tokens=1),
 			endpoint="fake",
+			thinking=True,
 		)
 
 	async def close(self) -> None:
@@ -459,6 +460,8 @@ async def test_l4_noise_needs_no_teacher_and_looks_like_l3(
 		assert honest.headers["x-harness-decision"] == false.headers["x-harness-decision"]
 		first, second = honest.json(), false.json()
 		assert set(first) == set(second) and first["usage"] == second["usage"]
+		# Noise copies the reasoning mode, so the field cannot reveal it.
+		assert first["thinking"] is second["thinking"] is True
 		assert second["model"] == first["model"] and second["id"].startswith("chatcmpl-")
 		assert len(second["id"]) == len(first["id"]) and second["finish_reason"] == "stop"
 	labels = [response.json()["message"]["content"] for response in noisy]
@@ -2100,3 +2103,234 @@ async def test_existing_arms_keep_legacy_event_schema_and_state_binding(
 		assert "path" not in state
 	fields = _policy_fields(Settings(_env_file=None), artifacts[0])  # type: ignore[call-arg]
 	assert "path_calibration" not in fields and "path_policy_version" not in fields
+
+
+@pytest.mark.asyncio
+async def test_reasoning_and_sampling_alternatives_never_reach_a_client(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _rolling_app(artifacts, tmp_path)
+	seen: list[TeacherGenerationRequest] = []
+	replies = iter(["<think>private</think>World", "World"])
+
+	async def reasoning(request: TeacherGenerationRequest) -> TeacherGeneration:
+		seen.append(request)
+		return TeacherGeneration(
+			id="chatcmpl-1",
+			provider="fake",
+			model="fake-model",
+			generated_at=datetime.now(UTC),
+			message=Message(role="assistant", content=next(replies)),
+			finish_reason="stop",
+			usage=TokenUsage(output_tokens=1, reasoning_tokens=40),
+			endpoint="fake",
+			thinking=True,
+		)
+
+	teacher.generate = reasoning  # type: ignore[method-assign]
+	request = _request("hello") | {"logprobs": True, "top_logprobs": 5, "n": 4}
+	headers = {"X-Benchmark-Actor": "u1", "X-Harness-Time": "0"}
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		leaked = await client.post("/v1/teacher/generate", json=request, headers=headers)
+		released = await client.post("/v1/teacher/generate", json=request, headers=headers)
+	assert leaked.status_code == 502
+	assert leaked.json()["detail"]["code"] == "reasoning_withheld"
+	assert "private" not in leaked.text
+	body = released.json()
+	assert released.status_code == 200 and body["message"]["content"] == "World"
+	assert body["usage"]["reasoning_tokens"] is None and "logprobs" not in released.text
+	# Only the schema's fields reach the teacher: no alternatives or token probabilities.
+	assert all(not hasattr(r, "logprobs") and not hasattr(r, "n") for r in seen)
+
+
+@pytest.mark.asyncio
+async def test_trust_tiers_gate_output_detail_and_sampling_before_embedding(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	options = dict(
+		HARNESS_TRUST_TIERS=True,
+		HARNESS_NEW_TIER_MIN_AGE_SECONDS=10,
+		HARNESS_NEW_TIER_MIN_RELEASES=1,
+		HARNESS_TIER_OUTPUT_CAPS={"new": 8},
+		HARNESS_SAMPLING_MIN_TIER="established",
+	)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, **options)
+	headers = {"X-Benchmark-Actor": "u1"}
+
+	async def ask(client: httpx.AsyncClient, now: float, **fields: Any) -> httpx.Response:
+		body = _request(f"q {now}") | fields
+		return await client.post(
+			"/v1/teacher/generate", json=body, headers=headers | {"X-Harness-Time": str(now)}
+		)
+
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		capped = await ask(client, 0)
+		sampled = await ask(client, 0, max_output_tokens=8, temperature=0.7)
+		served = await ask(client, 0, max_output_tokens=8)
+		# Promoted after one clean release and the minimum age: both limits lift.
+		promoted = await ask(client, 20, temperature=0.7)
+	assert capped.json()["detail"]["code"] == "tier_output_cap_exceeded"
+	assert sampled.json()["detail"]["code"] == "sampling_tier_required"
+	assert served.status_code == 200 and promoted.status_code == 200
+	assert teacher.calls == 2
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	refusals = [e for e in events if e.get("event") == "decision" and e.get("entitlement")]
+	assert [e["entitlement"] for e in refusals] == [
+		"tier_output_cap_exceeded",
+		"sampling_tier_required",
+	]
+	assert all(event["attempt"] is None for event in refusals)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_TRUST_TIERS=True)
+	with pytest.raises(ValueError, match="HARNESS_TRUST_TIERS"):
+		_rolling_app(artifacts, tmp_path, HARNESS_SAMPLING_MIN_TIER="verified")
+
+
+@pytest.mark.asyncio
+async def test_linked_principals_share_a_cluster_budget_and_log_the_link(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from harness.linkage import LinkageConfig
+
+	config = tmp_path / "linkage.json"
+	config.write_text(LinkageConfig(namespace="api").model_dump_json())
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(f"key-{name}".encode()).hexdigest(): {
+					"principal": name,
+					"attributes": {"payment": "card-1"},
+				}
+				for name in ("u1", "u2")
+			}
+		)
+	)
+	options = dict(
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_LINKAGE_CONFIG=config,
+		HARNESS_CLUSTER_ROLLING_REQUEST_BUDGET=2,
+	)
+	app, teacher, log = _rolling_app(artifacts, tmp_path, **options)
+
+	async def ask(client: httpx.AsyncClient, name: str, text: str) -> httpx.Response:
+		return await client.post(
+			"/v1/teacher/generate",
+			json=_request(text),
+			headers={"Authorization": f"Bearer key-{name}", "X-Harness-Time": "0"},
+		)
+
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		first = await ask(client, "u1", "one")
+		second = await ask(client, "u2", "two")
+		third = await ask(client, "u1", "three")
+	assert first.status_code == second.status_code == 200
+	# Each principal used one request, but together they spent the cluster's two.
+	assert third.json()["detail"]["code"] == "cluster_rolling_budget_exceeded"
+	assert teacher.calls == 2
+	events = [json.loads(line) for line in log.read_text().splitlines()]
+	links = [e for e in events if e.get("event") == "linkage"]
+	assert links and links[0]["size"] == 2 and links[0]["qualified"] is False
+	assert "card-1" not in log.read_text()
+	with pytest.raises(ValueError, match="HARNESS_STATE_DB"):
+		_app(artifacts, tmp_path, [1e9] * 4, HARNESS_LINKAGE_CONFIG=config)
+	with pytest.raises(ValueError, match="another policy"):
+		_rolling_app(artifacts, tmp_path, HARNESS_ACCOUNTS_FILE=accounts)
+
+
+@pytest.mark.asyncio
+async def test_watermark_keys_are_per_principal_enforced_and_hidden(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from distillation.watermark import key_id
+
+	app, teacher, _ = _rolling_app(artifacts, tmp_path, HARNESS_WATERMARK=True)
+	seen: list[str | None] = []
+	applied = iter([True, False])
+	original = teacher.generate
+
+	async def marking(request: TeacherGenerationRequest) -> TeacherGeneration:
+		seen.append(request.watermark_key)
+		generation = await original(request)
+		generation.watermarked = next(applied)
+		return generation
+
+	teacher.generate = marking  # type: ignore[method-assign]
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		served = await _ask_at(client, "one", 0)
+		unmarked = await _ask_at(client, "two", 0)
+		forged = await client.post(
+			"/v1/teacher/generate",
+			json=_request("three") | {"watermark_key": key_id("trace", "other")},
+			headers={"X-Benchmark-Actor": "u1", "X-Harness-Time": "0"},
+		)
+	assert served.status_code == 200 and served.json()["watermarked"] is None
+	# A teacher that ignores the key is treated as a failed generation, not released.
+	assert unmarked.status_code == 502
+	assert forged.status_code == 422 and len(seen) == 2
+	assert seen == [key_id("trace", "u1")] * 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_linked_principals_release_exactly_the_cluster_budget(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from harness.linkage import LinkageConfig
+
+	config = tmp_path / "linkage.json"
+	config.write_text(LinkageConfig(namespace="race").model_dump_json())
+	accounts = tmp_path / "accounts.json"
+	accounts.write_text(
+		json.dumps(
+			{
+				hashlib.sha256(f"key-{name}".encode()).hexdigest(): {
+					"principal": name,
+					"attributes": {"payment": "card-1"},
+				}
+				for name in ("u1", "u2")
+			}
+		)
+	)
+	# The MMD policy embeds between the early check and admission, so requests interleave.
+	app, teacher, _ = _app(
+		artifacts,
+		tmp_path,
+		[1e9] * 4,
+		HARNESS_STATE_DB=tmp_path / "state.sqlite3",
+		HARNESS_ACCOUNTS_FILE=accounts,
+		HARNESS_LINKAGE_CONFIG=config,
+		HARNESS_CLUSTER_ROLLING_REQUEST_BUDGET=3,
+	)
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://harness"
+	) as client:
+		# Link the two principals first, then race them.
+		for name in ("u1", "u2"):
+			await client.post(
+				"/v1/teacher/generate",
+				json=_request(f"link {name}"),
+				headers={"Authorization": f"Bearer key-{name}"},
+			)
+		responses = await asyncio.gather(
+			*(
+				client.post(
+					"/v1/teacher/generate",
+					json=_request(f"q {i}"),
+					headers={"Authorization": f"Bearer key-u{1 + i % 2}"},
+				)
+				for i in range(12)
+			)
+		)
+	served = sum(r.status_code == 200 for r in responses)
+	assert served == 1 and teacher.calls == 3
+	assert {r.json()["detail"]["code"] for r in responses if r.status_code != 200} == {
+		"cluster_rolling_budget_exceeded"
+	}

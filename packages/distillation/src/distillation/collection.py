@@ -188,9 +188,8 @@ async def _collect_one(
 	accepted_finish_reasons = {"stop", "end_turn", "completed"}
 	accepted = generation.finish_reason in accepted_finish_reasons
 	rejection_reason = None if accepted else f"finish_reason:{generation.finish_reason}"
-	if options.enable_thinking is False and any(
-		marker in generation.message.content for marker in ("<think>", "</think>")
-	):
+	# Teachers withhold reasoning, so a released trace is a leak in either mode.
+	if any(marker in generation.message.content for marker in ("<think>", "</think>")):
 		accepted = False
 		rejection_reason = "unexpected_thinking_trace"
 	return LedgerRecord(
@@ -208,6 +207,7 @@ async def _collect_one(
 			generated_at=generation.generated_at,
 			parameters=_generation_parameters(options),
 			terms_review_id=options.terms_review_id,
+			thinking=generation.thinking,
 		),
 		completion=[generation.message],
 		finish_reason=generation.finish_reason,
@@ -215,7 +215,7 @@ async def _collect_one(
 		quality=QualityRecord(
 			status="pending" if accepted else "rejected",
 			checks=["non_empty", "finish_reason"]
-			+ (["non_thinking"] if options.enable_thinking is False else []),
+			+ (["non_thinking"] if options.enable_thinking is False else ["reasoning_withheld"]),
 			reviewer="collector-v1",
 			rejection_reason=rejection_reason,
 		),

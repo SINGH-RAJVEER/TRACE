@@ -154,6 +154,14 @@ def test_comparison_pools_runs_and_never_invents_budgets() -> None:
 			view="attacker_budget",
 			declared={},
 		)
+	with pytest.raises(ValueError, match="reasoning mode"):
+		comparison_from_index(
+			[*rows, {**_row("r6", "rate", "6000"), "teacher_thinking": "on"}],
+			attack="A1",
+			arms=["quota", "rate"],
+			view="attacker_budget",
+			declared={},
+		)
 	with pytest.raises(ValueError, match="development and confirmatory"):
 		comparison_from_index(
 			[*rows, _row("r4", "rate", "6000", study="confirmatory")],

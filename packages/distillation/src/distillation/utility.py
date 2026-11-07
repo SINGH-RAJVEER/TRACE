@@ -170,7 +170,6 @@ async def _measure_utility(
 							if isinstance(max_output_tokens, dict)
 							else max_output_tokens
 						),
-						enable_thinking=False,
 					)
 				)
 			except PolicyRefusal, AttemptFailed, BudgetExhausted, httpx.HTTPError:
@@ -217,7 +216,6 @@ async def _measure_utility(
 										if isinstance(max_output_tokens, dict)
 										else max_output_tokens
 									),
-									enable_thinking=False,
 								)
 							)
 				except PolicyRefusal:

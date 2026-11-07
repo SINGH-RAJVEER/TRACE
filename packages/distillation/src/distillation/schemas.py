@@ -21,10 +21,15 @@ class Message(BaseModel):
 
 
 class TokenUsage(BaseModel):
-	"""Provider token counts when the upstream API returns them."""
+	"""Provider token counts when the upstream API returns them.
+
+	`output_tokens` counts the visible answer only. Withheld reasoning is teacher compute,
+	never released output, so it is counted separately in `reasoning_tokens`.
+	"""
 
 	input_tokens: int | None = Field(default=None, ge=0)
 	output_tokens: int | None = Field(default=None, ge=0)
+	reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
 class TeacherGenerationRequest(BaseModel):
@@ -34,9 +39,14 @@ class TeacherGenerationRequest(BaseModel):
 	temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 	top_p: float | None = Field(default=None, gt=0.0, le=1.0)
 	top_k: int | None = Field(default=None, ge=1)
+	# The visible-answer cap. A thinking teacher adds its own server-side reasoning allowance.
 	max_output_tokens: int = Field(default=1024, ge=1, le=32768)
 	seed: int | None = None
+	# None uses the teacher's default, which is thinking enabled.
 	enable_thinking: bool | None = None
+	# Public watermark key ID, set by the gateway for the requesting principal. Clients of the
+	# gateway cannot set it; the teacher resolves it with its own secret.
+	watermark_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{16,64}$")
 
 	@field_validator("messages")
 	@classmethod
@@ -58,6 +68,10 @@ class TeacherGeneration(BaseModel):
 	usage: TokenUsage = Field(default_factory=TokenUsage)
 	request_id: str | None = None
 	endpoint: str
+	# Whether the teacher reasoned before answering. The reasoning itself is never returned.
+	thinking: bool | None = None
+	# Whether the requested watermark was applied. The gateway removes it before release.
+	watermarked: bool | None = None
 
 
 class PromptSource(BaseModel):
@@ -114,6 +128,8 @@ class TeacherMetadata(BaseModel):
 	generated_at: datetime
 	parameters: dict[str, bool | int | float | str | None]
 	terms_review_id: str
+	# The teacher's effective mode. None in ledgers written before teachers reported it.
+	thinking: bool | None = None
 
 
 class QualityRecord(BaseModel):

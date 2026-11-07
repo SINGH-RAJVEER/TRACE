@@ -162,7 +162,6 @@ async def preflight(
 				request = TeacherGenerationRequest(
 					messages=row.prompt.prompt,
 					max_output_tokens=row.max_output_tokens,
-					enable_thinking=False,
 				)
 				try:
 					response = await asyncio.wait_for(

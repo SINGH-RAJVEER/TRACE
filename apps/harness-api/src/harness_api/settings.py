@@ -8,6 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harness_api.output_policy import OutputPolicy
 
+Tier = Literal["new", "established", "verified"]
+TIERS: tuple[Tier, ...] = ("new", "established", "verified")
+
 
 class Settings(BaseSettings):
 	model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -105,6 +108,30 @@ class Settings(BaseSettings):
 		default=604800, ge=0, allow_inf_nan=False, alias="HARNESS_NEW_TIER_MIN_AGE_SECONDS"
 	)
 	new_tier_min_releases: int = Field(default=10, ge=1, alias="HARNESS_NEW_TIER_MIN_RELEASES")
+	# Release detail by trust tier. JSON caps on max_output_tokens per tier, such as
+	# {"new": 256, "established": 1024}; an omitted tier is uncapped.
+	tier_output_caps: dict[Tier, int] = Field(
+		default_factory=dict, alias="HARNESS_TIER_OUTPUT_CAPS"
+	)
+	# Opt-in keyed watermark: each principal's requests carry its key ID to the teacher, which
+	# must have TEACHER_WATERMARK_KEY_FILE. Unwatermarked output is withheld, never released.
+	watermark: bool = Field(default=False, alias="HARNESS_WATERMARK")
+	watermark_namespace: str = Field(
+		default="trace", min_length=1, alias="HARNESS_WATERMARK_NAMESPACE"
+	)
+	# Opt-in request-path account linkage. The JSON file holds a `linkage-v1` config, and the
+	# accounts file may give principals declared "attributes". Inferred clusters then share
+	# these rolling limits over HARNESS_ROLLING_WINDOW_SECONDS. Unqualified heuristics.
+	linkage_config: Path | None = Field(default=None, alias="HARNESS_LINKAGE_CONFIG")
+	cluster_rolling_request_budget: int | None = Field(
+		default=None, ge=1, alias="HARNESS_CLUSTER_ROLLING_REQUEST_BUDGET"
+	)
+	cluster_rolling_token_budget: int | None = Field(
+		default=None, ge=1, alias="HARNESS_CLUSTER_ROLLING_TOKEN_BUDGET"
+	)
+	# Lowest tier that may set temperature, seed, top_p or top_k. Lower tiers get the
+	# deterministic default, so resending a prompt cannot collect alternative answers.
+	sampling_min_tier: Tier | None = Field(default=None, alias="HARNESS_SAMPLING_MIN_TIER")
 
 	# Review is opt-in and requires a durable state database.
 	review_enabled: bool = Field(default=False, alias="HARNESS_REVIEW_ENABLED")
@@ -175,6 +202,18 @@ class Settings(BaseSettings):
 			raise ValueError(
 				"HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT requires HARNESS_CAMPAIGN_CONFIG"
 			)
+		if (self.tier_output_caps or self.sampling_min_tier) and not self.trust_tiers:
+			raise ValueError(
+				"HARNESS_TIER_OUTPUT_CAPS and HARNESS_SAMPLING_MIN_TIER require HARNESS_TRUST_TIERS"
+			)
+		if self.linkage_config is not None and self.state_db is None:
+			raise ValueError("HARNESS_LINKAGE_CONFIG requires HARNESS_STATE_DB for durable state")
+		if (
+			self.cluster_rolling_request_budget or self.cluster_rolling_token_budget
+		) and self.linkage_config is None:
+			raise ValueError("cluster rolling budgets require HARNESS_LINKAGE_CONFIG")
+		if any(cap < 1 for cap in self.tier_output_caps.values()):
+			raise ValueError("tier output caps must be positive")
 		if self.review_enabled and self.state_db is None:
 			raise ValueError("review requires HARNESS_STATE_DB")
 		if self.review_verify_codes and not self.review_enabled:

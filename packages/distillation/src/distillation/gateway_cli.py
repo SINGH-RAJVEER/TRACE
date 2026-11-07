@@ -470,6 +470,14 @@ def collect_command(
 	campaign_mode: Annotated[
 		str | None, typer.Option(help="The mode that configuration must declare.")
 	] = None,
+	thinking: Annotated[
+		bool | None,
+		typer.Option(
+			"--thinking/--no-thinking",
+			help="Teacher reasoning mode. Omitted uses the teacher default, which reasons; "
+			"--no-thinking reproduces historical non-thinking readings.",
+		),
+	] = None,
 ) -> None:
 	"""Execute a schedule or A8 online rounds with one global HTTP budget and response ledger.
 
@@ -562,7 +570,9 @@ def collect_command(
 				url=teacher_url,
 				keys=keys,
 				options=CollectionOptions(
-					terms_review_id=terms_review_id, concurrency=concurrency, enable_thinking=False
+					terms_review_id=terms_review_id,
+					concurrency=concurrency,
+					enable_thinking=thinking,
 				),
 				attempt_budget=manifest["attempt_budget"],
 				deadline_seconds=manifest["deadline_seconds"],
