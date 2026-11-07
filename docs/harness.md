@@ -76,13 +76,13 @@ This has never run on a real teacher or student, so it establishes no suppressio
 }
 ```
 
-`mode` is `final_answer_only`, `compact_verified`, `paraphrase` or `dense_locked`. The instruction text comes from `distillation.output_sets`, and the dense one is the verbatim Appendix A.2 instruction. `final_answer_only` releases `#### N` from the draft and makes no second call, so it takes no rewrite bounds. The other three require both bounds. All fields, plus the instruction's hash, enter the policy revision and the state scope, so a state file written under another policy is rejected.
+`mode` is `final_answer_only`, `compact_verified`, `paraphrase` or `dense_locked`. The instruction text comes from `distillation.output_sets`, and the dense one is the verbatim Appendix A.2 instruction. `final_answer_only` releases the locked answer from the draft, `#### N` for `gsm8k`, and makes no second call, so it takes no rewrite bounds. The other three require both bounds. All fields, plus the instruction's hash, enter the policy revision and the state scope, so a state file written under another policy is rejected.
 
 Startup rejects a malformed or unversioned config, a service whose task or gateway domains include no declared task, a missing `HARNESS_TOKENIZER_MODEL`, L4 deception with the legacy MMD policy, and a reservation lease shorter than the two timeouts when `HARNESS_IN_FLIGHT_LIMIT` is set. The launcher's `validate`, `serve` and `legacy` commands and `harness-api` all fail on these. A tokenizer is required because the server builds the released text, so no teacher usage count describes it. Deception is refused because noise looks like unmodified teacher output and would be told apart from rewritten responses.
 
 ### What happens to a draft
 
-The gateway buffers the draft, so nothing reaches the client before these steps finish. It holds no SQLite write lock during either teacher call.
+The gateway buffers the draft, so nothing reaches the client before these steps finish. It holds no SQLite write lock during either teacher call. The steps below use the `gsm8k` format, where the locked answer is `#### N`. The other tasks follow the same steps with their own locked answer and format check, described in the next section. A `coding` rewrite is also refused if it contains a code fence, and its fallback releases the locked fence.
 
 1. A draft stopped by the length limit is withheld, because its last number may be cut short. So is a draft without exactly one `####` followed by one number, as the benchmark's numeric scorer reads it. No answer exists to fall back on, so these withhold under either fallback.
 2. The answer is extracted and locked. The same teacher receives the instruction and the explanation in one user message, without the answer line. The call uses temperature 0, disables thinking, and is capped at the smaller of `rewrite_max_output_tokens` and the client's `max_output_tokens`. `rewrite_timeout_seconds` bounds it.
@@ -96,7 +96,11 @@ The draft stays in process memory. Rewrite errors may echo the prompt, so the se
 
 ### Tasks outside the declared scope
 
-GSM8K's `####` numeric format is the only declared task. `unsupported_task` chooses what happens to other gateway domains. `refuse` returns 422 `output_policy_unsupported_task` before admission, with no teacher call and no charge, and logs an `output_policy_refusal` event. `pass_through` releases the draft unmodified with `protected: false` and outcome `out_of_scope_passthrough`. Pass-through is unprotected output.
+Declarable tasks are `gsm8k`, `coding`, `ag_news` and `squad`. A `gsm8k` draft locks its `#### N` answer. A `coding` draft needs exactly one Python fence whose contents parse, and that fence is locked unchanged while the prose around it can be rewritten. Comments inside the code stay as they are, and a draft with no fence is withheld. `ag_news` needs exactly one topic label, and `squad` needs one line of at most 32 words, which is a development value. Those two have no explanation to rewrite, so a rewrite mode refuses to start with `fallback: withhold`, and with `final_answer` every response takes the fallback. For those tasks the policy only withholds drafts that are not bare answers: what it releases is the answer the draft already was, so it changes nothing a student learns from them. `unsupported_task` chooses what happens to other gateway domains. `refuse` returns 422 `output_policy_unsupported_task` before admission, with no teacher call and no charge, and logs an `output_policy_refusal` event. `pass_through` releases the draft unmodified with `protected: false` and outcome `out_of_scope_passthrough`. Pass-through is unprotected output.
+
+### Health report
+
+`/healthz` adds `policy_revision`, plus `campaign_digest` and `output_policy_digest` when those features are set. These are unauthenticated hashes: they identify the configuration without revealing it, though a caller can see when it changes. It also echoes `HARNESS_INSTANCE_ID` as `instance_id` when set, which enters no revision or state scope; the grid runner sets a fresh value per launch to tell its own gateway from another process on the port. `distill gateway collect` with an experiment binding refuses to start if a reporting gateway serves a different campaign configuration. A gateway without the report still falls back to the decision-log binding after the run.
 
 ### Accounting
 
@@ -108,9 +112,9 @@ A withheld response settles as `failed` and keeps its full reservation charge un
 
 A `decision` event carries the policy's version, mode and digest. A `release` event, and a row in the `output_receipts` table written in the settlement transaction, carry the full receipt: version, mode, digest, domain, outcome, failure, fallback used, draft SHA-256, released SHA-256, released tokens, provider calls and `qualified: false`. Without `HARNESS_STATE_DB` the receipts live in process memory. The table exists only with a policy set. A reservation still outstanding with no receipt means a crash during generation.
 
-Clients get `X-Harness-Output-Receipt` with version, mode, outcome, protected, fallback, released hash, released tokens and `qualified: false`. The draft hash and provider counts stay out. The hash would confirm a guess at the draft, and the counts reveal its length. The operator's draft hash is plain SHA-256, so someone holding the log can test guesses at a draft.
+The collector records this header on each outcome and checks that its released hash matches the text received, and bound campaign summaries count receipts by outcome. Clients get `X-Harness-Output-Receipt` with version, mode, outcome, protected, fallback, released hash, released tokens and `qualified: false`. The draft hash and provider counts stay out. The hash would confirm a guess at the draft, and the counts reveal its length. The operator's draft hash is plain SHA-256, so someone holding the log can test guesses at a draft.
 
-A later student study should train on the client's ledger text and check it against `released_sha256`. Withheld rows carry no text and still spent a query. The gateway collector does not yet record the receipt header.
+A later student study should train on the client's ledger text and check it against `released_sha256`. Withheld rows carry no text and still spent a query.
 
 ## Encoder batching
 

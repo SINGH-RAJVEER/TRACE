@@ -349,16 +349,31 @@ def external_command(
 		raise typer.BadParameter(str(error)) from None
 
 
-def _served_policy(url: str) -> str | None:
-	"""The policy a harness gateway reports, or None for a teacher that reports none."""
+def _served_health(url: str) -> dict[str, Any]:
+	"""What a harness gateway reports, or nothing for a teacher that reports none."""
 	import httpx
 
 	try:
 		response = httpx.get(f"{url.rstrip('/')}/healthz", timeout=10)
-		policy = response.json().get("policy") if response.is_success else None
+		health = response.json() if response.is_success else None
 	except httpx.HTTPError, ValueError, AttributeError:
-		return None
+		return {}
+	return health if isinstance(health, dict) else {}
+
+
+def _served_policy(url: str) -> str | None:
+	"""The policy a harness gateway reports, or None for a teacher that reports none."""
+	policy = _served_health(url).get("policy")
 	return policy if isinstance(policy, str) else None
+
+
+def check_declared_campaign(health: dict[str, Any], declared: str | None) -> None:
+	"""Refuse before any request when a reporting gateway serves another campaign config."""
+	if "policy_revision" not in health:
+		return  # This gateway predates the report; the decision log binding still applies.
+	served = health.get("campaign_digest")
+	if served != declared:
+		raise ValueError(f"the gateway serves campaign {served}, not the declared {declared}")
 
 
 @app.command("collect")
@@ -499,6 +514,12 @@ def collect_command(
 		served = _served_policy(teacher_url)
 		if served is not None and served != policy:
 			raise ValueError(f"the gateway serves {served}, not the declared {policy} policy")
+		if experiment is not None:
+			declared_campaign = experiment.record()["campaign"]
+			check_declared_campaign(
+				_served_health(teacher_url),
+				declared_campaign["digest"] if declared_campaign else None,
+			)
 		record = None
 		if policy == "mmd":
 			if calibration is None or benign_test is None:

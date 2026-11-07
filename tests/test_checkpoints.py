@@ -22,6 +22,7 @@ from distillation.checkpoints import (
 )
 from distillation.collection import CollectionOptions
 from distillation.gateway_campaign import collect_gateway
+from distillation.gateway_cli import check_declared_campaign
 from distillation.io import write_jsonl
 from distillation.learning_curve import math_family
 from distillation.schedules import campaign_schedule
@@ -701,3 +702,52 @@ async def test_a_declared_campaign_needs_its_own_evidence_to_bind(tmp_path: Path
 	assert summary["policy_binding"]["status"] == "conflict"
 	with pytest.raises(CheckpointError, match="conflict"):
 		export_campaign_checkpoints(campaign, tmp_path / "export")
+
+
+@pytest.mark.asyncio
+async def test_output_receipts_are_kept_and_withheld_outputs_are_not_service_failures(
+	tmp_path: Path,
+) -> None:
+	digest = CampaignConfig(namespace="fixture", mode="observe").digest
+
+	def script(request: httpx.Request, count: int, rows: list[dict[str, Any]]) -> httpx.Response:
+		rows.append(_decision(request, campaign=_evidence(digest)))
+		if count > 2:
+			return httpx.Response(
+				502,
+				json={"detail": {"code": "output_withheld"}},
+				headers={
+					"X-Harness-Decision": "allow",
+					"X-Harness-Output-Receipt": json.dumps({"outcome": "withheld"}),
+				},
+			)
+		served = _served(request, count)
+		released = "0" * 64 if count == 2 else hashlib.sha256(b"World").hexdigest()
+		served.headers["X-Harness-Output-Receipt"] = json.dumps(
+			{"outcome": "rewritten", "released_sha256": released}
+		)
+		return served
+
+	summary, _, _ = await _bound_campaign(
+		tmp_path, script, mode="observe", strategy="give_up", retries=0, budget=14
+	)
+	assert summary["restrictions_by_kind"] == {"output": 12}
+	assert summary["output_receipts"] == {
+		"received": 14,
+		"by_outcome": {"rewritten": 2, "withheld": 12},
+		"invalid": 0,
+		"released_hash_mismatches": 1,
+	}
+	assert not any(
+		reason == "service_failures" for reason in summary["termination_by_account"].values()
+	)
+
+
+def test_a_reporting_gateway_must_serve_the_declared_campaign() -> None:
+	check_declared_campaign({}, "declared")
+	check_declared_campaign({"policy_revision": "r", "campaign_digest": "declared"}, "declared")
+	check_declared_campaign({"policy_revision": "r"}, None)
+	with pytest.raises(ValueError, match="not the declared"):
+		check_declared_campaign({"policy_revision": "r", "campaign_digest": "other"}, "declared")
+	with pytest.raises(ValueError, match="not the declared"):
+		check_declared_campaign({"policy_revision": "r"}, "declared")

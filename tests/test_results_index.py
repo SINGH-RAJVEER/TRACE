@@ -9,6 +9,7 @@ import pytest
 from distillation.results_index import (
 	BASELINE_POLICIES,
 	COLUMNS,
+	_attributed_fields,
 	backfill_rows,
 	comparison_from_index,
 	read_index,
@@ -312,3 +313,23 @@ def test_validity_check_covers_compared_arms_and_the_baseline_in_each_run() -> N
 	assert not utility_validity_check(rows, conditions, baseline_arm=None, require_baseline=True)[
 		"valid"
 	]
+
+
+def test_attributed_columns_are_unknown_without_attribution() -> None:
+	assert _attributed_fields({"attempts": 3}, None) == {
+		"policy_binding": None,
+		"campaign_digest": None,
+	}
+	fields = _attributed_fields(
+		{
+			"restricted": 3,
+			"restrictions_by_kind": {"campaign": 2, "output": 1},
+			"restriction_give_ups": 1,
+			"output_receipts": {"received": 4, "released_hash_mismatches": 0},
+		},
+		{"policy_binding": {"status": "bound", "campaign_digests": ["d"]}},
+	)
+	assert fields["policy_binding"] == "bound" and fields["campaign_digest"] == "d"
+	assert fields["restrictions_campaign"] == 2 and fields["restrictions_entitlement"] == 0
+	assert fields["restrictions_output"] == 1 and fields["output_receipts"] == 4
+	assert set(fields) <= set(COLUMNS)

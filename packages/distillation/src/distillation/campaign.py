@@ -50,6 +50,7 @@ RESTRICTION_STRATEGIES = ("give_up", "wait_and_retry")
 CAMPAIGN_CONFIG_FILE = "campaign-config.json"
 DECISIONS_SNAPSHOT_FILE = "decisions.snapshot.jsonl"
 # Harness 429 codes. A code outside this table stays cause-attributed but of unknown kind.
+OUTPUT_RECEIPT_HEADER = "X-Harness-Output-Receipt"
 RESTRICTION_KINDS = {
 	"campaign_throttled": "campaign",
 	"token_budget_exceeded": "entitlement",
@@ -58,6 +59,7 @@ RESTRICTION_KINDS = {
 	"supervision_budget_exceeded": "entitlement",
 	"tier_budget_exceeded": "entitlement",
 	"in_flight_limit": "rate",
+	"output_withheld": "output",
 }
 
 
@@ -85,15 +87,17 @@ def _seconds(value: Any) -> float | None:
 
 
 def classify_restriction(response: httpx.Response) -> dict[str, Any] | None:
-	"""The cause and retry timing of a harness 429; None leaves it a service failure.
+	"""The cause and retry timing of a harness 429 or a withheld output; else a service failure.
 
 	An upstream or proxy 429 has neither a harness decision header nor a known code, so it is
 	not relabeled as a defense. A harness decision with an unrecognized code keeps kind unknown.
 	"""
-	if response.status_code != 429:
-		return None
 	body = _error_body(response)
 	code = _error_code(body)
+	if response.status_code != 429 and not (
+		response.status_code == 502 and code == "output_withheld"
+	):
+		return None
 	decision = response.headers.get("X-Harness-Decision")
 	if decision is None and code not in RESTRICTION_KINDS:
 		return None
@@ -111,6 +115,29 @@ def classify_restriction(response: httpx.Response) -> dict[str, Any] | None:
 		"retry_after_seconds": retry_after,
 		"retry_at_server_seconds": campaign.get("throttle_until", detail.get("reset_at")),
 	}
+
+
+def output_receipt(response: httpx.Response) -> dict[str, Any] | None:
+	"""The gateway's output receipt, and whether the released hash matches what arrived."""
+	header = response.headers.get(OUTPUT_RECEIPT_HEADER)
+	if header is None:
+		return None
+	try:
+		receipt = json.loads(header)
+	except ValueError:
+		return {"valid": False}
+	if not isinstance(receipt, dict):
+		return {"valid": False}
+	matches = None
+	if response.is_success:
+		try:
+			text = TeacherGeneration.model_validate(response.json()).message.content
+		except ValueError:
+			text = None
+		matches = text is not None and hashlib.sha256(text.encode()).hexdigest() == receipt.get(
+			"released_sha256"
+		)
+	return {**receipt, "valid": True, "released_hash_matches": matches}
 
 
 @dataclass(frozen=True)
@@ -369,6 +396,9 @@ class ProtectedTeacher:
 					else "failed"
 				)
 			)
+			receipt = output_receipt(response)
+			if receipt is not None:
+				outcome["output_receipt"] = receipt
 			if self.attribute_restrictions and response.is_error:
 				outcome["code"] = _error_code(_error_body(response))
 				restriction = classify_restriction(response)

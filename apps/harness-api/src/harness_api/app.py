@@ -1364,7 +1364,15 @@ def create_app(
 
 	@app.get("/healthz")
 	async def health() -> dict[str, str]:
-		return {"status": "ready", "policy": config.policy}
+		# Hashes of the served configuration, so a client can check it before spending anything.
+		return {
+			"status": "ready",
+			"policy": config.policy,
+			"policy_revision": policy_revision,
+			**({"campaign_digest": campaign.digest} if campaign is not None else {}),
+			**({"output_policy_digest": output_policy.digest} if output_policy is not None else {}),
+			**({"instance_id": config.instance_id} if config.instance_id is not None else {}),
+		}
 
 	@app.post("/v1/teacher/generate", response_model=None)
 	async def generate(

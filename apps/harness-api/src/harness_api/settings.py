@@ -56,6 +56,8 @@ class Settings(BaseSettings):
 	trust_actor_header: bool = Field(default=False, alias="HARNESS_TRUST_ACTOR_HEADER")
 	# Test only: take the time from X-Harness-Time and never wait in real time.
 	test_clock: bool = Field(default=False, alias="HARNESS_TEST_CLOCK")
+	# Echoed by /healthz so a launcher can tell its own process from another on the same port.
+	instance_id: str | None = Field(default=None, alias="HARNESS_INSTANCE_ID")
 
 	# Durable enforcement state: account horizons, open challenges, and the release ledger.
 	# Without it, state lives in this process and a restart renews every account. Use a new
