@@ -7,7 +7,7 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 function Validity({ arm }: { arm: UtilityArm }) {
 	const variant = arm.validity === "valid" ? "pass" : arm.validity === "invalid" ? "fail" : "outline";
 	return <span className="inline-flex flex-col gap-1">
-		<Badge variant={variant}>{arm.validity ?? "unknown"} baseline</Badge>
+		<Badge variant={variant}>{arm.validity ?? "unknown"}</Badge>
 		{arm.validity_reason && <span className="max-w-72 text-xs text-muted">{arm.validity_reason}</span>}
 	</span>;
 }

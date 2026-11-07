@@ -53,7 +53,7 @@ When the index already holds a run's campaign and utility rows, they are shown a
 
 ## Safety
 
-The API has only GET routes. Each request rescans the roots, so new artifacts appear without a restart. Runs are addressed by opaque IDs; clients never send paths. `Roots.resolve` rejects absolute paths, `..`, backslashes and symlinks that leave a root. Files named `credentials.json`, `accounts.json`, `environment.env`, `.env`, `*.key` and SQLite state are never opened. Configuration values whose names contain TOKEN, KEY, SECRET, PASSWORD, CREDENTIAL, AUTH or COOKIE are replaced with `<redacted>`, as is the user-info part of URLs. Git LFS pointers are reported as unhydrated rather than malformed. JSON over 64 MB is not read, and the per-request `results` list in `utility.json` is never sent to the browser.
+The API has only GET routes. Each request rescans the roots, so new artifacts appear without a restart. Runs are addressed by opaque IDs; clients never send paths. The walk does not enter symlinked directories, and every file read refuses a path that passes through a symlink, so a link cannot reach outside a root or rename a credential file. `Roots.resolve`, for root-relative paths, rejects absolute paths, `..`, backslashes and symlinks that leave a root. Files named `credentials.json`, `accounts.json`, `environment.env`, `.env`, `*.key` and SQLite state are never opened. Configuration values whose names contain TOKEN, KEY, SECRET, PASSWORD, CREDENTIAL, AUTH or COOKIE are replaced with `<redacted>`, as is the user-info part of URLs. Git LFS pointers are reported as unhydrated rather than malformed. JSON over 64 MB is not read, and the per-request `results` list in `utility.json` is never sent to the browser.
 
 ## Limits
 

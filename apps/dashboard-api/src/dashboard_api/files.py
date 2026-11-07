@@ -97,7 +97,12 @@ class Roots:
 
 
 def _refused(path: Path) -> bool:
-	return bool(NEVER_READ.search(path.as_posix()))
+	"""Symlinks are never followed, so a link in the file or any parent directory cannot reach a
+	file outside its root or a credential file under another name. Roots are resolved already."""
+	absolute = Path(os.path.abspath(path))
+	if path.resolve() != absolute:
+		return True
+	return bool(NEVER_READ.search(absolute.as_posix()))
 
 
 def file_sha256(path: Path) -> str:
@@ -111,7 +116,7 @@ def file_sha256(path: Path) -> str:
 def read_json(path: Path, label: str, *, max_bytes: int = MAX_JSON_BYTES) -> Loaded:
 	"""A JSON file, reported as missing, refused, too large, an LFS pointer or malformed."""
 	if _refused(path):
-		return Loaded("refused", label, error="this file holds credentials or account state")
+		return Loaded("refused", label, error="a symlink or a file holding credentials or state")
 	if not path.is_file():
 		return Loaded("missing", label, error="file not found")
 	size = path.stat().st_size
@@ -133,7 +138,7 @@ def read_json(path: Path, label: str, *, max_bytes: int = MAX_JSON_BYTES) -> Loa
 def read_text(path: Path, label: str, *, max_bytes: int = MAX_TEXT_BYTES) -> Loaded:
 	"""A small text file; longer files are cut at `max_bytes` and say so in `error`."""
 	if _refused(path):
-		return Loaded("refused", label, error="this file holds credentials or account state")
+		return Loaded("refused", label, error="a symlink or a file holding credentials or state")
 	if not path.is_file():
 		return Loaded("missing", label, error="file not found")
 	with path.open("rb") as stream:
@@ -167,6 +172,8 @@ def parse_env(text: str) -> list[dict[str, str]]:
 
 def sniff(path: Path, size: int = 2048) -> bytes:
 	"""The first bytes of a file, for content-based recognition without a full parse."""
+	if _refused(path):
+		return b""
 	try:
 		with path.open("rb") as stream:
 			return stream.read(size)
@@ -183,7 +190,7 @@ def scan_dir(path: Path) -> tuple[list[os.DirEntry[str]], list[os.DirEntry[str]]
 			for entry in entries:
 				if entry.is_dir(follow_symlinks=False):
 					dirs.append(entry)
-				elif entry.is_file():
+				elif entry.is_file(follow_symlinks=False):
 					files.append(entry)
 	except OSError:
 		pass

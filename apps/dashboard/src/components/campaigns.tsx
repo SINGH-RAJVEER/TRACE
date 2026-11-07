@@ -1,3 +1,4 @@
+import { emptyIntervention } from "../data";
 import type { CampaignItem, Failed, Section as SectionData } from "../types";
 import { Hash, Section, Status, Unavailable, Value } from "./evidence";
 import { Badge } from "./ui/badge";
@@ -40,14 +41,14 @@ export function CampaignsView({ data }: { data: SectionData<CampaignItem> | Fail
 						{typeof row.released_tokens_unknown === "number" && row.released_tokens_unknown > 0 && <p className="text-xs text-caution">{row.released_tokens_unknown} usages unknown</p>}
 					</TableCell>
 					<TableCell className="text-right"><Value value={row.distinct_examples} as="int" /></TableCell>
-					<TableCell className="text-right"><Value value={row.first_alert_seconds} as="seconds" unknown="none observed" /></TableCell>
-					<TableCell className="text-right"><Value value={row.first_restriction_seconds} as="seconds" unknown="none observed" /></TableCell>
-					<TableCell className="text-right"><Value value={row.first_refusal_seconds} as="seconds" unknown="none observed" /></TableCell>
+					<TableCell className="text-right"><Value value={row.first_alert_seconds} as="seconds" unknown={emptyIntervention(row)} /></TableCell>
+					<TableCell className="text-right"><Value value={row.first_restriction_seconds} as="seconds" unknown={emptyIntervention(row)} /></TableCell>
+					<TableCell className="text-right"><Value value={row.first_refusal_seconds} as="seconds" unknown={emptyIntervention(row)} /></TableCell>
 					<TableCell>
 						{row.attribution_complete === false ? <Badge variant="caution">incomplete · {row.unattributed_queries ?? "?"} unattributed</Badge> : <Value value={row.attribution_complete === true ? "complete" : null} />}
 					</TableCell>
 				</TableRow>)}</TableBody>
-				<TableCaption>Empty intervention cells mean none was observed only when attribution is complete; otherwise the time is unknown. Gate-refused arms sent no requests and keep their row.</TableCaption>
+				<TableCaption>An empty intervention time reads "none observed" only when every query was attributed to a policy event; otherwise it is unknown. Gate-refused arms sent no requests and keep their row.</TableCaption>
 			</Table>}
 			{data.errors && data.errors.length > 0 && <div className="space-y-1">{data.errors.map(e => <Unavailable key={`${e.attack}/${e.arm}`} tone="error" reason={`${e.attack}/${e.arm}: ${e.error}`} />)}</div>}
 		</Section>
@@ -61,7 +62,7 @@ export function CampaignsView({ data }: { data: SectionData<CampaignItem> | Fail
 				<TableBody>{rows.map(row => <TableRow key={`${row.attack}/${row.arm}`}>
 					<TableCell className="num">{row.attack}</TableCell><TableCell>{row.arm}</TableCell>
 					{LEVELS.map(level => <TableCell key={level} className="text-right whitespace-nowrap">
-						{row[`L${level}_J`] === null ? <Value value={null} unknown={row.attribution_complete === true ? "unreached" : "unknown"} /> : <span className="num"><Value value={row[`L${level}_seconds`]} as="seconds" /> · {String(row[`L${level}_J`])} · {String(row[`L${level}_Q`] ?? "?")}</span>}
+						{row[`L${level}_J`] === null ? <Value value={null} unknown={emptyIntervention(row, "unreached")} /> : <span className="num"><Value value={row[`L${level}_seconds`]} as="seconds" /> · {String(row[`L${level}_J`])} · {String(row[`L${level}_Q`] ?? "?")}</span>}
 					</TableCell>)}
 					<TableCell><Value value={row.seed} /></TableCell>
 					<TableCell><Value value={row.attempt_budget} as="int" /></TableCell>

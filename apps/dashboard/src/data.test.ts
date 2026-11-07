@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkpointPlot, curvePlot, format, strataByGroup, studyLabel, verdict } from "./data";
+import { checkpointPlot, curvePlot, emptyIntervention, format, strataByGroup, studyLabel, verdict } from "./data";
 import type { CheckpointRow, Curve, UtilityArm } from "./types";
 
 const file = { state: "ok" as const, path: "x", error: null, sha256: null };
@@ -87,4 +87,12 @@ test("study and verdict labels never invent a value", () => {
 	expect(verdict(null)).toBe("unknown");
 	expect(verdict(false, "failed")).toBe("fail");
 	expect(verdict(false, "development-only")).toBe("development");
+});
+
+test("an empty intervention cell claims absence only under complete attribution", () => {
+	expect(emptyIntervention({ status: "complete", attribution_complete: true })).toBe("none observed");
+	expect(emptyIntervention({ status: "interrupted", attribution_complete: false })).toBe("unknown");
+	expect(emptyIntervention({ status: "complete", attribution_complete: null })).toBe("unknown");
+	expect(emptyIntervention({ status: "gate-refused", attribution_complete: null })).toBe("not run");
+	expect(emptyIntervention({ status: "complete", attribution_complete: true }, "unreached")).toBe("unreached");
 });

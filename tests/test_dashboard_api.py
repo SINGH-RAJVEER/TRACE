@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from dashboard_api.app import create_app
-from dashboard_api.files import Roots, parse_env, read_json
+from dashboard_api.files import Roots, parse_env, read_json, read_text, sniff
 from dashboard_api.index import load_index
 from distillation import transfer_metrics
 from distillation.baseline_gates import clean_gate, write_gate
@@ -41,15 +41,17 @@ def test_real_index_keeps_refusals_false_values_and_unknowns() -> None:
 	loaded = load_index(READINGS / "index.tsv")
 	assert loaded["state"] == "ok"
 	rows = loaded["rows"]
-	refused = [r for r in rows if r["status"] == "gate-refused"]
-	assert refused and all(r["run_id"] == "v5-20261102" for r in refused)
+	v5 = [r for r in rows if r["run_id"] == "v5-20261102"]
+	refused = [r for r in v5 if r["status"] == "gate-refused"]
+	assert len(refused) == 8 and {r["arm"] for r in refused} == {"full", "instantaneous"}
 	assert all(r["received"] is None and r["attempts"] is None for r in refused)
 	a2 = next(r for r in rows if r["run_id"] == "backfill:v3" and r["attack"] == "A2")
 	assert a2["attribution_complete"] is False and a2["status"] == "interrupted"
 	assert a2["unattributed_queries"] == 1537
 	quota = next(r for r in rows if r["run_id"] == "backfill:v3" and r["arm"] == "quota")
 	assert quota["blocked"] == 4785 and quota["challenge"] == 0
-	utility = [r for r in rows if r["kind"] == "utility"]
+	historical = ("backfill:v3", "v5-20261102")
+	utility = [r for r in rows if r["kind"] == "utility" and r["run_id"] in historical]
 	assert utility and {r["validity"] for r in utility} == {"unknown"}
 	assert {r["study"] for r in utility if r["run_id"] == "v5-20261102"} == {None}
 
@@ -120,7 +122,17 @@ def test_paths_cannot_leave_their_root(tmp_path: Path) -> None:
 		Roots.parse("bad name=x", tmp_path)
 	(root / "run" / "credentials.json").write_text('{"token": "x"}')
 	assert read_json(root / "run" / "credentials.json", "c").state == "refused"
+	# A symlink is never followed, whatever it is named or wherever it points.
+	(tmp_path / "outside" / "secret.json").write_text('{"version": "teacher-capacity-v1"}')
+	(root / "run" / "notes.json").symlink_to(root / "run" / "credentials.json")
+	(root / "run" / "preflight.json").symlink_to(tmp_path / "outside" / "secret.json")
+	assert read_json(root / "run" / "notes.json", "n").state == "refused"
+	assert read_json(root / "run" / "preflight.json", "p").state == "refused"
+	assert read_json(root / "escape" / "secret.json", "e").state == "refused"
+	assert read_text(root / "escape" / "secret.json", "e").state == "refused"
+	assert sniff(root / "run" / "preflight.json") == b""
 	app = client(roots, tmp_path / "index.tsv")
+	assert app.get("/api/runs").json()["runs"] == []
 	assert app.get("/api/runs/..%2F..%2Fetc").status_code == 404
 	assert app.get("/api/runs/0000000000000000").status_code == 404
 	assert app.post("/api/runs").status_code == 405

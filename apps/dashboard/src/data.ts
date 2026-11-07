@@ -109,3 +109,12 @@ export function verdict(passed: Maybe<boolean> | undefined, status?: Maybe<strin
 	if (passed === false) return "fail";
 	return "unknown";
 }
+
+/**
+ * What an empty intervention or level cell of a campaign row means. Absence is only "none
+ * observed" when every query was attributed to a policy event; an arm that never ran has nothing.
+ */
+export function emptyIntervention(row: { status: Maybe<string>; attribution_complete?: unknown }, absent = "none observed"): string {
+	if (row.status === "gate-refused" || row.status === "not-run") return "not run";
+	return row.attribution_complete === true ? absent : "unknown";
+}
