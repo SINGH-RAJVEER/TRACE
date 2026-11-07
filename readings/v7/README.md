@@ -65,4 +65,6 @@ Not exported: client credentials, harness state databases, the deception key, vL
 
 ## Unprotected reference
 
-`campaigns/A6/unprotected/` is not part of this run. It is the v3 undefended A6 ledger copied from the `archive` branch as the unprotected reference for student training; `SOURCE.md` there records its origin and how it differs from the v7 arms.
+`campaigns/A6/unprotected/` is a copy of `campaigns/A6/quota/` relabeled as the unprotected A6 run. The quota never intervened on A6, so the attacker received what an unprotected teacher would have released; `SOURCE.md` there gives the details. It is not a separate collection.
+
+`campaigns/A6/unprotected-v3-archive/` is not part of this run. It is the v3 undefended A6 ledger copied from the `archive` branch as a second unprotected reference from a different teacher; `SOURCE.md` there records its origin and how it differs from the v7 arms.

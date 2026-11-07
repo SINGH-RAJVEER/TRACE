@@ -1,13 +1,11 @@
-# Unprotected A6 ledger
+# Unprotected A6 run
 
-This campaign was not collected by v7. It is a copy of the v3 undefended A6 ledger from the `archive` branch (`443e5d63baaec3dcbb40d8a0018b3f221e527b2d`), path `readings/v3-2026-10-29-gateway-replay/ledgers/A6/s42-b6000/undefended/`, kept here as the unprotected reference for the v7 student comparison.
+This directory is a byte-for-byte copy of `../quota/`, the v7 `A6/quota` arm, relabeled as the unprotected A6 run. It is not a separate collection.
 
-It was chosen as the best unprotected GSM8K ledger in the archive: of the archive's full 6,000-request undefended ledgers, it has the most GSM8K replies that finished (383 of 1,500) and were correct against the gold answers (379). The other ledgers from the same teacher finish 342 to 371, and the v4 Kaggle ledger has 450 usable GSM8K replies after review.
+The A6 campaign ran with the quota policy in the request path, but the quota never intervened: all 6,000 requests were served, with no alert, spacing, challenge or refusal decision (every row in `decisions.jsonl` is level 0, `serve`). The attacker therefore received exactly what an unprotected teacher would have released for this schedule: 6,000 replies and 806,570 output tokens, including 1,500 GSM8K replies, of which 1,473 finished and 1,402 are correct against the gold answers.
 
-Differences from the v7 arms:
+The files still record the quota arm (`harness.env` has `HARNESS_POLICY=quota`), because they were not re-collected. Report this run as the v7 A6 quota arm with no interventions, used as the unprotected reference.
 
-- Teacher: full-precision `Qwen/Qwen3.5-9B` served by vLLM (`self-hosted-vllm`), not the v7 Q4_K_M GGUF on llama-server. About 75% of its GSM8K replies stop at the 1,024-token limit, against 2% in v7 `A6/quota`.
-- Prompts: same attack, seed 42 and 6,000-request budget, but drawn from the v3 corpus build. It shares 1,037 of its 6,000 example IDs with v7 `A6/quota`.
-- Contract: `gateway-execution-v2`, the same as the v7 campaigns.
+Its GSM8K prompts include every GSM8K prompt the A5 arms received (199 for `full`, 99 for `instantaneous`, 1,215 for `quota`), so it is the unprotected upper bound for the A5 student comparison.
 
-None of its 1,500 GSM8K prompts appear in `data/math/development-suite.json`, by source ID or by question text. The files are byte-for-byte copies of the archive versions.
+`../unprotected-v3-archive/` holds a second, independently collected unprotected ledger from the archive, from a different teacher and corpus build.
