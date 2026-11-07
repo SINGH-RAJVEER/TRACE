@@ -62,3 +62,7 @@ UTILITY_MIN_COMPLETION_RATE=
 - `SHA256SUMS`, `export.json`: checksums and export record.
 
 Not exported: client credentials, harness state databases, the deception key, vLLM and teacher-API logs, and regenerable detector inputs.
+
+## Unprotected reference
+
+`campaigns/A6/unprotected/` is not part of this run. It is the v3 undefended A6 ledger copied from the `archive` branch as the unprotected reference for student training; `SOURCE.md` there records its origin and how it differs from the v7 arms.
