@@ -3,6 +3,7 @@
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs,array,tabularx}
+\usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage[hidelinks]{hyperref}
 % Keep result-table pages top-aligned.
@@ -14,79 +15,86 @@
 \setlength{\@dblfpsep}{16pt plus 2pt minus 2pt}
 \setlength{\@dblfpbot}{0pt plus 1fil}
 \makeatother
-% Placeholders for values the v5 run will supply. Remove both once filled.
+% Placeholders for the student results still running. Remove both once filled.
 \newcommand{\tbd}[1]{\textcolor{red!65!black}{[#1]}}
 \newcommand{\pending}{\textcolor{red!65!black}{--}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}
 \newcommand{\I}{\mathbb{I}}
-\title{What account-level controls restrict in model extraction: a measurement study}
+\graphicspath{{figures/}}
+\title{Rationing a teacher: what account-level controls withhold from model distillation}
 \author{Rajveer~Singh, Dhruv~Deepak, Vansh~Kulshrestha, and Aryash~Kushwaha}
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Anyone who collects a model API's answers can train a student on them and copy the model. Providers now respond to such campaigns at the account level~\cite{anthropic2026detecting,openai2026disrupting}. We measure what account-level controls restrict and what they cost legitimate users, using an open test bench that serves one teacher across news classification, extractive question answering, math word problems, and Python coding. The bench compares a content detector, a calibrated per-account request quota, and no defense against six collection strategies and simulated legitimate clients. The detector scores windows of an account's prompts by maximum mean discrepancy from benign traffic and accumulates the evidence into escalating actions. In a development run, it never escalated a single-account campaign that sampled every task uniformly. The full policy released all 6,000 responses and 588,653 output tokens, while some held-out benign accounts reached alert levels. Window ranks explain the result. Uniform sampling makes a campaign look like the pooled benign mixture, and a legitimate user who stays on one topic looks less ordinary than the attacker. Reordering the same prompts by topic evaded every detector variant tested, with no extra queries. The quota limited the same campaign to 1,215 responses. It also refused 617 requests from the one heavy benign account, and it does not bound a campaign split across accounts. A fresh run on rebuilt, source-disjoint data repeats the detector result at calibration and in a pre-campaign detectability check. The controls tested bound how much one account acquires. They do not identify extraction, and a content-only test cannot separate an attacker whose prompts follow the benign distribution.
+Anyone who can query a model API can collect its answers and train a cheaper student on them. Providers now fight these campaigns at the account level~\cite{anthropic2026detecting,openai2026disrupting}, but no public measurement says what such controls withhold or whether the withheld part matters. We built TRACE, an open gateway that serves one teacher on news classification, extractive question answering, grade-school math and Python coding, logs every admission and every released token, and replays six collection strategies against three controls: a content detector built on maximum mean discrepancy, the same detector without memory, and a calibrated per-account request quota. Across three runs and two teacher builds the result repeats. The detector could not tell four of the six campaigns from legitimate users, and a pre-campaign check refused to run it on them, while 10 of 100 held-out legitimate accounts escalated in the same replay and 4 reached refusal. It acted only when one account concentrated on math. There a six-account campaign received 321,831 tokens, against 806,570 for the same prompts with no control in effect, because math responses carry 69\% of all tokens. Its 1,494 coding responses still went out. The quota held every single-account campaign to at most 1,215 responses and did nothing to the same prompts split across six accounts. Released tokens bound what a student can learn from. They do not show that it learns less, so we train GSM8K students on what each arm released, from 99 to 1,500 math responses. \tbd{Student result: one sentence once the checkpoint students finish.}
 \end{abstract}
 \begin{IEEEkeywords}
 Model extraction, knowledge distillation, access control, maximum mean discrepancy, API security, measurement.
 \end{IEEEkeywords}
 
 \section{Introduction}
-\IEEEPARstart{A}{n} API keeps a model's weights private, but its outputs can still train a substitute~\cite{tramer2016stealing,orekondy2019knockoff}. Collecting answers and training a smaller student on them is knowledge distillation~\cite{hinton2015distilling,kim2016sequence}, done without the owner's permission. Model Leeching reached 75\% exact match and 87\% F1 on SQuAD by distilling a commercial model for about \$50 in API fees~\cite{birch2023leeching}. Providers report campaigns far larger than research settings. Anthropic attributes more than 16 million exchanges, made through about 24,000 fraudulent accounts, to three laboratories~\cite{anthropic2026detecting}. OpenAI reports 16,000 patterned requests from more than 4,000 users in two days~\cite{openai2026disrupting}. Google reports one campaign of more than 100,000 prompts~\cite{gtig2026distillation}.
+\IEEEPARstart{A}{n} API keeps a model's weights private, but its answers can still train a substitute~\cite{tramer2016stealing,orekondy2019knockoff}. Collecting those answers and fitting a smaller student to them is knowledge distillation~\cite{hinton2015distilling,kim2016sequence}, done without the owner's permission. It is cheap. Model Leeching reached 75\% exact match and 87\% F1 on SQuAD for about \$50 in API fees~\cite{birch2023leeching}. Providers report campaigns far larger than any research setting. Anthropic attributes more than 16 million exchanges through about 24,000 fraudulent accounts to three laboratories~\cite{anthropic2026detecting}. OpenAI reports 16,000 patterned requests from more than 4,000 users in two days~\cite{openai2026disrupting}, and Google reports one campaign of more than 100,000 prompts~\cite{gtig2026distillation}.
 
-The defenses these providers describe work on accounts. They link accounts, verify identity, fingerprint behavior, and limit or ban accounts, alongside output-side measures~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}. The reports give no benign false-positive rates and no controlled measurement of how much a student loses. Research detectors score the distribution of each client's queries~\cite{juuti2019prada,kesarwani2018warning,liu2026detector}. They report detection rates on attacker and normal query sets that mostly come from different sources~\cite{liu2026detector}.
+The defenses those reports describe act on accounts. Providers link accounts, verify identity, fingerprint behavior, and rate-limit or ban, alongside changes to what responses reveal~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}. None of the reports gives a false-positive rate on legitimate users or a controlled measurement of what a student loses. Research detectors score the distribution of each client's queries~\cite{juuti2019prada,kesarwani2018warning,pal2021stateful,liu2026detector} and report detection rates on attack and normal query sets that mostly come from different sources~\cite{liu2026detector}. A recent benchmark found the same detector catching one collection method completely and missing another completely~\cite{liu2026lifecycle}.
 
-This paper asks a narrower question than whether a defense stops distillation. For a fixed set of collection strategies, what does each account-level control actually restrict, and what does it cost legitimate users? We answer with an open test bench, TRACE~\cite{trace2026artifact}. One gateway serves one teacher across four tasks. A policy layer in front of it decides per request whether to serve, slow, challenge, or refuse. Simulated legitimate clients and scripted attackers send traffic through it, and the gateway logs every admission and release.
+We ask a narrower question. For a fixed set of collection strategies, what does each account-level control actually withhold, what does it cost legitimate users, and does the withheld supervision change what a student learns? Answering it needs three measurements that published work keeps apart: what the gateway released, token by token and domain by domain; how often the same control fires on legitimate accounts; and the accuracy of a student trained on exactly what was released before and after each intervention.
 
-We compare two kinds of control. The first is a content detector, built on the windowed maximum mean discrepancy score of Liu et al.~\cite{liu2026detector}. It compares an account's recent prompt embeddings with benign traffic and accumulates the evidence into graduated actions. The second is a request quota fitted to the same benign data. Both run against the same campaigns: multiplexed, domain-sequential, cover traffic, two account-splitting strategies, and independent prompt sources.
+TRACE~\cite{trace2026artifact} makes those measurements in one place. One gateway serves one teacher across four tasks. A policy layer decides per request whether to serve, slow, challenge, or refuse, and a release ledger records what left the gateway. Simulated legitimate clients and scripted attackers share the same endpoint. A checkpoint exporter then cuts each campaign's ledger at the moment of each intervention, and a fixed student recipe trains on every cut.
 
-The contributions are as follows.
+This paper reports run v7 on the current bench, places it beside the earlier runs v3 and v5, and sets up the student test. Its findings are these.
 \begin{itemize}
-	\item A reproducible negative result for content detection. A campaign that samples each task uniformly scores as more ordinary than most legitimate users, because the users concentrate on one task and topic. The full policy released all 6,000 responses of such a campaign. Reordering the same prompts by topic evaded every detector variant we tested.
-	\item A measured account of what a volume cap does. A calibrated quota limits single-account campaigns, refuses part of the heaviest legitimate user's traffic, and has no effect on a campaign split across enough accounts.
-	\item Evaluation methods for this setting. They include a release ledger that separates admission from delivered output, a pre-campaign detectability check that replays a frozen campaign offline, and source-disjoint attacker partitions that keep inspected prompts out of confirmatory tests.
+	\item Content detection fails on broad campaigns for a structural reason. Legitimate users concentrate on one task and topic, so a campaign that samples every task looks more ordinary than they do. In v7 the detector could not escalate four of six campaigns but escalated 10 of 100 held-out legitimate accounts. This repeats v5 on a different teacher build.
+	\item When the detector does fire, it fires on the domain that matters most for tokens. Math answers are long, so withholding one math account removed 60\% of a six-account campaign's tokens. The other five accounts, including coding, which carries 29\% of tokens, never left the lowest level.
+	\item A request quota rations accounts, not campaigns. It held each single-account campaign to 1,215 responses, between 2,784 and 247,309 tokens depending on the domain mix, and had no effect on a campaign split across six accounts.
+	\item Request counts misstate acquisition. The same 1,215-request quota released 2,784 tokens to one campaign and 215,700 to another. We report tokens by domain from the ledger and train students on the ledger, not on request counts.
 \end{itemize}
 
-Section~\ref{sec:related} reviews related work. Section~\ref{sec:bench} describes the test bench and its controls, and Section~\ref{sec:protocol} the protocol. Section~\ref{sec:results} reports the development evidence and the fresh run. Section~\ref{sec:discussion} discusses what the measurements support.
+Section~\ref{sec:related} reviews related work. Section~\ref{sec:bench} describes the bench and Section~\ref{sec:protocol} the protocol. Section~\ref{sec:results} reports v7 and its replication of v5, and Section~\ref{sec:students} the student test. Section~\ref{sec:current} describes controls the bench now implements but has not yet measured. Section~\ref{sec:discussion} discusses what the evidence supports.
 
 \section{Related work}
 \label{sec:related}
 \subsection{Extraction and distillation}
-An attacker queries a victim $F$, collects input-output pairs, and trains a surrogate $\widehat F$. Task accuracy and fidelity to the victim are different goals~\cite{jagielski2020high}. Krishna et al. extracted BERT-based APIs with synthetic queries, and MeaeQ selects task-relevant queries from public text~\cite{krishna2020thieves,dai2023meaeq}. Model Leeching and LoRD apply response collection and training to language models~\cite{birch2023leeching,liang2025lord}. Our attacker trains on response-token cross-entropy, which is sequence-level distillation from decoded outputs~\cite{kim2016sequence}. A student can imitate a teacher's style without its capability~\cite{gudibande2024false}, so we score students on task benchmarks. Extracting behavior differs from recovering training records or membership~\cite{carlini2021extracting,shokri2017membership}, and we make no privacy claim.
+An attacker queries a victim $F$, collects input-output pairs, and trains a surrogate $\widehat F$. Task accuracy and fidelity to the victim are different goals~\cite{jagielski2020high}. Krishna et al.\ extracted BERT-based APIs with synthetic queries, and MeaeQ picks task-relevant queries from public text~\cite{krishna2020thieves,dai2023meaeq}. Model Leeching and LoRD apply collection and training to language models~\cite{birch2023leeching,liang2025lord}. Our attacker trains on response-token cross-entropy, which is sequence-level distillation from decoded outputs~\cite{kim2016sequence}, with low-rank adapters~\cite{hu2022lora,dettmers2023qlora}. A student can copy a teacher's style without its capability~\cite{gudibande2024false}, so we score students on task benchmarks rather than by inspection. Small sets of good answers go a long way. s1 fine-tuned a strong reasoning model on 1,000 curated examples~\cite{muennighoff2025s1}, which is why we test students at intervention points of 99 to 200 math responses and not only at the end of a campaign. Extracting behavior differs from recovering training records or membership~\cite{carlini2021extracting,shokri2017membership}, and we make no privacy claim.
 
 \subsection{Per-client detection}
-PRADA tracks the distribution of distances between a client's queries~\cite{juuti2019prada}. Its authors note that splitting queries across clients defeats it. Kesarwani et al. monitor how much of the feature space each user's queries cover~\cite{kesarwani2018warning}. SEAT learns a similarity encoder to flag near-duplicate attack queries~\cite{zhang2021seat}. VarDetect and HODA use latent query distributions and sample hardness~\cite{pal2021stateful,sadeghzadeh2022hoda}. Adaptive misinformation answers out-of-distribution queries with misleading outputs, which assumes that attack queries are out of distribution~\cite{kariyappa2020adaptive}.
+PRADA tracks the distribution of distances between a client's queries, and its authors note that splitting queries across clients defeats it~\cite{juuti2019prada}. Kesarwani et al.\ track how much of the feature space each user covers~\cite{kesarwani2018warning}. SEAT flags near-duplicate attack queries~\cite{zhang2021seat}. VarDetect and HODA use latent query distributions and sample hardness~\cite{pal2021stateful,sadeghzadeh2022hoda}, and VarDetect reports a miss when attack queries are diluted to 5\% of traffic. Adaptive misinformation assumes attack queries are out of distribution~\cite{kariyappa2020adaptive}.
 
-Liu et al. detect extraction in language-model API traffic with a kernel two-sample statistic over sentence embeddings~\cite{liu2026detector,mmd2026artifact}. With 1,500-query windows they report a 0.3\% benign false-positive rate and 95.1\% balanced accuracy over fourteen attacker-normal pairs. Their true-positive rate falls to 59.0\% when attack queries are 5\% of a window. They list semantically close queries and mixed low-fraction traffic as limitations and leave account-aware monitoring to future work. We take their score, apply it per account at a shorter window, and measure what happens when the attacker's prompts come from the same sources as legitimate traffic.
+Liu et al.\ detect extraction in language-model traffic with a kernel two-sample statistic over sentence embeddings~\cite{liu2026detector,mmd2026artifact}. With 1,500-query windows they report a 0.3\% benign false-positive rate and 95.1\% balanced accuracy over fourteen attack and normal pairs, and a true-positive rate of 59.0\% when attack queries are 5\% of a window. They name semantically close queries and mixed traffic as limitations and leave account-aware monitoring to future work. We apply their score per account at a 100-request window and measure what happens when attack prompts come from the same sources as legitimate ones.
 
-\subsection{Other defenses}
-Watermarks support an ownership claim after extraction~\cite{szyller2021dawn,jia2021entangled}. Proof of work makes each query cost computation~\cite{dwork1992pricing,dziedzic2022pow}. Antidistillation sampling, trace rewriting, and knowledge honeypots change the training value of responses~\cite{savani2025antidistillation,ma2026tracerewriting,dai2026knowledgetrap}. Antidistillation sampling needs control of the teacher's sampling and a proxy student, so it cannot wrap an opaque API. Anthropic reports that summarizing reasoning cut a student's SWE-bench Verified score from 80.4\% to 71.8\% in one experiment~\cite{anthropic2026defenses}. Our controls leave released answers unchanged and act only on access. A concurrent benchmark compares extraction defenses by surrogate capability and fidelity~\cite{liu2026lifecycle}. We add account state, account splitting, and legitimate-user cost.
+Sequential tests can make detection valid at every look. Testing by betting and conformal test martingales give that guarantee under stated conditional or exchangeability assumptions~\cite{shekhar2023betting,vovk2021retrain,ramdas2023gametheoretic}. Our accumulator is a decayed cumulative sum~\cite{page1954cusum} and claims no such guarantee.
+
+\subsection{Output defenses and attribution}
+A second family changes what responses teach. Antidistillation sampling perturbs decoding with a proxy student's gradient~\cite{savani2025antidistillation}. DOGe fine-tunes the teacher's final head against a proxy~\cite{li2025doge}, and lossless antidistillation sampling aims to leave the answer distribution unchanged~\cite{diao2026lossless}. Trace rewriting turns reasoning into dense formal steps. In its small self-rewriting setting, teacher GSM8K accuracy moved from 88.8\% to 88.1\% while a student trained on the rewritten traces fell from 57.7\% to 30.2\%~\cite{ma2026tracerewriting}. These defenses can be undone. Zhu et al.\ cut a Qwen2.5-1.5B student's GSM8K accuracy from 72.48\% to 7.50\% with invisible-character perturbations, and recovered 55.31\% by rendering and reading the text back with OCR~\cite{zhu2026learnability}. DistillGuard finds that removing reasoning does not reliably protect code~\cite{jiang2026distillguard}. Knowledge honeypots let an extractor collect planted knowledge that later exposes it~\cite{dai2026knowledgetrap}. Watermarks support an ownership claim after training~\cite{szyller2021dawn,jia2021entangled,chang2026basins}, but students can be trained to suppress the inherited signal~\cite{pan2025watermarks}. Proof of work makes each query cost computation~\cite{dwork1992pricing,dziedzic2022pow}. Anthropic reports that summarizing reasoning cut a student's SWE-bench Verified score from 80.4\% to 71.8\% in one experiment~\cite{anthropic2026defenses}.
+
+The controls we measure leave each released answer unchanged and act only on access. A concurrent benchmark compares extraction defenses by surrogate capability and fidelity across attacks~\cite{liu2026lifecycle}. We add account state, account splitting, released-token accounting, and the cost to legitimate users.
 
 \section{Test bench}
 \label{sec:bench}
 \subsection{Gateway and threat model}
-One endpoint serves a fixed teacher across the domain set $\mathcal D=\{\text{AG News},\text{SQuAD},\text{GSM8K},\text{coding}\}$ (Table~\ref{tab:data}). Each request carries its domain's prompt template and output cap. The gateway rejects unknown domains, mismatched caps, and prompts that do not match the domain's template with HTTP 422 before any policy decision. Before inference, the policy layer sees the prompt, the arrival time, and the authenticated account. It never sees the teacher's weights or training data.
+One endpoint serves a fixed teacher across the domain set $\mathcal D=\{\text{AG News},\text{SQuAD},\text{GSM8K},\text{coding}\}$, listed in Table~\ref{tab:data}. Each request carries its domain's prompt template and output cap. The gateway rejects unknown domains, mismatched caps, and prompts that do not match the template with HTTP 422 before any policy decision. Before inference the policy layer sees the prompt, the arrival time and the authenticated account. It never sees the teacher's weights or training data.
 
 \begin{table*}[!t]
 \centering\footnotesize
-\caption{Domains served by one gateway. Development pilots froze the output caps, and each calibration records them.}
+\caption{Domains served by one gateway. Output caps were frozen in development pilots and recorded with each calibration.}
 \label{tab:data}
-\begin{tabularx}{\textwidth}{@{}lYYY@{}}\toprule
-Domain & Request and response & Evaluation & Output cap \\\midrule
-AG News~\cite{zhang2015char} & News article; one of four topic labels & Official test split; label accuracy & 16 tokens \\
-SQuAD 1.1~\cite{rajpurkar2016squad} & Passage and question; short answer & Held-out development articles; token F1 & 64 tokens \\
-GSM8K~\cite{cobbe2021gsm8k} & Math problem; solution with a marked final number & Official test split; numeric exact match & 1,024 tokens \\
-Coding~\cite{ahmad2025opencodeinstruct,liu2023evalplus,humanevalplusdataset,mbppplusdataset} & Function specification and signature; Python implementation & Pinned HumanEval+ and MBPP+ assertions; pass@1 & 512 tokens \\\bottomrule
+\begin{tabularx}{\textwidth}{@{}lYYYr@{}}\toprule
+Domain & Request and response & Evaluation & Output cap & Mean tokens, v7 A6 \\\midrule
+AG News~\cite{zhang2015char} & News article; one of four topic labels & Official test split; label accuracy & 16 & 2.3 \\
+SQuAD 1.1~\cite{rajpurkar2016squad} & Passage and question; short answer & Held-out development articles; token F1 & 64 & 7.8 \\
+GSM8K~\cite{cobbe2021gsm8k} & Math problem; solution ending in a marked number & Official test split; numeric exact match & 1,024 & 370 \\
+Coding~\cite{ahmad2025opencodeinstruct,liu2023evalplus,humanevalplusdataset,mbppplusdataset} & Function specification and signature; Python implementation & Pinned HumanEval+ and MBPP+ assertions; pass@1 & 512 & 157 \\\bottomrule
 \end{tabularx}
 \end{table*}
 
-The teacher is \texttt{Qwen3.5-9B} in non-thinking mode with FP8 weights, served by vLLM, and the student is \texttt{Qwen3.5-2B-Base}~\cite{qwen2026qwen35}. A campaign controls one or more accounts, collects from every domain, and pools its responses into one training set. The attacker knows how the detector works and sees service actions, but not calibration data or internal scores. Bearer keys give stable experiment identities. They are not a production identity system and put no price on new accounts.
+The v7 teacher is \texttt{Qwen3.5-9B}~\cite{qwen2026qwen35} quantized to Q4\_K\_M and served by llama.cpp~\cite{llamacpp} on one laptop RTX~4060 through Vulkan, in non-thinking mode at temperature 0. Earlier runs used FP8 weights under vLLM. The student is \texttt{Qwen3.5-2B-Base}. A campaign controls one or more accounts, collects from every domain, and pools its responses into one training set. The attacker knows how the detector works and sees service actions, but not calibration data or internal scores. Bearer keys give stable experiment identities. They are not a production identity system and put no price on a new account.
 
-All accounts in a campaign share one budget of HTTP attempts and one deadline. Failed requests, proof submissions, and cover requests each spend an attempt. A policy reset never refills the campaign's budget. The default campaign makes 6,000 attempts within 24 hours, 1,500 prompts per domain.
+All accounts in a campaign share one budget of HTTP attempts and one deadline. Failed requests, proof submissions and cover requests each spend an attempt, and a policy reset never refills the budget. The default campaign makes 6,000 attempts within 24 hours, 1,500 prompts per domain.
 
 \subsection{Content detector}
 \label{sec:score}
-The encoder is \texttt{BAAI/bge-small-en-v1.5} with CLS pooling, unit-normalized embeddings, and a 512-token limit~\cite{xiao2024cpack,bge2023model}. The serializer prefixes each prompt with its domain and drops fixed template instructions. For SQuAD it puts the question before the passage, so truncation keeps the question.
+The encoder is \texttt{BAAI/bge-small-en-v1.5} with CLS pooling, unit-normalized embeddings and a 512-token limit~\cite{xiao2024cpack,bge2023model}. The serializer prefixes each prompt with its domain and drops fixed template text. For SQuAD it puts the question before the passage so truncation keeps the question. In v7 calibration, 151 of 69,318 encoded prompts were truncated.
 
 For an account window $X=\{x_i\}_{i=1}^{m}$ and a reference window $Z=\{z_j\}_{j=1}^{n}$, the score is the unbiased squared MMD estimator~\cite{gretton2012kernel}:
 \begin{align}
@@ -96,7 +104,7 @@ For an account window $X=\{x_i\}_{i=1}^{m}$ and a reference window $Z=\{z_j\}_{j
 	&-\frac{2}{mn}\sum_{i,j}k(x_i,z_j).
 \label{eq:mmd}
 \end{align}
-The kernel averages four RBF kernels with bandwidths $c\sigma$ for $c\in\{0.5,1,2,4\}$. The base bandwidth $\sigma$ is the median nonzero distance in a benign fitting sample~\cite{gretton2012kernel}. The score averages 20 fixed reference windows drawn from the pooled benign fitting traffic. An account window holds 100 consecutive requests with no overlap, and exact repeats inside a window count once.
+The kernel averages four RBF kernels with bandwidths $c\sigma$ for $c\in\{0.5,1,2,4\}$, where $\sigma$ is the median nonzero distance in a benign fitting sample. The score averages 20 fixed reference windows drawn from pooled benign fitting traffic. An account window holds 100 consecutive requests with no overlap, and exact repeats inside a window count once.
 
 Benign score-calibration windows give $M$ null scores $s_i^{(0)}$. A window score $s_j$ becomes its upper-tail rank
 \begin{equation}
@@ -110,7 +118,7 @@ r_{a,j}=\max\{0,\lambda r_{a,j-1}-\log p_{a,j}-\kappa\},
 \quad r_{a,0}=0,
 \label{eq:risk}
 \end{equation}
-with $\lambda=0.9$ and $\kappa=1$. A window adds evidence only when $p_{a,j}<e^{-1}\approx0.37$. The instantaneous policy uses the current window's evidence alone. Neither construction is an anytime-valid sequential test~\cite{ramdas2023gametheoretic}.
+with $\lambda=0.9$ and $\kappa=1$. A window adds evidence only when $p_{a,j}<e^{-1}\approx0.37$. The instantaneous policy uses the current window's evidence alone.
 
 \subsection{Actions and quota}
 \label{sec:policy}
@@ -118,97 +126,114 @@ Risk thresholds $\theta_1\leq\cdots\leq\theta_4$ map an account to the levels in
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Policy levels used in every protected run.}
+\caption{Policy levels used in every detector arm.}
 \label{tab:actions}
 \begin{tabularx}{\columnwidth}{@{}lY@{}}\toprule
 Level & Action \\\midrule
 L0 & Serve. \\
 L1 & Serve and record an alert. \\
-L2 & Space admitted requests by at least one second per account. \\
+L2 & Space admitted requests at least one second apart per account. \\
 L3 & Apply L2 and require a SHA-256 proof with 20 leading zero bits, bound to the account and request. \\
 L4 & Refuse until the account's horizon resets. \\\bottomrule
 \end{tabularx}
 \end{table}
 
-The quota counts an account's requests in a horizon. It serves requests up to its limit and refuses every later request in that horizon. It reads no content. The rate policy works the same way on the peak requests per minute.
+The quota counts an account's requests in a horizon, serves up to its limit, and refuses everything after it. It reads no content.
 
 \subsection{Accounting}
-The gateway logs admission and release as separate events. A decision event records each admitted request and its level. Before producing output, the gateway reserves the admission in a release ledger. Each reservation then settles once as released with the served output-token count, failed, or cancelled. Failed and cancelled requests still count against the account. With a durable state file, account horizons, challenges, and the ledger survive a restart. A reservation left open by a crash counts as acquired. This lets a run report delivered supervision, not just admitted requests.
+The gateway logs admission and release as separate events. A decision event records each admitted request and its level. Before producing output the gateway reserves the admission in a release ledger, and each reservation settles once as released with the served output-token count, as failed, or as cancelled. Failed and cancelled requests still count against the account. With a durable state file, account horizons, challenges and the ledger survive a restart, and a reservation left open by a crash counts as acquired. Every number of released tokens in this paper comes from that ledger.
 
 \section{Protocol}
 \label{sec:protocol}
 \subsection{Data roles and partitions}
-Each domain's pinned source is split by source group into disjoint roles. The roles are development, attacker, benign fitting, score calibration, policy calibration, and benign test. SQuAD groups by article title. Coding groups by normalized specification. AG News and GSM8K group by item. Each build then splits the attacker role into two halves by a seeded hash of the source group. The exploratory half serves development campaigns and detector probes. The confirmatory half stays unqueried until a preregistered test. The split prevents prompt reuse. It does not hide the prompts from anyone who reads the files. At seed 42, GSM8K's halves hold 1,697 and 1,692 prompts, so a balanced campaign fits at most 6,768 prompts, and the default uses 6,000.
+Each domain's pinned source is split by source group into disjoint roles: development, attacker, benign fitting, score calibration, policy calibration and benign test. SQuAD groups by article title, coding by normalized specification, and AG News and GSM8K by item. Each build splits the attacker role into two halves by a seeded hash of the source group. The exploratory half serves development campaigns. The confirmatory half stays unqueried until a preregistered test. Every run reported here used the exploratory half.
 
-The coding source is a seeded subset of OpenCodeInstruct~\cite{ahmad2025opencodeinstruct,opencodeinstructdataset}. A candidate qualifies only if its reference solution passes its tests in the sandbox and a null stub, the reference with the tested body replaced by \texttt{return None}, fails them. The builder removes duplicates and 13-gram overlap with both evaluation sources~\cite{brown2020language}. In v5, qualification decided 234,955 source rows to admit 50,000 examples. All code runs in fresh bubblewrap namespaces~\cite{bubblewrap} without network access, with a seccomp deny list, and with limits of 15 seconds of CPU time and 256 MiB of address space. The sandbox protects the host but runs tests in the candidate's interpreter, so it is not a tamper-proof judge.
+The coding source is a seeded subset of OpenCodeInstruct~\cite{ahmad2025opencodeinstruct,opencodeinstructdataset}. A candidate qualifies only if its reference solution passes its tests in the sandbox and a null stub, the reference with the tested body replaced by \texttt{return None}, fails them. The builder removes duplicates and 13-gram overlap with both evaluation sources~\cite{brown2020language}. In v7 this qualification took 11.2 of the run's 42 hours. Code runs in fresh bubblewrap namespaces~\cite{bubblewrap} without network access, with a seccomp deny list and limits of 15 CPU seconds and 256 MiB. The sandbox protects the host but runs tests in the candidate's interpreter, so it is not a tamper-proof judge.
 
-The independent-source campaign A7 draws from separately pinned corpora. They are BBC News articles~\cite{greene2006bbc}, NewsQA questions~\cite{trischler2017newsqa}, MathQA problems without answer options~\cite{amini2019mathqa}, and SelfCodeAlign instructions~\cite{wei2024selfcodealign}, each passed through the same template.
+The independent-source campaign A7 draws from separately pinned corpora: BBC News~\cite{greene2006bbc}, NewsQA~\cite{trischler2017newsqa}, MathQA without answer options~\cite{amini2019mathqa}, and SelfCodeAlign instructions~\cite{wei2024selfcodealign}, each passed through the same template.
 
 \subsection{Legitimate clients}
 \label{sec:benign}
-The benign generator, \texttt{gateway-clients-v3}, creates 125 accounts per role. About 10\% are generalists that use several domains, and the rest are single-domain specialists. Account styles are batch, bursty, short, specialist, and repetitive. Non-short account lengths follow a Pareto distribution with shape 1.5, a 100-request minimum, and a 2,000-request cap. Specialists receive prompts in topic-ordered blocks. These are synthetic users. Their nulls describe this generator, not observed customers.
+The benign generator, \texttt{gateway-clients-v3}, creates 125 accounts per role. About 10\% are generalists that use several domains, and the rest are single-domain specialists. Account styles are batch, bursty, short, specialist and repetitive. Non-short account lengths follow a Pareto distribution with shape 1.5, a 100-request minimum and a 2,000-request cap. Specialists send prompts in topic-ordered blocks. These are synthetic users, so every benign rate below describes this generator and not real customers.
 
 \subsection{Calibration}
-Fitting traffic supplies the reference windows and $\sigma$. Score-calibration traffic supplies the null. Policy-calibration traffic sets the thresholds. The L1 to L4 targets are 10, 5, 2, and 1\% of scored benign horizons, fitted with strict exceedance and conservative ties. Calibration fits the quota to the 1\% L4 target on the same horizons. We report achieved rates with Clopper-Pearson upper 95\% bounds~\cite{clopper1934limits}. A calibration passes the resolution check only if it has at least 99 non-overlapping null windows and 100 scored policy horizons. Passing establishes that the 1\% target is resolvable, not that it is met in deployment. A mixture control scores shuffled, pooled benign windows against the per-account null and warns when they rank as ordinary.
+Fitting traffic supplies the reference windows and $\sigma$. Score-calibration traffic supplies the null, and policy-calibration traffic sets the thresholds. The L1 to L4 targets are 10, 5, 2 and 1\% of scored benign horizons, fitted with strict exceedance and conservative ties. The quota is fitted to the 1\% target on the same horizons. We report Clopper-Pearson upper 95\% bounds~\cite{clopper1934limits}. A calibration passes only with at least 99 non-overlapping null windows and 100 scored policy horizons, which makes a 1\% target resolvable but does not show it holds in deployment. A mixture control scores shuffled, pooled benign windows against the per-account null and warns when they rank as ordinary.
 
 \subsection{Campaigns}
 \label{sec:attacks}
-Table~\ref{tab:schedules} lists the strategies. A1, A2, A5, and A6 select the same prompts for a matched seed and differ only in order or account ownership.
-
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Collection strategies and their status in this study.}
-\label{tab:schedules}
-\begin{tabularx}{\textwidth}{@{}llYY@{}}\toprule
-ID & Strategy & Accounts and selection & Status \\\midrule
-A1 & Multiplexed & One account; domains interleaved under a fixed seed & Run \\
-A2 & Domain-sequential & One account; one block per domain & Run \\
-A3 & Cover traffic & One account; half the budget on in-distribution cover & Run \\
-A4 & Slow collection & A1 at a lower declared rate & Not run \\
-A5 & Sybil per domain & Six accounts, each restricted to one domain & Run \\
-A6 & Sybil random & Six accounts, A1's prompts split by a seeded permutation & Run \\
-A7 & Independent sources & One account; prompts from separately pinned corpora & Run \\
-A8 & Active coverage & Reselect prompts from observed feedback & Implemented; not run \\\bottomrule
-\end{tabularx}
-\end{table*}
-
-Each campaign runs against three arms: the full policy, the instantaneous policy, and the quota. Every arm gets a fresh gateway process, fresh credentials, and its own state file.
-
-Before an MMD arm sends any request, a detectability check replays the frozen campaign offline through the served calibration. It also replays the held-out benign accounts. The check passes if the attacker reaches a level above L0 that fewer than the L1 target share of scored benign horizons reach. When it fails, the arm sends nothing and the runner records it as refused. An arm the detector cannot escalate would only repeat what the replay predicts, so a refusal is itself a detector result and costs no teacher time. The check is a go or no-go test, not a power estimate, and it never tunes a threshold.
-
-\subsection{Measurements}
-\label{sec:metrics}
-For each campaign we report released responses and output tokens by domain, the attempt and time of the first escalation at each level, and why the campaign ended. For each arm we replay the held-out benign accounts and report how many reach each level and how many requests each control refuses. A live utility pass sends the benign-test schedule through each arm and records completion, latency, and task correctness. Released supervision is not capability, so the student protocol trains one LoRA adapter~\cite{hu2022lora} per released dataset. Training uses response-token cross-entropy, rank 16, AdamW~\cite{loshchilov2019adamw}, and one recipe chosen on development data. We score each adapter on the frozen suites in Table~\ref{tab:data}. Binary scores carry Wilson intervals~\cite{wilson1927probable}. Paired comparisons bootstrap over source documents~\cite{efron1993bootstrap,koehn2004significance,field2007clustered}, with Holm's correction across the primary contrasts~\cite{holm1979simple}.
-
-Table~\ref{tab:power} gives the smallest paired gain each suite resolves at two-sided $\alpha=0.05$ and 80\% power, assuming a 20\% discordant share~\cite{connor1987paired}. Small suites cannot resolve small effects~\cite{card2020power}. GSM8K, coding, and the 1,000-item development suites cannot resolve a two-point gain.
+Table~\ref{tab:schedules} lists the strategies. A1, A2, A5 and A6 select the same prompts for a given seed and differ only in order or account ownership.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Suite resolution before any model run, in percentage points: the 95\% half-width near 50\% and the minimum detectable paired gain (MDE).}
-\label{tab:power}
-\begin{tabularx}{\columnwidth}{@{}Yccc@{}}\toprule
-Suite & Items & Half-width & MDE \\\midrule
-AG News test & 7,600 & 1.1 & 1.4 \\
-SQuAD test & 10,570 & 1.0 & 1.2 \\
-GSM8K test & 1,319 & 2.7 & 3.5 \\
-HumanEval+ and MBPP+ & 539 & 4.2 & 5.4 \\
-Each development suite & 1,000 & 3.1 & 4.0 \\\bottomrule
+\caption{Collection strategies. A4 and A8 are implemented and were not run.}
+\label{tab:schedules}
+\begin{tabularx}{\columnwidth}{@{}lY@{}}\toprule
+ID & Accounts and selection \\\midrule
+A1 & One account; domains interleaved under a fixed seed. \\
+A2 & One account; one block per domain, AG News first and GSM8K second. \\
+A3 & One account; half the budget on in-distribution cover traffic. \\
+A4 & A1 at a lower declared rate. \\
+A5 & Six accounts, each restricted to one domain: two AG News, two coding, one SQuAD, one GSM8K. \\
+A6 & Six accounts; A1's prompts split by a seeded permutation. \\
+A7 & One account; prompts from separately pinned corpora. \\
+A8 & Reselect prompts from observed feedback. \\\bottomrule
 \end{tabularx}
 \end{table}
 
+Each campaign runs against three arms: the full policy, the instantaneous policy and the quota. Every arm gets a fresh gateway process, fresh credentials and its own state file.
+
+Before a detector arm sends any request, a detectability check replays the frozen campaign offline through the served calibration, together with the 125 held-out benign accounts. It passes if the attacker reaches a level above L0 that fewer than the L1 target share of scored benign horizons reach. When it fails, the arm sends nothing and the runner records a refusal. An arm the detector cannot escalate would only repeat what the replay predicts, so a refusal is itself a detector result. In v3, before the check existed, the live A1 detector arms took about 15.5 hours to confirm what replay predicts in minutes. The check is a go or no-go test. It never tunes a threshold.
+
+\subsection{Measurements}
+\label{sec:metrics}
+For each campaign we report released responses and output tokens by domain, the attempt of the first escalation to each level, and why the campaign ended. For each arm we report how many held-out benign accounts reach each level in replay. A live utility pass sends the 24,047-request benign-test schedule through each arm and records completion, latency and correctness.
+
 \section{Results}
 \label{sec:results}
-We report two bodies of evidence. The development run, v3, is one seed. A later audit, v4, inspected and reordered its prompts, so it cannot serve as an untouched test. The fresh run, v5, rebuilds every corpus and benign role from source and draws its attacks from the exploratory half. It is new evidence on unseen prompts, but it is still a development run. No campaign has queried the confirmatory half. All records are in the artifact~\cite{trace2026artifact}.
-
-\subsection{Development run}
-\label{sec:dev}
-The v3 run served A1, one account with 6,000 interleaved prompts, through each arm. Under the full and instantaneous policies the account stayed at L0 and received all 6,000 responses, 588,653 output tokens. Under the quota it received 1,215 responses and 118,872 tokens, and the quota refused the other 4,785 requests from attempt 1,216 onward. The live A1 arms took about 15.5 hours. An offline replay of the frozen schedule would have predicted the same decisions in minutes, which is why the protocol now runs the detectability check first.
-
-The audit reproduced the calibration from scratch to within $3\times10^{-8}$ on every null score and matched every logged window rank bit for bit. It found no implementation defect that explains the result. Table~\ref{tab:ranks} shows the cause. The null's lowest scores all come from generalist windows. A rank near 0.94 therefore means a window is more ordinary than every specialist window. A1, a uniform shuffle of benign prompts, A6, and A7 all sit in that band. Specialists spread across the whole range. On held-out windows, Spearman's correlation between window score and top-domain share is 0.47. The detector measures topic concentration.
+Run v7 started on 5 November 2026 and finished 42 hours later at code revision \texttt{47db8856}. Table~\ref{tab:runs} places it beside the two earlier runs. Run v3 was the first development run, and an audit, v4, later inspected and reordered its prompts, so it cannot serve as an untouched test. Runs v5 and v7 rebuilt every corpus and benign role from source and drew their attacks from the unseen exploratory half. Both are development evidence. No campaign has queried the confirmatory half.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Upper-tail window ranks in the development run, non-overlapping 100-request windows. A small rank is unusual. Source: v4 audit, \texttt{results/diagnose-detector.json}.}
+\caption{The three runs. All use seed 42, 6,000-attempt campaigns, and 125 benign accounts per role.}
+\label{tab:runs}
+\begin{tabularx}{\columnwidth}{@{}lYYY@{}}\toprule
+ & v3 & v5 & v7 \\\midrule
+Teacher build & FP8, vLLM & FP8, vLLM & Q4\_K\_M, llama.cpp \\
+Campaign concurrency & not recorded & 8 & 2 \\
+Benign generator & earlier & v3 & v3 \\
+Attacks run live & A1 & A1--A3, A5--A7 & A1--A3, A5--A7 \\
+Detectability check & none & yes & yes \\
+Students trained & AG News only & none & GSM8K, Section~\ref{sec:students} \\\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Calibration}
+The v7 calibration passed with 199 independent null windows and 100 scored policy horizons, which puts the smallest attainable rank at 0.0017. Table~\ref{tab:cal} gives the thresholds. Each arm met its targets on its own calibration data. The quota came out at 1,215 requests per horizon, as in v3 and v5, because the benign account lengths depend only on the generator and the seed.
+
+\begin{table}[!t]
+\centering\footnotesize
+\caption{The v7 calibration on 100 scored policy horizons. Upper bounds are Clopper-Pearson 95\%.}
+\label{tab:cal}
+\begin{tabularx}{\columnwidth}{@{}Ycccc@{}}\toprule
+ & L1 & L2 & L3 & L4 \\\midrule
+Target rate & 0.10 & 0.05 & 0.02 & 0.01 \\
+Upper bound at target & 0.164 & 0.102 & 0.062 & 0.047 \\
+Full thresholds & 0.38 & 1.50 & 2.76 & 4.01 \\
+Instantaneous thresholds & 1.38 & 2.24 & 3.06 & 3.50 \\
+Quota, requests per horizon & & & & 1,215 \\\bottomrule
+\end{tabularx}
+\end{table}
+
+The mixture control fired before any campaign ran. All 50 shuffled windows of pooled benign traffic ranked below the median benign account window, with a median rank of 0.970. A window that looks like the average of all users looks more ordinary to this score than almost any single user does.
+
+\subsection{Where the detector cannot act}
+The detectability check refused both detector arms for A1, A3, A6 and A7. In replay each of these campaigns stayed at L0 under both policies. The same replay escalated 10 of the 100 scored held-out benign horizons under each policy. Under the full policy, 5 reached L1, 1 reached L2 and 4 reached L4. Under the instantaneous policy, 5 reached L1, 3 reached L3 and 2 reached L4. Four refusals in 100 under the full policy sit above the 1\% calibration target, inside its 4.7\% upper bound. This is the v5 outcome again: v5 refused the same eight arms, and nine of its benign horizons escalated.
+
+The v4 audit explains why, and Table~\ref{tab:ranks} gives its window ranks. It reproduced the v3 calibration from scratch, matched every logged window rank, and found no implementation defect. The lowest null scores, the most ordinary windows, all come from generalist users. A1, a uniform shuffle of benign prompts, A6 and A7 sit in that band, near rank 0.95. Specialists spread across the whole range. On held-out windows the Spearman correlation between window score and top-domain share is 0.47, so the score largely measures topic concentration. A lower-tail test does flag A1's interleaved windows, but sorting the same 6,000 prompts by topic within each domain moved every window back into the benign bulk. Under that reordering the full, two-sided and lower-tail variants all released all 6,000 responses, and the attacker paid nothing extra.
+
+\begin{table}[!t]
+\centering\footnotesize
+\caption{Upper-tail window ranks in the v3 development run, non-overlapping 100-request windows. A small rank is unusual. Source: v4 audit.}
 \label{tab:ranks}
 \begin{tabularx}{\columnwidth}{@{}Ycc@{}}\toprule
 Traffic & Windows & Min / median / max \\\midrule
@@ -217,111 +242,160 @@ Benign test, generalists & 16 & 0.928 / 0.937 / 0.985 \\
 Uniform shuffle of benign test & 100 & 0.935 / 0.950 / 0.995 \\
 A1, interleaved & 60 & 0.947 / 0.995 / 1.0 \\
 A2, domain-sequential & 60 & 0.322 / 0.917 / 0.930 \\
-A5, six specialist accounts & 58 & 0.327 / 0.917 / 0.930 \\
 A6, six interleaved accounts & 60 & 0.950 / 0.997 / 1.0 \\
 A7, independent sources & 60 & 0.935 / 0.954 / 0.988 \\\bottomrule
 \end{tabularx}
 \end{table}
 
-The accumulator cannot recover a signal the windows lack. By Eq.~\eqref{eq:risk}, a window adds risk only below $p=0.37$. With the frozen thresholds, a sustained rank of 0.10, already the benign 10th percentile, reaches L4 after 13 windows, or 1,300 requests, which is later than the quota. A1's ranks of 0.95 to 1.0 leave its risk at zero. The only attack windows outside the 0.9 band were A2's GSM8K block, at 0.32 to 0.42, and their increments of at most 0.14 decayed away.
+The accumulator cannot recover a signal the windows lack. By Eq.~\eqref{eq:risk} a window adds risk only below $p=0.37$, and A1's ranks of 0.95 to 1.0 leave its risk at zero for the whole campaign.
 
-Reordering defeats the variants that do see A1. A test on the lower tail flags A1's interleaved windows, because they are more uniform than benign windows. Table~\ref{tab:order} shows what happens when we group the same 6,000 prompts by domain and sort them by topic. Every variant released all 6,000 responses, and the attacker paid no extra queries.
+\subsection{Where it acts}
+The detector escalated two campaigns, A2 and A5, and in both it escalated on math. Figure~\ref{fig:ranks} shows A5's window ranks under the full policy. The GSM8K account's two completed windows ranked 0.015 and 0.030. Every window from the other five accounts ranked above 0.42, so they added no risk at all, and those accounts stayed at L0 for the whole campaign. A block of 100 math problems from one account was rarer under this null than anything the news, question-answering or coding accounts sent.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{a5-ranks.pdf}
+\caption{Window ranks of A5's six accounts under the full policy in v7. Only windows left of the dashed line add risk. The GSM8K account reached L4; the other five stayed at L0.}
+\label{fig:ranks}
+\end{figure}
+
+What that one account carried is the result that matters. Figure~\ref{fig:tokens} breaks every completed v7 campaign down by domain. GSM8K responses averaged 370 released tokens and AG News responses 2.3, so a campaign's token count is mostly its math count. With no control in effect, A6 received 806,570 tokens, and 555,498 of them, 69\%, came from GSM8K. Under the full policy, A5's math account was refused at its 200th GSM8K request after 199 responses, and the campaign received 321,831 tokens, 40\% of the A6 total. The instantaneous policy refused it after 99 responses, for 286,332 tokens. The coding accounts were never refused. They received 1,494 and 1,500 responses and about 236,000 tokens under each detector arm, the same as with no control.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{released-tokens.pdf}
+\caption{Released output tokens by domain for every v7 arm that ran, from the release ledger. A6 under the quota is also the unprotected run, because the quota never fired on it. SQuAD and AG News responses are too short to show at this scale.}
+\label{fig:tokens}
+\end{figure}
+
+A2 shows the same pattern in one account. It sends 1,500 AG News prompts first, then 1,500 GSM8K prompts. The detector ignored the AG News block and escalated inside the GSM8K block. The full policy reached L1 to L3 at attempt 1,600, required 100 proof-of-work answers, and refused from attempt 1,800 onward, counting proof submissions as attempts. The account received 1,699 responses, 1,500 of them AG News labels, and 77,408 tokens, 96\% of them from 199 math responses. The instantaneous policy refused at attempt 1,600, after 99 math responses and 40,355 tokens.
+
+The proof-of-work level cost little. Under the full policy, A2 and A5 each spent 100 attempts on challenges, under 2\% of the budget, before refusal followed.
+
+\subsection{What the quota does}
+The quota needs no content and fired exactly where it was set. It held A1, A2, A3 and A7, the single-account campaigns, to 1,215 or fewer responses, refusing every request from attempt 1,216 onward. Those 1,215 responses carried between 2,784 and 247,309 tokens. A2's quota stopped inside the AG News block, so its 1,215 responses were all one-word labels. A7's MathQA prompts drew longer answers than GSM8K, so its quota released the most.
+
+Against account splitting it did what its definition implies. A5's GSM8K and SQuAD accounts each hit the limit, and the quota refused 570 requests in total. The campaign still received 5,430 responses and 696,685 tokens, 86\% of the A6 total, including 1,215 math responses. A6 spread 6,000 interleaved prompts over six accounts that each stayed under 1,215, received every response, and never saw a refusal. Figure~\ref{fig:a5} puts the three A5 arms beside A6 on one axis. The detector arms flatten when the math account is refused; the quota arm keeps climbing.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{a5-release.pdf}
+\caption{Cumulative released tokens for A5 under each arm in v7, with A6 as the run where no control fired. Dotted lines mark the first L4 refusal of A5's GSM8K account under each detector policy. The axis counts query attempts; under the full policy the 100 proof submissions move the same refusal to attempt 2,221 in campaign terms.}
+\label{fig:a5}
+\end{figure}
+
+\subsection{Replication across teacher builds}
+Table~\ref{tab:replication} sets v7 beside v5. The two runs used the same corpora build procedure, generator, seed and thresholds method, but a different teacher build, serving stack and client concurrency. The admission outcomes repeated. The same eight detector arms were refused. The quota stopped the same campaigns at the same attempt, and A3 and A7 lost one and three responses to teacher failures. The only change in a detector arm was A5 under the full policy, whose math account first reached L4 at attempt 2,221 instead of 2,104 and whose campaign received 74 more responses. Token counts rose by 5 to 13\% in every arm that released math or code, which fits a quantized teacher writing longer answers. A2's quota arm, all AG News labels, changed by 12 tokens. Decisions depend on prompts and timing, not on answers, so they had no reason to move.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Responses released to A1's prompts under three detector variants, by prompt order. Source: v4 audit, \texttt{results/evasion.json}. The lower-tail and two-sided variants are exploratory.}
-\label{tab:order}
-\begin{tabularx}{\columnwidth}{@{}Yccc@{}}\toprule
-A1 order & Full & Two-sided & Lower tail \\\midrule
-As logged, interleaved & 6,000 & 299 & 199 \\
-Topic-sorted, 8 clusters & 6,000 & 6,000 & 6,000 \\
-Topic-sorted, 30 clusters & 6,000 & 6,000 & 6,000 \\\bottomrule
+\caption{Released responses and tokens, v5 against v7. Refused means the detectability check stopped the arm before any request.}
+\label{tab:replication}
+\begin{tabularx}{\columnwidth}{@{}lYrrrr@{}}\toprule
+ & & \multicolumn{2}{c}{Responses} & \multicolumn{2}{c}{Tokens} \\
+Attack & Arm & v5 & v7 & v5 & v7 \\\midrule
+A1 & Full, inst. & \multicolumn{2}{c}{refused} & & \\
+A1 & Quota & 1,215 & 1,215 & 150,442 & 161,176 \\
+A2 & Full & 1,699 & 1,699 & 73,774 & 77,408 \\
+A2 & Instantaneous & 1,599 & 1,599 & 37,890 & 40,355 \\
+A2 & Quota & 1,215 & 1,215 & 2,796 & 2,784 \\
+A3 & Full, inst. & \multicolumn{2}{c}{refused} & & \\
+A3 & Quota & 1,215 & 1,214 & 201,361 & 215,700 \\
+A5 & Full & 4,619 & 4,693 & 284,506 & 321,831 \\
+A5 & Instantaneous & 4,599 & 4,599 & 255,064 & 286,332 \\
+A5 & Quota & 5,430 & 5,430 & 642,823 & 696,685 \\
+A6 & Full, inst. & \multicolumn{2}{c}{refused} & & \\
+A6 & Quota & 6,000 & 6,000 & 753,916 & 806,570 \\
+A7 & Full, inst. & \multicolumn{2}{c}{refused} & & \\
+A7 & Quota & 1,215 & 1,212 & 235,535 & 247,309 \\\bottomrule
 \end{tabularx}
 \end{table}
 
-Table~\ref{tab:compare} replays every campaign through each frozen arm and the held-out benign accounts. The MMD arms released every campaign in full. The quota cut the single-account campaigns to 1,215 responses. It cut A5 only to 5,430, because it blocked two of A5's six accounts, and it did not touch A6, whose six accounts each stayed under the limit. Its benign cost fell on one account, which lost 617 requests.
+\subsection{Cost to legitimate users}
+We measure the benign cost two ways, and they answer different questions. The offline replay says how many held-out accounts a control escalates. Under the full policy, 4 of 100 scored accounts reached refusal, and 10 escalated at all. Under the quota, one held-out account of 125 sends more than 1,215 requests. It sends 1,832 and loses 617, about 2.6\% of the 24,047 benign-test requests. These are the same lengths as in v5, because both runs used the same generator and seed.
 
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{Offline replay of the frozen development calibration. Benign columns count held-out horizons, 100 scored, with the Clopper-Pearson upper 95\% bound on the L4 rate. Campaign columns give released responses out of 6,000. Source: v4 audit.}
-\label{tab:compare}
-\begin{tabularx}{\textwidth}{@{}Ycccccccc@{}}\toprule
-Arm & Benign L4 & Benign L1+ & Benign requests refused & A1 & A2 & A5 & A6 & A7 \\\midrule
-Full & 0 ($\leq$3.0\%) & 12 & 0 & 6,000 & 6,000 & 6,000 & 6,000 & 6,000 \\
-Instantaneous & 2 ($\leq$6.2\%) & 12 & 13 & 6,000 & 6,000 & 6,000 & 6,000 & 6,000 \\
-Quota, 1,215 requests & 1 ($\leq$4.7\%) & 1 & 617 & 1,215 & 1,215 & 5,430 & 6,000 & 1,215 \\\bottomrule
-\end{tabularx}
-\end{table*}
+The live pass says what happened to requests. In v7 it sent all 24,047 benign-test requests through each arm with a 120-second client deadline. The laptop teacher could not keep up. Only 9.3\%, 11.3\% and 11.8\% of requests completed under the full policy, the instantaneous policy and the quota, and about 21,300 timed out under every arm. Completion here measures teacher capacity, not policy cost. The comparable numbers are refusals and the quality of what was served. The full policy refused 464 benign requests, the instantaneous policy and the quota refused none, and served-only quality was 0.822, 0.834 and 0.835. The quota refused nobody live because most requests timed out on the client before admission, and the busiest account was admitted only 960 times. Utility ran after each campaign on separate accounts, so no run has yet measured a real mixture of attack and benign traffic.
 
-The audit also found a defect in the benign generator. The generator sorted each domain pool by topic and consumed it from the start, so the AG News part of the policy-calibration role was 100\% Business and its SQuAD part used 56 of 215 titles. This made the thresholds conservative, but it does not explain the A1 result, because A1 sits above the entire null. The generator now balances topics before it orders them, and v5 uses the corrected version.
+\section{Does withheld supervision matter? The student test}
+\label{sec:students}
+Released tokens bound what an attacker can train on. They do not measure what it learns. Earlier evidence makes the question hard to skip. In v3, a student trained on 500 AG News responses gained 20.0 percentage points over its base, from 66.6\% to 86.6\% with a 95\% interval of 16.4 to 23.8, The interleaved single-account campaigns kept between 291 and 312 AG News responses under the quota, below that measured point, but A2's domain-sequential order handed the quota's whole allowance of 1,215 to AG News. GSM8K is where the controls differ most, and where the tokens are, so the student test is on GSM8K.
 
-Two development measurements cannot be read as defense results. The live utility pass completed only 29.0\% of benign requests within its 120-second deadline even with no defense, because all accounts started together at a client concurrency of eight. Utility ran after each campaign on separate accounts, so the study never observed a real mixture of attack and benign traffic. Benign false-positive rates come from the 100-horizon replay instead.
-
-\subsection{Fresh run}
-\label{sec:fresh}
-The v5 run rebuilt all four corpora with sealed partitions, regenerated the benign roles with the corrected generator, and recalibrated. Its corpus build took 87 minutes, almost all of it coding qualification. Calibration on CPU took 31 minutes.
-
-The calibration passed the resolution check with 199 independent null windows and 100 scored policy horizons out of 125. Table~\ref{tab:v5cal} gives the thresholds. Each arm hit its targets on its own calibration data. The quota came out at 1,215 requests, the same as in v3, because v5 uses the same generator and seed and the benign account lengths depend only on them. The mixture control repeated the audit's finding on new data. Fifty shuffled windows of pooled benign traffic had a median rank of 0.963 and a minimum of 0.957 against the per-account null, so every one ranked as more ordinary than the median benign window.
+\subsection{Design}
+The checkpoint exporter cuts a campaign's ledger at each intervention: first alert, first restriction, first refusal, and the end of the campaign. For each intervention it writes two ledgers. The lower-bound ledger holds responses received strictly before the earliest attempt the intervention could have affected. The observed-bound ledger also holds responses received at that point. Every student trains on exactly the responses present at its cut. None is a subsample of the final ledger. Table~\ref{tab:cells} lists the GSM8K supervision each cut contains. The v7 ledgers mark every record as pending review, so the plan admits pending records and never admits rejected ones.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{The v5 calibration. Achieved rates are on the 100 scored policy horizons; the upper bounds are Clopper-Pearson 95\%.}
-\label{tab:v5cal}
-\begin{tabularx}{\columnwidth}{@{}Ycccc@{}}\toprule
- & L1 & L2 & L3 & L4 \\\midrule
-Target & 0.10 & 0.05 & 0.02 & 0.01 \\
-Upper bound at target & 0.164 & 0.102 & 0.062 & 0.047 \\
-Full thresholds & 0.37 & 1.47 & 2.68 & 3.32 \\
-Instantaneous thresholds & 1.37 & 2.19 & 3.03 & 3.45 \\
-Quota, requests per horizon & & & & 1,215 \\\bottomrule
+\caption{GSM8K responses available to each student. Counts come from the v7 checkpoint exports, except A5 under the quota, whose export has not been run and whose count comes from the ledger. Lower and observed bounds coincide except where shown. Accuracy is on the 746-item GSM8K development suite.}
+\label{tab:cells}
+\begin{tabularx}{\columnwidth}{@{}lYrc@{}}\toprule
+Arm & Checkpoint & GSM8K items & Accuracy \\\midrule
+A6, no control & End & 1,500 & \pending \\
+A5, quota & First refusal & \pending & \pending \\
+A5, quota & End & 1,215 & \pending \\
+A5, full & First alert & 99 / 100 & \pending \\
+A5, full & First restriction & 99 & \pending \\
+A5, full & First refusal & 199 & \pending \\
+A5, full & End & 199 & \pending \\
+A5, inst. & Each intervention & 99 & \pending \\
+A5, inst. & End & 99 & \pending \\\midrule
+Untrained base & & 0 & \tbd{base} \\
+Teacher & & & \tbd{teacher} \\\bottomrule
 \end{tabularx}
 \end{table}
 
-The detectability check refused both MMD arms for A1. In its replay, A1 peaked at L0 under both policies. Of the 100 scored held-out benign horizons, nine escalated under each policy. Under the full policy, four reached L1, one L2, and four L4. Under the instantaneous policy, four reached L1, four L3, and one L4. The detector escalated nine legitimate users and not the campaign. Four L4 horizons out of 100 under the full policy exceed the 1\% target that calibration achieved on its own data, although a sample of 100 cannot separate that from chance.
+Every cell uses one recipe: a LoRA adapter on \texttt{Qwen3.5-2B-Base} with rank 16, $\alpha=32$, dropout 0.05 on all linear layers, learning rate $10^{-4}$, three epochs, an effective batch of 16, a 2,048-token limit and bf16 weights~\cite{hu2022lora,loshchilov2019adamw}. Training uses response-token cross-entropy. This is the recipe fixed for the AG News learning curve, with a 512-token generation limit at evaluation. We train one seed, 42, per cell. The teacher is scored through the same teacher API in the non-thinking mode the campaigns used, and the untrained base is scored with the same greedy decoding as the students. The accuracy target that counts as a useful student is set after those two scores and before any student is trained.
 
-Table~\ref{tab:v5} collects the v5 outcomes. The run was in progress when this version was written, so missing cells are pending.
+On 746 items, a binary accuracy has a 95\% half-width of about 3.6 points near 50\%, and a paired comparison resolves a gain of about 4.6 points at 80\% power, assuming a 20\% discordant share~\cite{connor1987paired,card2020power}. Accuracies carry Wilson intervals~\cite{wilson1927probable}, and paired comparisons bootstrap over items~\cite{efron1993bootstrap,koehn2004significance}.
 
-\begin{table*}[!t]
-\centering\footnotesize
-\caption{The v5 campaign outcomes. Refused means the detectability check stopped the arm before any request. Released responses are delivered outputs from the release ledger.}
-\label{tab:v5}
-\begin{tabularx}{\textwidth}{@{}lYYYY@{}}\toprule
-Campaign & Full & Instantaneous & Quota, released responses & Quota, first refusal \\\midrule
-A1 & Refused & Refused & \pending & \pending \\
-A2 & \pending & \pending & \pending & \pending \\
-A3 & \pending & \pending & \pending & \pending \\
-A5 & \pending & \pending & \pending & \pending \\
-A6 & \pending & \pending & \pending & \pending \\
-A7 & \pending & \pending & \pending & \pending \\\bottomrule
-\end{tabularx}
-\end{table*}
+\subsection{What each outcome would mean}
+The design separates three readings before the numbers exist. If students at 99 to 199 math responses already reach the target, the detector's refusal came after the useful supervision had left, and withholding the remaining 1,300 responses changed tokens but not capability. If they stay near the base while the 1,215 and 1,500 response students reach the target, the detector withheld something that mattered and the quota did not. If no student reaches the target, the test says nothing about prevention, only that this recipe needs more than 1,500 responses. Comparing lower-bound, observed-bound and end students shows whether responses already in flight at the moment of refusal made a difference.
 
-The quota's benign cost in v5 follows from the generated lengths. One held-out account sends 1,832 requests and loses the 617 above the limit, or 2.6\% of all benign-test requests. The other 124 accounts stay below it. The live utility pass under each arm reports completion of \tbd{rate}, \tbd{rate}, and \tbd{rate} for the full policy, the instantaneous policy, and the quota.
+\subsection{Results}
+\tbd{Fill from the checkpoint summary: accuracy per cell with Wilson intervals, paired gain over base, and the first checkpoint that reaches the target.}
 
-\subsection{Student capability}
-Released responses bound what an attacker can train on. They do not measure what it learns. In development, a student trained on 500 AG News responses gained 20.0 percentage points over the base model, from 66.6\% to 86.6\%, with a 95\% interval of 16.4 to 23.8. AG News was the only domain to pass the transfer check. A quota of 1,215 requests therefore still releases enough AG News supervision for a useful student in every single-account campaign. Students trained on the v5 ledgers score \tbd{scores}.
+\section{Controls built but not yet measured}
+\label{sec:current}
+The bench has grown since the v7 code revision. Each control below is implemented on the current main branch, is off or observe-only by default, and marks its records as unqualified. None has a measured false-positive rate or a student result, and we report none.
+
+\textit{Reasoning withholding.} The teacher now reasons by default and the gateway strips the reasoning before release. If a trace cannot be separated cleanly, nothing is released. A correct final answer still trains a student, so this removes one channel of supervision rather than the answer.
+
+\textit{Token budgets and trust tiers.} Budgets can count released output tokens per account or per declared organization, which would have treated A2's 2,784-token quota release and A7's 247,309-token release differently. New accounts can receive smaller output caps and deterministic decoding until they age.
+
+\textit{Account linkage.} Accounts that share an attribute the operator declares, such as a billing account, can be joined into one cluster with a shared rolling budget. Behavior alone never links accounts under the defaults, because prompts can be forged and network addresses are shared. Only a declared attribute can join A5's and A6's disjoint accounts.
+
+\textit{Whole-campaign evidence.} An observe-only monitor ranks how much of the request space a campaign has covered, and how systematically, against benign campaigns of the same profile at the same request count. Calibrating the running maximum over whole benign campaigns bounds the chance that a benign campaign ever alerts within the horizon. It is meant to replace windowed MMD as the primary signal, because it asks the question the windows answer backwards. It has been checked only on synthetic fixtures. The shortest v7 benign account sets its horizon, and v7's benign accounts average about 190 requests, so it would decide within its first few looks.
+
+\textit{Rewritten output.} An opt-in output policy replaces the teacher's GSM8K draft with a dense rewrite before release and withholds the response if the rewrite fails. It follows the trace rewriting result~\cite{ma2026tracerewriting}, has never run on a real teacher or student, and changes the product for every legitimate user who wants the reasoning.
+
+\textit{Watermarking.} A per-account keyed watermark biases each account's output toward a secret token list, so that a suspect model can later be tested against the accounts that received data. A second, context-keyed decoder watermark exists as a CPU-only probe. Both support attribution after training and prevent nothing, and students can be trained to suppress inherited watermarks~\cite{pan2025watermarks}.
 
 \section{Discussion}
 \label{sec:discussion}
-\subsection{Why content detection fails here}
-The score compares an account's windows with a pooled reference, and the null consists of individual users' windows. Users concentrate on one task and topic, so their windows sit far from the pooled reference. A campaign that samples every task uniformly sits close to it. The upper-tail test therefore flags the users. A lower-tail test flags uniform sampling, but sorting the prompts by topic moves every window back into the benign bulk.
+\subsection{Why content detection fails on broad campaigns}
+The score compares an account's windows with a pooled reference, and the null consists of individual users' windows. Users concentrate on one task and topic, so their windows sit far from the pooled reference. A campaign that samples every task sits close to it, and an upper-tail test flags the users. A lower-tail test flags uniform sampling, but sorting the prompts by topic moves every window back into the benign bulk.
 
-There is a general limit behind this. Let $P_B$ and $P_A$ be the distributions of benign and attack observations, and let $\phi$ be any decision rule. Then $\Pr_{P_A}[\phi=1]=\Pr_{P_B}[\phi=1]$ whenever $P_A=P_B$. Every content-only rule flags an attacker whose prompts follow the benign distribution exactly as often as it flags a legitimate user. The A1 and A6 campaigns draw from the same task sources as the benign roles, so they approach this case, and reordering brings them closer. Our measurements show that the tested rules fail. They cannot show that every content signal has equal distributions, and a different feature or window could still separate a particular campaign.
+There is a general limit behind this. Let $P_B$ and $P_A$ be the distributions of everything a defender observes from a legitimate account and from an attacker, and let $\delta\in[0,1]$ be any decision rule. Then
+\begin{equation}
+\mathbb E_{P_A}[\delta]-\mathbb E_{P_B}[\delta]\leq\mathrm{TV}(P_A,P_B),
+\end{equation}
+so a rule held to false-positive rate $\alpha$ has a true-positive rate of at most $\alpha+\mathrm{TV}(P_A,P_B)$. An attacker whose prompts and timing follow the legitimate distribution is flagged exactly as often as a legitimate user. Dilution makes the same point for MMD directly. If an account mixes a fraction $\rho$ of attack traffic into benign traffic, $\mathrm{MMD}^2$ between the mixture and benign traffic is $\rho^2$ times its value for pure attack traffic, so a 5\% mixture leaves 0.25\% of the squared signal. A1 and A6 draw from the same sources as the benign roles, and topic sorting moves them closer. Our measurements show that the tested rules fail. They cannot show that no feature or window separates a particular campaign.
 
-A7 is a partial exception. With domain-conditional references, its coding and GSM8K streams separate from benign specialists, while its news and question-answering streams overlap with them. Content detection works when the attacker's sources differ from legitimate traffic, which is the setting of Liu et al.~\cite{liu2026detector}.
+The detector succeeded where the attack differed from users in the direction the score measures. A2 and A5 put a block of math in one account, and math specialists are already the rarest specialists. That success depends on which domains the generator's specialists use, and a provider whose users are mostly math tutors would see the opposite.
 
-\subsection{What a volume cap establishes}
-Under stated assumptions, the quota bounds the requests and output tokens released to one account in a horizon. Those assumptions are accurate counting, traffic passing through the gateway, and stable account identity. That bound is real and the release ledger checks it. It does not show that a campaign failed, because 500 AG News responses already trained a useful student. It also fails against splitting. A6 kept every response by staying under the limit on each of six accounts. Its cost falls on heavy legitimate users. In v5 it removed a third of one account's requests.
+\subsection{What withholding achieves}
+Measured in tokens, the detector did more against A5 than the quota did, because the one account it caught carried the long answers. Measured in requests, it did less, because it left five accounts and 4,494 responses alone. Neither measurement says whether the student lost anything. That is why the student test compares 99, 199, 1,215 and 1,500 math responses rather than requests or tokens.
+
+The quota gives a different kind of guarantee. Under accurate counting, traffic through the gateway, and stable account identity, it bounds what one account receives in a horizon, and the ledger confirms the bound. It says nothing about a campaign, because a campaign can always add accounts. A6 did that and lost nothing. The quota's cost falls on the heaviest legitimate users, and in replay it removed a third of one account's requests.
 
 \subsection{Signals beyond content}
-Provider reports describe the signals that remain after content fails. They include links between accounts through infrastructure, payment, and timing, identity verification, behavioral fingerprints, and limits on what a response reveals~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}. These act on account creation and coordination, which is where account splitting attacks the quota. The reports give no benign false-positive rates or controlled student outcomes, so they show what providers use, not how well it works. The test bench includes offline telemetry for request volume, session behavior, prompt novelty, public-corpus matches, and declared account links. None of it affects a decision. On the development data the session, novelty, and volume scores abstain for A1 and A7, because the multi-domain benign null holds only 13 horizons.
+Provider reports describe the signals left after content fails: links between accounts through infrastructure, payment and timing, identity verification, behavioral fingerprints, and limits on what a response reveals~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}. These act on account creation and coordination, which is exactly where splitting defeats the quota. The reports give no benign error rates, so they show what providers use, not how well it works. Section~\ref{sec:current} lists what the bench now implements in each of these directions, and each needs the same three measurements this paper makes before it can claim anything.
 
 \section{Limitations}
 \label{sec:scope}
-The legitimate users are synthetic. Their topic concentration drives the detector result, and real users may concentrate more or less. In v5 the policy-calibration and benign-test roles share their account lengths, because both come from the same seed, so the quota's held-out cost is not an independent estimate. Both runs use one seed and one teacher. The v5 attacks use the exploratory half, so they are development evidence, and the confirmatory half remains for a preregistered test. Utility runs follow each campaign instead of mixing with it, and in v3 the utility client overloaded the teacher. In v5 the live gateway encoded prompts on the GPU while calibration used the CPU. This matters only for an MMD arm that passes the detectability check. Bearer keys stand in for identity, and nothing prices new accounts. We did not run the slow A4 campaign or the adaptive A8 campaign.
+The legitimate users are synthetic, and their topic concentration drives the detector result. Real users may concentrate more or less. The policy-calibration and benign-test roles share account lengths because both come from the same seed, so the quota's held-out cost is not independent of its calibration. All runs use one seed and the exploratory half, so they are development evidence. The live gateway encoded prompts on the GPU while calibration used the CPU, which matters only near a threshold in the two campaigns that ran under a detector. Utility runs followed each campaign instead of mixing with it, and the laptop teacher completed about a tenth of benign requests within the deadline. Bearer keys stand in for identity, and nothing prices new accounts. We did not run the slow A4 campaign or the adaptive A8 campaign. The student test covers only GSM8K, one seed and one recipe. The coding supervision that no detector arm withheld has not been tested for transfer.
 
 \section{Conclusion}
-We measured what account-level controls restrict when an attacker collects a teacher's answers across four tasks. A content detector built on the MMD score released every response of a campaign that sampled the tasks uniformly, flagged legitimate users who stayed on one topic, and lost even its exploratory variants to a topic-sorted reordering. A calibrated quota bounded what one account received, charged the heaviest legitimate user for it, and had no effect once the campaign split across accounts. These controls ration access. They do not detect intent, and against an attacker whose prompts follow the benign distribution no content-only rule can. The test bench, run records, and audit are public~\cite{trace2026artifact}, so others can test a different signal against the same campaigns and the unqueried confirmatory prompts.
+We measured what account-level controls withhold when an attacker collects a teacher's answers across four tasks, in three runs and on two teacher builds. A content detector built on the MMD score could not see campaigns that sample every task, while escalating one legitimate account in ten. It caught math concentrated in one account, and because math answers carry most of the tokens, that one catch removed 60\% of a split campaign's released tokens. A calibrated quota bounded each account and nothing beyond it. These controls ration access to a teacher. Whether rationing changes what a student learns is the question the GSM8K checkpoint students answer, and \tbd{one sentence on the student result}. The bench, the run records and the checkpoint exports are public~\cite{trace2026artifact}, along with the unqueried confirmatory prompts for a preregistered test.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
