@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+:root {
+	--paper: #f1f3f5;
+	--ink: #18212b;
+	--muted: #5b6673;
+	--rule: #d3d8de;
+	--wash: #e3e7eb;
+	--accent: #1f62a8;
+	--gold: #a86f12;
+	--defended: #7b4397;
+	--pass: #2c7350;
+	--fail: #a93434;
+	--caution: #8a5a00;
+	--hatch: #c3cad2;
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--paper: #11161c;
+		--ink: #e3e8ee;
+		--muted: #93a0ad;
+		--rule: #2a343e;
+		--wash: #1b232c;
+		--accent: #4d94de;
+		--gold: #bd8020;
+		--defended: #a877d0;
+		--pass: #6cc79a;
+		--fail: #e88080;
+		--caution: #e0b050;
+		--hatch: #34404c;
+		color-scheme: dark;
+	}
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-ink: var(--ink);
+	--color-muted: var(--muted);
+	--color-rule: var(--rule);
+	--color-wash: var(--wash);
+	--color-accent: var(--accent);
+	--color-gold: var(--gold);
+	--color-defended: var(--defended);
+	--color-pass: var(--pass);
+	--color-fail: var(--fail);
+	--color-caution: var(--caution);
+	--font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+	background: var(--paper);
+	color: var(--ink);
+}
+
+body {
+	font-family: var(--font-sans);
+	font-size: 15px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Headings use the condensed end of Instrument Sans's width axis. */
+.display {
+	font-stretch: 78%;
+	font-weight: 640;
+	letter-spacing: -0.01em;
+}
+
+.num {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 0.82rem;
+}
+
+/* The one recurring mark of the page: a value that was never recorded is hatched, never blank or zero. */
+.unrecorded {
+	display: inline-block;
+	padding: 0 0.35rem;
+	border-radius: 2px;
+	font-family: var(--font-mono);
+	font-size: 0.7rem;
+	letter-spacing: 0.02em;
+	color: var(--muted);
+	background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 5px);
+	white-space: nowrap;
+}
+
+.prose-pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--font-mono);
+	font-size: 0.78rem;
+	line-height: 1.55;
+}
+
+.chart-tooltip {
+	min-width: 10rem;
+	border: 1px solid var(--rule);
+	border-radius: 4px;
+	background: var(--paper);
+	padding: 0.5rem 0.6rem;
+	font-size: 0.75rem;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition: none !important;
+		animation: none !important;
+	}
+}

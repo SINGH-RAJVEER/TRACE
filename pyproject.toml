@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Evaluating an account-level harness against multi-domain model distillation"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+	"dashboard-api",
 	"distillation-core",
 	"extraction-harness",
 	"harness-api",
@@ -25,6 +26,7 @@ embed = [
 package = false
 
 [tool.uv.sources]
+dashboard-api = { workspace = true }
 distillation-core = { workspace = true }
 extraction-harness = { workspace = true }
 harness-api = { workspace = true }
@@ -34,6 +36,7 @@ coding-task = { workspace = true }
 [tool.uv.workspace]
 members = [
 	"packages/coding",
+	"apps/dashboard-api",
 	"apps/harness-api",
 	"apps/teacher-api",
 	"packages/distillation",

@@ -1,5 +1,7 @@
 # Teacher and harness evaluation protocol
 
+Use `just dashboard` to inspect recorded teacher, student, gate, campaign and utility results locally. See [the results dashboard](dashboard.md) for setup, artifact discovery and missing-result behavior.
+
 ## Study status and roles
 
 This protocol specifies a future study. Its acceptance targets are proposals, not measured outcomes. Historical v3 A1/A2 campaigns and the v4 reordering probes are development evidence; they have already been inspected and cannot be used as a locked final test. Keep frozen artifacts read-only. Freeze separate source families for representation fitting, reference fitting, score calibration, policy development and locked final test. Split news by publisher, period and topic where available, QA by document, math by problem family, and coding by problem lineage. Screen near duplicates across roles. Record the source manifests, selection rules, versions, seeds and limitations before calibration. The workload and calibration implementation is separate work and must be integrated before claiming these checks ran.

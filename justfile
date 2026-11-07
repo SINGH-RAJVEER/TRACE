@@ -76,6 +76,10 @@ calibrate *args:
 recalibrate source output profiles="300":
 	bash scripts/recalibrate-profiles.sh "$@"
 
+# Read-only results dashboard over readings/ and artifacts/; builds the frontend if needed.
+dashboard *args:
+	bash scripts/dashboard.sh "$@"
+
 # Explicitly publish a retained study run to readings; product startup never exports it.
 reading run_id name="":
 	uv run --frozen python scripts/run_tools.py export "artifacts/runs/$1" readings "$2"
@@ -89,6 +93,10 @@ test *args:
 
 test-campaign:
 	uv run --frozen pytest tests/test_campaign.py tests/test_campaign_api.py
+
+test-dashboard:
+	uv run --frozen pytest tests/test_dashboard_api.py
+	cd apps/dashboard && bun install --frozen-lockfile && bun run check && bun test src
 
 test-checkpoints:
 	uv run --frozen pytest tests/test_checkpoints.py tests/test_checkpoint_learning.py

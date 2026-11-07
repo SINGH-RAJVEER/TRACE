@@ -24,7 +24,7 @@ This first version requires one-to-one attribution between successful receipts a
 
 ## Student experiment
 
-The task runner exposes this flow as `just checkpoint-export CAMPAIGN OUTPUT`, `just checkpoint-plan EXPORT SUITE OUTPUT --target-accuracy VALUE`, `just checkpoint-execute OUTPUT` and `just checkpoint-summary OUTPUT`. Extra export/plan flags are forwarded as separate arguments, including paths with spaces and repeated seeds. GPU execution is a separate explicit command; `just start` only serves the protected API. Use `just test-checkpoints` for CPU fixtures.
+The task runner exposes this flow as `just checkpoint-export CAMPAIGN OUTPUT`, `just checkpoint-plan EXPORT SUITE OUTPUT --target-accuracy VALUE`, `just checkpoint-execute OUTPUT` and `just checkpoint-summary OUTPUT`. Extra export/plan flags are forwarded as separate arguments, including paths with spaces and repeated seeds. GPU execution is a separate explicit command; `just start` only serves the protected API. Use `just test-checkpoints` for CPU fixtures. A summarized checkpoint directory under `artifacts/` appears in `just dashboard`, with censored checkpoints listed rather than plotted; see [the dashboard guide](dashboard.md).
 
 The initial student implementation supports GSM8K. For example, using fresh output directories:
 
