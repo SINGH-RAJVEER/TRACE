@@ -229,3 +229,51 @@ async def test_measured_utility_stores_the_binding_and_refuses_other_arrivals(
 		== hashlib.sha256(json.dumps(legacy_payload, sort_keys=True).encode()).hexdigest()
 	)
 	assert await measure_utility(**{**kwargs, "output": tmp_path / "unbound.json"}) == unbound
+
+
+@pytest.mark.asyncio
+async def test_utility_attributes_harness_restrictions_only_on_request(tmp_path: Path) -> None:
+	from distillation.benchmarks.models import BenchmarkItem
+	from distillation.schemas import Message
+	from distillation.utility import measure_utility
+	from harness.calibration import BenignRequest
+
+	def refuse(request: httpx.Request) -> httpx.Response:
+		return httpx.Response(
+			429,
+			json={"detail": {"code": "campaign_throttled", "message": "cooldown"}},
+			headers={"X-Harness-Decision": "throttle", "Retry-After": "30"},
+		)
+
+	kwargs: dict[str, Any] = dict(
+		requests=[BenignRequest(account="a", text="q", time=0.0, example_id="0", source_group="g")],
+		references={
+			"0": BenchmarkItem(
+				id="0",
+				benchmark="gsm8k",
+				category="math",
+				question="q",
+				messages=[Message(role="user", content="q")],
+				metric="numeric_exact_match",
+				answer="2",
+			)
+		},
+		url="http://teacher",
+		keys={},
+		max_output_tokens=8,
+		solver_workers=1,
+		concurrency=1,
+		transport=httpx.MockTransport(refuse),
+	)
+	legacy = await measure_utility(output=tmp_path / "legacy.json", **kwargs)
+	assert legacy["results"][0]["status"] == "error" and "restricted" not in legacy
+	result = await measure_utility(
+		output=tmp_path / "attributed.json", attribute_restrictions=True, **kwargs
+	)
+	row = result["results"][0]
+	assert row["status"] == "restricted" and row["quality"] == 0.0
+	assert row["restriction"]["cause"] == "campaign_throttled"
+	assert row["restriction"]["retry_after_seconds"] == 30
+	assert result["restrictions_by_kind"] == {"campaign": 1}
+	assert result["contract"] != legacy["contract"]
+	assert result["unconditional_utility"] == legacy["unconditional_utility"] == 0.0

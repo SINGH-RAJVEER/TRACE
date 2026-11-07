@@ -18,6 +18,10 @@ Run the retained corpus, calibration, teacher, attack and utility study.
 This flow may launch vLLM/GPU work and export readings; see scripts/study.sh settings.
 It explicitly disables the product campaign detector in all historical comparison arms.
 Use just start to serve the campaign-protected API instead.
+Opt-in arms campaign-observe and campaign-throttle use the product launcher on base policy
+allow. Selecting one in ARMS needs CAMPAIGN_OBSERVE_CONFIG or CAMPAIGN_THROTTLE_CONFIG and
+CAMPAIGN_RESTRICTION_STRATEGY (give_up, or wait_and_retry with CAMPAIGN_RESTRICTION_RETRIES).
+Throttle also needs HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true.
 HELP
 	exit 0
 fi
@@ -106,6 +110,39 @@ if [ "$UTILITY" = 1 ] && {
 	UTILITY_BINDING_ARGS=("$RUN/teacher-preflight.json" "$UTILITY_OFFERED_RPS" "$UTILITY_MIN_COMPLETION_RATE")
 fi
 
+# Opt-in campaign arms. Every declaration is checked here, before anything is prepared or
+# started, and only when one of these arms is selected.
+campaign_config() { # ARM
+	case $1 in
+		campaign-observe) echo "${CAMPAIGN_OBSERVE_CONFIG:-}" ;;
+		campaign-throttle) echo "${CAMPAIGN_THROTTLE_CONFIG:-}" ;;
+	esac
+}
+CAMPAIGN_ARMS=()
+for arm in $ARMS; do
+	case $arm in
+		campaign-observe | campaign-throttle)
+			CAMPAIGN_ARMS+=("$arm")
+			config=$(campaign_config "$arm")
+			[ -n "$config" ] && [ -f "$config" ] || finish 2 "$arm needs its declared campaign config file"
+			;;
+	esac
+done
+if [ "${#CAMPAIGN_ARMS[@]}" -gt 0 ]; then
+	case ${CAMPAIGN_RESTRICTION_STRATEGY:-} in
+		give_up) CAMPAIGN_RESTRICTION_RETRIES=0 ;;
+		wait_and_retry)
+			[ "${CAMPAIGN_RESTRICTION_RETRIES:-0}" -ge 1 ] 2>/dev/null \
+				|| finish 2 "wait_and_retry needs positive CAMPAIGN_RESTRICTION_RETRIES"
+			;;
+		*) finish 2 "campaign arms need CAMPAIGN_RESTRICTION_STRATEGY: give_up or wait_and_retry" ;;
+	esac
+	if [[ " ${CAMPAIGN_ARMS[*]} " == *" campaign-throttle "* ]] \
+		&& [ "${HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT:-}" != true ]; then
+		finish 2 "campaign-throttle requires HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true"
+	fi
+fi
+
 # step NAME COMMAND...: run once, log its output to logs/NAME.log, time it, mark it done.
 step() {
 	local name=$1
@@ -176,6 +213,14 @@ TEACHER_PREFLIGHT_ARGS=$TEACHER_PREFLIGHT_ARGS
 UTILITY_OFFERED_RPS=$UTILITY_OFFERED_RPS
 UTILITY_MIN_COMPLETION_RATE=$UTILITY_MIN_COMPLETION_RATE
 EOF
+if [ "${#CAMPAIGN_ARMS[@]}" -gt 0 ]; then
+	cat >> "$attempt/config.env" <<EOF
+CAMPAIGN_OBSERVE_CONFIG=${CAMPAIGN_OBSERVE_CONFIG:-}
+CAMPAIGN_THROTTLE_CONFIG=${CAMPAIGN_THROTTLE_CONFIG:-}
+CAMPAIGN_RESTRICTION_STRATEGY=$CAMPAIGN_RESTRICTION_STRATEGY
+CAMPAIGN_RESTRICTION_RETRIES=$CAMPAIGN_RESTRICTION_RETRIES
+EOF
+fi
 redact() { sed -E 's/^([A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD)[A-Z0-9_]*)=.+/\1=<redacted>/'; }
 env | grep -E '^(TEACHER|HARNESS|VLLM|HF|CUDA)_' | sort | redact > "$attempt/environment.env"
 "${UV[@]}" python -c 'import platform, sys; print(sys.version); print(platform.platform())' \
@@ -188,6 +233,15 @@ note "attacks [$ATTACKS], arms [$ARMS], budget $BUDGET, partition $PARTITION, se
 
 # 1. Environment.
 step setup uv sync --frozen --all-packages --extra eval --extra embed || finish 1 "setup failed"
+
+# A campaign arm's configuration must declare that arm's mode before any service starts.
+for arm in "${CAMPAIGN_ARMS[@]}"; do
+	"${UV[@]}" python -c 'import sys; from pathlib import Path
+from harness.campaign import load_campaign_config
+sys.exit(load_campaign_config(Path(sys.argv[1])).mode != sys.argv[2])' \
+		"$(campaign_config "$arm")" "${arm#campaign-}" \
+		|| finish 2 "$arm needs a valid campaign config declaring mode ${arm#campaign-}"
+done
 
 # 2. Corpus: each domain's pools with sealed attacker partitions. Shared across runs in TASKS_DIR.
 IFS=, read -ra domains <<< "$DOMAINS"
@@ -302,10 +356,23 @@ CAPS=$("${TOOLS[@]}" caps "$BENIGN/benign_test/manifest.json") || finish 1 "no g
 HARNESS_PID=
 start_harness() { # ARM DIR SCHEDULE_REQUESTS
 	local arm=$1 dir=$2 policy accumulator=paper
+	local launch=(legacy) campaign_settings=()
 	case $arm in
 		full) policy=mmd ;;
 		instantaneous) policy=mmd accumulator=instantaneous ;;
 		quota | rate | allow) policy=$arm ;;
+		campaign-observe | campaign-throttle)
+			# The product launcher, with this arm's own new state under its fresh directory.
+			policy=allow
+			local config enforcement=false
+			config=$(campaign_config "$arm")
+			[ "$arm" != campaign-throttle ] || enforcement=true
+			cp "$config" "$dir/campaign-config.json" || return 1
+			launch=(serve --config "$config" --state-db "$dir/state.sqlite3" --base-policy allow)
+			# Explicit, so a product .env cannot turn observation into enforcement.
+			campaign_settings=(HARNESS_CAMPAIGN_CONFIG="$config"
+				HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT="$enforcement")
+			;;
 		*) note "unknown arm $arm"; return 1 ;;
 	esac
 	"${TOOLS[@]}" accounts "$dir" "$3" >> "$dir/harness.log" 2>&1 || return 1
@@ -318,12 +385,13 @@ start_harness() { # ARM DIR SCHEDULE_REQUESTS
 		HARNESS_POLICY_VERSION="${HARNESS_POLICY_VERSION:-legacy-v1}" HARNESS_L4_ACTION=refuse
 		HARNESS_STATE_DB="$dir/state.sqlite3" HARNESS_DECISION_LOG="$dir/decisions.jsonl"
 		HARNESS_DECEPTION_KEY_FILE="$RUN/deception.key"
+		"${campaign_settings[@]}"
 	)
 	printf '%s\n' "${settings[@]}" | redact > "$dir/harness.env"
 	env | grep '^HARNESS_' | redact | sed 's/^/inherited /' >> "$dir/harness.env"
 	# Explicit Python settings override dotenv too; unsetting environment keys alone would
 	# let a product .env silently enable the campaign monitor in historical study arms.
-	env "${settings[@]}" "${UV[@]}" python -m harness_api.launcher legacy >> "$dir/harness.log" 2>&1 &
+	env "${settings[@]}" "${UV[@]}" python -m harness_api.launcher "${launch[@]}" >> "$dir/harness.log" 2>&1 &
 	HARNESS_PID=$!
 	PIDS+=("$HARNESS_PID")
 	wait_http "http://127.0.0.1:$HARNESS_RUN_PORT/healthz" '"ready"' 600 "$HARNESS_PID"
@@ -358,6 +426,11 @@ for attack in $ATTACKS; do
 			policy=mmd
 			args+=(--calibration "$CALIBRATION" --benign-test "$BENIGN/benign_test.detector.jsonl")
 			[ "$ALLOW_UNDETECTED" != 1 ] || args+=(--allow-undetected)
+		elif [ -n "$(campaign_config "$arm")" ]; then
+			policy=allow
+			args+=(--campaign-config "$(campaign_config "$arm")" --campaign-mode "${arm#campaign-}"
+				--restriction-strategy "$CAMPAIGN_RESTRICTION_STRATEGY"
+				--restriction-retries "$CAMPAIGN_RESTRICTION_RETRIES")
 		fi
 		note "campaign $attack/$arm started"
 		step "$name" "${UV[@]}" distill gateway collect --policy "$policy" "${args[@]}"
@@ -392,7 +465,9 @@ if [ "$UTILITY" = 1 ]; then
 		mkdir -p "$dir"
 		start_harness "$arm" "$dir" "$BENIGN/benign_test/requests.jsonl" \
 			|| finish 1 "harness did not start for utility/$arm; see $dir/harness.log"
-		step "$name" "${TOOLS[@]}" utility "$BENIGN/benign_test" "$TASKS_DIR" "$dir/credentials.json" \
+		utility_env=()
+		[ -z "$(campaign_config "$arm")" ] || utility_env=(env TRACE_UTILITY_ATTRIBUTION=1)
+		step "$name" "${utility_env[@]}" "${TOOLS[@]}" utility "$BENIGN/benign_test" "$TASKS_DIR" "$dir/credentials.json" \
 			"$dir/utility.json" "http://127.0.0.1:$HARNESS_RUN_PORT" "$CONCURRENCY" \
 			"${UTILITY_BINDING_ARGS[@]}"
 		code=$?

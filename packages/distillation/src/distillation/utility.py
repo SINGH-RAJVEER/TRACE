@@ -6,6 +6,7 @@ import json
 import math
 import statistics
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,14 @@ from harness.calibration import HORIZON_POLICY, BenignRequest
 from distillation.benchmarks.models import BenchmarkItem, save_json
 from distillation.benchmarks.reporting import distribution
 from distillation.benchmarks.scoring import evaluate_answer
-from distillation.campaign import AttemptFailed, BudgetExhausted, PolicyRefusal, ProtectedTeacher
+from distillation.campaign import (
+	ATTRIBUTION_VERSION,
+	AttemptFailed,
+	BudgetExhausted,
+	PolicyRefusal,
+	PolicyRestricted,
+	ProtectedTeacher,
+)
 from distillation.proof import CHUNK_HASHES, SOLVER_VERSION, ProofSolver
 from distillation.schemas import TeacherGeneration, TeacherGenerationRequest
 
@@ -47,6 +55,7 @@ async def measure_utility(
 	solver_workers: int = 4,
 	request_deadline: float = 120,
 	transport: httpx.AsyncBaseTransport | None = None,
+	attribute_restrictions: bool = False,
 ) -> dict[str, Any]:
 	"""Measure response utility with a declared process allowance for proof solving.
 
@@ -54,6 +63,9 @@ async def measure_utility(
 	requests must arrive at the rate the preflight measured, so nothing runs if they would not.
 	Omitting the binding preserves the legacy measurement and contract; it cannot establish
 	validity for a legitimate-utility comparison.
+
+	`attribute_restrictions` records a harness 429 as `restricted` with its cause rather than
+	`error`, and joins the contract. Clients do not retry; a restriction scores zero either way.
 	"""
 	if baseline is not None:
 		check_arrivals(requests, baseline)
@@ -72,6 +84,7 @@ async def measure_utility(
 			request_deadline=request_deadline,
 			transport=transport,
 			solver=solver,
+			attribute_restrictions=attribute_restrictions,
 		)
 	finally:
 		await solver.close()
@@ -91,6 +104,7 @@ async def _measure_utility(
 	concurrency: int = 32,
 	request_deadline: float = 120,
 	transport: httpx.AsyncBaseTransport | None = None,
+	attribute_restrictions: bool = False,
 ) -> dict[str, Any]:
 	"""Quality among released responses and zero-for-nonresponse utility over every submission.
 
@@ -105,6 +119,11 @@ async def _measure_utility(
 				else "utility-response-latency-v2",
 				"horizon_policy": HORIZON_POLICY,
 				**({"baseline": baseline} if baseline is not None else {}),
+				**(
+					{"restriction_attribution": ATTRIBUTION_VERSION}
+					if attribute_restrictions
+					else {}
+				),
 				"solver": {
 					"version": SOLVER_VERSION,
 					"workers": solver.workers,
@@ -170,6 +189,7 @@ async def _measure_utility(
 		teacher = ProtectedTeacher(
 			url, keys.get(account, keys.get("default", "")), transport=transport, solver=solver
 		)
+		teacher.attribute_restrictions = attribute_restrictions
 		try:
 			for index, row in enumerate(rows):
 				arrival = started + (row.time or 0)
@@ -180,6 +200,7 @@ async def _measure_utility(
 					teacher.domain = item.benchmark
 				status, quality, received = "abandoned", 0.0, False
 				generation = None
+				restriction: dict[str, Any] | None = None
 				event_offset = len(teacher.events)
 				admitted = None
 				before = teacher.hashes
@@ -202,6 +223,10 @@ async def _measure_utility(
 				except PolicyRefusal:
 					completed = time.monotonic()
 					status = "refused"
+				except PolicyRestricted as restricted:
+					completed = time.monotonic()
+					status = "restricted"
+					restriction = restricted.restriction
 				except TimeoutError, BudgetExhausted:
 					completed = time.monotonic()
 					status = "timeout"
@@ -236,6 +261,7 @@ async def _measure_utility(
 						"proof_cpu_seconds": sum(e["cpu_seconds"] for e in solve_events),
 						"service_and_queue_seconds": completed - attempt_started,
 						"hashes": teacher.hashes - before,
+						**({"restriction": restriction} if restriction is not None else {}),
 					}
 				)
 				if generation is not None:
@@ -264,7 +290,18 @@ async def _measure_utility(
 	scoring_seconds = time.monotonic() - scoring_started
 	served = [r for r in results if r["received"]]
 	latency = distribution([r["latency_seconds"] for r in served])
+	# Present only with attribution, so existing utility results keep their schema.
+	attributed_counts: dict[str, Any] = {}
+	if attribute_restrictions:
+		restricted_rows = [r["restriction"] for r in results if "restriction" in r]
+		attributed_counts = {
+			"restriction_attribution": ATTRIBUTION_VERSION,
+			"restricted": len(restricted_rows),
+			"restrictions_by_kind": dict(Counter(str(r["kind"]) for r in restricted_rows)),
+			"restrictions_by_cause": dict(Counter(str(r["cause"]) for r in restricted_rows)),
+		}
 	summary = {
+		**attributed_counts,
 		"contract": contract,
 		"submitted": len(results),
 		"served": len(served),

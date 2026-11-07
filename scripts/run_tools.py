@@ -134,6 +134,8 @@ def utility(
 			output=output,
 			baseline=baseline,
 			concurrency=concurrency,
+			# Set by the opt-in campaign arms of scripts/study.sh only.
+			attribute_restrictions=os.environ.get("TRACE_UTILITY_ATTRIBUTION") == "1",
 		)
 	)
 	scalars = {k: v for k, v in result.items() if not isinstance(v, (list, dict))}
@@ -147,6 +149,8 @@ def summary(path: Path) -> None:
 	canonical = load_campaign_summary(path.parent) or {}
 	fields = ("received", "blocked", "challenge", "failed", "deadline", "released_tokens")
 	parts = [f"{key} {canonical.get(key)}" for key in fields]
+	if "restricted" in canonical:
+		parts.insert(1, f"restricted {canonical['restricted']}")
 	hours = campaign.get("elapsed_seconds", 0) / 3600
 	print(", ".join(parts) + f", {hours:.2f} h")
 
