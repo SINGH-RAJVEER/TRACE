@@ -120,3 +120,28 @@ def test_operators_show_and_sever_durable_links(tmp_path: Path) -> None:
 		app, ["linkage", "show", "a", "--state-db", str(state), "--config", str(other)]
 	)
 	assert refused.exit_code != 0
+
+
+def test_exported_links_feed_the_offline_cluster_analysis() -> None:
+	import numpy as np
+	from harness.clusters import LinkEvidence, PrincipalHorizon, analyze_clusters
+	from harness.linkage import export_links
+
+	store = MemoryStore()
+	for name in ("a", "b", "d"):
+		_observe(store, name, Signal("declared", "payment=card-1"))
+	_observe(store, "c", Signal("network", "203.0.113.0/24"))
+	_observe(store, "a", Signal("network", "203.0.113.0/24"))
+	with store.transaction() as tx:
+		sever(tx, CONFIG, "a", "b", operator="ops", reason="separate customers", now=0.0)
+		links = export_links(tx, CONFIG, {"a", "b", "c"})
+	# Severed and out-of-scope pairs are dropped; a weak behavioral pair stays as evidence.
+	assert [(e["left"], e["right"]) for e in links["edges"]] == [("a", "c")]
+	assert links["edges"][0]["strength"] < links["minimum_strength"] == CONFIG.threshold
+	accounts = [PrincipalHorizon(p, ["q"], np.zeros((1, 2))) for p in ("a", "b", "c")]
+	report = analyze_clusters(
+		accounts,
+		edges=[LinkEvidence(**edge) for edge in links["edges"]],
+		minimum_strength=links["minimum_strength"],
+	)
+	assert all(edge["included"] is False for edge in report["edges"])

@@ -844,6 +844,40 @@ def linkage_sever(
 		typer.echo(json.dumps({"clusters": groups}, indent=4))
 
 
+@linkage_app.command("export")
+def linkage_export(
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+	requests: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True,
+			dir_okay=False,
+			help="Keep only pairs whose principals both appear in these requests.",
+		),
+	] = None,
+) -> None:
+	"""Write request-path links in the format `evidence-check --links` reads."""
+	from harness.linkage import export_links
+
+	principals = None
+	if requests is not None:
+		with requests.open() as stream:
+			principals = {
+				BenignRequest.model_validate_json(line).account for line in stream if line.strip()
+			}
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		result = export_links(tx, linkage, principals)
+	try:
+		with output.open("x") as target:
+			target.write(json.dumps(result, indent="\t") + "\n")
+	except OSError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(json.dumps({"edges": len(result["edges"]), "qualified": False}))
+
+
 @app.command("separation")
 def separation_command(
 	benign: Annotated[

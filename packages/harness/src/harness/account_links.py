@@ -2,12 +2,12 @@
 
 import hashlib
 import math
-import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from typing import Any
 
 from harness.calibration import BenignRequest
+from harness.clusters import prompt_template
 
 
 def propose_links(
@@ -53,7 +53,7 @@ def propose_links(
 		for row in rows:
 			if len(row.text) > 32768:
 				raise ValueError("prompt exceeds 32768 characters")
-			template = re.sub(r"\d+", "#", " ".join(row.text.lower().split()))
+			template = prompt_template(row.text)
 			if template:
 				features.add(hashlib.sha256(template.encode()).hexdigest())
 		sketches[account] = features

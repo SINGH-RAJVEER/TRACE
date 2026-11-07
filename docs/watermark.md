@@ -33,4 +33,6 @@ distill watermark detect --texts suspect.jsonl --key-file artifacts/watermark.ke
 - **The vocabulary must match.** The GGUF and the Hugging Face tokenizer must share token IDs. Record the tokenizer revision with every report.
 - **Detection is not proof.** A positive result shows a statistical bias toward a key's tokens. It does not show training, intent or which data was used, and paraphrasing, translation or mixing with other data weakens it. The key IDs of a cluster's principals can be tested together, but each test adds to the correction.
 
-The research comparison of decoder watermarks for vLLM, including keyed context-dependent schemes, is in the `research-teacher-output-watermark` workspace and remains a separate, unimplemented option.
+## Relation to the decoder watermark probe
+
+`experiments/watermark` ([docs](watermark-probe.md)) prototypes a context-dependent keyed watermark: each green list depends on the preceding tokens, which is harder to learn or strip but needs a logits processor inside the engine. `unigram-v1` is the scheme that can be served now, because `llama-server` and vLLM both accept `logit_bias`. Both test detection the same way in spirit, counting each independent event once (a distinct token here, a distinct context there) so that repeats do not inflate the evidence. Their keys and green lists are not interchangeable, and a text marked with one is not detectable with the other.

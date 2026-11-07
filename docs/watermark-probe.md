@@ -2,7 +2,7 @@
 
 `experiments/watermark` is a CPU-only prototype of a keyed soft KGW decoder watermark: the bias applied to logits during generation, and the statistical test that looks for it in the output. It implements the custom-processor part of the [watermark decoder report](<reports/Watermark decoder implementation.md>).
 
-It has never touched a model. Nothing here shows that a watermark survives on Qwen3.5-9B, what it costs in answer quality, or whether a student inherits it. TRACE's teacher still returns unwatermarked output, and no engine loads this code.
+It has never touched a model. Nothing here shows that a watermark survives on Qwen3.5-9B, what it costs in answer quality, or whether a student inherits it. No engine loads this code. The watermark TRACE can serve today is the separate [`unigram-v1` scheme](watermark.md), a context-free green list applied through the upstream `logit_bias` field, which `llama-server` accepts without a custom processor. This probe is the context-dependent alternative, which needs a logits processor inside the engine.
 
 This is unrelated to `harness watermark`, which tests whether a suspect model learned the [keyed noise answers](harness.md) served to accounts at L4. That command works on answers. This probe works on token choices during generation.
 
@@ -89,4 +89,4 @@ If HMAC-SHA256 behaves as a PRF and the text is independent of the tested key, t
 
 - The report's first step assumes vLLM with a full-precision model. The local teacher is now a Q4 GGUF on `llama-server`, and this machine has an 8 GB GPU that a running study already uses.
 - `KgwBatchProcessor` follows the report's description of the vLLM MRV2 interface but has no adapter, and that interface is not checked against a real engine. `llama-server` would need its own integration.
-- The teacher adapter sends no watermark controls and defaults to temperature zero, and the endpoint has no trusted tenant identity to select a key.
+- The gateway now selects a per-principal key ID and the teacher adapter sends it, but only as a `logit_bias` map for `unigram-v1`. Serving this probe would reuse that key path and replace the bias with an engine-side processor.

@@ -287,6 +287,47 @@ def sever(
 	return groups
 
 
+def export_links(
+	tx: Transaction, config: LinkageConfig, principals: set[str] | None = None
+) -> dict[str, Any]:
+	"""Recorded pair evidence as an `evidence-check --links` document.
+
+	Every pair with evidence becomes an inferred edge whose strength is its request-path
+	strength; `minimum_strength` is the configured threshold, so the offline analysis includes
+	the same pairs the request path linked. Severed pairs are left out. `principals` keeps only
+	pairs whose two members are in the analysed requests, which the analysis requires.
+	"""
+	edges = []
+	for key in tx.linkage_keys("e:"):
+		left, right = json.loads(key[2:])
+		if principals is not None and not {left, right} <= principals:
+			continue
+		if _severed(tx, left, right):
+			continue
+		evidence = tx.linkage(key) or {}
+		kinds = sorted(k for k in KINDS if evidence.get(k, 0) >= config.min_shared[k])
+		if not kinds:
+			continue
+		edges.append(
+			{
+				"left": left,
+				"right": right,
+				"source": "request_path_linkage_v1:" + "+".join(kinds),
+				"strength": strength(config, evidence),
+				"inferred": True,
+			}
+		)
+	return {
+		"version": "request-path-links-v1",
+		"organizations": {},
+		"edges": edges,
+		"infer": False,
+		"minimum_strength": config.threshold,
+		"provenance": {"linkage_config_sha256": config.digest, "namespace": config.namespace},
+		"qualified": False,
+	}
+
+
 @dataclass(frozen=True)
 class ClusterBudget:
 	"""What an inferred cluster may acquire together in any span of `window_seconds`.
