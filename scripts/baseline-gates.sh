@@ -54,7 +54,7 @@ TEACHER_MODEL=${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}
 TEACHER_MODEL_REVISION=${TEACHER_MODEL_REVISION:-c202236235762e1c871ad0ccb60c8ee5ba337b9a}
 TEACHER_URL=http://${TEACHER_HOST:-127.0.0.1}:${TEACHER_PORT:-8000}
 
-UV=(uv run --frozen --extra eval --extra embed)
+UV=(uv run --frozen --extra eval --extra embed --extra train)
 LOGS=$RUN/logs
 STEPS=$RUN/steps
 mkdir -p "$LOGS" "$STEPS"

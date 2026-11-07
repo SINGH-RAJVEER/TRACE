@@ -21,6 +21,9 @@ eval = [
 embed = [
 	"extraction-harness[embed]"
 ]
+train = [
+	"distillation-core[train]"
+]
 
 [tool.uv]
 package = false

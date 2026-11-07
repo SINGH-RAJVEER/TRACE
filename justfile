@@ -11,7 +11,7 @@ setup:
 
 # Add encoder and evaluation dependencies for calibration, studies and GPU student commands.
 setup-eval:
-	uv sync --frozen --all-packages --extra eval --extra embed
+	uv sync --frozen --all-packages --extra eval --extra embed --extra train
 
 # Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
 teacher-gguf *args:
@@ -57,7 +57,7 @@ checkpoint-plan export suite output *args:
 
 # GPU execution is explicit and uses the frozen student recipe; completed cells can resume.
 checkpoint-execute output:
-	uv run --frozen --extra eval distill checkpoints execute --output "$1"
+	uv run --frozen --extra eval --extra train distill checkpoints execute --output "$1"
 
 checkpoint-summary output:
 	uv run --frozen distill checkpoints summary --output "$1"

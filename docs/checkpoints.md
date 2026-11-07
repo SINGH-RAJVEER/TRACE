@@ -44,7 +44,7 @@ devenv shell -- uv run distill checkpoints summary \
 	--output artifacts/protected/checkpoint-students
 ```
 
-Replace the illustrative target and suite path with the preregistered target and actual frozen development suite. Planning and summary require no GPU dependencies. Default execution uses the existing pinned math student runner and requires its GPU environment.
+Replace the illustrative target and suite path with the preregistered target and actual frozen development suite. Planning and summary require no GPU dependencies. Default execution uses the existing pinned math student runner and requires a CUDA GPU and the `train` extra (peft, trl, torch, transformers and datasets), which `just checkpoint-execute`, `just setup-eval` and `just baseline-gates` include.
 
 Choose a useful accuracy target before running the protected experiment, supported by a passing clean-baseline experiment and task headroom. Freeze an independent, source-disjoint evaluation suite and the same pinned student recipe and seeds across compared arms. Each checkpoint student starts from that base and uses the eligible responses actually present at its receipt cutoff. It must not substitute a hash-selected subset of the end ledger.
 
