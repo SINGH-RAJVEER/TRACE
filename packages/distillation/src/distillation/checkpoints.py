@@ -7,7 +7,22 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from distillation.campaign import (
+	CAMPAIGN_CONFIG_FILE,
+	DECISIONS_SNAPSHOT_FILE,
+	verify_experiment_binding,
+)
 from distillation.schemas import LedgerRecord
+
+# Attributed families report one cause; the first three stay the cause-agnostic observations.
+GENERAL_INTERVENTIONS = ("first_alert", "first_restriction", "first_refusal")
+ATTRIBUTED_INTERVENTIONS = (
+	"first_campaign_alert",
+	"first_campaign_restriction",
+	"first_entitlement_restriction",
+)
+OUTCOME_STATUSES = ("received", "challenge", "blocked", "failed", "deadline")
+ENTITLEMENT_BLOCK_CODES = ("organization_required",)
 
 
 class CheckpointError(ValueError):
@@ -51,6 +66,66 @@ def _lines(data: bytes) -> list[Any]:
 	return [_json(line) for line in data.splitlines() if line.strip()]
 
 
+def _outcome_cause(outcome: dict[str, Any]) -> str:
+	restriction = outcome.get("restriction")
+	if isinstance(restriction, dict):
+		return str(restriction.get("kind"))
+	return "entitlement" if outcome.get("code") in ENTITLEMENT_BLOCK_CODES else "policy"
+
+
+def _outcome_matches(name: str, outcome: dict[str, Any]) -> bool:
+	"""Whether an attributed client outcome qualifies; alerts are never client visible."""
+	status, cause = outcome["status"], _outcome_cause(outcome)
+	restricted = status == "restricted"
+	if name == "first_restriction":
+		return restricted or status in ("challenge", "blocked")
+	if name == "first_refusal":
+		return bool(
+			status == "blocked"
+			or (restricted and outcome["restriction"].get("decision") == "block")
+		)
+	if name == "first_campaign_restriction":
+		return restricted and cause == "campaign"
+	if name == "first_entitlement_restriction":
+		return (restricted or status == "blocked") and cause == "entitlement"
+	return False
+
+
+def _policy_matches(name: str, policy: dict[str, Any]) -> bool:
+	"""Whether a joined decision or throttle row qualifies, without inventing detector levels."""
+	throttle = bool(policy["event"] == "campaign_throttle")
+	evidence = policy.get("campaign")
+	alert = isinstance(evidence, dict) and evidence.get("status") == "alert"
+	level, action = policy.get("level"), policy.get("action")
+	detector_alert = type(level) is int and level >= 1
+	detector_restriction = action in ("challenge", "refuse") or (type(level) is int and level >= 2)
+	if name == "first_alert":
+		return alert or detector_alert
+	if name == "first_campaign_alert":
+		return alert
+	if name == "first_restriction":
+		return throttle or detector_restriction or policy.get("entitlement") is not None
+	if name == "first_refusal":
+		return bool(action == "refuse")
+	if name == "first_campaign_restriction":
+		return throttle
+	if name == "first_entitlement_restriction":
+		return policy.get("entitlement") is not None
+	return False
+
+
+def _policy_cause(policy: dict[str, Any]) -> str:
+	if policy["event"] == "campaign_throttle":
+		return "campaign"
+	if policy.get("entitlement") is not None:
+		return "entitlement"
+	evidence = policy.get("campaign")
+	level = policy.get("level")
+	if isinstance(evidence, dict) and evidence.get("status") == "alert" and not level:
+		return "campaign"
+	return "rate" if policy.get("reason") == "rate" else "policy"
+
+
 def export_campaign_checkpoints(
 	campaign: Path, output: Path, *, response_counts: Sequence[int] = ()
 ) -> dict[str, Any]:
@@ -71,15 +146,27 @@ def export_campaign_checkpoints(
 	if (
 		not isinstance(contract, dict)
 		or not isinstance(summary, dict)
-		or contract.get("version") != "gateway-execution-v2"
+		or contract.get("version") not in ("gateway-execution-v2", "gateway-execution-v3")
 	):
 		raise CheckpointError("unsupported gateway contract or summary")
+	attributed = contract["version"] == "gateway-execution-v3"
 	contract_hash = _hash(json.dumps(contract, sort_keys=True).encode())
 	if summary.get("contract") != contract_hash or summary.get("sha256") != {
 		"ledger": _hash(data["ledger"]),
 		"events": _hash(data["events"]),
 	}:
 		raise CheckpointError("campaign contract or artifact digest mismatch")
+	binding = None
+	if attributed:
+		try:
+			binding = verify_experiment_binding(campaign, contract, summary)
+		except (ValueError, OSError, KeyError, TypeError) as error:
+			raise CheckpointError(f"experiment binding refused: {error}") from error
+		names["decisions"] = DECISIONS_SNAPSHOT_FILE
+		data["decisions"] = _read(campaign / DECISIONS_SNAPSHOT_FILE)
+		if contract["experiment"]["campaign"] is not None:
+			names["campaign_config"] = CAMPAIGN_CONFIG_FILE
+			data["campaign_config"] = _read(campaign / CAMPAIGN_CONFIG_FILE)
 	variants = contract.get("variants") or {}
 	if not isinstance(variants, dict) or any(
 		not isinstance(variants.get(key, {}), dict) for key in ("batching", "session_replay")
@@ -95,6 +182,7 @@ def export_campaign_checkpoints(
 	attempts: dict[str, dict[str, Any]] = {}
 	outcomes: dict[str, dict[str, Any]] = {}
 	policies: list[dict[str, Any]] = []
+	waits: list[dict[str, Any]] = []
 	indices: set[int] = set()
 	for event in events:
 		if not isinstance(event, dict):
@@ -120,16 +208,22 @@ def export_campaign_checkpoints(
 				):
 					raise CheckpointError("invalid attempt index, kind, or contract")
 				indices.add(index)
-			elif event.get("status") not in (
-				"received",
-				"challenge",
-				"blocked",
-				"failed",
-				"deadline",
+			elif event.get("status") not in OUTCOME_STATUSES and not (
+				attributed
+				and event.get("status") == "restricted"
+				and isinstance(event.get("restriction"), dict)
 			):
 				raise CheckpointError("invalid outcome status")
-		elif kind == "policy":
+		elif kind == "policy" or (attributed and kind == "campaign_throttle"):
 			policies.append(event)
+		elif attributed and kind == "attribution_ambiguous":
+			raise CheckpointError("ambiguous policy attribution")
+		elif attributed and kind == "restriction_wait":
+			_time(event.get("at_seconds"))
+			_time(event.get("seconds"))
+			waits.append(event)
+		elif attributed and kind == "restriction_give_up":
+			_time(event.get("at_seconds"))
 		elif kind not in ("solve", "selection_round"):
 			raise CheckpointError("unknown campaign event")
 	if set(attempts) != set(outcomes) or indices != set(range(1, len(indices) + 1)):
@@ -179,7 +273,16 @@ def export_campaign_checkpoints(
 			)
 		):
 			raise CheckpointError("ambiguous policy attribution")
+		if attributed and (
+			policy.get("submission_id") != ident
+			or policy.get("root_id") != policy["policy_request_id"]
+			or (policy["event"] == "policy" and attempts[ident]["kind"] != "query")
+			or (policy["event"] == "campaign_throttle" and outcomes[ident]["status"] == "received")
+		):
+			raise CheckpointError("ambiguous policy attribution")
 		policy_ids.add(ident)
+	if attributed and summary.get("attribution_complete") is not True:
+		raise CheckpointError("incomplete policy attribution")
 	records: dict[str, LedgerRecord] = {}
 	try:
 		for row in _lines(data["ledger"]):
@@ -200,23 +303,29 @@ def export_campaign_checkpoints(
 		raise CheckpointError("ledger count mismatch")
 	ordered = sorted(received, key=lambda i: (_time(outcomes[i]["at_seconds"]), i))
 	interventions: dict[str, Any] = {}
-	for name in ("first_alert", "first_restriction", "first_refusal"):
-		candidates: list[tuple[float, float, str]] = []
+	for name in (*GENERAL_INTERVENTIONS, *(ATTRIBUTED_INTERVENTIONS if attributed else ())):
+		candidates: list[tuple[float, float, str, str]] = []
 		for ident, outcome in outcomes.items():
-			if (name == "first_restriction" and outcome["status"] in ("challenge", "blocked")) or (
-				name == "first_refusal" and outcome["status"] == "blocked"
+			if (
+				_outcome_matches(name, outcome)
+				if attributed
+				else (name == "first_restriction" and outcome["status"] in ("challenge", "blocked"))
+				or (name == "first_refusal" and outcome["status"] == "blocked")
 			):
 				candidates.append(
 					(
 						_time(attempts[ident]["at_seconds"]),
 						_time(outcome["at_seconds"]),
 						"client outcome",
+						_outcome_cause(outcome),
 					)
 				)
 		for policy in policies:
 			level, action = policy.get("level"), policy.get("action")
 			match = (
-				(name == "first_alert" and type(level) is int and level >= 1)
+				_policy_matches(name, policy)
+				if attributed
+				else (name == "first_alert" and type(level) is int and level >= 1)
 				or (
 					name == "first_restriction"
 					and (action in ("challenge", "refuse") or (type(level) is int and level >= 2))
@@ -230,12 +339,19 @@ def export_campaign_checkpoints(
 						_time(attempts[ident]["at_seconds"]),
 						_time(outcomes[ident]["at_seconds"]),
 						"policy attribution and client outcome",
+						_policy_cause(policy) if attributed else "policy",
 					)
 				)
 		if candidates:
-			_, upper, source = min(candidates, key=lambda c: c[1])
+			_, upper, source, _ = min(candidates, key=lambda c: c[1])
 			lower = min(c[0] for c in candidates)
 			interventions[name] = {
+				# Every cause whose submission could be the first inside this interval.
+				**(
+					{"causes": sorted({c[3] for c in candidates if c[0] <= upper})}
+					if attributed
+					else {}
+				),
 				"status": "reached",
 				"lower_seconds": lower,
 				"observed_seconds": upper,
@@ -286,14 +402,24 @@ def export_campaign_checkpoints(
 		started = [a for a in attempts.values() if _time(a["at_seconds"]) <= cutoff]
 		completed = [o for o in outcomes.values() if _time(o["at_seconds"]) <= cutoff]
 		released = [o for o in completed if o["status"] == "received"]
+		attributed_cost = (
+			{
+				"restriction_wait_seconds": sum(
+					_time(w["seconds"]) for w in waits if _time(w["at_seconds"]) <= cutoff
+				)
+			}
+			if attributed
+			else {}
+		)
 		return {
+			**attributed_cost,
 			"attempts_started": len(started),
 			"query_attempts_started": sum(a["kind"] == "query" for a in started),
 			"proof_attempts_started": sum(a["kind"] == "proof" for a in started),
 			"attempts_completed": len(completed),
 			"outcomes": {
 				status: sum(o["status"] == status for o in completed)
-				for status in ("received", "challenge", "blocked", "failed", "deadline")
+				for status in (*OUTCOME_STATUSES, *(("restricted",) if attributed else ()))
 			},
 			"known_released_output_tokens": sum(o.get("output_tokens") or 0 for o in released),
 			"unknown_output_token_receipts": sum(o.get("output_tokens") is None for o in released),
@@ -312,6 +438,21 @@ def export_campaign_checkpoints(
 		snapshot(f"response-{n}", "response_count", cutoff, reached, chosen)
 	for name, intervention in interventions.items():
 		if intervention["status"] == "reached":
+			# An attributed family with the bounds of a general one needs no second student.
+			same = next(
+				(
+					general
+					for general in GENERAL_INTERVENTIONS
+					if name in ATTRIBUTED_INTERVENTIONS
+					and interventions[general]["lower_seconds"] == intervention["lower_seconds"]
+					and interventions[general]["observed_seconds"]
+					== intervention["observed_seconds"]
+				),
+				None,
+			)
+			if same is not None:
+				intervention["checkpoints_from"] = same
+				continue
 			for bound, key in (("lower", "lower_seconds"), ("observed", "observed_seconds")):
 				cutoff = intervention[key]
 				snapshot(
@@ -331,7 +472,7 @@ def export_campaign_checkpoints(
 		ordered,
 	)
 	manifest: dict[str, Any] = {
-		"version": "campaign-checkpoints-v1",
+		"version": "campaign-checkpoints-v2" if attributed else "campaign-checkpoints-v1",
 		"inputs": {
 			key: {"path": str(campaign / names[key]), "sha256": _hash(value)}
 			for key, value in data.items()
@@ -356,6 +497,17 @@ def export_campaign_checkpoints(
 			for name, value in interventions.items()
 		},
 	}
+	if attributed:
+		manifest["experiment"] = contract["experiment"]
+		manifest["policy_binding"] = binding
+		manifest["limitations"].extend(
+			[
+				"Attributed causes come from harness response codes and decision log rows; "
+				"server times are retained in events but are not used as interval bounds.",
+				"A campaign restriction is temporary: it does not recall admitted work, and "
+				"its cooldown can expire and recur.",
+			]
+		)
 	manifest["digest"] = _hash(_canonical(manifest))
 	(output / "manifest.json").write_bytes(_canonical(manifest) + b"\n")
 	return manifest
@@ -364,19 +516,22 @@ def export_campaign_checkpoints(
 def load_checkpoint_export(output: Path) -> dict[str, Any]:
 	"""Verify manifest, source artifacts, and each exported ledger before use."""
 	manifest = _json(_read(output / "manifest.json"))
-	if not isinstance(manifest, dict) or manifest.get("version") != "campaign-checkpoints-v1":
+	if not isinstance(manifest, dict) or manifest.get("version") not in (
+		"campaign-checkpoints-v1",
+		"campaign-checkpoints-v2",
+	):
 		raise CheckpointError("invalid checkpoint manifest")
 	body = dict(manifest)
 	digest = body.pop("digest", None)
 	if digest != _hash(_canonical(body)):
 		raise CheckpointError("manifest digest mismatch")
 	try:
-		if not isinstance(manifest["inputs"], dict) or set(manifest["inputs"]) != {
-			"contract",
-			"summary",
-			"events",
-			"ledger",
-		}:
+		required = {"contract", "summary", "events", "ledger"}
+		if manifest["version"] == "campaign-checkpoints-v2":
+			required.add("decisions")
+			if manifest["experiment"]["campaign"] is not None:
+				required.add("campaign_config")
+		if not isinstance(manifest["inputs"], dict) or set(manifest["inputs"]) != required:
 			raise CheckpointError("incomplete checkpoint sources")
 		for item in manifest["inputs"].values():
 			if _hash(_read(Path(item["path"]))) != item["sha256"]:

@@ -105,3 +105,19 @@ format:
 # Maintenance command: deliberately updates the dependency lock.
 lock:
 	uv lock
+
+# Freeze a development utility grid and its passing teacher-capacity evidence.
+development-grid-plan spec output:
+	uv run --frozen distill development-grid plan --spec "$1" --output "$2"
+
+# Runner is a trusted module:function adapter; it owns each cell's isolated gateway lifecycle.
+development-grid-execute output runner:
+	uv run --frozen distill development-grid execute --output "$1" --runner "$2"
+
+# Derive measured losses and select only settings matching every declared stratum.
+development-grid-match output result:
+	uv run --frozen distill development-grid match --output "$1" --result "$2"
+
+# Bounded offline corroboration only; does not alter enforcement or fusion weights.
+link-accounts requests output:
+	uv run --frozen harness link-accounts --requests "$1" --output "$2"

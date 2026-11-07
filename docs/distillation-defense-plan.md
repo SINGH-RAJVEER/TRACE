@@ -19,7 +19,7 @@ Utility binding is optional and must be supplied completely. The original unboun
 
 Independent path audits need a numerically stable binomial upper bound at larger counts. That routine is local to path_calibration.audit_upper_bound; the existing calibration.binomial_upper is preserved byte-for-byte.
 
-The archived output-study stack is deferred. It assumes output-transform candidates, not detector admissions, and supplies no measured detector-versus-quota verdict. The restoration keeps its independent quota matcher under baseline and moves clean-gate verification into baseline_gates. Output obfuscation, poisoning and rewrite recipes are excluded.
+The first restoration kept the quota matcher under baseline, moved clean-gate verification into baseline_gates and left the archived output-study stack out. That stack and an opt-in gateway output policy have since been added; see [Output defenses](#output-defenses). Poisoning stays excluded.
 
 Manifest publication wraps directory/temp creation errors, flushes data before linking and keeps private mode 0600. The pilot's GPU lock uses append mode and defaults to the runtime or repository artifacts directory. These fixes do not establish model performance or operational qualification.
 
@@ -41,11 +41,11 @@ The ordinary curve subsets are hash-ordered. Historical matched-prefix controls 
 ## Next implementation: detector versus quota
 
 1. Collect a legitimate development workload through allow, the candidate and a grid of quota and quota_tokens settings, with a passing capacity preflight and fresh state for each setting.
-2. Derive per-stratum task-success losses from those measured runs, then freeze the selected settings using baseline match-quotas. Loss declarations currently remain the operator's responsibility.
+2. Derive per-stratum task-success losses from those measured runs, then freeze the selected settings using baseline match-quotas. The development-grid derive/match command now derives losses from hash-bound utility rows.
 3. Confirm legitimate utility on held-out users and run fixed and adaptive extraction campaigns with comparable attempt, time, money and account resources.
 4. Train students on the supervision each arm actually released and compare capability and cost. Use equal-released-token subsets only as an additional mechanism control.
 
-The restored matcher does not execute the grid or connect declared losses to runs. The complete campaign-to-student verdict remains manual. Automated measured-grid collection and a general detector comparison report are not restored from the output-study stack.
+The opt-in development-grid commands plan capacity-bound cells, execute them through a trusted injected runner, verify completed artifacts and derive measured losses for the restored matcher. CPU fixtures cover orchestration; a live adapter, actual measured-grid collection, held-out confirmation and the complete campaign-to-student verdict remain open. See docs/evaluation.md for the adapter contract.
 
 ## Next implementation: adaptive retained capability
 
@@ -58,6 +58,14 @@ No student-updating A8 implementation or adaptive capability result is created b
 Path is the first H evaluated admissions of an authenticated principal, with fixed nonoverlapping looks. It neither rearms automatically after H nor links Sybil identities. Without a stop it explicitly abstains after H; a stop remains durable. Unsupported strata and insufficient calibration samples abstain. Every runtime artifact and event remains qualified: false.
 
 The current state retains and serializes all prefix embeddings, and coverage recomputes over that prefix. Large H therefore has substantial memory/storage/latency cost. Keep short experimental horizons and measure cost on the target host. Compact incremental state, realistic benign calibration, an independent audit and actual student effectiveness are prerequisites for deployment. Existing MMD remains available at larger study budgets, with its historical detection failures retained as development evidence.
+
+## Output defenses
+
+A client whose traffic matches a legitimate customer cannot be detected, so only changing the released output can reach it. The research's top prevention candidate is answer-preserving dense rewriting of reasoning. Trace Rewriting (arXiv 2602.15143v2, E.3) reports GSM8K student accuracy falling from 57.7% to 30.2% and teacher accuracy from 88.8% to 88.1%, with a 7B teacher and rewriter. That is the paper's result, not TRACE's.
+
+Two opt-in pieces now exist. [`distill output-study`](evaluation.md#cached-output-defenses-and-matched-quota-comparison) builds output arms from one cached acquisition and joins supplied student evidence. [`HARNESS_OUTPUT_POLICY`](harness.md#opt-in-output-policy) applies `final_answer_only`, `compact_verified`, `paraphrase` or `dense_locked` before the gateway releases a response, for GSM8K's `####` format only.
+
+Neither has run on a real teacher or student, so TRACE has no effectiveness measurement for them. Correct answers remain training data, and final-answer collection is untouched by any rewrite of explanations. An always-on policy changes the product for every client. Rewrites are checked for format and answer equality, not for correct reasoning. The next step is a matched study on actually released text, with adaptive attackers and measured legitimate-user loss.
 
 ## Verification and delivery
 

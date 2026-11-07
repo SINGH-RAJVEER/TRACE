@@ -81,10 +81,19 @@ def main(argv: Sequence[str] | None = None) -> None:
 		else:
 			settings, campaign = prepare_settings(args.config, args.state_db, args.base_policy)
 			session = campaign.session.version if campaign.session is not None else "disabled"
+			coverage = campaign.coverage.monitor.version if campaign.coverage else "disabled"
 			print(
 				f"Campaign {campaign.digest}; mode={campaign.mode}; qualified=false; "
-				f"base_policy={settings.policy}; session={session}"
+				f"base_policy={settings.policy}; session={session}; "
+				f"coverage={coverage}; "
+				f"lifetime={campaign.lifetime.version if campaign.lifetime else 'disabled'}"
 			)
+			if settings.output_policy is not None:
+				print(
+					f"Output policy {settings.output_policy.digest}; "
+					f"mode={settings.output_policy.mode}; "
+					f"fallback={settings.output_policy.fallback}; qualified=false"
+				)
 			if args.command == "validate":
 				print(
 					"Launch settings and prerequisite paths checked; "

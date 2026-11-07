@@ -132,3 +132,17 @@ def test_loader_translates_a_legacy_campaign_json(tmp_path: Path) -> None:
 	assert loaded["released_tokens"] == 118872 and loaded["distinct_examples"] is None
 	assert loaded["levels"]["L4"]["J"] == 1216 and loaded["levels"]["L4"]["seconds"] is None
 	assert load_campaign_summary(tmp_path / "missing") is None
+
+
+def test_old_events_keep_the_v1_summary_and_stored_v2_keeps_its_fields(tmp_path: Path) -> None:
+	assert summarize_campaign(EVENTS)["summary_version"] == "campaign-summary-v1"
+	assert "restricted" not in summarize_campaign(EVENTS)
+	stored = {
+		"summary_version": "campaign-summary-v2",
+		"restricted": 2,
+		"campaign": {"throttles": 2},
+	}
+	(tmp_path / "campaign.json").write_text(json.dumps(stored))
+	loaded = load_campaign_summary(tmp_path)
+	assert loaded is not None and loaded["restricted"] == 2
+	assert loaded["campaign"] == {"throttles": 2} and loaded["source"] == "campaign.json"

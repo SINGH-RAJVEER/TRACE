@@ -533,3 +533,137 @@ def test_session_old_contract_and_duplicate_config_rejected(tmp_path: Path) -> N
 	)
 	with pytest.raises(CampaignError, match="duplicate"):
 		load_campaign_config(path)
+
+
+def test_coverage_null_config_preserves_legacy_bytes() -> None:
+	import hashlib
+
+	from harness.campaign import SessionConfig
+
+	for session in (None, SessionConfig()):
+		cfg = config(session=session)
+		old = cfg.model_dump(
+			mode="json",
+			exclude={"coverage", "lifetime"} | ({"session"} if session is None else set()),
+		)
+		assert (
+			cfg.digest
+			== hashlib.sha256(
+				json.dumps(old, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+			).hexdigest()
+		)
+		other = CampaignConfig.model_validate({**old, "coverage": None, "lifetime": None})
+		assert observe(MemoryStore(), cfg, "1") == observe(MemoryStore(), other, "1")
+		assert "coverage" not in observe(MemoryStore(), cfg, "1")["components"]
+
+
+def test_coverage_restart_missingness_and_bounded_state(tmp_path: Path) -> None:
+	from harness.campaign_coverage import CoverageConfig, CoverageMonitor
+	from harness.logdet import CoverageSpec
+
+	monitor = CoverageMonitor(
+		spec=CoverageSpec(seed=3, input_dim=2),
+		encoder_identity={"model": "fixture"},
+		serialization="raw_turn",
+		domain="text",
+		looks=(1, 2, 4),
+	)
+	cfg = config(coverage=CoverageConfig(monitor=monitor))
+	path = tmp_path / "coverage.sqlite"
+	memory = MemoryStore()
+	for i in range(8):
+		store = SQLiteStore(path, "test")
+		store.bind_campaign(cfg.digest)
+		kwargs: dict[str, Any] = {"embedding": [1.0, float(i)], "semantic_complete": True}
+		actual = observe(store, cfg, str(i), now=float(i), **kwargs)
+		assert actual == observe(memory, cfg, str(i), now=float(i), **kwargs)
+		store.close()
+	assert actual["components"]["coverage"]["prefix"] == 4
+	assert actual["components"]["coverage"]["abstention_reason"] == "horizon_expired"
+	missing = MemoryStore()
+	observe(missing, cfg, "0", embedding=[1.0, 0.0], semantic_complete=False)
+	result = observe(missing, cfg, "1", embedding=[0.0, 1.0], semantic_complete=True)
+	assert result["components"]["coverage"]["abstention_reason"] == "missing_embedding_prefix"
+	assert result["components"]["coverage"]["running_max"] is None
+	result = observe(missing, cfg, "2", domain="other")
+	assert result["components"]["coverage"]["abstention_reason"] == "unsupported_domain"
+
+
+def test_lifetime_cooldown_escalation_and_no_stale_rearm() -> None:
+	from harness.campaign import LifetimeConfig
+
+	cfg = config(
+		mode="throttle", lifetime=LifetimeConfig(escalation_factor=2.0, cooldown_cap_seconds=25.0)
+	)
+	store = MemoryStore()
+	observe(store, cfg, "1", now=0)
+	first = observe(store, cfg, "2", "Solve problem 2", 1)
+	assert first["throttle_until"] == 11
+	fresh = observe(store, cfg, "3", "Solve problem 3", 11)
+	assert not fresh["should_throttle"]
+	second = observe(store, cfg, "4", "Solve problem 4", 12)
+	assert second["throttle_until"] == 32
+	observe(store, cfg, "5", "Solve problem 5", 32)
+	third = observe(store, cfg, "6", "Solve problem 6", 33)
+	assert third["throttle_until"] == 58
+	assert third["components"]["lifetime"]["cooldown_count"] == 3
+	assert third["components"]["lifetime"]["cumulative_admitted_attempts"] == 3
+
+
+@pytest.mark.parametrize("escalate", [False, True])
+def test_calibrated_coverage_persists_across_cooldown(tmp_path: Path, escalate: bool) -> None:
+	from harness.campaign import LifetimeConfig, campaign_key
+	from harness.campaign_coverage import CoverageConfig, CoverageMonitor, fit_coverage_calibration
+	from harness.logdet import CoverageSpec
+
+	monitor = CoverageMonitor(
+		spec=CoverageSpec(seed=1, input_dim=2),
+		encoder_identity={"model": "fixture"},
+		serialization="raw_turn",
+		domain="text",
+		looks=(2, 4, 6),
+		scales=(1,),
+	)
+	cal = fit_coverage_calibration(monitor, [[[1.0, 0.0]] * 6] * 9, 0.1)
+	cfg = config(
+		mode="throttle",
+		coverage=CoverageConfig(monitor=monitor, calibration=cal, calibration_sha256=cal.digest),
+		lifetime=LifetimeConfig(escalation_factor=2.0 if escalate else 1.0),
+	)
+	store = SQLiteStore(tmp_path / "persistent.sqlite", "test")
+	store.bind_campaign(cfg.digest)
+	for i, vector in enumerate(([1.0, 0.0], [0.0, 1.0])):
+		result = observe(
+			store,
+			cfg,
+			str(i),
+			text=("baking bread" if i == 0 else "quantum mechanics"),
+			now=float(i),
+			embedding=vector,
+			semantic_complete=True,
+		)
+	assert result["should_throttle"]
+	assert result["components"]["coverage"]["p_value"] == 0.1
+	with store.transaction() as tx:
+		before = tx.campaign(campaign_key(cfg, "alice"))
+	store.close()
+	store = SQLiteStore(tmp_path / "persistent.sqlite", "test")
+	store.bind_campaign(cfg.digest)
+	result = observe(
+		store,
+		cfg,
+		"after",
+		text="migration patterns",
+		now=11.0,
+		embedding=[1.0, 1.0],
+		semantic_complete=True,
+	)
+	assert result["components"]["coverage"]["prefix"] == 3
+	assert result["should_throttle"] == escalate
+	if escalate:
+		assert result["throttle_until"] == 31.0
+	with store.transaction() as tx:
+		after = tx.campaign(campaign_key(cfg, "alice"))
+	assert before is not None and after is not None
+	assert before["coverage"]["sketch"] != after["coverage"]["sketch"]
+	store.close()

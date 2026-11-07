@@ -981,3 +981,58 @@ async def test_session_semantics_require_explicit_complete_representation(
 		assert last["semantic_missingness"] == "unknown_completeness"
 	else:
 		assert last["semantic_missingness"] == "truncated_current_input"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("complete", [True, False, None])
+async def test_coverage_uses_bounded_encoder_completeness(
+	artifacts: Artifacts, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, complete: bool | None
+) -> None:
+	from harness.campaign_coverage import CoverageConfig, CoverageMonitor
+	from harness.logdet import CoverageSpec
+
+	if complete is not None:
+		monkeypatch.setattr(Encoder, "input_complete", lambda self, text: complete, raising=False)
+	recipe = CoverageMonitor(
+		spec=CoverageSpec(seed=1, input_dim=4),
+		encoder_identity={"model": "fake"},
+		serialization="raw_turn",
+		domain="text",
+		looks=(1, 2),
+	)
+	app, teacher, log = _campaign_app(
+		artifacts,
+		tmp_path,
+		mode="observe",
+		config={"coverage": CoverageConfig(monitor=recipe).model_dump(mode="json")},
+	)
+	async with _client(app) as client:
+		assert (await _post(client, "Explain evaporation", 1000.0)).status_code == 200
+	result = _events(log, "decision")[0]["campaign"]["components"]["coverage"]
+	assert result["qualified"] is False
+	assert teacher.calls == 1
+	assert result["abstention_reason"] == (
+		"calibration_missing" if complete else "missing_embedding_prefix"
+	)
+
+
+async def test_coverage_serialization_must_match_the_served_task(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	from harness.campaign_coverage import CoverageConfig, CoverageMonitor
+	from harness.logdet import CoverageSpec
+
+	recipe = CoverageMonitor(
+		spec=CoverageSpec(seed=1, input_dim=4),
+		encoder_identity={"model": "fake"},
+		serialization="gateway_turn",
+		domain="text",
+		looks=(1, 2),
+	)
+	with pytest.raises(ValueError, match="coverage serialization"):
+		_campaign_app(
+			artifacts,
+			tmp_path,
+			mode="observe",
+			config={"coverage": CoverageConfig(monitor=recipe).model_dump(mode="json")},
+		)

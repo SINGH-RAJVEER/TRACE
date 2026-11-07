@@ -208,7 +208,7 @@ def cluster_evidence(
 			)
 		return {"signals": report, "coverage": coverage, "calibrated_cluster_claim": False}
 
-	return analyze_clusters(
+	result = analyze_clusters(
 		principals,
 		organization_mapping=links.get("organizations", {}),
 		edges=[LinkEvidence(**edge) for edge in links.get("edges", [])],
@@ -217,3 +217,6 @@ def cluster_evidence(
 		centroids=shadow._centroids if shadow is not None else None,
 		score_cluster=score,
 	)
+	if "provenance" in links:
+		result["link_provenance"] = links["provenance"]
+	return result

@@ -20,12 +20,18 @@ from distillation.adaptive import CoverageSelector, UncertaintyHook
 from distillation.benchmarks.models import BenchmarkItem, save_json
 from distillation.benchmarks.scoring import evaluate_answer
 from distillation.campaign import (
+	CAMPAIGN_CONFIG_FILE,
+	DECISIONS_SNAPSHOT_FILE,
 	MAX_CONSECUTIVE_FAILURES,
 	AttemptFailed,
 	BudgetExhausted,
 	CampaignAllowance,
+	ExperimentBinding,
 	PolicyRefusal,
+	PolicyRestricted,
 	ProtectedTeacher,
+	policy_binding,
+	verify_experiment_binding,
 )
 from distillation.campaign_summary import summarize_campaign
 from distillation.collection import CollectionOptions, _collect_one
@@ -37,6 +43,90 @@ from distillation.schemas import GatewayRequest, LedgerRecord, Message, TokenUsa
 
 def digest(path: Path) -> str:
 	return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _attributed_policy_events(
+	log: bytes, events: list[dict[str, Any]], contract_hash: str
+) -> list[dict[str, Any]]:
+	"""Join decision log rows to submissions, keeping root and submission identity separate.
+
+	The API logs the shared root ID only, so a row is placed by what it records: an ordinary
+	decision or an admission throttle belongs to the root's query, a proof-stage throttle to its
+	proof. One row for one submission joins. Anything else leaves the submission unattributed
+	and is recorded as ambiguous, which the summary reports and the exporter refuses.
+	"""
+	submissions: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+	for event in events:
+		if event["event"] == "attempt":
+			submissions[event["policy_request_id"], event["kind"]].append(event)
+	roots = {root for root, _ in submissions}
+	rows: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+	for line in log.splitlines():
+		try:
+			row = json.loads(line) if line.strip() else None
+		except ValueError:
+			continue  # policy_binding reports unparsable rows.
+		if not isinstance(row, dict) or row.get("benchmark_request") not in roots:
+			continue
+		if row.get("event") == "decision":
+			rows[row["benchmark_request"], "query"].append(row)
+		elif row.get("event") == "campaign_throttle":
+			kind = "proof" if row.get("stage") == "proof" else "query"
+			rows[row["benchmark_request"], kind].append(row)
+	merged: list[dict[str, Any]] = []
+	for (root, kind), found in rows.items():
+		targets = submissions.get((root, kind), [])
+		if len(found) != 1 or len(targets) != 1:
+			anchor = (targets or submissions[root, "query"] or [{}])[0]
+			merged.append(
+				{
+					"event": "attribution_ambiguous",
+					"policy_request_id": root,
+					"kind": kind,
+					"rows": len(found),
+					"submissions": len(targets),
+					"contract": contract_hash,
+					**{k: anchor[k] for k in ("account", "domain") if k in anchor},
+				}
+			)
+			continue
+		row, attempt = found[0], targets[0]
+		shared = {
+			**attempt,
+			"root_id": root,
+			"submission_id": attempt["id"],
+			"policy_revision": row.get("policy_revision"),
+			"server_time": row.get("time"),
+			"campaign": row.get("campaign"),
+		}
+		if row["event"] == "decision":
+			# An early entitlement refusal logs level 4 without running the detector.
+			entitlement = row.get("entitlement")
+			synthetic = entitlement is not None and row.get("attempt") is None
+			merged.append(
+				{
+					**shared,
+					"event": "policy",
+					"level": None if synthetic else row.get("level"),
+					"action": None if synthetic else row.get("action"),
+					"logged_level": row.get("level"),
+					"logged_action": row.get("action"),
+					"reason": row.get("reason"),
+					"entitlement": entitlement,
+					"campaign_override": row.get("campaign_override"),
+				}
+			)
+		else:
+			merged.append(
+				{
+					**shared,
+					"event": "campaign_throttle",
+					"stage": row.get("stage"),
+					"throttle_until": row.get("throttle_until"),
+					"qualified": row.get("qualified"),
+				}
+			)
+	return merged
 
 
 async def collect_gateway(
@@ -63,6 +153,7 @@ async def collect_gateway(
 	confidence_scorer: Callable[[LedgerRecord], float] | None = None,
 	confidence_scorer_id: str | None = None,
 	confidence_threshold: float | None = None,
+	experiment: ExperimentBinding | None = None,
 ) -> dict[str, Any]:
 	"""One in-flight request per account; HTTP failures and proofs spend the global budget.
 
@@ -70,7 +161,13 @@ async def collect_gateway(
 	with fresh policy state or replenish its spent allowance in the same output directory.
 	A protected arm passes its detectability gate record, which binds the contract and is
 	saved beside it; unprotected arms keep their earlier contracts.
+
+	`experiment` opts into a v3 contract: it binds the campaign configuration, base policy and
+	retry-after strategy, attributes 429s as policy restrictions and keeps the decision log's
+	campaign evidence. Without it, contracts, events and failure handling are unchanged.
 	"""
+	if experiment is not None and decision_log is None:
+		raise ValueError("an experiment binding needs the decision log")
 	if not 0 <= alternative_share <= 1 or bool(alternative_url) != bool(alternative_share):
 		raise ValueError("alternative teacher URL and positive share must be supplied together")
 	if bool(confidence_scorer) != bool(confidence_scorer_id) or bool(confidence_scorer) != (
@@ -116,7 +213,7 @@ async def collect_gateway(
 		raise ValueError("gateway extraction requires training prompts")
 	if any(r.account not in keys and "default" not in keys for r in rows):
 		raise ValueError("missing account credentials")
-	contract = {
+	contract: dict[str, Any] = {
 		"version": "gateway-execution-v2",
 		"horizon_policy": HORIZON_POLICY,
 		"solver": {
@@ -158,6 +255,9 @@ async def collect_gateway(
 		}
 	if detectability is not None:
 		contract["detectability"] = contract_record(detectability)
+	if experiment is not None:
+		contract["version"] = "gateway-execution-v3"
+		contract["experiment"] = experiment.record()
 	contract_hash = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
 	summary_path = output / "campaign.json"
 	ledger, events_path = output / "ledger.jsonl", output / "campaign.events.jsonl"
@@ -167,6 +267,8 @@ async def collect_gateway(
 			raise ValueError("gateway campaign changed; use a new run directory")
 		if summary["sha256"] != {"ledger": digest(ledger), "events": digest(events_path)}:
 			raise ValueError("completed gateway campaign artifacts changed")
+		if experiment is not None:
+			verify_experiment_binding(output, contract, summary)
 		return dict(summary)
 	if await AsyncPath(output).exists() and any(
 		[item async for item in AsyncPath(output).iterdir()]
@@ -176,6 +278,8 @@ async def collect_gateway(
 	save_json(output / "contract.json", contract)
 	if detectability is not None:
 		save_json(output / "detectability.json", detectability)
+	if experiment is not None and experiment.campaign_config is not None:
+		(output / CAMPAIGN_CONFIG_FILE).write_bytes(experiment.campaign_config.read_bytes())
 	ledger.touch()
 	events_path.touch()
 	allowance = CampaignAllowance(attempt_budget, exhausted=asyncio.Event())
@@ -195,6 +299,55 @@ async def collect_gateway(
 	terminations: dict[str, str] = {}
 	failures: dict[str, int] = defaultdict(int)
 	teachers: dict[tuple[str, str], ProtectedTeacher] = {}
+
+	async def submit(row: GatewayRequest, teacher: ProtectedTeacher) -> LedgerRecord:
+		"""One prompt; only an attributed restriction, under wait_and_retry, submits it again."""
+		retries = 0
+		while True:
+			try:
+				async with semaphore:
+					return await _collect_one(
+						row.prompt,
+						teacher,
+						replace(options, max_attempts=1, max_output_tokens=row.max_output_tokens),
+						output / "attempts.jsonl",
+						lambda: None,
+					)
+			except PolicyRestricted as restricted:
+				assert experiment is not None
+				retry_after = restricted.restriction["retry_after_seconds"]
+				cause = restricted.restriction["cause"]
+				reason = (
+					"strategy"
+					if experiment.restriction_strategy == "give_up"
+					else "retry_after_unavailable"
+					if retry_after is None
+					else "retries_exhausted"
+					if retries >= experiment.max_retries_per_prompt
+					else None
+				)
+				if reason is not None:
+					teacher.record_restriction_event(
+						"restriction_give_up",
+						reason=reason,
+						retries=retries,
+						cause=cause,
+					)
+					raise
+			assert allowance.exhausted is not None
+			begun = time.monotonic()
+			with suppress(TimeoutError):
+				await asyncio.wait_for(
+					allowance.exhausted.wait(),
+					timeout=min(retry_after, max(0, teacher.remaining())),
+				)
+			teacher.record_restriction_event(
+				"restriction_wait",
+				seconds=time.monotonic() - begun,
+				requested_seconds=retry_after,
+				cause=cause,
+			)
+			retries += 1
 
 	async def worker(account: str, requests: list[GatewayRequest]) -> None:
 		consecutive = failures[account]
@@ -219,6 +372,7 @@ async def collect_gateway(
 				)
 				teachers[teacher_key] = teacher
 				clients.append(teacher)
+				teacher.attribute_restrictions = experiment is not None
 				teacher.account_limit = account_limit
 				teacher.account = account
 				teacher.events, teacher.event_path = events, events_path
@@ -240,16 +394,7 @@ async def collect_gateway(
 			teacher.scheduled_id = row.request_id
 			for _attempt in range(selective_retries + 1):
 				try:
-					async with semaphore:
-						record = await _collect_one(
-							row.prompt,
-							teacher,
-							replace(
-								options, max_attempts=1, max_output_tokens=row.max_output_tokens
-							),
-							output / "attempts.jsonl",
-							lambda: None,
-						)
+					record = await submit(row, teacher)
 				except BudgetExhausted:
 					terminations[account] = (
 						"deadline"
@@ -259,7 +404,7 @@ async def collect_gateway(
 						else "attempt_budget"
 					)
 					break
-				except PolicyRefusal:
+				except PolicyRefusal, PolicyRestricted:
 					consecutive = 0
 					break
 				except AttemptFailed:
@@ -432,7 +577,22 @@ async def collect_gateway(
 			await asyncio.gather(*(client.close() for client in clients))
 		finally:
 			await solver.close()
-	if decision_log:
+	binding = None
+	if experiment is not None:
+		assert decision_log is not None
+		# The run has spent its budget: a missing or conflicting log is recorded, never raised
+		# here, so the artifacts stay a completed campaign that export can inspect and refuse.
+		try:
+			log = await AsyncPath(decision_log).read_bytes()
+		except OSError:
+			log = b""
+		await AsyncPath(output / DECISIONS_SNAPSHOT_FILE).write_bytes(log)
+		binding = policy_binding(log, contract["experiment"]["campaign"])
+		merged = _attributed_policy_events(log, events, contract_hash)
+		with events_path.open("a") as stream:
+			stream.writelines(json.dumps(event) + "\n" for event in merged)
+		events.extend(merged)
+	elif decision_log:
 		attempts = {e["policy_request_id"]: e for e in events if e["event"] == "attempt"}
 		for line in (await AsyncPath(decision_log).read_text()).splitlines():
 			decision = json.loads(line)
@@ -471,6 +631,8 @@ async def collect_gateway(
 		"challenge_seconds": sum(c.challenge_seconds for c in clients),
 		"sha256": {"ledger": digest(ledger), "events": digest(events_path)},
 	}
+	if binding is not None:
+		summary["policy_binding"] = binding
 	if detectability is not None:
 		summary["reading"] = detectability["reading"]
 		summary["allow_undetected"] = detectability["allow_undetected"]

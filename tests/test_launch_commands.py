@@ -193,3 +193,60 @@ def test_study_and_baseline_help_are_offline() -> None:
 			["bash", str(ROOT / "scripts" / script), "--help"], capture_output=True, text=True
 		)
 		assert result.returncode == 0 and "Usage:" in result.stdout
+
+
+def _study_refusal(tmp_path: Path, **settings: str) -> subprocess.CompletedProcess[str]:
+	"""Run only the declaration checks: a stub uv ensures nothing real could start after them."""
+	stubs = tmp_path / "stubs"
+	stubs.mkdir(exist_ok=True)
+	stub = stubs / "uv"
+	stub.write_text("#!/bin/sh\nexit 99\n")
+	stub.chmod(0o755)
+	environment = {
+		key: value
+		for key, value in os.environ.items()
+		if not key.startswith(("HARNESS_", "CAMPAIGN_"))
+	}
+	return subprocess.run(
+		["bash", str(ROOT / "scripts" / "study.sh"), "refused"],
+		env=environment
+		| {
+			"PATH": f"{stubs}:{os.environ['PATH']}",
+			"RUN_ROOT": str(tmp_path / "runs"),
+			"EXPORT": "0",
+			**settings,
+		},
+		capture_output=True,
+		text=True,
+		timeout=60,
+	)
+
+
+def test_study_campaign_arms_refuse_missing_declarations(tmp_path: Path) -> None:
+	config = tmp_path / "campaign.json"
+	config.write_text("{}")
+	for settings, message in (
+		({"ARMS": "campaign-observe"}, "declared campaign config"),
+		({"ARMS": "campaign-observe", "CAMPAIGN_OBSERVE_CONFIG": str(config)}, "STRATEGY"),
+		(
+			{
+				"ARMS": "campaign-observe",
+				"CAMPAIGN_OBSERVE_CONFIG": str(config),
+				"CAMPAIGN_RESTRICTION_STRATEGY": "wait_and_retry",
+			},
+			"positive CAMPAIGN_RESTRICTION_RETRIES",
+		),
+		(
+			{
+				"ARMS": "campaign-throttle",
+				"CAMPAIGN_THROTTLE_CONFIG": str(config),
+				"CAMPAIGN_RESTRICTION_STRATEGY": "give_up",
+			},
+			"HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT",
+		),
+	):
+		result = _study_refusal(tmp_path, **settings)
+		assert result.returncode == 2, result.stdout + result.stderr
+		assert message in result.stdout + result.stderr
+		# Refused before provenance and setup, so no later step ran.
+		assert not list((tmp_path / "runs" / "refused" / "provenance").iterdir())

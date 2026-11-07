@@ -93,6 +93,12 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
 
 from harness_api.batching import EncoderBatcher
+from harness_api.output_policy import (
+	RECEIPT_HEADER,
+	OutputAttempt,
+	ProviderCall,
+	apply_policy,
+)
 from harness_api.settings import Settings
 
 
@@ -258,6 +264,9 @@ def _policy_fields(
 			"config_sha256": campaign.digest,
 			"unqualified_enforcement": settings.campaign_allow_unqualified_enforcement,
 		}
+	# Likewise omitted when unset, so the default revision and state scope do not change.
+	if settings.output_policy is not None:
+		fields["output_policy"] = settings.output_policy.binding()
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
 	return fields
 
@@ -347,19 +356,30 @@ def create_app(
 	campaign = (
 		load_campaign_config(config.campaign_config) if config.campaign_config is not None else None
 	)
-	campaign_needs_embeddings = (
-		campaign is not None
-		and campaign.session is not None
-		and campaign.session.encoder_identity is not None
+	campaign_needs_embeddings = campaign is not None and (
+		campaign.coverage is not None
+		or (campaign.session is not None and campaign.session.encoder_identity is not None)
 	)
 	if campaign_needs_embeddings:
 		if encoder is None:
 			from harness.encoder import BGEEncoder
 
 			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
-		assert campaign is not None and campaign.session is not None
-		if encoder_contract(encoder.identity()) != campaign.session.encoder_identity:
+		assert campaign is not None
+		identities = []
+		if campaign.session is not None and campaign.session.encoder_identity is not None:
+			identities.append(campaign.session.encoder_identity)
+		if campaign.coverage is not None:
+			identities.append(campaign.coverage.monitor.encoder_identity)
+		if any(encoder_contract(encoder.identity()) != identity for identity in identities):
 			raise ValueError("campaign encoder representation differs from configured identity")
+	if (
+		campaign is not None
+		and campaign.coverage is not None
+		and campaign.coverage.monitor.serialization
+		!= ("gateway_turn" if config.task == "gateway" else "raw_turn")
+	):
+		raise ValueError("coverage serialization differs from the served task's encoder input")
 	if (
 		campaign is not None
 		and campaign.mode == "throttle"
@@ -385,6 +405,9 @@ def create_app(
 		if "campaign_throttled" in config.review_verify_codes:
 			raise ValueError("campaign throttling cannot be converted to verification")
 		store.bind_campaign(campaign.digest)
+	output_policy = config.output_policy
+	if output_policy is not None:
+		store.enable_output_receipts()
 	# Binds every logged event to the exact policy and calibration behind it.
 	policy_revision = hashlib.sha256(
 		canonical_json(_policy_fields(config, calibration, path, campaign)).encode()
@@ -400,6 +423,11 @@ def create_app(
 		if path is not None
 		else {}
 	)
+	# Present only with an output policy, so other decision logs keep their schema.
+	event_fields = {
+		**path_fields,
+		**(output_policy.event_fields() if output_policy is not None else {}),
+	}
 	rolling = (
 		RollingBudget(
 			config.rolling_window_seconds,
@@ -1100,11 +1128,16 @@ def create_app(
 			inflight[release_id] = decision.account
 		# The release accounting middleware clears the in-flight entry after the response.
 		http_request.state.release_id = release_id
+		attempt = (
+			OutputAttempt(output_policy, reservation.domain) if output_policy is not None else None
+		)
 		status: Settlement = "failed"
 		tokens: int | None = None
 		response: JSONResponse | None = None
 		try:
-			response, tokens = await produce(decision, request, text, binding, benchmark_request)
+			response, tokens = await produce(
+				decision, request, text, binding, benchmark_request, attempt
+			)
 			if response.status_code == 200:
 				if (
 					config.output_token_budget is not None
@@ -1149,6 +1182,12 @@ def create_app(
 							),
 						)
 					)
+				if attempt is not None:
+					# Settled with the reservation, so the two ledgers cannot disagree.
+					attempt.settle(status)
+					tx.put_output_receipt(
+						reservation.key, decision.account, settled_at, attempt.receipt()
+					)
 			log.write(
 				"release",
 				time=settled_at,
@@ -1165,6 +1204,7 @@ def create_app(
 				deceive=decision.deceive,
 				policy_revision=policy_revision,
 				**path_fields,
+				**({"output_policy": attempt.receipt()} if attempt is not None else {}),
 				request_digest=reservation.request_digest,
 				benchmark_request=benchmark_request,
 			)
@@ -1180,6 +1220,7 @@ def create_app(
 		text: str,
 		binding: str,
 		benchmark_request: str | None,
+		attempt: OutputAttempt | None = None,
 	) -> tuple[JSONResponse, int | None]:
 		"""The response, and the output tokens it releases by the server's own count: the
 		victim tokenizer's when configured, else the teacher's usage for a truthful answer."""
@@ -1198,6 +1239,12 @@ def create_app(
 				request_digest=hashlib.sha256(binding.encode()).hexdigest(),
 				benchmark_request=benchmark_request,
 			)
+		if attempt is not None:
+			# Settings refuse deception with an output policy, so this is always a real draft.
+			assert content is None
+			attempt.calls["draft"] = ProviderCall(
+				"interrupted", max_output_tokens=request.max_output_tokens
+			)
 		try:
 			if content is not None and template:
 				# Noise needs no teacher call; wait like a real call so timing gives nothing away.
@@ -1211,7 +1258,15 @@ def create_app(
 			failed = _error(
 				502, "teacher_upstream_error", str(error), headers["X-Harness-Decision"]
 			)
+			if attempt is not None:
+				attempt.calls["draft"] = ProviderCall(
+					"error",
+					max_output_tokens=request.max_output_tokens,
+					error=type(error).__name__,
+				)
 			return failed, None
+		if attempt is not None:
+			return await release_under_policy(attempt, request, generation, headers)
 		tokens = generation.usage.output_tokens if content is None else None
 		if content is not None:
 			generation.message = Message(role="assistant", content=content)
@@ -1223,6 +1278,44 @@ def create_app(
 		if config.l4_action == "deceive":
 			generation.usage = TokenUsage(output_tokens=tokens if token_counter else None)
 		return JSONResponse(generation.model_dump(mode="json"), headers=headers), tokens
+
+	async def release_under_policy(
+		attempt: OutputAttempt,
+		request: TeacherGenerationRequest,
+		draft: TeacherGeneration,
+		headers: dict[str, str],
+	) -> tuple[JSONResponse, int | None]:
+		"""Replace the draft before any response exists. No store transaction is open here.
+
+		Everything client-visible is rebuilt from the released text: the draft's finish reason
+		and output count would reveal its truncation and length. Any failure after the draft
+		exists withholds; an unexpected error is logged by type only.
+		"""
+		assert token_counter is not None
+		try:
+			released = await apply_policy(attempt, request, draft, upstream.generate, token_counter)
+		except Exception as error:
+			attempt.failure = f"internal_error:{type(error).__name__}"
+			released = None
+		if released is None:
+			attempt.withhold("internal_error")
+			withheld = _error(
+				502,
+				"output_withheld",
+				"the response could not be released under the configured output policy",
+				headers["X-Harness-Decision"],
+			)
+			withheld.headers[RECEIPT_HEADER] = attempt.receipt_header()
+			return withheld, None
+		if attempt.protected:
+			draft.finish_reason = "stop"
+		draft.message = Message(role="assistant", content=released)
+		draft.usage = TokenUsage(
+			input_tokens=None if config.l4_action == "deceive" else draft.usage.input_tokens,
+			output_tokens=attempt.released_tokens,
+		)
+		headers[RECEIPT_HEADER] = attempt.receipt_header()
+		return JSONResponse(draft.model_dump(mode="json"), headers=headers), attempt.released_tokens
 
 	class ReviewDecision(BaseModel):
 		action: str
@@ -1319,6 +1412,28 @@ def create_app(
 			{"request": request.model_dump(mode="json"), "detector_turn": text}
 		)
 		digest = hashlib.sha256(binding.encode()).hexdigest()
+		if (
+			output_policy is not None
+			and output_policy.unsupported_task == "refuse"
+			and (x_gateway_domain if served_task == "gateway" else served_task)
+			not in output_policy.tasks
+		):
+			# Nothing was admitted or generated, so nothing is charged or observed.
+			log.write(
+				"output_policy_refusal",
+				time=now,
+				account=account,
+				policy_revision=policy_revision,
+				**output_policy.event_fields(),
+				request_digest=digest,
+				benchmark_request=x_benchmark_request,
+			)
+			return _error(
+				422,
+				"output_policy_unsupported_task",
+				"the configured output policy does not cover this task",
+				None,
+			)
 		with store.transaction() as tx:
 			prior = previous(
 				tx, account, idempotency_key, digest, proof=x_harness_proof is not None, now=now
@@ -1461,7 +1576,7 @@ def create_app(
 				action="refuse",
 				reason=None,
 				policy_revision=policy_revision,
-				**path_fields,
+				**event_fields,
 				deceive=False,
 				window_completed=False,
 				p_value=None,
@@ -1513,7 +1628,7 @@ def create_app(
 			except Exception:
 				log.write("encoder_error", account=account, request_digest=digest)
 				return _error(503, "encoder_error", "encoder failed", None)
-		if campaign is not None and campaign.session is None:
+		if campaign is not None and campaign.session is None and campaign.coverage is None:
 			# Preserve v2 telemetry when the experimental extension is disabled.
 			campaign_embedding = embedding
 		if shadow is not None and embedding is None and encoder is not None:
@@ -1591,7 +1706,7 @@ def create_app(
 							action="refuse",
 							reason=None,
 							policy_revision=policy_revision,
-							**path_fields,
+							**event_fields,
 							deceive=False,
 							window_completed=False,
 							p_value=None,
@@ -1801,7 +1916,7 @@ def create_app(
 			action=decision.action,
 			reason=decision.reason,
 			policy_revision=policy_revision,
-			**path_fields,
+			**event_fields,
 			deceive=decision.deceive,
 			window_completed=decision.window_completed,
 			p_value=decision.p_value,

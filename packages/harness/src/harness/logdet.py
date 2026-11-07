@@ -80,6 +80,8 @@ class CoverageSpec(BaseModel):
 		if not np.all(np.isfinite(x)):
 			raise ValueError("embeddings must be finite")
 		norms = np.linalg.norm(x, axis=1, keepdims=True)
+		if not np.all(np.isfinite(norms)):
+			raise ValueError("embedding norm overflow")
 		y = (x / np.where(norms > 0, norms, 1.0)) @ self.matrix().T
 		return y / np.maximum(1.0, np.linalg.norm(y, axis=1, keepdims=True))
 
@@ -115,6 +117,47 @@ class LogDetCoverage:
 		if np.linalg.norm(vec) > 1 + 1e-9:
 			raise ValueError("v must have norm at most one")
 		u = self._inverse @ vec
-		quad = max(0.0, float(vec @ u))
+		quadratic = float(vec @ u)
+		if not math.isfinite(quadratic) or quadratic < -1e-10:
+			raise ValueError("invalid coverage quadratic form")
+		quad = max(0.0, quadratic)
 		self._inverse -= np.outer(u, u) / (1.0 + quad)
 		return math.log1p(quad)
+
+	def snapshot(self) -> dict[str, object]:
+		"""Export fixed-size state without retaining request embeddings."""
+		return {
+			"version": "coverage-inverse-v1",
+			"dim": self.dim,
+			"ridge": self.ridge,
+			"inverse": self._inverse.tolist(),
+		}
+
+	@classmethod
+	def restore(cls, state: dict[str, object], *, trusted: bool = False) -> Self:
+		"""Restore an inverse. External snapshots receive a full positive-definiteness check.
+
+		`trusted` is only for snapshots produced by this tracker in the admission store;
+		it checks shape, finiteness, symmetry and diagonal bounds in O(dim^2).
+		"""
+		if state.get("version") != "coverage-inverse-v1":
+			raise ValueError("unsupported coverage state version")
+		dim, ridge = state.get("dim"), state.get("ridge")
+		if isinstance(dim, bool) or not isinstance(dim, int):
+			raise ValueError("invalid coverage dimension")
+		if isinstance(ridge, bool) or not isinstance(ridge, int | float):
+			raise ValueError("invalid coverage ridge")
+		tracker = cls(dim, float(ridge))
+		inverse = np.asarray(state.get("inverse"), dtype=np.float64)
+		if inverse.shape != (dim, dim) or not np.all(np.isfinite(inverse)):
+			raise ValueError("invalid coverage inverse")
+		if not np.array_equal(inverse, inverse.T):
+			raise ValueError("coverage inverse must be symmetric")
+		if not trusted:
+			values = np.linalg.eigvalsh(inverse)
+			if values[0] <= 0 or values[-1] > (1 / ridge) * (1 + 1e-9):
+				raise ValueError("coverage inverse outside positive ridge bounds")
+		elif np.any(np.diag(inverse) <= 0) or np.any(np.diag(inverse) > (1 / ridge) * (1 + 1e-9)):
+			raise ValueError("coverage inverse outside positive ridge bounds")
+		tracker._inverse = inverse.copy()
+		return tracker

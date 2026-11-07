@@ -969,9 +969,11 @@ def test_cluster_evidence_reports_pooled_scores_without_policy_changes(
 		null,
 		{
 			"organizations": {"cluster-one": "org", "cluster-two": "org"},
+			"provenance": {"fixture": "offline-link-input"},
 			"benign_truth": {"cluster-one": "one", "cluster-two": "two"},
 		},
 	)
+	assert report["link_provenance"] == {"fixture": "offline-link-input"}
 	assert report["enforcement"] is False
 	assert report["benign_link_errors"]["false_merges"] == 1
 	cluster = report["clusters"][0]

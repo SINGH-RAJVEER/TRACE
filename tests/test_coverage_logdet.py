@@ -146,3 +146,29 @@ def test_evidence_round_trip_and_paired_band_comparison() -> None:
 		"coverage_mean_logdet" not in u["signals"]["metrics"]
 		for u in check_evidence(heldout, vectors[:7], calibration, legacy)["units"]
 	)
+
+
+def test_incremental_snapshot_replay() -> None:
+	"""A serialized inverse reproduces uninterrupted gains without prefix storage."""
+	import json
+
+	from harness.logdet import LogDetCoverage
+
+	tracker = LogDetCoverage(dim=3)
+	tracker.update(np.array([1.0, 0.0, 0.0]))
+	state = json.loads(json.dumps(tracker.snapshot(), allow_nan=False))
+	restored = LogDetCoverage.restore(state)
+	for vector in np.eye(3):
+		assert restored.update(vector) == tracker.update(vector)
+	inverse = restored.snapshot()["inverse"]
+	assert isinstance(inverse, list)
+	assert len(inverse) == 3
+
+
+def test_incremental_snapshot_rejects_corruption() -> None:
+	from harness.logdet import LogDetCoverage
+
+	state = LogDetCoverage(dim=2).snapshot()
+	state["inverse"] = [[1.0, 2.0], [2.0, 1.0]]
+	with pytest.raises(ValueError, match="positive ridge"):
+		LogDetCoverage.restore(state)

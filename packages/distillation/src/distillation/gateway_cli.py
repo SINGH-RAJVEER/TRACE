@@ -437,6 +437,24 @@ def collect_command(
 		bool,
 		typer.Option(help="Run an undetected mmd arm anyway, recorded as a quota comparison."),
 	] = False,
+	restriction_strategy: Annotated[
+		str | None,
+		typer.Option(
+			help="Opt into attributed 429 restrictions and a v3 contract: give_up or "
+			"wait_and_retry. Rejected submissions and waits are charged to the attacker."
+		),
+	] = None,
+	restriction_retries: Annotated[
+		int,
+		typer.Option(min=0, help="Per-prompt resubmissions allowed under wait_and_retry."),
+	] = 0,
+	campaign_config: Annotated[
+		Path | None,
+		typer.Option(dir_okay=False, help="The campaign configuration the gateway serves."),
+	] = None,
+	campaign_mode: Annotated[
+		str | None, typer.Option(help="The mode that configuration must declare.")
+	] = None,
 ) -> None:
 	"""Execute a schedule or A8 online rounds with one global HTTP budget and response ledger.
 
@@ -446,6 +464,7 @@ def collect_command(
 	"""
 	import asyncio
 
+	from distillation.campaign import ExperimentBinding
 	from distillation.collection import CollectionOptions
 	from distillation.detectability_gate import (
 		DEFAULT_ACCUMULATORS,
@@ -460,6 +479,19 @@ def collect_command(
 			raise ValueError("alternative teacher mixing requires --policy none")
 		if policy not in {"mmd", "path", "quota", "quota_tokens", "rate", "allow", "none"}:
 			raise ValueError("policy must be mmd, path, quota, quota_tokens, rate, allow, or none")
+		experiment = None
+		if restriction_strategy is not None:
+			experiment = ExperimentBinding(
+				base_policy=policy,
+				restriction_strategy=restriction_strategy,
+				max_retries_per_prompt=restriction_retries,
+				campaign_config=campaign_config,
+				campaign_mode=campaign_mode,
+			)
+			# Refuse a bad declaration before the schedule or the gateway is touched.
+			experiment.record()
+		elif campaign_config or campaign_mode or restriction_retries:
+			raise ValueError("campaign binding options need --restriction-strategy")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
 		schedule = input_dir / "requests.jsonl"
 		if digest(schedule) != manifest["sha256"][schedule.name]:
@@ -524,6 +556,7 @@ def collect_command(
 				confidence_scorer=scorer,
 				confidence_scorer_id=confidence_scorer,
 				confidence_threshold=confidence_threshold,
+				experiment=experiment,
 			)
 		)
 		from distillation.campaign_timing import campaign_timing
@@ -535,6 +568,10 @@ def collect_command(
 			campaign_timing(output, schedule=None if online_timing else schedule),
 		)
 		typer.echo(json.dumps(result, indent="\t"))
+		binding = result.get("policy_binding")
+		if binding is not None and binding["status"] != "bound":
+			typer.echo(f"policy binding is {binding['status']}: {binding['problems']}", err=True)
+			raise typer.Exit(code=1)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None
 

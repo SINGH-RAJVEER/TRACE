@@ -64,7 +64,9 @@ def campaign_timing(
 
 	def level(attempt: dict[str, Any]) -> int | None:
 		decision = policy.get(attempt["policy_request_id"])
-		return None if decision is None else int(decision["level"])
+		# A row can lack a detector level: an entitlement refusal never ran the detector.
+		value = None if decision is None else decision.get("level")
+		return None if value is None else int(value)
 
 	accounts: dict[str, Any] = {}
 	grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

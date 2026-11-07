@@ -14,6 +14,12 @@ and `Q` every received response.
 Unknown values stay None. Admission and cancellation are not in the event log. Released tokens
 are None when any received response lacks usage; the known subtotal and the unknown count are
 reported beside them.
+
+A campaign collected with attribution uses `campaign-summary-v2`, which adds `restricted`
+outcomes, their causes and waits, and a `campaign` block. Detector levels stay detector levels:
+an entitlement refusal logged as level 4 without a detector decision has no level here, and a
+campaign alert moves `first_alert_seconds` but never reaches L1. Event logs without attribution
+keep the v1 summary exactly.
 """
 
 import json
@@ -22,6 +28,17 @@ from pathlib import Path
 from typing import Any
 
 SUMMARY_VERSION = "campaign-summary-v1"
+ATTRIBUTED_SUMMARY_VERSION = "campaign-summary-v2"
+ATTRIBUTED_FIELDS = (
+	"restricted",
+	"restrictions_by_kind",
+	"restrictions_by_cause",
+	"restriction_wait_seconds",
+	"restriction_give_ups",
+	"first_entitlement_restriction_seconds",
+	"campaign",
+	"ambiguous_policy_rows",
+)
 LEVELS = (1, 2, 3, 4)
 OUTCOMES = ("received", "blocked", "challenge", "failed", "deadline")
 
@@ -40,6 +57,10 @@ def summarize_campaign(events: list[dict[str, Any]]) -> dict[str, Any]:
 	def decision(attempt: dict[str, Any]) -> dict[str, Any]:
 		return decisions.get(attempt["policy_request_id"], {})
 
+	def level_of(attempt: dict[str, Any]) -> int:
+		level = decision(attempt).get("level")
+		return -1 if level is None else int(level)
+
 	def first(predicate: Any) -> float | None:
 		return next((float(a["at_seconds"]) for a in attempts if predicate(a)), None)
 
@@ -52,7 +73,7 @@ def summarize_campaign(events: list[dict[str, Any]]) -> dict[str, Any]:
 	)
 	levels: dict[str, Any] = {}
 	for level in LEVELS:
-		reach = next((a for a in attempts if decision(a).get("level", -1) >= level), None)
+		reach = next((a for a in attempts if level_of(a) >= level), None)
 		by_domain: dict[str, dict[str, int]] = defaultdict(
 			lambda: {"responses": 0, "tokens": 0, "unknown_tokens": 0}
 		)
@@ -77,7 +98,7 @@ def summarize_campaign(events: list[dict[str, Any]]) -> dict[str, Any]:
 			"domain": reach.get("domain") if reach else None,
 			"attribution_complete": attribution_complete,
 		}
-	return {
+	summary: dict[str, Any] = {
 		"summary_version": SUMMARY_VERSION,
 		"attempts": len(attempts),
 		"query_attempts": len(queries),
@@ -111,6 +132,102 @@ def summarize_campaign(events: list[dict[str, Any]]) -> dict[str, Any]:
 		"unattributed_queries": sum(a["policy_request_id"] not in decisions for a in queries),
 		"attribution_complete": attribution_complete,
 	}
+	if any(a.get("attribution") for a in attempts):
+		summary.update(_attributed(events, attempts, outcomes, decisions, summary))
+	return summary
+
+
+def _attributed(
+	events: list[dict[str, Any]],
+	attempts: list[dict[str, Any]],
+	outcomes: dict[str, dict[str, Any]],
+	decisions: dict[str, dict[str, Any]],
+	base: dict[str, Any],
+) -> dict[str, Any]:
+	"""The fields a collector with restriction attribution adds or refines."""
+	throttles = [e for e in events if e["event"] == "campaign_throttle"]
+	throttled = {e["id"]: e for e in throttles}
+	restricted = [a for a in attempts if outcomes.get(a["id"], {}).get("status") == "restricted"]
+	restriction = {a["id"]: outcomes[a["id"]]["restriction"] for a in restricted}
+
+	def first(predicate: Any) -> float | None:
+		return next((float(a["at_seconds"]) for a in attempts if predicate(a)), None)
+
+	def earliest(*values: float | None) -> float | None:
+		return min((v for v in values if v is not None), default=None)
+
+	def policy_row(attempt: dict[str, Any]) -> dict[str, Any]:
+		row = decisions.get(attempt["policy_request_id"], {})
+		return row if attempt["kind"] == "query" else {}
+
+	def campaign_alert(attempt: dict[str, Any]) -> bool:
+		evidence = policy_row(attempt).get("campaign")
+		if not isinstance(evidence, dict):
+			evidence = throttled.get(attempt["id"], {}).get("campaign")
+		return isinstance(evidence, dict) and evidence.get("status") == "alert"
+
+	def campaign_restriction(attempt: dict[str, Any]) -> bool:
+		return (
+			attempt["id"] in throttled
+			or restriction.get(attempt["id"], {}).get("kind") == "campaign"
+		)
+
+	def entitlement_restriction(attempt: dict[str, Any]) -> bool:
+		return (
+			restriction.get(attempt["id"], {}).get("kind") == "entitlement"
+			or policy_row(attempt).get("entitlement") is not None
+		)
+
+	def count(field: str) -> dict[str, int]:
+		counts: dict[str, int] = defaultdict(int)
+		for row in restriction.values():
+			counts[str(row.get(field))] += 1
+		return dict(sorted(counts.items()))
+
+	attributed_roots = decisions.keys() | {e["policy_request_id"] for e in throttles}
+	queries = [a for a in attempts if a["kind"] == "query"]
+	ambiguous = sum(e["event"] == "attribution_ambiguous" for e in events)
+	first_campaign_alert = first(campaign_alert)
+	first_campaign_restriction = first(campaign_restriction)
+	return {
+		"summary_version": ATTRIBUTED_SUMMARY_VERSION,
+		"restricted": len(restricted),
+		"restrictions_by_kind": count("kind"),
+		"restrictions_by_cause": count("cause"),
+		"restriction_wait_seconds": sum(
+			float(e["seconds"]) for e in events if e["event"] == "restriction_wait"
+		),
+		"restriction_give_ups": sum(e["event"] == "restriction_give_up" for e in events),
+		"first_alert_seconds": earliest(base["first_alert_seconds"], first_campaign_alert),
+		"first_restriction_seconds": earliest(
+			base["first_restriction_seconds"], first(lambda a: a["id"] in restriction)
+		),
+		"first_refusal_seconds": earliest(
+			base["first_refusal_seconds"],
+			first(lambda a: restriction.get(a["id"], {}).get("decision") == "block"),
+		),
+		"first_entitlement_restriction_seconds": first(entitlement_restriction),
+		"campaign": {
+			"first_alert_seconds": first_campaign_alert,
+			"first_restriction_seconds": first_campaign_restriction,
+			"alerts": sum(campaign_alert(a) for a in attempts),
+			"throttles": sum(campaign_restriction(a) for a in attempts),
+			"overrides": sum(e.get("campaign_override") is True for e in decisions.values()),
+		},
+		"ambiguous_policy_rows": ambiguous,
+		"restriction_coverage": "challenges, refusals and attributed 429 restrictions; "
+		"delayed serve is not recorded",
+		"unattributed_queries": sum(
+			a["policy_request_id"] not in attributed_roots for a in queries
+		),
+		"attribution_complete": not ambiguous
+		and bool(attributed_roots)
+		and all(
+			a["policy_request_id"] in attributed_roots
+			for a in queries
+			if outcomes.get(a["id"], {}).get("decision") is not None
+		),
+	}
 
 
 def read_events(path: Path) -> list[dict[str, Any]]:
@@ -133,9 +250,10 @@ def load_campaign_summary(directory: Path) -> dict[str, Any] | None:
 	if not path.is_file():
 		return None
 	stored = json.loads(path.read_text())
-	if stored.get("summary_version") == SUMMARY_VERSION:
+	if stored.get("summary_version") in (SUMMARY_VERSION, ATTRIBUTED_SUMMARY_VERSION):
+		extra = ATTRIBUTED_FIELDS if stored["summary_version"] != SUMMARY_VERSION else ()
 		return {
-			**{key: stored.get(key) for key in summarize_campaign([])},
+			**{key: stored.get(key) for key in (*summarize_campaign([]), *extra)},
 			"source": "campaign.json",
 		}
 	return _legacy(stored)

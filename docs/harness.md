@@ -57,6 +57,61 @@ Clients may send `Idempotency-Key`. A key is scoped to the principal and bound t
 
 For either quota or quota_tokens, `HARNESS_REQUEST_QUOTA=N` selects a measured development grid point; omitting it uses the calibration's request quota. The override enters the state scope only when set and requires a fresh state file. Other policies reject it. Declare the arm with `distill gateway collect --policy quota_tokens` against an already-configured server. The collector checks the reported policy and does not configure the endpoint. Query-only replay cannot enforce output reservations. Keep other budgets and review settings equal across comparison arms. [Quota matching](evaluation.md#utility-validity-and-measured-quota-matching) selects measured settings but does not execute the experiment or prove protection.
 
+## Opt-in output policy
+
+`HARNESS_OUTPUT_POLICY` holds a JSON object that replaces the teacher's draft before release. Unset is the default. With it unset, responses, policy revisions, state scopes, decision events and the state file's schema do not change.
+
+This has never run on a real teacher or student, so it establishes no suppression, and no TRACE effectiveness number exists. The published result that motivates it (Trace Rewriting, arXiv 2602.15143v2, E.3) came from another system. A correct released answer is still training data. An always-on policy changes the product for every client, including legitimate ones who want the reasoning.
+
+```json
+{
+	"version": "output-policy-v1",
+	"mode": "dense_locked",
+	"fallback": "withhold",
+	"tasks": ["gsm8k"],
+	"unsupported_task": "refuse",
+	"rewrite_max_output_tokens": 512,
+	"rewrite_timeout_seconds": 30,
+	"max_copied_fraction": 0.8
+}
+```
+
+`mode` is `final_answer_only`, `compact_verified`, `paraphrase` or `dense_locked`. The instruction text comes from `distillation.output_sets`, and the dense one is the verbatim Appendix A.2 instruction. `final_answer_only` releases `#### N` from the draft and makes no second call, so it takes no rewrite bounds. The other three require both bounds. All fields, plus the instruction's hash, enter the policy revision and the state scope, so a state file written under another policy is rejected.
+
+Startup rejects a malformed or unversioned config, a service whose task or gateway domains include no declared task, a missing `HARNESS_TOKENIZER_MODEL`, L4 deception with the legacy MMD policy, and a reservation lease shorter than the two timeouts when `HARNESS_IN_FLIGHT_LIMIT` is set. The launcher's `validate`, `serve` and `legacy` commands and `harness-api` all fail on these. A tokenizer is required because the server builds the released text, so no teacher usage count describes it. Deception is refused because noise looks like unmodified teacher output and would be told apart from rewritten responses.
+
+### What happens to a draft
+
+The gateway buffers the draft, so nothing reaches the client before these steps finish. It holds no SQLite write lock during either teacher call.
+
+1. A draft stopped by the length limit is withheld, because its last number may be cut short. So is a draft without exactly one `####` followed by one number, as the benchmark's numeric scorer reads it. No answer exists to fall back on, so these withhold under either fallback.
+2. The answer is extracted and locked. The same teacher receives the instruction and the explanation in one user message, without the answer line. The call uses temperature 0, disables thinking, and is capped at the smaller of `rewrite_max_output_tokens` and the client's `max_output_tokens`. `rewrite_timeout_seconds` bounds it.
+3. The gateway refuses a rewrite that timed out, raised, stopped at the length limit, contains `####`, or copies the draft. A copy means that at least `max_copied_fraction` of the rewrite's word 5-grams occur in the draft explanation, of the explanation's 5-grams occur in the rewrite, or of the explanation's words survive in order in the rewrite. Words ignore case and punctuation, so padding between words does not hide a copy. This is a heuristic with a development threshold. A partial copy below it, reordered single words, synonyms, translation and encodings all still pass, and a client can try to steer the teacher toward them through its prompt, so a release does not show the draft cannot be recovered. An explanation that is mostly numbers can be withheld because a faithful rewrite keeps those numbers in order. Otherwise the gateway appends `#### N`, then re-extracts the answer and checks that it equals the locked value and that the text is valid in the `####` format.
+4. Text longer than the client's `max_output_tokens` is refused by the server's tokenizer count, so a released response always fits its reservation.
+5. A refused rewrite goes to the declared `fallback`. `final_answer` releases `#### N`. `withhold` returns HTTP 502 with code `output_withheld`.
+
+These checks do not establish that the explanation reasons correctly or reaches the locked answer. A rewrite can state a different number in its prose and still pass. `compact_verified` and `paraphrase` lock the answer the same way. The cached study's rewriter callback receives the whole draft instead, so a gateway study and a cached arm are not the same prompt unless the adapter splits the draft.
+
+The draft stays in process memory. Rewrite errors may echo the prompt, so the service records only the error's type and never returns its message. The client's `usage` is rebuilt from the released text and `finish_reason` is set to `stop`, because the draft's values would reveal its length and truncation. Elapsed time still shows that a second call happened. An idempotent replay returns the stored released response, including a stored withheld response, and never calls the teacher again. A retry after a crash or cancellation gets the existing 409 pending.
+
+### Tasks outside the declared scope
+
+GSM8K's `####` numeric format is the only declared task. `unsupported_task` chooses what happens to other gateway domains. `refuse` returns 422 `output_policy_unsupported_task` before admission, with no teacher call and no charge, and logs an `output_policy_refusal` event. `pass_through` releases the draft unmodified with `protected: false` and outcome `out_of_scope_passthrough`. Pass-through is unprotected output.
+
+### Accounting
+
+Entitlements charge released tokens, by the server's tokenizer, on the existing reservation. Provider cost is a separate ledger and draws on no entitlement. Each receipt records status, input tokens, output tokens and the cap for the draft and rewrite calls. A timed-out or interrupted rewrite has unknown tokens, recorded as null, and upstream may have kept generating, so its cap is the only bound. A provider that omits its output count is recorded at the server's tokenizer count.
+
+A withheld response settles as `failed` and keeps its full reservation charge under the existing no-refund rule, even when the gateway's own rewrite failed. That is conservative for budgets and costs a legitimate client quota. Cancelled requests also keep the charge.
+
+### Receipts
+
+A `decision` event carries the policy's version, mode and digest. A `release` event, and a row in the `output_receipts` table written in the settlement transaction, carry the full receipt: version, mode, digest, domain, outcome, failure, fallback used, draft SHA-256, released SHA-256, released tokens, provider calls and `qualified: false`. Without `HARNESS_STATE_DB` the receipts live in process memory. The table exists only with a policy set. A reservation still outstanding with no receipt means a crash during generation.
+
+Clients get `X-Harness-Output-Receipt` with version, mode, outcome, protected, fallback, released hash, released tokens and `qualified: false`. The draft hash and provider counts stay out. The hash would confirm a guess at the draft, and the counts reveal its length. The operator's draft hash is plain SHA-256, so someone holding the log can test guesses at a draft.
+
+A later student study should train on the client's ledger text and check it against `released_sha256`. Withheld rows carry no text and still spent a query. The gateway collector does not yet record the receipt header.
+
 ## Encoder batching
 
 The default `HARNESS_ENCODER_BATCH_WAIT_MS=0` preserves per-request encoding. A positive value enables a bounded FIFO microbatch queue. Set `HARNESS_ENCODER_DEVICE=cuda` on a host with a verified CUDA device, `HARNESS_ENCODER_BATCH_SIZE` to the maximum batch size, and `HARNESS_ENCODER_QUEUE_CAPACITY` to the maximum number waiting. A full queue returns HTTP 503 before policy admission; encoder failures also return 503. Shutdown drains accepted batches. Cancellation removes a waiting request from its batch where possible. The model, revision, pooling, normalization and truncation contract remain unchanged. Batching can change request completion order and timing, so remeasure the deployed workload. A CPU setting or automatic CPU fallback is not GPU qualification.
@@ -133,6 +188,12 @@ Register operator-owned pinned public prompts with `harness corpus-index --sourc
 
 For clustering, pass `--links links.json` to `evidence-check`. The document accepts `organizations` mapping principal to organization, `edges` containing `left`, `right`, `source`, `strength` and optional `inferred`, optional `created_at` timestamps, `benign_truth` group labels, `infer` and `minimum_strength` defaulting to 0.8. Optional inferred edges disclose creation proximity, timing correlation and shared-template heuristics. Strengths are declared or heuristic, not identity probabilities. Connected components are an analysis hypothesis only. Reports retain all edge evidence and inclusion decisions, cluster complementarity, and pairwise false merge/split counts, denominators and rates when benign truth exists; absent truth yields unknown rates. Pooled cluster reports use the supplied analysis interval rather than automatically splitting it into policy horizons. No request-path graph is created.
 
+`harness link-accounts --requests REQUESTS.jsonl --output NEW_LINKS.json` adds a separate offline baseline. Feed its output to `evidence-check --links NEW_LINKS.json`. It reads BenignRequest JSONL, normalizes case/whitespace/numbers, hashes prompt templates and keeps at most 256 bottom-hash templates per account by default. It requires at least two shared rare templates and two shared absolute time bins, with template and timing Jaccard each at least 0.5. Time bins default to ten seconds. Templates present in more than half the supplied accounts are excluded by document frequency. Public prompts shared broadly cannot create a component, and a single shared public prompt or shared IP alone never creates an edge. Two uncommon shared public templates can still be indistinguishable from coordination; this heuristic does not establish malicious intent or ownership.
+
+The command rejects inputs beyond fixed account/request bounds instead of silently truncating the population. Defaults are 256 accounts and 512 requests per account; hard maxima are 1024 accounts, 4096 requests per account and 1024 sketch features. Prompts longer than 32768 characters are rejected. CLI options expose those bounds, `--max-df`, `--minimum-overlap`, `--minimum-coactivity` and `--time-bin-seconds`. Freeze the analysis interval and configuration before inspecting results. Missing times cannot supply timing corroboration. Output is deterministic under input reordering and includes an input digest, thresholds, bounds, common-template count and per-edge feature provenance. `evidence-check` retains that provenance when supplied. Strength is the minimum of the two Jaccards, not an identity probability.
+
+Generated `edges` always have `inferred: true`; `organizations` stays empty. Supply independently verified organization membership separately through the existing organization mapping. Mixed proxy accounts may dilute overlap and abstain, or may receive a tentative link if the mixture passes both thresholds. Neither result resolves identity truth. The baseline changes no level, action, response, budget or fusion weight. Spectral coordination, a fixed independent cluster null, identity validation, expiry/unlink lifecycle and measured false-merge/split performance remain open.
+
 Fusion uses a frozen five-family mixture with weight 0.2 each: volume request count, session revisit/follow-up rank, novelty rank, linkage and corpus-match content rank. Linkage remains neutral until a separate fixed cluster null exists. Missing families contribute e=1 without reallocating weights. Valid horizon p-values become e-values by `0.5 / sqrt(p)`, then receive a convex average, never a max or a product across correlated sensors. Validity requires superuniform family ranks under exchangeable same-profile benign horizons and fixed missingness by design/profile, or calibration of the full missingness rule. Arbitrary dependence among valid families is allowed. These assumptions are not certified by empirical ranks, synthetic data, adaptive graph selection or volume-dependent missingness. The result is shadow evidence, not a sequential e-process or a time-uniform guarantee. Freeze components, weights, missingness and thresholds on development data, then test once on locked data.
 
 ## Experimental coverage and whole-campaign stopping
@@ -163,3 +224,5 @@ The campaign is one principal's first H evaluated prompt admissions. Authenticat
 Feature preparation runs outside the database write lock and admission commits only against the same campaign revision, retrying stale preparation. The evaluated prefix follows committed admission order. Incoming requests are decided before teacher dispatch; previously admitted in-flight outputs may still be released after a stop. Decisions and releases identify path_stop separately from quotas, attempt caps and failures and carry qualified: false. No zero-overshoot or extraction-prevention claim follows from this implementation.
 
 The current path state retains all prefix embeddings and serializes them with admissions, and coverage recomputes over the prefix. Memory, storage and latency therefore grow with H. Keep this as a short-horizon experimental arm and profile it on the target host; large campaign budgets require compact incremental state and bounded cost before deployment. It has no independent benign audit or teacher/student effectiveness measurement. The standalone period_alpha and audit_upper_bound helpers do not implement operational period renewal; the latter uses a separate stable calculation and leaves legacy calibration values unchanged.
+
+The standalone `harness.logdet.LogDetCoverage` tracker can export and restore `coverage-inverse-v1` state without retaining embeddings. Replay preserves the inverse exactly through JSON float serialization. State size is quadratic in the fixed projection dimension; restore validates the matrix before use. The separate opt-in campaign coverage monitor now uses these snapshots for bounded finite-horizon state. It does not change the experimental path policy, its prefix storage or existing calibration artifacts. See [campaign coverage configuration and calibration](campaign.md#opt-in-finite-coverage-monitor-and-lifetime-record) for the domain/prefix-matched EWMA maximum, the `campaign-coverage-calibrate` CLI, missingness and cooldown persistence. This is a coverage proxy with unqualified development settings; CPU fixture checks establish no measured detection or student-learning result.
