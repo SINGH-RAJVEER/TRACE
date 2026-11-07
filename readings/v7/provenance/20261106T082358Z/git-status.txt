@@ -1,0 +1,83 @@
+ M devenv.nix
+ M docs/evaluation.md
+ M justfile
+ M readings/index.tsv
+ A readings/v7/README.md
+ A readings/v7/SHA256SUMS
+ A readings/v7/adequacy.json
+ A readings/v7/benign/benign_test/manifest.json
+ A readings/v7/benign/fitting/manifest.json
+ A readings/v7/benign/policy_calibration/manifest.json
+ A readings/v7/benign/score_calibration/manifest.json
+ A readings/v7/calibration/calibration.json
+ A readings/v7/campaigns/A1/full/accounts.json
+ A readings/v7/campaigns/A1/full/decisions.jsonl
+ A readings/v7/campaigns/A1/full/harness.env
+ A readings/v7/exit
+ A readings/v7/export.json
+ A readings/v7/provenance/20261105T174557Z/code.txt
+ A readings/v7/provenance/20261105T174557Z/config.env
+ A readings/v7/provenance/20261105T174557Z/environment.env
+ A readings/v7/provenance/20261105T174557Z/git-diff.patch
+ A readings/v7/provenance/20261105T174557Z/git-status.txt
+ A readings/v7/provenance/20261105T174557Z/hardware.txt
+ A readings/v7/provenance/20261105T174557Z/packages.txt
+ A readings/v7/provenance/20261105T174557Z/python.txt
+ A readings/v7/provenance/20261105T174557Z/uv.lock.sha256
+ A readings/v7/provenance/20261105T180807Z/code.txt
+ A readings/v7/provenance/20261105T180807Z/config.env
+ A readings/v7/provenance/20261105T180807Z/environment.env
+ A readings/v7/provenance/20261105T180807Z/git-diff.patch
+ A readings/v7/provenance/20261105T180807Z/git-status.txt
+ A readings/v7/provenance/20261105T180807Z/hardware.txt
+ A readings/v7/provenance/20261105T180807Z/packages.txt
+ A readings/v7/provenance/20261105T180807Z/python.txt
+ A readings/v7/provenance/20261105T180807Z/uv.lock.sha256
+ A readings/v7/provenance/20261105T192952Z/code.txt
+ A readings/v7/provenance/20261105T192952Z/config.env
+ A readings/v7/provenance/20261105T192952Z/environment.env
+ A readings/v7/provenance/20261105T192952Z/git-diff.patch
+ A readings/v7/provenance/20261105T192952Z/git-status.txt
+ A readings/v7/provenance/20261105T192952Z/hardware.txt
+ A readings/v7/provenance/20261105T192952Z/packages.txt
+ A readings/v7/provenance/20261105T192952Z/python.txt
+ A readings/v7/provenance/20261105T192952Z/uv.lock.sha256
+ A readings/v7/provenance/20261105T193323Z/code.txt
+ A readings/v7/provenance/20261105T193323Z/config.env
+ A readings/v7/provenance/20261105T193323Z/environment.env
+ A readings/v7/provenance/20261105T193323Z/git-diff.patch
+ A readings/v7/provenance/20261105T193323Z/git-status.txt
+ A readings/v7/provenance/20261105T193323Z/hardware.txt
+ A readings/v7/provenance/20261105T193323Z/packages.txt
+ A readings/v7/provenance/20261105T193323Z/python.txt
+ A readings/v7/provenance/20261105T193323Z/uv.lock.sha256
+ A readings/v7/provenance/corpus-ag_news.manifest.json
+ A readings/v7/provenance/corpus-coding.manifest.json
+ A readings/v7/provenance/corpus-gsm8k.manifest.json
+ A readings/v7/provenance/corpus-squad.manifest.json
+ A readings/v7/provenance/external-ag_news.manifest.json
+ A readings/v7/provenance/external-coding.manifest.json
+ A readings/v7/provenance/external-gsm8k.manifest.json
+ A readings/v7/provenance/external-squad.manifest.json
+ A readings/v7/schedules/A1/manifest.json
+ A readings/v7/schedules/A2/manifest.json
+ A readings/v7/schedules/A3/manifest.json
+ A readings/v7/schedules/A5/manifest.json
+ A readings/v7/schedules/A6/manifest.json
+ A readings/v7/schedules/A7/manifest.json
+ A readings/v7/steps.tsv
+ A readings/v7/summary.tsv
+ M scripts/study.sh
+ A scripts/teacher-gguf.sh
+?? readings/v7/benign/benign_test/requests.jsonl
+?? readings/v7/benign/fitting/requests.jsonl
+?? readings/v7/benign/policy_calibration/requests.jsonl
+?? readings/v7/benign/score_calibration/requests.jsonl
+?? readings/v7/calibration/references.npy
+?? readings/v7/provenance/20261106T082011Z/
+?? readings/v7/schedules/A1/requests.jsonl
+?? readings/v7/schedules/A2/requests.jsonl
+?? readings/v7/schedules/A3/requests.jsonl
+?? readings/v7/schedules/A5/requests.jsonl
+?? readings/v7/schedules/A6/requests.jsonl
+?? readings/v7/schedules/A7/requests.jsonl

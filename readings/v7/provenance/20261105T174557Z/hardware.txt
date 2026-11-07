@@ -1,0 +1,7 @@
+24
+               total        used        free      shared  buff/cache   available
+Mem:              14           5           1           0           7           9
+Swap:             23           1          22
+Failed to initialize NVML: Driver/library version mismatch
+NVML library version: 595.112
+no nvidia-smi

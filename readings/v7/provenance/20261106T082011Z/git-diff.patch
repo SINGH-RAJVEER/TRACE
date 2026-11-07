@@ -1,0 +1,1117 @@
+diff --git a/devenv.nix b/devenv.nix
+index 8859dfd6..8abb7215 100644
+--- a/devenv.nix
++++ b/devenv.nix
+@@ -8,6 +8,8 @@
+ 		python314
+ 		# Interpreter for the separate vLLM teacher environment in .venv-vllm.
+ 		python312
++		# Local GGUF teacher server. Vulkan reaches both the NVIDIA and AMD GPUs.
++		(llama-cpp.override { vulkanSupport = true; })
+ 		uv
+ 		bun
+ 		# Native compilation for Python extensions.
+diff --git a/docs/evaluation.md b/docs/evaluation.md
+index 7299d51e..42d4d50e 100644
+--- a/docs/evaluation.md
++++ b/docs/evaluation.md
+@@ -23,7 +23,7 @@ The benign suite should cover casual users, specialists, broad researchers, batc
+ ## Prepare and deploy
+ 
+ 1. Enter `devenv shell`, configure `.env` from `.env.example`, and run `just setup`.
+-2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host.
++2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host. On a host too small for vLLM, `just teacher-gguf` serves a quantized GGUF through `llama-server` on the same upstream port, using the Vulkan build from `devenv.nix`. Its settings are `TEACHER_GGUF`, `TEACHER_GGUF_CONTEXT`, `TEACHER_GGUF_SLOTS`, `TEACHER_GGUF_GPU_LAYERS` and `TEACHER_GGUF_DEVICE`. The device defaults to `Vulkan0`, because `llama-server` otherwise spreads across every GPU it finds; `llama-server --list-devices` shows the numbering. A GGUF teacher is a different model and serving stack from the historical one, so record its file hash in `TEACHER_MODEL_REVISION`, set `CONCURRENCY` to at most its slot count, re-pass the headroom gate and do not compare its results directly with other teachers.
+ 3. Run `just teacher`, then verify its health and authenticated generation. Set the teacher review identifier and credentials as needed.
+ 4. Build each domain pool with `uv run --extra eval distill tasks build --task ag_news`, and repeat for `squad`, `gsm8k`, and `coding`. Dataset downloads and the coding sandbox have their own resource requirements. Use pinned dataset revisions and keep source groups disjoint. Check that each role covers the intended topics: the benign generators select prompts by category deficit against each domain pool, then group specialist account streams into topic-ordered blocks. The role manifest records per-domain pool and used category counts, topic coverage and maximum share deviation; require each category share to be within 3 percentage points of its pool. Coverage uses distinct prompts so repetition does not inflate it. Do not treat a larger pool alone as evidence of representative traffic.
+ 	AG News, SQuAD, and GSM8K use `data/news`, `data/question_answering`, and `data/math` by default. Their task identifiers remain `ag_news`, `squad`, and `gsm8k` in commands and request records. Use a separate `--output-dir` for builds with different seeds to avoid overwriting an existing pool, and pass its parent with `--tasks-dir` when generating schedules. Pools are built locally and are not committed; `data/` is ignored.
+diff --git a/justfile b/justfile
+index 95ddbd59..bb87768e 100644
+--- a/justfile
++++ b/justfile
+@@ -13,6 +13,10 @@ setup:
+ setup-eval:
+ 	uv sync --frozen --all-packages --extra eval --extra embed
+ 
++# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
++teacher-gguf *args:
++	bash scripts/teacher-gguf.sh "$@"
++
+ # Start the teacher adapter; the upstream model server must already be available.
+ teacher:
+ 	uv run --frozen teacher-api
+diff --git a/readings/index.tsv b/readings/index.tsv
+index b2c14139..7575d824 100644
+--- a/readings/index.tsv
++++ b/readings/index.tsv
+@@ -107,3 +107,4 @@ v5	v5-20261102	eac63e64ae4e1a2294d161b7b8c6bfcb579ea888	utility	benign_test	quot
+ v5	v5-20261102	eac63e64ae4e1a2294d161b7b8c6bfcb579ea888	utility	benign_test	quota	domain=squad	quota							complete				1b039fd14a210b412ec4ec2601b7020932c6de3e6ce09294d551a0658b269c4b		fb13b2e9e6c2b7335da91ed04d1b702a06a337b6e755ad2dfaa190981ba50e87																												7768	1914	0.24639546858908343	0.816925538819529	0.2012867509398273	117.94827282653422										unknown	no teacher preflight was recorded for this utility run								
+ v5	v5-20261102	eac63e64ae4e1a2294d161b7b8c6bfcb579ea888	utility	benign_test	quota	domain_profile=generalist	quota							complete				1b039fd14a210b412ec4ec2601b7020932c6de3e6ce09294d551a0658b269c4b		fb13b2e9e6c2b7335da91ed04d1b702a06a337b6e755ad2dfaa190981ba50e87																												1914	501	0.2617554858934169	0.8541421362872578	0.2235763899059123	118.49520712904632										unknown	no teacher preflight was recorded for this utility run								
+ v5	v5-20261102	eac63e64ae4e1a2294d161b7b8c6bfcb579ea888	utility	benign_test	quota	domain_profile=specialist	quota							complete				1b039fd14a210b412ec4ec2601b7020932c6de3e6ce09294d551a0658b269c4b		fb13b2e9e6c2b7335da91ed04d1b702a06a337b6e755ad2dfaa190981ba50e87																												22133	6168	0.2786788957665025	0.8454394084015342	0.23560612077082468	116.91983825460774										unknown	no teacher preflight was recorded for this utility run								
++v7	v7	47db88564e47d2285c546cc509b603748008bc1a	campaign	A1	full	all	mmd	paper	42	6000	86400.0	exploratory	development	not-run			5a7ac475f8eadb20e65030af53275e388c6a3891f665a02c3b00d194e8a04c54	d70d2701a16f543c0a27611266aec9d84acee2341e47360e929eb77e4ad91498																																																						
+diff --git a/readings/v7/README.md b/readings/v7/README.md
+new file mode 100644
+index 00000000..3ba703c6
+--- /dev/null
++++ b/readings/v7/README.md
+@@ -0,0 +1,45 @@
++# v7: run v7
++
++**Status:** partial (exit 130). **Code:** `47db88564e47d2285c546cc509b603748008bc1a`. **Steps:** 2026-11-05T17:45:58Z to 2026-11-06T07:49:29Z UTC.
++
++Exported by `scripts/start.sh` from `artifacts/runs/v7`. Write the results, limitations and stop cause here before committing.
++
++## Settings
++
++```
++TASKS_DIR=data
++SEED=42
++BUDGET=6000
++PARTITION=exploratory
++ATTACKS=A1 A2 A3 A5 A6 A7
++ARMS=full instantaneous quota
++DOMAINS=ag_news,squad,gsm8k,coding
++BENIGN_ACCOUNTS=125
++WORKLOAD_VERSION=gateway-clients-v3
++A4_INTERVAL=60
++CONCURRENCY=2
++QUALIFICATION_WORKERS=16
++CALIBRATION_DEVICE=cpu
++ALLOW_UNDETECTED=0
++UTILITY=1
++TEACHER_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PREFLIGHT_ARGS=
++UTILITY_OFFERED_RPS=
++UTILITY_MIN_COMPLETION_RATE=
++```
++
++## Campaign outcomes
++
++No campaign reached an outcome.
++
++## Contents
++
++- `provenance/`: code revision, diff, configuration, redacted environment, packages, hardware and corpus manifests, one folder per attempt.
++- `run.log`, `steps.tsv`, `logs/`: the run timeline, step timings and per-step output.
++- `benign/`, `calibration/`, `adequacy.json`, `schedules/`: workloads, calibration and frozen attack schedules.
++- `campaigns/ATTACK/ARM/`: decisions, harness log and settings, outcome, evaluation report, and `campaign/` events, attempts and ledger.
++- `utility/ARM/`: benign utility under each arm.
++- `SHA256SUMS`, `export.json`: checksums and export record.
++
++Not exported: client credentials, harness state databases, the deception key, vLLM and teacher-API logs, and regenerable detector inputs.
+diff --git a/readings/v7/SHA256SUMS b/readings/v7/SHA256SUMS
+new file mode 100644
+index 00000000..9cca11ca
+--- /dev/null
++++ b/readings/v7/SHA256SUMS
+@@ -0,0 +1,103 @@
++2bf8a37639b8d77ff7d832e1a0a6cc86cde9a18a6520f13f59d0b652da2339d2  adequacy.json
++4a32a4b08e253064890a91c0fcd545cb14777f2e902b83b9807d92c373eba177  benign/benign_test/manifest.json
++5e27c940b6d626e1558c997f4595f562508c5d90a4bfa9bb86ed2cb36cb52789  benign/benign_test/requests.jsonl
++d1744b89b13de98cc33fa8f52141a54445b3be0aabcbbd084241b10e10ddd295  benign/fitting/manifest.json
++3837c1cb253827300c3532bde8b4493e8254b3766c7534762cc6cb57ace63db7  benign/fitting/requests.jsonl
++e5c7e5dd1f4cb52d02a316fcba798ec440524bf00d8d021b7f3d753ddb731455  benign/policy_calibration/manifest.json
++bfa0a1a4b350b695ddae849c0ee59ea3e3b8e6270400bc738d98f4ac9105008e  benign/policy_calibration/requests.jsonl
++f350ba9f84a45c6f6dd4bc49e46b67ba4308ca0982ac5324fcc2771019422982  benign/score_calibration/manifest.json
++2f11347dc49b2b40fa86027b06e42ac9708d081d1efe6bac50029ea0cf2f9bb7  benign/score_calibration/requests.jsonl
++d70d2701a16f543c0a27611266aec9d84acee2341e47360e929eb77e4ad91498  calibration/calibration.json
++c0f470e6faabb1985a68877608b6203cedacf0b02f59832bd70fcf7589dc86c9  calibration/references.npy
++182375ef4d37de41fbe6993917215edefa8dad97f1f9e2a8ee068b5d3be85b29  campaigns/A1/full/accounts.json
++579a4d6d7fdecc5af8e6384289c3db64170d89287671175a46636801c689b023  campaigns/A1/full/decisions.jsonl
++4aee2f21fe5f96f63f96d8a1b3d791a2e13ea195f24c52cf28a2f720c19a7dc4  campaigns/A1/full/harness.env
++55b7232e07e22b2dd23a271b74de1de59b96d37e1cec8821b0c6bdc6612d6b11  campaigns/A1/full/harness.log
++d219e2b862d1b0fc795d92a26e9078b420d2b9fad8ea92defa5d3849adb51615  console.log
++2368ffd848d6b96a20eb08d53f304bab0d03801ef6544b81b60acaf35b92b980  exit
++3eaefcbebe22918fa72124f4152dd1653da4d8c8cc1c0d8f5e9be8431dd29893  logs/adequacy.log
++25e9cf9c7cfe09fff998b4d82e6d0e0cc6d20bb3388d2e39fe9d23b6e465b274  logs/benign-benign_test.log
++113343662d5dc16fbf18656f7d62aeb92dbf66e4935e477ebc7ea7dd480d0e62  logs/benign-fitting.log
++948afd38718ae04abe271f675807ff514e4088975b760acb6db9b7c4b7e780f5  logs/benign-policy_calibration.log
++31366eefa668688dedfbecf8aa427285579d771cf1b2cbdfe53614c74a4a7d0a  logs/benign-score_calibration.log
++e7d712b57211f1fca3a3202c10aba099fc715a56a181c9e1dff8a2ad7dac3db3  logs/calibrate.log
++9a11355585d1f52314c54139425120710c20acc633a5bdd0cfc697366e019718  logs/campaign-A1-full.log
++9837955de19cdabdadf537754dd9d1ac9f3f5bd9ee21e70b5dd43833d898bcb1  logs/corpus-ag_news.log
++a17f56fde9285076616947c09e9e228cd2297ee1cf12f8ab4cea7ed5ec01162d  logs/corpus-coding.log
++4844e525b4b74a63c5ed43fffdf96871305eaab4ffd1ec6aecb736bde9d25920  logs/corpus-gsm8k.log
++fcf0130261f603145348f85629e65ec22ff85148cf271980d03363234819043a  logs/corpus-squad.log
++474f891a3fd46bce4301c11fe856668b1933d17acb371a866a6d5cf7fbf8f6db  logs/detector-benign_test.log
++61e5079a7b9baec840415a27e6a93c8d0d6ec45da54441d6cd57bd441525d29e  logs/detector-fitting.log
++89b7cd7747d7f7ebeec715ce826a518bb026336fbbf0b7171cad4e2e2da466b3  logs/detector-policy_calibration.log
++abd4e34390498afefda0be8ed0f5961b229499279def6e1e5f9218751ee519c3  logs/detector-score_calibration.log
++aecf02fd6db8f63dffc964d0b0a2c0bd0af85964c437f5261468290f5de2b0c3  logs/external-ag_news.log
++e631551cd7a8e6ca9e3d21c324ea2662236c8e541fd28191475c5d4474268d71  logs/external-coding.log
++7158ed122f188f4c238d9164395672c25bb308376234960e68a3a7c1a654dc76  logs/external-gsm8k.log
++b2f0824899a225f4dcb15b7a198e1f0fe3b62a527b18db17519ea78ae4cd9cdf  logs/external-squad.log
++d0734085b91c79451c78c766ff1c18296c68e37eb2a030254f43fd8051130dbf  logs/schedule-A1.log
++9ae88235d17f74ae4a36b9a447243a41cf3dc68714528349f8fcf115b491ecd4  logs/schedule-A2.log
++4ca960290f1207598c918433fdb7343bbadd5746c6ca82a0032854a6141b77d3  logs/schedule-A3.log
++0768523019f59de8e70cc093cb703d9ad1c9bdbe123527b07dbd6252fd45dede  logs/schedule-A5.log
++7351f4598796904a99d27d049ece0f3d26ad37446fc0ca972dcb36271dacb1e1  logs/schedule-A6.log
++bdeb4ce860521dd1415dd08ca689334cb1531e582a1e1c3d6621e665f8300968  logs/schedule-A7.log
++8befbf31d8f59127fec2487697ebf94a46e9e8fb49a3a4677e78350a4cf9c95a  logs/setup.log
++741420addbf11b745645d65a095d9587f93d66144dd10d386dc410154dd1f9a1  logs/teacher-gguf.log
++e264b88eae7420626b97803c3b1a855fbe7aead468184bcdb807277128c70a56  provenance/20261105T174557Z/code.txt
++88b1df244ca06500e9a2e94f1fdacf26402e53133550d8d2f76b7781de205706  provenance/20261105T174557Z/config.env
++338f9db7e0a3328d49dd99f5f49d76edf7ce10cea73cd5d5270a13ba86726cb7  provenance/20261105T174557Z/environment.env
++e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  provenance/20261105T174557Z/git-diff.patch
++e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  provenance/20261105T174557Z/git-status.txt
++2238861242f5a2e48b7dbf1e22e80c9c1c94a6f6997842949ce44cedfef8797d  provenance/20261105T174557Z/hardware.txt
++bfcf121dbf421114428093ecac0c61465e8120924fb1e7f25210a9b2ca3bcbd8  provenance/20261105T174557Z/packages.txt
++58ddcb88158defa5de90a837e3d3604b32b1f215af4612e5c4d17ede7ed5c912  provenance/20261105T174557Z/python.txt
++7bd4d022cb856bf7caf7585353fa43a94a723bf32563757f2110c5168fbd6a98  provenance/20261105T174557Z/uv.lock.sha256
++b570143742670ef5ad2ae6cb64ddc206540968edefecf992d7698b4e5c680daf  provenance/20261105T180807Z/code.txt
++5e288c99990ec609bd3ffc21dfa4c89dbec31bc29a7ff677cd1e802c63a3239e  provenance/20261105T180807Z/config.env
++5721f323e0294ea874c295ef541e70b16aa50d9ffa235864533fd938ef82be17  provenance/20261105T180807Z/environment.env
++9f3e45d8c0ebe5b16d13465ed91325d1b9efc2870e15f50a6f47daf86eb48404  provenance/20261105T180807Z/git-diff.patch
++b0ba7c30e6835594a4c3df4e42eaee918e8de453eb1c522dd349338de482405b  provenance/20261105T180807Z/git-status.txt
++e1e45c282e6934bd5bfab9291a00721b635b5c70d4d52df39d225aa38defa775  provenance/20261105T180807Z/hardware.txt
++bfcf121dbf421114428093ecac0c61465e8120924fb1e7f25210a9b2ca3bcbd8  provenance/20261105T180807Z/packages.txt
++b7582b18e57f732fd4df0b7107f1e94a8b4a8eaf8c54193227c82d816f0251d0  provenance/20261105T180807Z/python.txt
++7bd4d022cb856bf7caf7585353fa43a94a723bf32563757f2110c5168fbd6a98  provenance/20261105T180807Z/uv.lock.sha256
++b570143742670ef5ad2ae6cb64ddc206540968edefecf992d7698b4e5c680daf  provenance/20261105T192952Z/code.txt
++5e288c99990ec609bd3ffc21dfa4c89dbec31bc29a7ff677cd1e802c63a3239e  provenance/20261105T192952Z/config.env
++5721f323e0294ea874c295ef541e70b16aa50d9ffa235864533fd938ef82be17  provenance/20261105T192952Z/environment.env
++9f3e45d8c0ebe5b16d13465ed91325d1b9efc2870e15f50a6f47daf86eb48404  provenance/20261105T192952Z/git-diff.patch
++b0ba7c30e6835594a4c3df4e42eaee918e8de453eb1c522dd349338de482405b  provenance/20261105T192952Z/git-status.txt
++8db83a36ad3895ef0eb6ddfd95b9a69a393a155a384bddc179b522ff7dfd0834  provenance/20261105T192952Z/hardware.txt
++bfcf121dbf421114428093ecac0c61465e8120924fb1e7f25210a9b2ca3bcbd8  provenance/20261105T192952Z/packages.txt
++f13d44af7561d61c0973780ff0a64c2f95926e9f5dc9cc84846d9ebd9238b294  provenance/20261105T192952Z/python.txt
++7bd4d022cb856bf7caf7585353fa43a94a723bf32563757f2110c5168fbd6a98  provenance/20261105T192952Z/uv.lock.sha256
++b570143742670ef5ad2ae6cb64ddc206540968edefecf992d7698b4e5c680daf  provenance/20261105T193323Z/code.txt
++5e288c99990ec609bd3ffc21dfa4c89dbec31bc29a7ff677cd1e802c63a3239e  provenance/20261105T193323Z/config.env
++198a4c74dd3abbb4b8b60bbfc06c94645bea0b30d166f8eba8a12a95cd1a9de4  provenance/20261105T193323Z/environment.env
++9f3e45d8c0ebe5b16d13465ed91325d1b9efc2870e15f50a6f47daf86eb48404  provenance/20261105T193323Z/git-diff.patch
++b0ba7c30e6835594a4c3df4e42eaee918e8de453eb1c522dd349338de482405b  provenance/20261105T193323Z/git-status.txt
++2f01ae32c18dda991a0dee30e7e05bd80dfdb322c34a30aa50bea4913b3fabf6  provenance/20261105T193323Z/hardware.txt
++bfcf121dbf421114428093ecac0c61465e8120924fb1e7f25210a9b2ca3bcbd8  provenance/20261105T193323Z/packages.txt
++9976e2a169b8182fcc8d5b7e674c2a7a9918d13c94c1a8ed3b153debe7f61f70  provenance/20261105T193323Z/python.txt
++7bd4d022cb856bf7caf7585353fa43a94a723bf32563757f2110c5168fbd6a98  provenance/20261105T193323Z/uv.lock.sha256
++929f79c5cd2fc36925352a4caf7bce18a22586cc4e10cd7640131e58d47dd4a6  provenance/corpus-ag_news.manifest.json
++701cde5c7e0eb3f11ef6a1ceae4f644b3739b61964d8e064990e845fb11dbd84  provenance/corpus-coding.manifest.json
++fe24608429ccc6f5c2c70c766d0934c08bdad50b9985e97578e6ff3fc798a251  provenance/corpus-gsm8k.manifest.json
++9a904371e239471fe40cc13d33b20a0476e3cddddedeec95d75ff0955c4c3a84  provenance/corpus-squad.manifest.json
++c90bd9e89a13c85da744c7deb2706e3f918801fbc11112f44e3862b45d5f7e49  provenance/external-ag_news.manifest.json
++2828856db9bfd436facc4e3aae85376f5364d77c4d046900172716e0be8cafad  provenance/external-coding.manifest.json
++e0bf24592937b5a250453f4af7dee03631ea7af010a35477e966918a676cb823  provenance/external-gsm8k.manifest.json
++5bf06e0d03d165be2c33e9ab3ffee418f3a58208f0b09a9759aafdac856e2116  provenance/external-squad.manifest.json
++24436728fa57325637f2cb4d68a1030d0ab325a7f70d66c7f2c669faa3e276b5  run.log
++41f04418412919c4c42964504fd77afb3906697dc38ee8be5aa3f77a4fc8e9fe  schedules/A1/manifest.json
++5a7ac475f8eadb20e65030af53275e388c6a3891f665a02c3b00d194e8a04c54  schedules/A1/requests.jsonl
++3ba288d145f5af5cbb3ff816980ba922e7a42a0cf9e637043eef157d90a3e3f9  schedules/A2/manifest.json
++a98a10ad54fb63a21ecb773274883d56181ea9e717a60769e89578195a468823  schedules/A2/requests.jsonl
++dddd12f1f6d98a8fa13240c3b29c2166ac2051792d6dad83f783b6102ef4efe4  schedules/A3/manifest.json
++fdd8c100de035af10291a3a41b01874d8f488848efac61490f1961e1036852bd  schedules/A3/requests.jsonl
++77e6a239bfc5b0896545a678a9d7fb1a72be965afa8a491339ca27f3579d8814  schedules/A5/manifest.json
++63b922a03a8ba2c6c3835c5662cc63e6d5578e26b93766a016392e4d29363722  schedules/A5/requests.jsonl
++05e357c5a058d0a910b21972f96191e84370427c982d0f56449fb6b2f4437485  schedules/A6/manifest.json
++300d6a56470a9ba2a42c0f9357c6e5f08fae46bc01f2fb6ca4d64b7f474c5959  schedules/A6/requests.jsonl
++913ed2a770b9100b5b3e39044d72a91b515a4e9eac5cd48d55e2b0cdaba4a9de  schedules/A7/manifest.json
++2094d65e4b33fea0275ce09739230520421da9b7c7aa08abde84b90c31414d22  schedules/A7/requests.jsonl
++62319e9f464220e69d0a187b470fd40bd629e8d22785d3fe5fc651419cc73fcf  steps.tsv
++444b05699f4630c8e98238f2f0f78c7bf7e2c8504fc70cbd6a1c39b7b6c081d6  summary.tsv
+diff --git a/readings/v7/adequacy.json b/readings/v7/adequacy.json
+new file mode 100644
+index 00000000..c7855479
+--- /dev/null
++++ b/readings/v7/adequacy.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:2bf8a37639b8d77ff7d832e1a0a6cc86cde9a18a6520f13f59d0b652da2339d2
++size 3759
+diff --git a/readings/v7/benign/benign_test/manifest.json b/readings/v7/benign/benign_test/manifest.json
+new file mode 100644
+index 00000000..69136e1c
+--- /dev/null
++++ b/readings/v7/benign/benign_test/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:4a32a4b08e253064890a91c0fcd545cb14777f2e902b83b9807d92c373eba177
++size 25492
+diff --git a/readings/v7/benign/fitting/manifest.json b/readings/v7/benign/fitting/manifest.json
+new file mode 100644
+index 00000000..fd33ca36
+--- /dev/null
++++ b/readings/v7/benign/fitting/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:d1744b89b13de98cc33fa8f52141a54445b3be0aabcbbd084241b10e10ddd295
++size 22798
+diff --git a/readings/v7/benign/policy_calibration/manifest.json b/readings/v7/benign/policy_calibration/manifest.json
+new file mode 100644
+index 00000000..96823e01
+--- /dev/null
++++ b/readings/v7/benign/policy_calibration/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:e5c7e5dd1f4cb52d02a316fcba798ec440524bf00d8d021b7f3d753ddb731455
++size 40342
+diff --git a/readings/v7/benign/score_calibration/manifest.json b/readings/v7/benign/score_calibration/manifest.json
+new file mode 100644
+index 00000000..4bac6485
+--- /dev/null
++++ b/readings/v7/benign/score_calibration/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:f350ba9f84a45c6f6dd4bc49e46b67ba4308ca0982ac5324fcc2771019422982
++size 29359
+diff --git a/readings/v7/calibration/calibration.json b/readings/v7/calibration/calibration.json
+new file mode 100644
+index 00000000..ec761498
+--- /dev/null
++++ b/readings/v7/calibration/calibration.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:d70d2701a16f543c0a27611266aec9d84acee2341e47360e929eb77e4ad91498
++size 26197
+diff --git a/readings/v7/campaigns/A1/full/accounts.json b/readings/v7/campaigns/A1/full/accounts.json
+new file mode 100644
+index 00000000..de8c04df
+--- /dev/null
++++ b/readings/v7/campaigns/A1/full/accounts.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:182375ef4d37de41fbe6993917215edefa8dad97f1f9e2a8ee068b5d3be85b29
++size 167
+diff --git a/readings/v7/campaigns/A1/full/decisions.jsonl b/readings/v7/campaigns/A1/full/decisions.jsonl
+new file mode 100644
+index 00000000..da2b95e8
+--- /dev/null
++++ b/readings/v7/campaigns/A1/full/decisions.jsonl
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:579a4d6d7fdecc5af8e6384289c3db64170d89287671175a46636801c689b023
++size 302
+diff --git a/readings/v7/campaigns/A1/full/harness.env b/readings/v7/campaigns/A1/full/harness.env
+new file mode 100644
+index 00000000..5cdc8279
+--- /dev/null
++++ b/readings/v7/campaigns/A1/full/harness.env
+@@ -0,0 +1,18 @@
++HARNESS_HOST=127.0.0.1
++HARNESS_PORT=8003
++HARNESS_TEACHER_URL=http://127.0.0.1:8000
++HARNESS_TEACHER_TOKEN=
++HARNESS_TASK=gateway
++HARNESS_GATEWAY_CAPS={"ag_news": 16, "coding": 512, "gsm8k": 1024, "squad": 64}
++HARNESS_CALIBRATION_DIR=artifacts/runs/v7/calibration
++HARNESS_ACCOUNTS_FILE=artifacts/runs/v7/campaigns/A1/full/accounts.json
++HARNESS_TRUST_ACTOR_HEADER=false
++HARNESS_TEST_CLOCK=false
++HARNESS_POLICY=mmd
++HARNESS_ACCUMULATOR=paper
++HARNESS_POLICY_VERSION=legacy-v1
++HARNESS_L4_ACTION=refuse
++HARNESS_STATE_DB=artifacts/runs/v7/campaigns/A1/full/state.sqlite3
++HARNESS_DECISION_LOG=artifacts/runs/v7/campaigns/A1/full/decisions.jsonl
++HARNESS_DECEPTION_KEY_FILE=<redacted>
++inherited HARNESS_TIMEOUT_SECONDS=300
+diff --git a/readings/v7/exit b/readings/v7/exit
+new file mode 100644
+index 00000000..aa1a6075
+--- /dev/null
++++ b/readings/v7/exit
+@@ -0,0 +1 @@
++130 2026-11-06T08:19:57Z interrupted
+diff --git a/readings/v7/export.json b/readings/v7/export.json
+new file mode 100644
+index 00000000..5a48be5a
+--- /dev/null
++++ b/readings/v7/export.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:650a4304b17b26104751564d709a7c3ffef57774563ae04735b8fe7128e85c4c
++size 445
+diff --git a/readings/v7/provenance/20261105T174557Z/code.txt b/readings/v7/provenance/20261105T174557Z/code.txt
+new file mode 100644
+index 00000000..f6ab823c
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/code.txt
+@@ -0,0 +1,4 @@
++run v7
++commit 47db88564e47d2285c546cc509b603748008bc1a
++branch HEAD
++dirty 0 paths
+diff --git a/readings/v7/provenance/20261105T174557Z/config.env b/readings/v7/provenance/20261105T174557Z/config.env
+new file mode 100644
+index 00000000..7c788318
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/config.env
+@@ -0,0 +1,20 @@
++TASKS_DIR=data
++SEED=42
++BUDGET=6000
++PARTITION=exploratory
++ATTACKS=A1 A2 A3 A5 A6 A7
++ARMS=full instantaneous quota
++DOMAINS=ag_news,squad,gsm8k,coding
++BENIGN_ACCOUNTS=125
++WORKLOAD_VERSION=gateway-clients-v3
++A4_INTERVAL=60
++CONCURRENCY=8
++QUALIFICATION_WORKERS=16
++CALIBRATION_DEVICE=cpu
++ALLOW_UNDETECTED=0
++UTILITY=1
++TEACHER_MODEL=Qwen/Qwen3.5-9B
++TEACHER_MODEL_REVISION=c202236235762e1c871ad0ccb60c8ee5ba337b9a
++TEACHER_PREFLIGHT_ARGS=
++UTILITY_OFFERED_RPS=
++UTILITY_MIN_COMPLETION_RATE=
+diff --git a/readings/v7/provenance/20261105T174557Z/environment.env b/readings/v7/provenance/20261105T174557Z/environment.env
+new file mode 100644
+index 00000000..d007b8ee
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/environment.env
+@@ -0,0 +1 @@
++VLLM_PYTHON=/nix/store/v7wvwm1bpm6kzlqgw33m98arm7sw40ln-python3-3.12.15/bin/python
+diff --git a/readings/v7/provenance/20261105T174557Z/git-diff.patch b/readings/v7/provenance/20261105T174557Z/git-diff.patch
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/readings/v7/provenance/20261105T174557Z/git-status.txt b/readings/v7/provenance/20261105T174557Z/git-status.txt
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/readings/v7/provenance/20261105T174557Z/hardware.txt b/readings/v7/provenance/20261105T174557Z/hardware.txt
+new file mode 100644
+index 00000000..229ecbb1
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/hardware.txt
+@@ -0,0 +1,7 @@
++24
++               total        used        free      shared  buff/cache   available
++Mem:              14           5           1           0           7           9
++Swap:             23           1          22
++Failed to initialize NVML: Driver/library version mismatch
++NVML library version: 595.112
++no nvidia-smi
+diff --git a/readings/v7/provenance/20261105T174557Z/packages.txt b/readings/v7/provenance/20261105T174557Z/packages.txt
+new file mode 100644
+index 00000000..8fa46474
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/packages.txt
+@@ -0,0 +1 @@
++Using Python 3.14.7 environment at: /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7
+diff --git a/readings/v7/provenance/20261105T174557Z/python.txt b/readings/v7/provenance/20261105T174557Z/python.txt
+new file mode 100644
+index 00000000..78d197da
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/python.txt
+@@ -0,0 +1,3 @@
++Installed 49 packages in 296ms
++3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 16.2.0]
++Linux-7.3.0-x86_64-with-glibc2.44
+diff --git a/readings/v7/provenance/20261105T174557Z/uv.lock.sha256 b/readings/v7/provenance/20261105T174557Z/uv.lock.sha256
+new file mode 100644
+index 00000000..2ec026e2
+--- /dev/null
++++ b/readings/v7/provenance/20261105T174557Z/uv.lock.sha256
+@@ -0,0 +1 @@
++d5972c51e1dedf708bd223f8011dedb24a33f39f1b01cdaf43fea4766a29b5c8  uv.lock
+diff --git a/readings/v7/provenance/20261105T180807Z/code.txt b/readings/v7/provenance/20261105T180807Z/code.txt
+new file mode 100644
+index 00000000..6b4d1ff9
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/code.txt
+@@ -0,0 +1,4 @@
++run v7
++commit 47db88564e47d2285c546cc509b603748008bc1a
++branch HEAD
++dirty 4 paths
+diff --git a/readings/v7/provenance/20261105T180807Z/config.env b/readings/v7/provenance/20261105T180807Z/config.env
+new file mode 100644
+index 00000000..b2d90b38
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/config.env
+@@ -0,0 +1,20 @@
++TASKS_DIR=data
++SEED=42
++BUDGET=6000
++PARTITION=exploratory
++ATTACKS=A1 A2 A3 A5 A6 A7
++ARMS=full instantaneous quota
++DOMAINS=ag_news,squad,gsm8k,coding
++BENIGN_ACCOUNTS=125
++WORKLOAD_VERSION=gateway-clients-v3
++A4_INTERVAL=60
++CONCURRENCY=2
++QUALIFICATION_WORKERS=16
++CALIBRATION_DEVICE=cpu
++ALLOW_UNDETECTED=0
++UTILITY=1
++TEACHER_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PREFLIGHT_ARGS=
++UTILITY_OFFERED_RPS=
++UTILITY_MIN_COMPLETION_RATE=
+diff --git a/readings/v7/provenance/20261105T180807Z/environment.env b/readings/v7/provenance/20261105T180807Z/environment.env
+new file mode 100644
+index 00000000..3a8fed5e
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/environment.env
+@@ -0,0 +1,6 @@
++HARNESS_TIMEOUT_SECONDS=300
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PROVIDER_NAME=llama-server-vulkan-radeon-890m
++TEACHER_TIMEOUT_SECONDS=300
++TEACHER_UPSTREAM_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++VLLM_PYTHON=/nix/store/v7wvwm1bpm6kzlqgw33m98arm7sw40ln-python3-3.12.15/bin/python
+diff --git a/readings/v7/provenance/20261105T180807Z/git-diff.patch b/readings/v7/provenance/20261105T180807Z/git-diff.patch
+new file mode 100644
+index 00000000..15548cab
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/git-diff.patch
+@@ -0,0 +1,61 @@
++diff --git a/devenv.nix b/devenv.nix
++index 8859dfd6..8abb7215 100644
++--- a/devenv.nix
+++++ b/devenv.nix
++@@ -8,6 +8,8 @@
++ 		python314
++ 		# Interpreter for the separate vLLM teacher environment in .venv-vllm.
++ 		python312
+++		# Local GGUF teacher server. Vulkan reaches both the NVIDIA and AMD GPUs.
+++		(llama-cpp.override { vulkanSupport = true; })
++ 		uv
++ 		bun
++ 		# Native compilation for Python extensions.
++diff --git a/docs/evaluation.md b/docs/evaluation.md
++index 7299d51e..44f39603 100644
++--- a/docs/evaluation.md
+++++ b/docs/evaluation.md
++@@ -23,7 +23,7 @@ The benign suite should cover casual users, specialists, broad researchers, batc
++ ## Prepare and deploy
++ 
++ 1. Enter `devenv shell`, configure `.env` from `.env.example`, and run `just setup`.
++-2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host.
+++2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host. On a host too small for vLLM, `just teacher-gguf` serves a quantized GGUF through `llama-server` on the same upstream port, using the Vulkan build from `devenv.nix`. Its settings are `TEACHER_GGUF`, `TEACHER_GGUF_CONTEXT`, `TEACHER_GGUF_SLOTS` and `TEACHER_GGUF_GPU_LAYERS`. A GGUF teacher is a different model and serving stack from the historical one, so record its file hash in `TEACHER_MODEL_REVISION`, set `CONCURRENCY` to at most its slot count, re-pass the headroom gate and do not compare its results directly with other teachers.
++ 3. Run `just teacher`, then verify its health and authenticated generation. Set the teacher review identifier and credentials as needed.
++ 4. Build each domain pool with `uv run --extra eval distill tasks build --task ag_news`, and repeat for `squad`, `gsm8k`, and `coding`. Dataset downloads and the coding sandbox have their own resource requirements. Use pinned dataset revisions and keep source groups disjoint. Check that each role covers the intended topics: the benign generators select prompts by category deficit against each domain pool, then group specialist account streams into topic-ordered blocks. The role manifest records per-domain pool and used category counts, topic coverage and maximum share deviation; require each category share to be within 3 percentage points of its pool. Coverage uses distinct prompts so repetition does not inflate it. Do not treat a larger pool alone as evidence of representative traffic.
++ 	AG News, SQuAD, and GSM8K use `data/news`, `data/question_answering`, and `data/math` by default. Their task identifiers remain `ag_news`, `squad`, and `gsm8k` in commands and request records. Use a separate `--output-dir` for builds with different seeds to avoid overwriting an existing pool, and pass its parent with `--tasks-dir` when generating schedules. Pools are built locally and are not committed; `data/` is ignored.
++diff --git a/justfile b/justfile
++index 95ddbd59..bb87768e 100644
++--- a/justfile
+++++ b/justfile
++@@ -13,6 +13,10 @@ setup:
++ setup-eval:
++ 	uv sync --frozen --all-packages --extra eval --extra embed
++ 
+++# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
+++teacher-gguf *args:
+++	bash scripts/teacher-gguf.sh "$@"
+++
++ # Start the teacher adapter; the upstream model server must already be available.
++ teacher:
++ 	uv run --frozen teacher-api
++diff --git a/scripts/teacher-gguf.sh b/scripts/teacher-gguf.sh
++new file mode 100644
++index 00000000..78242643
++--- /dev/null
+++++ b/scripts/teacher-gguf.sh
++@@ -0,0 +1,14 @@
+++#!/usr/bin/env bash
+++# Serve a quantized GGUF teacher through llama-server on the port the study checks for vLLM.
+++# Settings come from the environment; extra arguments are passed to llama-server.
+++set -euo pipefail
+++
+++MODEL=${TEACHER_GGUF:-$HOME/.lmstudio/models/lmstudio-community/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf}
+++[ -f "$MODEL" ] || { echo "no GGUF teacher at $MODEL; set TEACHER_GGUF" >&2; exit 1; }
+++
+++# llama-server divides the context between slots, so each slot gets CONTEXT / SLOTS tokens.
+++exec llama-server --model "$MODEL" \
+++	--alias "${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}" \
+++	--host 127.0.0.1 --port "${VLLM_PORT:-8001}" \
+++	--ctx-size "${TEACHER_GGUF_CONTEXT:-8192}" --parallel "${TEACHER_GGUF_SLOTS:-2}" \
+++	--n-gpu-layers "${TEACHER_GGUF_GPU_LAYERS:-99}" --jinja "$@"
+diff --git a/readings/v7/provenance/20261105T180807Z/git-status.txt b/readings/v7/provenance/20261105T180807Z/git-status.txt
+new file mode 100644
+index 00000000..a4b5796c
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/git-status.txt
+@@ -0,0 +1,4 @@
++ M devenv.nix
++ M docs/evaluation.md
++ M justfile
++ A scripts/teacher-gguf.sh
+diff --git a/readings/v7/provenance/20261105T180807Z/hardware.txt b/readings/v7/provenance/20261105T180807Z/hardware.txt
+new file mode 100644
+index 00000000..4adcd292
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/hardware.txt
+@@ -0,0 +1,7 @@
++24
++               total        used        free      shared  buff/cache   available
++Mem:              14           9           2           0           2           4
++Swap:             23           1          21
++Failed to initialize NVML: Driver/library version mismatch
++NVML library version: 595.112
++no nvidia-smi
+diff --git a/readings/v7/provenance/20261105T180807Z/packages.txt b/readings/v7/provenance/20261105T180807Z/packages.txt
+new file mode 100644
+index 00000000..8fa46474
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/packages.txt
+@@ -0,0 +1 @@
++Using Python 3.14.7 environment at: /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7
+diff --git a/readings/v7/provenance/20261105T180807Z/python.txt b/readings/v7/provenance/20261105T180807Z/python.txt
+new file mode 100644
+index 00000000..db73bfde
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/python.txt
+@@ -0,0 +1,3 @@
++Installed 49 packages in 331ms
++3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 16.2.0]
++Linux-7.3.0-x86_64-with-glibc2.44
+diff --git a/readings/v7/provenance/20261105T180807Z/uv.lock.sha256 b/readings/v7/provenance/20261105T180807Z/uv.lock.sha256
+new file mode 100644
+index 00000000..2ec026e2
+--- /dev/null
++++ b/readings/v7/provenance/20261105T180807Z/uv.lock.sha256
+@@ -0,0 +1 @@
++d5972c51e1dedf708bd223f8011dedb24a33f39f1b01cdaf43fea4766a29b5c8  uv.lock
+diff --git a/readings/v7/provenance/20261105T192952Z/code.txt b/readings/v7/provenance/20261105T192952Z/code.txt
+new file mode 100644
+index 00000000..6b4d1ff9
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/code.txt
+@@ -0,0 +1,4 @@
++run v7
++commit 47db88564e47d2285c546cc509b603748008bc1a
++branch HEAD
++dirty 4 paths
+diff --git a/readings/v7/provenance/20261105T192952Z/config.env b/readings/v7/provenance/20261105T192952Z/config.env
+new file mode 100644
+index 00000000..b2d90b38
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/config.env
+@@ -0,0 +1,20 @@
++TASKS_DIR=data
++SEED=42
++BUDGET=6000
++PARTITION=exploratory
++ATTACKS=A1 A2 A3 A5 A6 A7
++ARMS=full instantaneous quota
++DOMAINS=ag_news,squad,gsm8k,coding
++BENIGN_ACCOUNTS=125
++WORKLOAD_VERSION=gateway-clients-v3
++A4_INTERVAL=60
++CONCURRENCY=2
++QUALIFICATION_WORKERS=16
++CALIBRATION_DEVICE=cpu
++ALLOW_UNDETECTED=0
++UTILITY=1
++TEACHER_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PREFLIGHT_ARGS=
++UTILITY_OFFERED_RPS=
++UTILITY_MIN_COMPLETION_RATE=
+diff --git a/readings/v7/provenance/20261105T192952Z/environment.env b/readings/v7/provenance/20261105T192952Z/environment.env
+new file mode 100644
+index 00000000..3a8fed5e
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/environment.env
+@@ -0,0 +1,6 @@
++HARNESS_TIMEOUT_SECONDS=300
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PROVIDER_NAME=llama-server-vulkan-radeon-890m
++TEACHER_TIMEOUT_SECONDS=300
++TEACHER_UPSTREAM_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++VLLM_PYTHON=/nix/store/v7wvwm1bpm6kzlqgw33m98arm7sw40ln-python3-3.12.15/bin/python
+diff --git a/readings/v7/provenance/20261105T192952Z/git-diff.patch b/readings/v7/provenance/20261105T192952Z/git-diff.patch
+new file mode 100644
+index 00000000..15548cab
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/git-diff.patch
+@@ -0,0 +1,61 @@
++diff --git a/devenv.nix b/devenv.nix
++index 8859dfd6..8abb7215 100644
++--- a/devenv.nix
+++++ b/devenv.nix
++@@ -8,6 +8,8 @@
++ 		python314
++ 		# Interpreter for the separate vLLM teacher environment in .venv-vllm.
++ 		python312
+++		# Local GGUF teacher server. Vulkan reaches both the NVIDIA and AMD GPUs.
+++		(llama-cpp.override { vulkanSupport = true; })
++ 		uv
++ 		bun
++ 		# Native compilation for Python extensions.
++diff --git a/docs/evaluation.md b/docs/evaluation.md
++index 7299d51e..44f39603 100644
++--- a/docs/evaluation.md
+++++ b/docs/evaluation.md
++@@ -23,7 +23,7 @@ The benign suite should cover casual users, specialists, broad researchers, batc
++ ## Prepare and deploy
++ 
++ 1. Enter `devenv shell`, configure `.env` from `.env.example`, and run `just setup`.
++-2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host.
+++2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host. On a host too small for vLLM, `just teacher-gguf` serves a quantized GGUF through `llama-server` on the same upstream port, using the Vulkan build from `devenv.nix`. Its settings are `TEACHER_GGUF`, `TEACHER_GGUF_CONTEXT`, `TEACHER_GGUF_SLOTS` and `TEACHER_GGUF_GPU_LAYERS`. A GGUF teacher is a different model and serving stack from the historical one, so record its file hash in `TEACHER_MODEL_REVISION`, set `CONCURRENCY` to at most its slot count, re-pass the headroom gate and do not compare its results directly with other teachers.
++ 3. Run `just teacher`, then verify its health and authenticated generation. Set the teacher review identifier and credentials as needed.
++ 4. Build each domain pool with `uv run --extra eval distill tasks build --task ag_news`, and repeat for `squad`, `gsm8k`, and `coding`. Dataset downloads and the coding sandbox have their own resource requirements. Use pinned dataset revisions and keep source groups disjoint. Check that each role covers the intended topics: the benign generators select prompts by category deficit against each domain pool, then group specialist account streams into topic-ordered blocks. The role manifest records per-domain pool and used category counts, topic coverage and maximum share deviation; require each category share to be within 3 percentage points of its pool. Coverage uses distinct prompts so repetition does not inflate it. Do not treat a larger pool alone as evidence of representative traffic.
++ 	AG News, SQuAD, and GSM8K use `data/news`, `data/question_answering`, and `data/math` by default. Their task identifiers remain `ag_news`, `squad`, and `gsm8k` in commands and request records. Use a separate `--output-dir` for builds with different seeds to avoid overwriting an existing pool, and pass its parent with `--tasks-dir` when generating schedules. Pools are built locally and are not committed; `data/` is ignored.
++diff --git a/justfile b/justfile
++index 95ddbd59..bb87768e 100644
++--- a/justfile
+++++ b/justfile
++@@ -13,6 +13,10 @@ setup:
++ setup-eval:
++ 	uv sync --frozen --all-packages --extra eval --extra embed
++ 
+++# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
+++teacher-gguf *args:
+++	bash scripts/teacher-gguf.sh "$@"
+++
++ # Start the teacher adapter; the upstream model server must already be available.
++ teacher:
++ 	uv run --frozen teacher-api
++diff --git a/scripts/teacher-gguf.sh b/scripts/teacher-gguf.sh
++new file mode 100644
++index 00000000..78242643
++--- /dev/null
+++++ b/scripts/teacher-gguf.sh
++@@ -0,0 +1,14 @@
+++#!/usr/bin/env bash
+++# Serve a quantized GGUF teacher through llama-server on the port the study checks for vLLM.
+++# Settings come from the environment; extra arguments are passed to llama-server.
+++set -euo pipefail
+++
+++MODEL=${TEACHER_GGUF:-$HOME/.lmstudio/models/lmstudio-community/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf}
+++[ -f "$MODEL" ] || { echo "no GGUF teacher at $MODEL; set TEACHER_GGUF" >&2; exit 1; }
+++
+++# llama-server divides the context between slots, so each slot gets CONTEXT / SLOTS tokens.
+++exec llama-server --model "$MODEL" \
+++	--alias "${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}" \
+++	--host 127.0.0.1 --port "${VLLM_PORT:-8001}" \
+++	--ctx-size "${TEACHER_GGUF_CONTEXT:-8192}" --parallel "${TEACHER_GGUF_SLOTS:-2}" \
+++	--n-gpu-layers "${TEACHER_GGUF_GPU_LAYERS:-99}" --jinja "$@"
+diff --git a/readings/v7/provenance/20261105T192952Z/git-status.txt b/readings/v7/provenance/20261105T192952Z/git-status.txt
+new file mode 100644
+index 00000000..a4b5796c
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/git-status.txt
+@@ -0,0 +1,4 @@
++ M devenv.nix
++ M docs/evaluation.md
++ M justfile
++ A scripts/teacher-gguf.sh
+diff --git a/readings/v7/provenance/20261105T192952Z/hardware.txt b/readings/v7/provenance/20261105T192952Z/hardware.txt
+new file mode 100644
+index 00000000..d3e43fd2
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/hardware.txt
+@@ -0,0 +1,7 @@
++24
++               total        used        free      shared  buff/cache   available
++Mem:              14          10           1           0           3           4
++Swap:             23           1          21
++Failed to initialize NVML: Driver/library version mismatch
++NVML library version: 595.112
++no nvidia-smi
+diff --git a/readings/v7/provenance/20261105T192952Z/packages.txt b/readings/v7/provenance/20261105T192952Z/packages.txt
+new file mode 100644
+index 00000000..8fa46474
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/packages.txt
+@@ -0,0 +1 @@
++Using Python 3.14.7 environment at: /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7
+diff --git a/readings/v7/provenance/20261105T192952Z/python.txt b/readings/v7/provenance/20261105T192952Z/python.txt
+new file mode 100644
+index 00000000..010eb7aa
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/python.txt
+@@ -0,0 +1,3 @@
++Installed 49 packages in 275ms
++3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 16.2.0]
++Linux-7.3.0-x86_64-with-glibc2.44
+diff --git a/readings/v7/provenance/20261105T192952Z/uv.lock.sha256 b/readings/v7/provenance/20261105T192952Z/uv.lock.sha256
+new file mode 100644
+index 00000000..2ec026e2
+--- /dev/null
++++ b/readings/v7/provenance/20261105T192952Z/uv.lock.sha256
+@@ -0,0 +1 @@
++d5972c51e1dedf708bd223f8011dedb24a33f39f1b01cdaf43fea4766a29b5c8  uv.lock
+diff --git a/readings/v7/provenance/20261105T193323Z/code.txt b/readings/v7/provenance/20261105T193323Z/code.txt
+new file mode 100644
+index 00000000..6b4d1ff9
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/code.txt
+@@ -0,0 +1,4 @@
++run v7
++commit 47db88564e47d2285c546cc509b603748008bc1a
++branch HEAD
++dirty 4 paths
+diff --git a/readings/v7/provenance/20261105T193323Z/config.env b/readings/v7/provenance/20261105T193323Z/config.env
+new file mode 100644
+index 00000000..b2d90b38
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/config.env
+@@ -0,0 +1,20 @@
++TASKS_DIR=data
++SEED=42
++BUDGET=6000
++PARTITION=exploratory
++ATTACKS=A1 A2 A3 A5 A6 A7
++ARMS=full instantaneous quota
++DOMAINS=ag_news,squad,gsm8k,coding
++BENIGN_ACCOUNTS=125
++WORKLOAD_VERSION=gateway-clients-v3
++A4_INTERVAL=60
++CONCURRENCY=2
++QUALIFICATION_WORKERS=16
++CALIBRATION_DEVICE=cpu
++ALLOW_UNDETECTED=0
++UTILITY=1
++TEACHER_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PREFLIGHT_ARGS=
++UTILITY_OFFERED_RPS=
++UTILITY_MIN_COMPLETION_RATE=
+diff --git a/readings/v7/provenance/20261105T193323Z/environment.env b/readings/v7/provenance/20261105T193323Z/environment.env
+new file mode 100644
+index 00000000..ec9ca708
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/environment.env
+@@ -0,0 +1,6 @@
++HARNESS_TIMEOUT_SECONDS=300
++TEACHER_MODEL_REVISION=sha256:cd76ec205963b3b33350093e6904d9de16c4e666fd104e1f632d25c7f15f2a13
++TEACHER_PROVIDER_NAME=llama-server-vulkan-rtx-4060-laptop
++TEACHER_TIMEOUT_SECONDS=300
++TEACHER_UPSTREAM_MODEL=Qwen/Qwen3.5-9B-Q4_K_M-GGUF
++VLLM_PYTHON=/nix/store/v7wvwm1bpm6kzlqgw33m98arm7sw40ln-python3-3.12.15/bin/python
+diff --git a/readings/v7/provenance/20261105T193323Z/git-diff.patch b/readings/v7/provenance/20261105T193323Z/git-diff.patch
+new file mode 100644
+index 00000000..15548cab
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/git-diff.patch
+@@ -0,0 +1,61 @@
++diff --git a/devenv.nix b/devenv.nix
++index 8859dfd6..8abb7215 100644
++--- a/devenv.nix
+++++ b/devenv.nix
++@@ -8,6 +8,8 @@
++ 		python314
++ 		# Interpreter for the separate vLLM teacher environment in .venv-vllm.
++ 		python312
+++		# Local GGUF teacher server. Vulkan reaches both the NVIDIA and AMD GPUs.
+++		(llama-cpp.override { vulkanSupport = true; })
++ 		uv
++ 		bun
++ 		# Native compilation for Python extensions.
++diff --git a/docs/evaluation.md b/docs/evaluation.md
++index 7299d51e..44f39603 100644
++--- a/docs/evaluation.md
+++++ b/docs/evaluation.md
++@@ -23,7 +23,7 @@ The benign suite should cover casual users, specialists, broad researchers, batc
++ ## Prepare and deploy
++ 
++ 1. Enter `devenv shell`, configure `.env` from `.env.example`, and run `just setup`.
++-2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host.
+++2. Serve an OpenAI-compatible teacher. For the historical teacher, install vLLM separately and run `vllm serve Qwen/Qwen3.5-9B --revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --host 127.0.0.1 --port 8001 --language-model-only --default-chat-template-kwargs '{"enable_thinking": false}'`. Select quantization and hardware settings appropriate to the host. On a host too small for vLLM, `just teacher-gguf` serves a quantized GGUF through `llama-server` on the same upstream port, using the Vulkan build from `devenv.nix`. Its settings are `TEACHER_GGUF`, `TEACHER_GGUF_CONTEXT`, `TEACHER_GGUF_SLOTS` and `TEACHER_GGUF_GPU_LAYERS`. A GGUF teacher is a different model and serving stack from the historical one, so record its file hash in `TEACHER_MODEL_REVISION`, set `CONCURRENCY` to at most its slot count, re-pass the headroom gate and do not compare its results directly with other teachers.
++ 3. Run `just teacher`, then verify its health and authenticated generation. Set the teacher review identifier and credentials as needed.
++ 4. Build each domain pool with `uv run --extra eval distill tasks build --task ag_news`, and repeat for `squad`, `gsm8k`, and `coding`. Dataset downloads and the coding sandbox have their own resource requirements. Use pinned dataset revisions and keep source groups disjoint. Check that each role covers the intended topics: the benign generators select prompts by category deficit against each domain pool, then group specialist account streams into topic-ordered blocks. The role manifest records per-domain pool and used category counts, topic coverage and maximum share deviation; require each category share to be within 3 percentage points of its pool. Coverage uses distinct prompts so repetition does not inflate it. Do not treat a larger pool alone as evidence of representative traffic.
++ 	AG News, SQuAD, and GSM8K use `data/news`, `data/question_answering`, and `data/math` by default. Their task identifiers remain `ag_news`, `squad`, and `gsm8k` in commands and request records. Use a separate `--output-dir` for builds with different seeds to avoid overwriting an existing pool, and pass its parent with `--tasks-dir` when generating schedules. Pools are built locally and are not committed; `data/` is ignored.
++diff --git a/justfile b/justfile
++index 95ddbd59..bb87768e 100644
++--- a/justfile
+++++ b/justfile
++@@ -13,6 +13,10 @@ setup:
++ setup-eval:
++ 	uv sync --frozen --all-packages --extra eval --extra embed
++ 
+++# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
+++teacher-gguf *args:
+++	bash scripts/teacher-gguf.sh "$@"
+++
++ # Start the teacher adapter; the upstream model server must already be available.
++ teacher:
++ 	uv run --frozen teacher-api
++diff --git a/scripts/teacher-gguf.sh b/scripts/teacher-gguf.sh
++new file mode 100644
++index 00000000..78242643
++--- /dev/null
+++++ b/scripts/teacher-gguf.sh
++@@ -0,0 +1,14 @@
+++#!/usr/bin/env bash
+++# Serve a quantized GGUF teacher through llama-server on the port the study checks for vLLM.
+++# Settings come from the environment; extra arguments are passed to llama-server.
+++set -euo pipefail
+++
+++MODEL=${TEACHER_GGUF:-$HOME/.lmstudio/models/lmstudio-community/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf}
+++[ -f "$MODEL" ] || { echo "no GGUF teacher at $MODEL; set TEACHER_GGUF" >&2; exit 1; }
+++
+++# llama-server divides the context between slots, so each slot gets CONTEXT / SLOTS tokens.
+++exec llama-server --model "$MODEL" \
+++	--alias "${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}" \
+++	--host 127.0.0.1 --port "${VLLM_PORT:-8001}" \
+++	--ctx-size "${TEACHER_GGUF_CONTEXT:-8192}" --parallel "${TEACHER_GGUF_SLOTS:-2}" \
+++	--n-gpu-layers "${TEACHER_GGUF_GPU_LAYERS:-99}" --jinja "$@"
+diff --git a/readings/v7/provenance/20261105T193323Z/git-status.txt b/readings/v7/provenance/20261105T193323Z/git-status.txt
+new file mode 100644
+index 00000000..a4b5796c
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/git-status.txt
+@@ -0,0 +1,4 @@
++ M devenv.nix
++ M docs/evaluation.md
++ M justfile
++ A scripts/teacher-gguf.sh
+diff --git a/readings/v7/provenance/20261105T193323Z/hardware.txt b/readings/v7/provenance/20261105T193323Z/hardware.txt
+new file mode 100644
+index 00000000..8869446b
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/hardware.txt
+@@ -0,0 +1,28 @@
++24
++               total        used        free      shared  buff/cache   available
++Mem:              14           3           2           0           9          11
++Swap:             23           0          23
++Fri Nov  6 01:03:24 2026       
+++-----------------------------------------------------------------------------------------+
++| NVIDIA-SMI 595.112.07             Driver Version: 595.112.07     CUDA Version: 13.2     |
+++-----------------------------------------+------------------------+----------------------+
++| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
++| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
++|                                         |                        |               MIG M. |
++|=========================================+========================+======================|
++|   0  NVIDIA GeForce RTX 4060 ...    Off |   00000000:65:00.0  On |                  N/A |
++| N/A   52C    P8              4W /   55W |    6057MiB /   8188MiB |      0%      Default |
++|                                         |                        |                  N/A |
+++-----------------------------------------+------------------------+----------------------+
++
+++-----------------------------------------------------------------------------------------+
++| Processes:                                                                              |
++|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
++|        ID   ID                                                               Usage      |
++|=========================================================================================|
++|    0   N/A  N/A            2095      G   ...axx3sj1jy-niri-26.04/bin/niri         89MiB |
++|    0   N/A  N/A            2137      G   ...per-user/rajveer/bin/noctalia        209MiB |
++|    0   N/A  N/A            2302    C+G   ...rack-uuid=3190708988185955192        257MiB |
++|    0   N/A  N/A            2309      G   Xwayland                                  2MiB |
++|    0   N/A  N/A            4298    C+G   llama-server                           5294MiB |
+++-----------------------------------------------------------------------------------------+
+diff --git a/readings/v7/provenance/20261105T193323Z/packages.txt b/readings/v7/provenance/20261105T193323Z/packages.txt
+new file mode 100644
+index 00000000..8fa46474
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/packages.txt
+@@ -0,0 +1 @@
++Using Python 3.14.7 environment at: /nix/store/lb41b0anx1f98y9y5s9mdv97gjgsq740-python3-3.14.7
+diff --git a/readings/v7/provenance/20261105T193323Z/python.txt b/readings/v7/provenance/20261105T193323Z/python.txt
+new file mode 100644
+index 00000000..06144ee7
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/python.txt
+@@ -0,0 +1,3 @@
++Installed 49 packages in 251ms
++3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 16.2.0]
++Linux-7.3.1-x86_64-with-glibc2.44
+diff --git a/readings/v7/provenance/20261105T193323Z/uv.lock.sha256 b/readings/v7/provenance/20261105T193323Z/uv.lock.sha256
+new file mode 100644
+index 00000000..2ec026e2
+--- /dev/null
++++ b/readings/v7/provenance/20261105T193323Z/uv.lock.sha256
+@@ -0,0 +1 @@
++d5972c51e1dedf708bd223f8011dedb24a33f39f1b01cdaf43fea4766a29b5c8  uv.lock
+diff --git a/readings/v7/provenance/corpus-ag_news.manifest.json b/readings/v7/provenance/corpus-ag_news.manifest.json
+new file mode 100644
+index 00000000..02dbaccc
+--- /dev/null
++++ b/readings/v7/provenance/corpus-ag_news.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:929f79c5cd2fc36925352a4caf7bce18a22586cc4e10cd7640131e58d47dd4a6
++size 2419
+diff --git a/readings/v7/provenance/corpus-coding.manifest.json b/readings/v7/provenance/corpus-coding.manifest.json
+new file mode 100644
+index 00000000..f31efbae
+--- /dev/null
++++ b/readings/v7/provenance/corpus-coding.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:701cde5c7e0eb3f11ef6a1ceae4f644b3739b61964d8e064990e845fb11dbd84
++size 5334
+diff --git a/readings/v7/provenance/corpus-gsm8k.manifest.json b/readings/v7/provenance/corpus-gsm8k.manifest.json
+new file mode 100644
+index 00000000..e52dbda7
+--- /dev/null
++++ b/readings/v7/provenance/corpus-gsm8k.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:fe24608429ccc6f5c2c70c766d0934c08bdad50b9985e97578e6ff3fc798a251
++size 2344
+diff --git a/readings/v7/provenance/corpus-squad.manifest.json b/readings/v7/provenance/corpus-squad.manifest.json
+new file mode 100644
+index 00000000..739292b5
+--- /dev/null
++++ b/readings/v7/provenance/corpus-squad.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:9a904371e239471fe40cc13d33b20a0476e3cddddedeec95d75ff0955c4c3a84
++size 2391
+diff --git a/readings/v7/provenance/external-ag_news.manifest.json b/readings/v7/provenance/external-ag_news.manifest.json
+new file mode 100644
+index 00000000..84e75dc1
+--- /dev/null
++++ b/readings/v7/provenance/external-ag_news.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:c90bd9e89a13c85da744c7deb2706e3f918801fbc11112f44e3862b45d5f7e49
++size 677
+diff --git a/readings/v7/provenance/external-coding.manifest.json b/readings/v7/provenance/external-coding.manifest.json
+new file mode 100644
+index 00000000..45b8e90b
+--- /dev/null
++++ b/readings/v7/provenance/external-coding.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:2828856db9bfd436facc4e3aae85376f5364d77c4d046900172716e0be8cafad
++size 677
+diff --git a/readings/v7/provenance/external-gsm8k.manifest.json b/readings/v7/provenance/external-gsm8k.manifest.json
+new file mode 100644
+index 00000000..c50274dc
+--- /dev/null
++++ b/readings/v7/provenance/external-gsm8k.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:e0bf24592937b5a250453f4af7dee03631ea7af010a35477e966918a676cb823
++size 633
+diff --git a/readings/v7/provenance/external-squad.manifest.json b/readings/v7/provenance/external-squad.manifest.json
+new file mode 100644
+index 00000000..dccecd14
+--- /dev/null
++++ b/readings/v7/provenance/external-squad.manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:5bf06e0d03d165be2c33e9ab3ffee418f3a58208f0b09a9759aafdac856e2116
++size 637
+diff --git a/readings/v7/schedules/A1/manifest.json b/readings/v7/schedules/A1/manifest.json
+new file mode 100644
+index 00000000..f16ef5cb
+--- /dev/null
++++ b/readings/v7/schedules/A1/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:41f04418412919c4c42964504fd77afb3906697dc38ee8be5aa3f77a4fc8e9fe
++size 3177
+diff --git a/readings/v7/schedules/A2/manifest.json b/readings/v7/schedules/A2/manifest.json
+new file mode 100644
+index 00000000..dd7264b8
+--- /dev/null
++++ b/readings/v7/schedules/A2/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:3ba288d145f5af5cbb3ff816980ba922e7a42a0cf9e637043eef157d90a3e3f9
++size 3177
+diff --git a/readings/v7/schedules/A3/manifest.json b/readings/v7/schedules/A3/manifest.json
+new file mode 100644
+index 00000000..9739d897
+--- /dev/null
++++ b/readings/v7/schedules/A3/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:dddd12f1f6d98a8fa13240c3b29c2166ac2051792d6dad83f783b6102ef4efe4
++size 4082
+diff --git a/readings/v7/schedules/A5/manifest.json b/readings/v7/schedules/A5/manifest.json
+new file mode 100644
+index 00000000..c37cd3ec
+--- /dev/null
++++ b/readings/v7/schedules/A5/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:77e6a239bfc5b0896545a678a9d7fb1a72be965afa8a491339ca27f3579d8814
++size 3460
+diff --git a/readings/v7/schedules/A6/manifest.json b/readings/v7/schedules/A6/manifest.json
+new file mode 100644
+index 00000000..fb68f7e4
+--- /dev/null
++++ b/readings/v7/schedules/A6/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:05e357c5a058d0a910b21972f96191e84370427c982d0f56449fb6b2f4437485
++size 3676
+diff --git a/readings/v7/schedules/A7/manifest.json b/readings/v7/schedules/A7/manifest.json
+new file mode 100644
+index 00000000..30b8960d
+--- /dev/null
++++ b/readings/v7/schedules/A7/manifest.json
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:913ed2a770b9100b5b3e39044d72a91b515a4e9eac5cd48d55e2b0cdaba4a9de
++size 3701
+diff --git a/readings/v7/steps.tsv b/readings/v7/steps.tsv
+new file mode 100644
+index 00000000..2aa4d633
+--- /dev/null
++++ b/readings/v7/steps.tsv
+@@ -0,0 +1,25 @@
++2026-11-05T17:45:58Z	setup	0	0
++2026-11-05T17:46:12Z	corpus-ag_news	0	14
++2026-11-05T17:46:17Z	external-ag_news	0	5
++2026-11-05T17:46:33Z	corpus-squad	0	15
++2026-11-05T17:46:51Z	external-squad	0	18
++2026-11-05T17:46:56Z	corpus-gsm8k	0	5
++2026-11-05T17:47:01Z	external-gsm8k	0	5
++2026-11-06T06:46:35Z	corpus-coding	0	40390
++2026-11-06T06:46:57Z	external-coding	0	22
++2026-11-06T06:47:05Z	benign-fitting	0	7
++2026-11-06T06:47:06Z	detector-fitting	0	1
++2026-11-06T06:47:13Z	benign-score_calibration	0	7
++2026-11-06T06:47:14Z	detector-score_calibration	0	1
++2026-11-06T06:47:27Z	benign-policy_calibration	0	13
++2026-11-06T06:47:28Z	detector-policy_calibration	0	1
++2026-11-06T06:47:35Z	benign-benign_test	0	7
++2026-11-06T06:47:36Z	detector-benign_test	0	1
++2026-11-06T07:49:11Z	calibrate	0	3695
++2026-11-06T07:49:12Z	adequacy	0	1
++2026-11-06T07:49:13Z	schedule-A1	0	1
++2026-11-06T07:49:14Z	schedule-A2	0	1
++2026-11-06T07:49:21Z	schedule-A3	0	7
++2026-11-06T07:49:22Z	schedule-A5	0	1
++2026-11-06T07:49:23Z	schedule-A6	0	1
++2026-11-06T07:49:29Z	schedule-A7	0	6
+diff --git a/readings/v7/summary.tsv b/readings/v7/summary.tsv
+new file mode 100644
+index 00000000..0eb10c64
+--- /dev/null
++++ b/readings/v7/summary.tsv
+@@ -0,0 +1 @@
++attack	arm	outcome
+diff --git a/scripts/study.sh b/scripts/study.sh
+index 4311f532..97e9857f 100755
+--- a/scripts/study.sh
++++ b/scripts/study.sh
+@@ -257,7 +257,7 @@ for attack in $ATTACKS; do
+ done
+ 
+ # 6. Teacher: reuse a healthy one, otherwise start vLLM and the teacher API.
+-if curl -fsS "$TEACHER_URL/healthz" > /dev/null 2>&1; then
++if curl -fsS "$TEACHER_URL/healthz" 2> /dev/null | grep -q '"ready"'; then
+ 	note "using the teacher API already serving at $TEACHER_URL"
+ else
+ 	if ! curl -fsS "http://127.0.0.1:$VLLM_PORT/health" > /dev/null 2>&1; then
+@@ -278,7 +278,7 @@ else
+ 	TEACHER_UPSTREAM_BASE_URL=http://127.0.0.1:$VLLM_PORT/v1 "${UV[@]}" teacher-api \
+ 		>> "$LOGS/teacher-api.log" 2>&1 &
+ 	PIDS+=($!)
+-	wait_http "$TEACHER_URL/healthz" "" 300 $! || finish 1 "teacher API did not start"
++	wait_http "$TEACHER_URL/healthz" '"ready"' 300 $! || finish 1 "teacher API not ready; check TEACHER_TERMS_REVIEW_ID"
+ fi
+ note "teacher ready"
+ CONTACTED=1
+diff --git a/scripts/teacher-gguf.sh b/scripts/teacher-gguf.sh
+new file mode 100644
+index 00000000..d45729ba
+--- /dev/null
++++ b/scripts/teacher-gguf.sh
+@@ -0,0 +1,14 @@
++#!/usr/bin/env bash
++# Serve a quantized GGUF teacher through llama-server on the port the study checks for vLLM.
++# Settings come from the environment; extra arguments are passed to llama-server.
++set -euo pipefail
++
++MODEL=${TEACHER_GGUF:-$HOME/.lmstudio/models/lmstudio-community/Qwen3.5-9B-GGUF/Qwen3.5-9B-Q4_K_M.gguf}
++[ -f "$MODEL" ] || { echo "no GGUF teacher at $MODEL; set TEACHER_GGUF" >&2; exit 1; }
++
++# llama-server divides the context between slots, so each slot gets CONTEXT / SLOTS tokens.
++exec llama-server --model "$MODEL" \
++	--alias "${TEACHER_UPSTREAM_MODEL:-Qwen/Qwen3.5-9B}" \
++	--host 127.0.0.1 --port "${VLLM_PORT:-8001}" \
++	--ctx-size "${TEACHER_GGUF_CONTEXT:-8192}" --parallel "${TEACHER_GGUF_SLOTS:-2}" \
++	--device "${TEACHER_GGUF_DEVICE:-Vulkan0}" --n-gpu-layers "${TEACHER_GGUF_GPU_LAYERS:-99}" --jinja "$@"

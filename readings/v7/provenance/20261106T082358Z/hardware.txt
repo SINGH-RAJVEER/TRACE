@@ -1,0 +1,32 @@
+24
+               total        used        free      shared  buff/cache   available
+Mem:              14           9           0           0           4           5
+Swap:             23           3          20
+Fri Nov  6 13:53:58 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.112.07             Driver Version: 595.112.07     CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 4060 ...    Off |   00000000:65:00.0  On |                  N/A |
+| N/A   55C    P8              6W /   42W |    6893MiB /   8188MiB |     19%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            2095      G   ...axx3sj1jy-niri-26.04/bin/niri        171MiB |
+|    0   N/A  N/A            2137      G   ...per-user/rajveer/bin/noctalia         87MiB |
+|    0   N/A  N/A            2302    C+G   ...rack-uuid=3190708988185955192        275MiB |
+|    0   N/A  N/A            2309      G   Xwayland                                  2MiB |
+|    0   N/A  N/A            4298    C+G   llama-server                           5324MiB |
+|    0   N/A  N/A          255289      G   ...per-user/rajveer/bin/zen-beta        209MiB |
+|    0   N/A  N/A          749528      G   ...9.0/bin/.thunderbird-wrapped_        228MiB |
+|    0   N/A  N/A          751926    C+G   ...rack-uuid=3190708988185955192         98MiB |
+|    0   N/A  N/A          778923    C+G   ...ser/rajveer/bin/missioncenter         78MiB |
++-----------------------------------------------------------------------------------------+
