@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from harness_api.output_policy import OutputPolicy
+
 
 class Settings(BaseSettings):
 	model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -115,6 +117,9 @@ class Settings(BaseSettings):
 		default=False, alias="HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT"
 	)
 
+	# Opt-in JSON: replace the teacher's draft before release. See docs/harness.md.
+	output_policy: OutputPolicy | None = Field(default=None, alias="HARNESS_OUTPUT_POLICY")
+
 	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
 	# only: no level, action, or response depends on them. Not part of the policy revision.
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
@@ -186,4 +191,37 @@ class Settings(BaseSettings):
 			)
 		if (self.rolling_supervision_budget is None) != (self.supervision_weights_file is None):
 			raise ValueError("supervision budget and weights file must be configured together")
+		if self.output_policy is not None:
+			self._validate_output_policy(self.output_policy)
 		return self
+
+	def _validate_output_policy(self, output: OutputPolicy) -> None:
+		domains = set(self.gateway_caps) if self.task == "gateway" else {self.task}
+		if not domains & set(output.tasks):
+			raise ValueError(
+				f"HARNESS_OUTPUT_POLICY declares {list(output.tasks)}, but this service serves "
+				f"{sorted(domains)}, so no request would be protected"
+			)
+		if not self.tokenizer_model:
+			raise ValueError(
+				"HARNESS_OUTPUT_POLICY requires HARNESS_TOKENIZER_MODEL: released text is built "
+				"by the server, so no teacher usage count describes it"
+			)
+		if (
+			self.policy == "mmd"
+			and self.l4_action == "deceive"
+			and (self.policy_version == "legacy-v1")
+		):
+			raise ValueError(
+				"HARNESS_OUTPUT_POLICY cannot be combined with L4 deception: noise is shaped "
+				"like unmodified teacher output, so it would be told apart; set "
+				"HARNESS_L4_ACTION=refuse"
+			)
+		if (
+			self.in_flight_limit is not None
+			and self.reservation_lease_seconds
+			< self.timeout_seconds + (output.rewrite_timeout_seconds or 0)
+		):
+			raise ValueError(
+				"HARNESS_RESERVATION_LEASE_SECONDS must cover the draft and rewrite timeouts"
+			)

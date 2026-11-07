@@ -89,6 +89,19 @@ def squad_f1(item: BenchmarkItem, response: str) -> float:
 	return best
 
 
+def numeric_answer(answer: str) -> str | None:
+	"""The normalized value of one numeric answer, or None if it is anything else."""
+	answer = answer.strip().removesuffix(".")
+	# Accept a currency sign before the digits, as in "#### $18" or "#### -$18".
+	answer = re.sub(r"^([-+]?)\$", r"\1", answer)
+	if not re.fullmatch(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", answer):
+		return None
+	try:
+		return str(Decimal(answer.replace(",", "")).normalize())
+	except InvalidOperation:
+		return None
+
+
 def extract_answer(item: BenchmarkItem, response: str) -> str | None:
 	if item.metric == "label_accuracy":
 		answer = response.strip().strip("\"'").rstrip(".").strip().casefold()
@@ -97,15 +110,7 @@ def extract_answer(item: BenchmarkItem, response: str) -> str | None:
 		return squad_normalize(response) or None
 	if item.metric == "numeric_exact_match":
 		# A bare numeric answer is valid too; never guess using the last number in a rationale.
-		answer = response.rsplit("####", 1)[-1].strip().removesuffix(".")
-		# Accept a currency sign before the digits, as in "#### $18" or "#### -$18".
-		answer = re.sub(r"^([-+]?)\$", r"\1", answer)
-		if not re.fullmatch(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", answer):
-			return None
-		try:
-			return str(Decimal(answer.replace(",", "")).normalize())
-		except InvalidOperation:
-			return None
+		return numeric_answer(response.rsplit("####", 1)[-1])
 	raise ValueError("coding responses require the sandboxed evaluate_answer path")
 
 

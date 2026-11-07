@@ -88,6 +88,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 				f"coverage={coverage}; "
 				f"lifetime={campaign.lifetime.version if campaign.lifetime else 'disabled'}"
 			)
+			if settings.output_policy is not None:
+				print(
+					f"Output policy {settings.output_policy.digest}; "
+					f"mode={settings.output_policy.mode}; "
+					f"fallback={settings.output_policy.fallback}; qualified=false"
+				)
 			if args.command == "validate":
 				print(
 					"Launch settings and prerequisite paths checked; "

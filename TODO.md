@@ -160,6 +160,8 @@ Completion evidence: an independent report establishes what the detector adds be
 
 Completion evidence: actual teacher/GPU results support any claim about reduced learned capability. Existing fixture coverage and checkpoint plumbing alone support no prevention claim. See [checkpoints.md](docs/checkpoints.md) and [restoration boundaries](docs/distillation-defense-plan.md).
 
+Implementation note for T2.7/T4.2: opt-in attributed collection now records 429 policy restrictions by cause, charges rejected submissions and retry-after waits to the attacker, retains campaign evidence, exports campaign intervention bounds and binds the campaign configuration and observed policy revision. `scripts/study.sh` has opt-in `campaign-observe` and `campaign-throttle` arms. This is CPU-tested tooling with mock gateways; no arm has run live, so these items stay open. See [Measuring a campaign arm](docs/evaluation.md#measuring-a-campaign-arm).
+
 ## T5. Live operating and performance qualification
 
 - [ ] T5.1 Benchmark encoder and scorer overhead, p50/p95/p99 API latency, sustained throughput, storage growth and memory on target hardware. Exercise maximum supported campaigns, tenants and idle-state retention.
@@ -169,6 +171,8 @@ Completion evidence: actual teacher/GPU results support any claim about reduced 
 - [ ] T5.5 Keep local fixture checks, replay/development studies, live teacher collection, GPU student outcomes, customer pilots and deployment activation as separate evidence states in the release record.
 
 Completion evidence: measured costs fit D0 budgets, the supported deployment topology is explicit and failures have exercised recovery paths.
+
+WP4 implementation note: development-grid plan/execute/match now supports explicit runner injection, fresh per-setting state, verified resume and measured-row quota matching. CPU fixtures cover these contracts; live grid collection and held-out confirmation remain open, so T3.4/T3.5 are not marked complete.
 
 ## C1. Follow-on cross-account coordination
 
@@ -246,3 +250,7 @@ Completion evidence: a customer can trace each security claim to its scope, test
 | NIST/OWASP/ATLAS/ISO scope and evidence limits | S1 and G1 | Traceable controls, red-team evidence and bounded product claims |
 
 Implementation note for D1.2/D1.6/D2.3/D3.3/D4.3: WP2 adds versioned bounded coverage state, opt-in campaign/API wiring, exact domain/prefix-scheduled whole-campaign maxima, an offline CPU-fixture calibration path, and durable cooldown counters with explicit capped escalation. Null extensions preserve legacy configuration digests and evidence. Finite coverage state survives cooldown expiry without silently renewing its statistical horizon. Independent benign audits, domain validation, operational retention and lifetime budgets, volume/topic-order comparisons, and teacher/student effectiveness evidence remain open. No checkbox is completed by these fixture results.
+
+WP4 C1 baseline note: offline `harness link-accounts` implements bounded rare-template overlap plus timing corroboration with provenance. CPU fixtures cover split sweeps, public benchmarks, timing without overlap, mixed proxies and determinism. No spectral method, independent cluster null, enforcement, identity-truth qualification or measured performance is claimed; C1.1-C1.5 remain open.
+
+Implementation note for C3.5 and the output prevention candidate: WP3 restores the cached `distill output-study` stack and adds opt-in `HARNESS_OUTPUT_POLICY` at the gateway's release boundary, with CPU fixture coverage only. No checkbox is completed. It has never run on a real teacher or student, measures no suppression or legitimate-user impact, leaves correct answers available as training data, and changes the product for every client when always on.

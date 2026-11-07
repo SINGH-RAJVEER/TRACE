@@ -305,9 +305,13 @@ class Transaction(Protocol):
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int: ...
 	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]: ...
 	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None: ...
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None: ...
 
 
 class StateStore(Protocol):
+	def enable_output_receipts(self) -> None: ...
 	def bind_campaign(self, config_hash: str) -> None: ...
 	def bind_path(self, calibration_hash: str) -> None: ...
 
@@ -405,6 +409,11 @@ def _settled(
 
 
 class _MemoryTransaction:
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None:
+		self.store.output_receipts.setdefault(key, (account, now, copy.deepcopy(receipt)))
+
 	def campaign(self, key: str) -> dict[str, Any] | None:
 		return copy.deepcopy(self.store.campaigns.get(key))
 
@@ -549,6 +558,10 @@ class MemoryStore:
 		self._path_binding: str | None = None
 		self._campaign_binding: str | None = None
 		self.campaigns: dict[str, dict[str, Any]] = {}
+		self.output_receipts: dict[str, tuple[str, float, dict[str, Any]]] = {}
+
+	def enable_output_receipts(self) -> None:
+		pass
 
 	def bind_campaign(self, config_hash: str) -> None:
 		with self._lock:
@@ -576,6 +589,7 @@ class MemoryStore:
 					self.aggregate_windows,
 					self.aggregate_alerts,
 					self.campaigns,
+					self.output_receipts,
 				)
 			)
 			try:
@@ -591,6 +605,7 @@ class MemoryStore:
 					self.aggregate_windows,
 					self.aggregate_alerts,
 					self.campaigns,
+					self.output_receipts,
 				) = snapshot
 				raise
 
@@ -734,6 +749,14 @@ def _outcome(text: str | None) -> Outcome | None:
 
 
 class _SQLiteTransaction:
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None:
+		self.db.execute(
+			"INSERT OR IGNORE INTO output_receipts VALUES (?, ?, ?, ?)",
+			(key, account, now, json.dumps(receipt, allow_nan=False)),
+		)
+
 	def campaign(self, key: str) -> dict[str, Any] | None:
 		row = self.db.execute("SELECT state FROM campaign WHERE key = ?", (key,)).fetchone()
 		return None if row is None else json.loads(row[0])
@@ -1039,6 +1062,15 @@ class SQLiteStore:
 			from harness.review import initialize
 
 			initialize(self._db)
+
+	def enable_output_receipts(self) -> None:
+		"""Add the output policy's ledger. Without a policy the file's schema is unchanged."""
+		with self.transaction() as tx:
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS output_receipts ("
+				"key TEXT PRIMARY KEY, account TEXT NOT NULL, "
+				"settled_at REAL NOT NULL, receipt TEXT NOT NULL)"
+			)
 
 	def bind_campaign(self, config_hash: str) -> None:
 		with self.transaction() as tx:
