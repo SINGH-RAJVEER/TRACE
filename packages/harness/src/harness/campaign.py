@@ -14,6 +14,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from harness.campaign_coverage import CoverageConfig, advance_coverage, coverage_evidence
 from harness.corpus import shingles
 from harness.session_features import (
 	online_answer_only,
@@ -44,10 +45,19 @@ class SessionConfig(BaseModel):
 		return self
 
 
+class LifetimeConfig(BaseModel):
+	model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
+	version: Literal["campaign-lifetime-v1"] = "campaign-lifetime-v1"
+	escalation_factor: float = Field(default=1.0, ge=1, le=100)
+	cooldown_cap_seconds: float = Field(default=31536000.0, gt=0, le=31536000)
+
+
 class CampaignConfig(BaseModel):
 	model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False, frozen=True)
 	version: Literal["campaign-v2"] = "campaign-v2"
 	session: SessionConfig | None = None
+	coverage: CoverageConfig | None = None
+	lifetime: LifetimeConfig | None = None
 	namespace: str = Field(min_length=1, max_length=256)
 	window_size: int = Field(default=128, ge=1, le=512)
 	min_samples: int = Field(default=16, ge=1, le=512)
@@ -60,6 +70,11 @@ class CampaignConfig(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_bounds(self) -> Self:
+		if (
+			self.coverage is not None
+			and self.coverage.monitor.max_text_chars != self.max_text_chars
+		):
+			raise ValueError("coverage character bound differs from campaign")
 		if self.min_samples > self.window_size or not self.namespace.strip():
 			raise ValueError("invalid campaign bounds or namespace")
 		return self
@@ -69,7 +84,12 @@ class CampaignConfig(BaseModel):
 		return hashlib.sha256(
 			json.dumps(
 				self.model_dump(
-					mode="json", exclude={"session"} if self.session is None else set()
+					mode="json",
+					exclude={
+						name
+						for name in ("session", "coverage", "lifetime")
+						if getattr(self, name) is None
+					},
 				),
 				sort_keys=True,
 				separators=(",", ":"),
@@ -250,6 +270,8 @@ def observe_campaign(
 				prepared.lexical_complete,
 			]
 		)
+	if config.coverage is not None:
+		fingerprint_inputs.append(semantic_complete)
 	fingerprint = hashlib.sha256(
 		json.dumps(
 			fingerprint_inputs,
@@ -459,9 +481,58 @@ def observe_campaign(
 			extra_reasons.append("semantic_evidence_incomplete")
 		if control < 1:
 			extra_reasons.append("legitimate_workflow_control")
+	coverage_hit = False
+	if config.coverage is not None:
+		coverage_state = state.get("coverage", {})
+		if domain == config.coverage.monitor.domain and not active:
+			try:
+				coverage_state = advance_coverage(
+					config.coverage.monitor,
+					coverage_state,
+					embedding,
+					semantic_complete is True
+					and (identity is None or identity == text_identity(text)),
+				)
+			except ValueError as exc:
+				raise CampaignError(str(exc)) from exc
+			state["coverage"] = coverage_state
+		coverage_result = coverage_evidence(config.coverage, coverage_state, domain)
+		coverage_hit = coverage_result["alert"] and not state.get("coverage_triggered", False)
+		if config.lifetime is not None and config.lifetime.escalation_factor > 1:
+			coverage_hit = coverage_result["alert"]
+		if coverage_hit:
+			extra_reasons.append("calibrated_coverage_maximum")
+		extra_components["coverage"] = coverage_result
+		alert = alert or coverage_hit
+		enforceable = enforceable or coverage_hit
 	until = state["until"] if active else None
 	if enforceable and until is None and config.mode == "throttle":
-		until = now + config.cooldown_seconds
+		duration = config.cooldown_seconds
+		if config.lifetime is not None:
+			factor = config.lifetime.escalation_factor
+			cap = config.lifetime.cooldown_cap_seconds
+			previous = state.get("cooldown_count", 0)
+			duration = min(duration, cap)
+			if factor > 1 and duration < cap:
+				duration = (
+					cap
+					if previous * math.log(factor) >= math.log(cap / duration)
+					else duration * factor**previous
+				)
+		until = now + duration
+		if coverage_hit:
+			state["coverage_triggered"] = True
+		if config.lifetime is not None:
+			state["cooldown_count"] = state.get("cooldown_count", 0) + 1
+	if config.lifetime is not None:
+		state["admitted_attempts"] = state.get("admitted_attempts", 0) + int(
+			not active and until is None
+		)
+		extra_components["lifetime"] = {
+			"version": config.lifetime.version,
+			"cooldown_count": state.get("cooldown_count", 0),
+			"cumulative_admitted_attempts": state["admitted_attempts"],
+		}
 	result = {
 		"version": config.version,
 		"config_sha256": config.digest,
@@ -478,7 +549,7 @@ def observe_campaign(
 					if config.session is not None
 					else "repeated_independent_templates_and_lexical_overlap"
 				]
-				if alert
+				if alert and not coverage_hit
 				else []
 			)
 			+ (["exact_repeats_not_enforced"] if alert and not enforceable else [])

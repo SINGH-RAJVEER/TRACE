@@ -145,3 +145,37 @@ Verification on 2026-11-05 passed the full 386-test repository suite and `just c
 The heuristic can confuse legitimate templated evaluation or labeling with collection and can miss varied prompts or disguised follow-ups. Lexical normalization and follow-up rules need multilingual and adversarial evaluation. Existing conditional MMD, calibrated coverage/session evidence and finite-path calibration are not automatically integrated or qualified by this new rule. Do not present the product roadmap's full D0-D6 scope as completed.
 
 Before supported enforcement, implement independently calibrated whole-campaign decision thresholds, representative legitimate cohorts, adaptive final-answer collection tests, measured quota comparisons, incident investigation and live checkpoint student experiments. Cross-account corroboration, learned classifiers, protected-reasoning channels, durable asynchronous queues and tenant administration remain separate work. See the [research report](<reports/Distillation detection methods and standards.md>) for method applicability and the [evaluation protocol](evaluation.md) for evidence boundaries.
+
+## Opt-in finite coverage monitor and lifetime record
+
+WP2 adds `coverage` and `lifetime` members to campaign configuration. Both default to null and are omitted from the canonical digest when null, preserving historical v2 and semantic-session-v2 digests, evidence and state binding. Each enabled member changes the digest. Use a new state database for a changed configuration. Every result remains `qualified: false`.
+
+`coverage.monitor` declares version `campaign-coverage-v1`, a `CoverageSpec` under `spec`, the stable `encoder_identity`, one supported `domain`, the serving `max_text_chars`, increasing exact request prefixes in `looks`, and EWMA gain scales in `scales`. The projection defaults to 64 dimensions. Every complete embedding is normalized and projected to norm at most one, then updates a ridge inverse with Sherman-Morrison. Each request costs O(d² + dD), where d is projection width and D is embedding width; the persisted sketch costs O(d²) and retains no prefix embeddings. Existing recent-window semantic rows remain separately bounded. Internal admission-store snapshots use quadratic shape, finiteness, symmetry and diagonal checks; external `restore()` also checks positive definiteness. Admission storage is trusted, and administrative state edits are unsupported.
+
+For example, a monitor JSON can declare:
+
+```json
+{
+	"version": "campaign-coverage-v1",
+	"spec": {"seed": 42, "input_dim": 384, "dim": 64, "ridge": 1.0},
+	"encoder_identity": {"model": "replace-with-actual-stable-identity"},
+	"domain": "text",
+	"max_text_chars": 4096,
+	"looks": [16, 32, 64, 128],
+	"scales": [8, 32]
+}
+```
+
+Coverage is a geometric proxy, not mutual information or predicted student learning. The score is a maximum of EWMA marginal gains at declared looks, never cumulative coverage as a volume threshold. Calibration and runtime use the identical domain, prefix schedule, scales, projection, encoder and character bound. Other domains abstain and do not advance the supported domain's prefix. This version supports one declared domain per configuration; it does not pool domain nulls or search an undeclared collection of domains.
+
+A missing, character-truncated, token-truncated or unknown-completeness embedding makes the entire domain prefix ineligible for ranks. Later valid vectors cannot repair the missing prefix. Evidence explicitly reports `missing_embedding_prefix`; it supplies neither a substituted vector nor a zero-gain observation. Serving reuses the existing bounded encoder path outside the admission transaction, including tokenizer completeness checks. There is no extra teacher call.
+
+Build a new calibration with `uv run harness campaign-coverage-calibrate --monitor MONITOR.json --campaigns BENIGN.jsonl --output COVERAGE.json --embeddings CACHE.npz --alpha 0.01`. The cache uses the existing CLI's SHA-256 text keys and vectors, and its exact identity must match the monitor. Without `--embeddings`, the command uses an encoder on CPU by default and requires tokenizer completeness. Each account in the request file is one independent benign campaign, in file order, containing exactly the last declared prefix length, all in the declared domain. The caller must establish benign provenance, independence and that domain assignment; the command cannot establish these from text. Input is the raw user turn, matching serving serialization. Output is created exclusively.
+
+Set `coverage` to an object containing `monitor`, the complete output artifact under `calibration`, and the printed `calibration_sha256`. For observation without a null, set only `monitor`. The digest binds the artifact contents, its monitor and alpha; mismatches refuse configuration. Existing path-policy artifacts and legacy calibration formats are unchanged.
+
+Calibration stores one maximum per benign campaign over every declared scale and look. Runtime retains only the sketch, EWMA values, prefix position and running maximum m. Its conservative tie-inclusive rank is `(1 + count(M_i >= m)) / (n + 1)`. It abstains if `1/(n+1) > alpha`, for an unsupported domain, for an incomplete prefix, before the first look, or after the finite horizon. A calibration artifact is required for coverage to start treatment, and API throttle mode still requires `HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true`. Alpha and example settings are development values, not validated thresholds. Rank validity assumes exchangeable complete benign campaigns under the declared monitoring contract; this implementation has no independent benign audit.
+
+The finite coverage record persists across recent-window expiry, cooldown expiry and process restarts, atomically with campaign admission. It never renews its horizon or starts an additional statistical trial after cooldown. A previous coverage crossing cannot immediately rearm treatment by default. State stops growing at the horizon. There is no inactivity reset or automatic lifetime renewal.
+
+The separate `lifetime` member enables `campaign-lifetime-v1`, a durable cooldown count and `cumulative_admitted_attempts`, meaning unique observations that pass campaign admission, not completed teacher responses. The record survives recent-window and cooldown expiry. It does not count durable retries or blocked probes. Set `escalation_factor` above 1 to explicitly allow a retained calibrated crossing to rearm after cooldown and multiply cooldown duration by that factor for each prior cooldown, capped at `cooldown_cap_seconds`. Factor 1 preserves the fresh-window rule and does not rearm stale evidence. All cooldown starts count toward escalation, including heuristic starts. Escalation changes treatment duration, not the interpretation or qualification of the rank. Account deletion, retention administration, fleet cardinality limits, lifetime error budgeting beyond the finite horizon and independent operational validation remain open.

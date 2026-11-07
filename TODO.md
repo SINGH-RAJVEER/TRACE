@@ -244,3 +244,5 @@ Completion evidence: a customer can trace each security claim to its scope, test
 | Watermark/fingerprint/suspect-model inference | C4.5 separate attribution work | False attribution, spoofing, removal and quality tests |
 | Covert learning and observational limits | D0 scope, T1 same-transcript controls and C4.6 | Report indistinguishable and evading cases explicitly |
 | NIST/OWASP/ATLAS/ISO scope and evidence limits | S1 and G1 | Traceable controls, red-team evidence and bounded product claims |
+
+Implementation note for D1.2/D1.6/D2.3/D3.3/D4.3: WP2 adds versioned bounded coverage state, opt-in campaign/API wiring, exact domain/prefix-scheduled whole-campaign maxima, an offline CPU-fixture calibration path, and durable cooldown counters with explicit capped escalation. Null extensions preserve legacy configuration digests and evidence. Finite coverage state survives cooldown expiry without silently renewing its statistical horizon. Independent benign audits, domain validation, operational retention and lifetime budgets, volume/topic-order comparisons, and teacher/student effectiveness evidence remain open. No checkbox is completed by these fixture results.

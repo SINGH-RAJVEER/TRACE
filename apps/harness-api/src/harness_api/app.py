@@ -347,18 +347,22 @@ def create_app(
 	campaign = (
 		load_campaign_config(config.campaign_config) if config.campaign_config is not None else None
 	)
-	campaign_needs_embeddings = (
-		campaign is not None
-		and campaign.session is not None
-		and campaign.session.encoder_identity is not None
+	campaign_needs_embeddings = campaign is not None and (
+		campaign.coverage is not None
+		or (campaign.session is not None and campaign.session.encoder_identity is not None)
 	)
 	if campaign_needs_embeddings:
 		if encoder is None:
 			from harness.encoder import BGEEncoder
 
 			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
-		assert campaign is not None and campaign.session is not None
-		if encoder_contract(encoder.identity()) != campaign.session.encoder_identity:
+		assert campaign is not None
+		identities = []
+		if campaign.session is not None and campaign.session.encoder_identity is not None:
+			identities.append(campaign.session.encoder_identity)
+		if campaign.coverage is not None:
+			identities.append(campaign.coverage.monitor.encoder_identity)
+		if any(encoder_contract(encoder.identity()) != identity for identity in identities):
 			raise ValueError("campaign encoder representation differs from configured identity")
 	if (
 		campaign is not None
@@ -1513,7 +1517,7 @@ def create_app(
 			except Exception:
 				log.write("encoder_error", account=account, request_digest=digest)
 				return _error(503, "encoder_error", "encoder failed", None)
-		if campaign is not None and campaign.session is None:
+		if campaign is not None and campaign.session is None and campaign.coverage is None:
 			# Preserve v2 telemetry when the experimental extension is disabled.
 			campaign_embedding = embedding
 		if shadow is not None and embedding is None and encoder is not None:
