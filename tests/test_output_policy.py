@@ -569,3 +569,20 @@ def test_launcher_rejects_a_bad_policy_at_startup(
 	monkeypatch.setenv("HARNESS_POLICY", "allow")
 	settings = Settings(_env_file=None)  # type: ignore[call-arg]
 	assert settings.output_policy is not None and settings.output_policy.mode == "dense_locked"
+
+
+async def test_padded_copy_of_the_draft_is_never_released_or_retained(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	async def padded(request: TeacherGenerationRequest) -> TeacherGeneration:
+		padding = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron"
+		return generation(f"{padding} pi rho sigma tau upsilon {EXPLANATION}")
+
+	app, log, state = make_app(artifacts, tmp_path, Teacher(rewrite=padded))
+	headers = {"X-Benchmark-Actor": "a", "Idempotency-Key": "copy"}
+	async with client(app) as http:
+		response = await http.post(URL, json=question(), headers=headers)
+		replay = await http.post(URL, json=question(), headers=headers)
+	assert response.status_code == replay.status_code == 502
+	assert SENTINEL not in response.text and SENTINEL not in replay.text
+	assert SENTINEL.encode() not in retained_bytes(log, state)

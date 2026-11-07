@@ -50,6 +50,26 @@ INSTRUCTIONS = {
 }
 
 
+# A development value, not a measured boundary between rewriting and copying.
+MAX_COPIED_FRACTION = 0.8
+_COPY_SHINGLE = 5
+
+
+def _copied_share(words: list[str], other: list[str]) -> float:
+	"""The share of `words` found in `other`, as word 5-grams or whole when shorter."""
+	if len(words) < _COPY_SHINGLE:
+		return 1.0 if f" {' '.join(words)} " in f" {' '.join(other)} " else 0.0
+	seen = {tuple(other[i : i + _COPY_SHINGLE]) for i in range(len(other) - _COPY_SHINGLE + 1)}
+	grams = [tuple(words[i : i + _COPY_SHINGLE]) for i in range(len(words) - _COPY_SHINGLE + 1)]
+	return sum(gram in seen for gram in grams) / len(grams)
+
+
+def copied_fraction(candidate: str, source: str) -> float:
+	"""How much of either text is the other, so padding cannot hide a complete copy."""
+	words, original = candidate.casefold().split(), source.casefold().split()
+	return max(_copied_share(words, original), _copied_share(original, words))
+
+
 class Codec(Protocol):
 	def encode(self, text: str) -> Sequence[int]: ...
 	def decode(self, tokens: Sequence[int]) -> str: ...
@@ -85,6 +105,7 @@ class Recipe:
 	max_tokens: int | None = None
 	loss: Literal["ordinary", "filter", "clip"] = "ordinary"
 	loss_threshold: float | None = None
+	max_copied_fraction: float = MAX_COPIED_FRACTION
 
 
 def verify_artifact(artifact: dict[str, Any]) -> None:
@@ -207,6 +228,8 @@ def build_arm(
 		adapters.rewrite is None or not adapters.identity.get("rewriter")
 	):
 		raise ValueError("this arm requires a pluggable rewriter and frozen rewriter identity")
+	if not 0 < recipe.max_copied_fraction <= 1:
+		raise ValueError("max_copied_fraction must be in (0, 1]")
 	manifest = load_manifest(manifest_path, require_ledgers=True)
 	if manifest["response_policy"] != "clean":
 		raise ValueError("build arms from one clean acquisition manifest")
@@ -276,8 +299,11 @@ def build_arm(
 			text = cost.text
 			if not text.strip():
 				failure = "empty rewrite"
-			elif recipe.arm in OUTPUT_ARMS and text.strip() == draft.strip():
-				failure = "rewrite returned the clean draft"
+			elif (
+				recipe.arm in OUTPUT_ARMS
+				and copied_fraction(text, draft) >= recipe.max_copied_fraction
+			):
+				failure = "rewrite copies the clean draft"
 			elif answer is None or adapters.extract_answer(record, text) != answer:
 				failure = "answer mismatch or missing locked answer"
 			elif not adapters.valid(record, text):

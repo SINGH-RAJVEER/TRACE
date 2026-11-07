@@ -17,6 +17,7 @@ from harness.campaign_coverage import (
 )
 from harness.cli import app
 from harness.logdet import CoverageSpec
+from harness.serialization import gateway_turn
 from typer.testing import CliRunner
 
 
@@ -24,6 +25,7 @@ def monitor() -> CoverageMonitor:
 	return CoverageMonitor(
 		spec=CoverageSpec(seed=1, input_dim=2),
 		encoder_identity={"model": "fixture"},
+		serialization="raw_turn",
 		domain="math",
 		looks=(1, 2, 3),
 		scales=(1, 2),
@@ -112,3 +114,47 @@ def test_offline_cli_fixture_encoder(tmp_path: Path) -> None:
 	)
 	assert result.exit_code == 0, result.output
 	assert CoverageCalibration.model_validate_json(output.read_text()).monitor == recipe
+
+
+def test_gateway_monitor_calibrates_on_the_input_serving_encodes(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	seen: list[str] = []
+
+	class Fixture:
+		def identity(self) -> dict[str, str]:
+			return {"model": "fixture"}
+
+		def input_complete(self, text: str) -> bool:
+			return True
+
+		def encode(self, texts: list[str]) -> np.ndarray:
+			seen.extend(texts)
+			return np.tile([1.0, 0.0], (len(texts), 1))
+
+	monkeypatch.setattr("harness.cli.make_encoder", lambda *args: Fixture())
+	recipe = monitor().model_copy(update={"serialization": "gateway_turn"})
+	monitor_file = tmp_path / "monitor.json"
+	monitor_file.write_text(recipe.model_dump_json())
+	requests = tmp_path / "requests.jsonl"
+	requests.write_text(
+		"".join(
+			json.dumps({"account": str(a), "text": "turn"}) + "\n" for a in range(9) for _ in "abc"
+		)
+	)
+	result = CliRunner().invoke(
+		app,
+		[
+			"campaign-coverage-calibrate",
+			"--monitor",
+			str(monitor_file),
+			"--campaigns",
+			str(requests),
+			"--output",
+			str(tmp_path / "coverage.json"),
+			"--alpha",
+			"0.1",
+		],
+	)
+	assert result.exit_code == 0, result.output
+	assert set(seen) == {gateway_turn("math", "turn")}

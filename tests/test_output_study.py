@@ -445,7 +445,11 @@ def test_rows_record_the_fallback_that_happened_and_refuse_a_copied_draft(
 ) -> None:
 	copied = replace(adapters, rewrite=lambda r, t, i: Rewrite(t, 1, 0, 0.01))
 	arm = build_arm(cache, Recipe("paraphrase", fallback="final_answer"), copied)
-	assert all(r["failure"] == "rewrite returned the clean draft" for r in arm["rows"])
+	assert all(r["failure"] == "rewrite copies the clean draft" for r in arm["rows"])
+	assert all(r["released_text"] == "#### 42" for r in arm["rows"])
+	padded = replace(adapters, rewrite=lambda r, t, i: Rewrite(f"Padding. {t}", 1, 0, 0.01))
+	arm = build_arm(cache, Recipe("dense_locked", fallback="final_answer"), padded)
+	assert all(r["failure"] == "rewrite copies the clean draft" for r in arm["rows"])
 	assert all(r["released_text"] == "#### 42" for r in arm["rows"])
 	invalid = replace(copied, valid=lambda r, t: False)
 	arm = build_arm(cache, Recipe("dense_locked", fallback="final_answer"), invalid)

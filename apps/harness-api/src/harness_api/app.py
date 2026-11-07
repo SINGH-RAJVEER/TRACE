@@ -375,6 +375,13 @@ def create_app(
 			raise ValueError("campaign encoder representation differs from configured identity")
 	if (
 		campaign is not None
+		and campaign.coverage is not None
+		and campaign.coverage.monitor.serialization
+		!= ("gateway_turn" if config.task == "gateway" else "raw_turn")
+	):
+		raise ValueError("coverage serialization differs from the served task's encoder input")
+	if (
+		campaign is not None
 		and campaign.mode == "throttle"
 		and not config.campaign_allow_unqualified_enforcement
 	):

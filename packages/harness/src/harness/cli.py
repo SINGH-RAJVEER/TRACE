@@ -857,15 +857,14 @@ def campaign_coverage_calibrate_command(
 	if encoder_contract(encoder.identity()) != recipe.encoder_identity:
 		raise typer.BadParameter("encoder identity differs from coverage monitor")
 	rows = read_requests(campaigns)
-	if any(len(row.text) > recipe.max_text_chars for row in rows):
+	# These files declare a single domain. Bounds apply to what serving encodes.
+	texts = [recipe.serialize(row.text) for row in rows]
+	if any(len(text) > recipe.max_text_chars for text in texts):
 		raise typer.BadParameter("calibration input exceeds coverage character bound")
-	# These files declare a single domain. Inputs are raw user turns, as at serving time.
 	complete = getattr(encoder, "input_complete", None)
-	if embeddings is None and (
-		not callable(complete) or any(not complete(row.text) for row in rows)
-	):
+	if embeddings is None and (not callable(complete) or any(not complete(t) for t in texts)):
 		raise typer.BadParameter("all calibration inputs must have complete embeddings")
-	vectors = encoder.encode([row.text for row in rows])
+	vectors = encoder.encode(texts)
 	paths: dict[str, list[Any]] = {}
 	for row, vector in zip(rows, vectors, strict=True):
 		paths.setdefault(row.account, []).append(vector)

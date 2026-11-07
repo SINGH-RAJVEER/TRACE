@@ -564,6 +564,7 @@ def test_coverage_restart_missingness_and_bounded_state(tmp_path: Path) -> None:
 	monitor = CoverageMonitor(
 		spec=CoverageSpec(seed=3, input_dim=2),
 		encoder_identity={"model": "fixture"},
+		serialization="raw_turn",
 		domain="text",
 		looks=(1, 2, 4),
 	)
@@ -618,6 +619,7 @@ def test_calibrated_coverage_persists_across_cooldown(tmp_path: Path, escalate: 
 	monitor = CoverageMonitor(
 		spec=CoverageSpec(seed=1, input_dim=2),
 		encoder_identity={"model": "fixture"},
+		serialization="raw_turn",
 		domain="text",
 		looks=(2, 4, 6),
 		scales=(1,),

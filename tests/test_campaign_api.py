@@ -996,6 +996,7 @@ async def test_coverage_uses_bounded_encoder_completeness(
 	recipe = CoverageMonitor(
 		spec=CoverageSpec(seed=1, input_dim=4),
 		encoder_identity={"model": "fake"},
+		serialization="raw_turn",
 		domain="text",
 		looks=(1, 2),
 	)
@@ -1013,3 +1014,25 @@ async def test_coverage_uses_bounded_encoder_completeness(
 	assert result["abstention_reason"] == (
 		"calibration_missing" if complete else "missing_embedding_prefix"
 	)
+
+
+async def test_coverage_serialization_must_match_the_served_task(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	from harness.campaign_coverage import CoverageConfig, CoverageMonitor
+	from harness.logdet import CoverageSpec
+
+	recipe = CoverageMonitor(
+		spec=CoverageSpec(seed=1, input_dim=4),
+		encoder_identity={"model": "fake"},
+		serialization="gateway_turn",
+		domain="text",
+		looks=(1, 2),
+	)
+	with pytest.raises(ValueError, match="coverage serialization"):
+		_campaign_app(
+			artifacts,
+			tmp_path,
+			mode="observe",
+			config={"coverage": CoverageConfig(monitor=recipe).model_dump(mode="json")},
+		)

@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from distillation.benchmarks.scoring import numeric_answer
 from distillation.io import canonical_json
-from distillation.output_sets import INSTRUCTIONS
+from distillation.output_sets import INSTRUCTIONS, MAX_COPIED_FRACTION, copied_fraction
 from distillation.schemas import Message, TeacherGeneration, TeacherGenerationRequest
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -27,7 +27,6 @@ RECEIPT_HEADER = "X-Harness-Output-Receipt"
 REWRITE_MODES = ("compact_verified", "paraphrase", "dense_locked")
 ANSWER_MARKER = "####"
 _TRUNCATED = {"length", "max_tokens"}
-_COPY_SHINGLE = 5
 
 
 class OutputPolicy(BaseModel):
@@ -45,7 +44,7 @@ class OutputPolicy(BaseModel):
 	rewrite_max_output_tokens: int | None = Field(default=None, ge=1, le=32768)
 	rewrite_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 	# A rewrite sharing at least this fraction of its word 5-grams with the draft is a copy.
-	max_copied_fraction: float = Field(default=0.8, gt=0, le=1, allow_inf_nan=False)
+	max_copied_fraction: float = Field(default=MAX_COPIED_FRACTION, gt=0, le=1, allow_inf_nan=False)
 
 	@model_validator(mode="after")
 	def require_rewrite_bounds(self) -> OutputPolicy:
@@ -108,18 +107,6 @@ def parse_gsm8k(text: str) -> LockedAnswer | None:
 
 def final_answer_text(locked: LockedAnswer) -> str:
 	return f"{ANSWER_MARKER} {locked.answer}"
-
-
-def copied_fraction(candidate: str, source: str) -> float:
-	"""The fraction of the candidate's word 5-grams that also occur in the source."""
-	words, original = candidate.casefold().split(), source.casefold().split()
-	if len(words) < _COPY_SHINGLE:
-		return 1.0 if " ".join(words) in " ".join(original) else 0.0
-	seen = {
-		tuple(original[i : i + _COPY_SHINGLE]) for i in range(len(original) - _COPY_SHINGLE + 1)
-	}
-	grams = [tuple(words[i : i + _COPY_SHINGLE]) for i in range(len(words) - _COPY_SHINGLE + 1)]
-	return sum(gram in seen for gram in grams) / len(grams)
 
 
 def _sha256(text: str) -> str:

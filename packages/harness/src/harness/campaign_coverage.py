@@ -10,6 +10,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness.logdet import CoverageSpec, LogDetCoverage
+from harness.serialization import gateway_turn
 
 
 class CoverageMonitor(BaseModel):
@@ -17,6 +18,7 @@ class CoverageMonitor(BaseModel):
 	version: Literal["campaign-coverage-v1"] = "campaign-coverage-v1"
 	spec: CoverageSpec
 	encoder_identity: dict[str, Any]
+	serialization: Literal["raw_turn", "gateway_turn"]
 	domain: str = Field(min_length=1)
 	max_text_chars: int = Field(default=4096, ge=1, le=65536)
 	looks: tuple[int, ...] = Field(min_length=1, max_length=512)
@@ -33,6 +35,10 @@ class CoverageMonitor(BaseModel):
 		if not self.encoder_identity or {"encoded", "truncated"} & self.encoder_identity.keys():
 			raise ValueError("coverage requires a stable encoder identity")
 		return self
+
+	def serialize(self, turn: str) -> str:
+		"""The encoder input, identical in calibration and serving."""
+		return gateway_turn(self.domain, turn) if self.serialization == "gateway_turn" else turn
 
 	@property
 	def digest(self) -> str:
