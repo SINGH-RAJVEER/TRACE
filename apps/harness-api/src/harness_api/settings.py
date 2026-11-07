@@ -149,6 +149,10 @@ class Settings(BaseSettings):
 	# Opt-in JSON: replace the teacher's draft before release. See docs/harness.md.
 	output_policy: OutputPolicy | None = Field(default=None, alias="HARNESS_OUTPUT_POLICY")
 
+	# Opt-in whole-campaign evidence monitor from `harness evidence-monitor-calibrate`. It logs
+	# fused feature ranks and a path-calibrated alert at each look and never changes a
+	# response. It needs the encoder the calibration was fitted with and HARNESS_STATE_DB.
+	campaign_evidence: Path | None = Field(default=None, alias="HARNESS_CAMPAIGN_EVIDENCE")
 	# Log the shadow scorers from a `calibrate --shadow` artifact on every decision. Telemetry
 	# only: no level, action, or response depends on them. Not part of the policy revision.
 	shadow_scorers: bool = Field(default=False, alias="HARNESS_SHADOW_SCORERS")
@@ -196,6 +200,10 @@ class Settings(BaseSettings):
 			)
 		if self.request_quota is not None and self.policy not in {"quota", "quota_tokens"}:
 			raise ValueError("HARNESS_REQUEST_QUOTA requires quota or quota_tokens")
+		if self.campaign_evidence is not None and self.state_db is None:
+			raise ValueError(
+				"HARNESS_CAMPAIGN_EVIDENCE requires HARNESS_STATE_DB for durable state"
+			)
 		if self.campaign_config is not None and self.state_db is None:
 			raise ValueError("HARNESS_CAMPAIGN_CONFIG requires HARNESS_STATE_DB for durable state")
 		if self.campaign_allow_unqualified_enforcement and self.campaign_config is None:

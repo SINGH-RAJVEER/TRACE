@@ -481,6 +481,139 @@ def evidence_calibrate_command(
 		sink.write(json.dumps(artifact, indent="\t") + "\n")
 
 
+def _monitor_campaigns(
+	path: Path, task: str, encoder: Encoder
+) -> tuple[list[str], list[list[tuple[str, str, Any]]]]:
+	"""Each account's requests in order as (detector text, domain, embedding) campaigns."""
+	from harness.shadow import request_domain
+
+	rows = read_any_requests(path)
+	vectors = encoder.encode([detector_text(task, row.text) for row in rows])  # type: ignore[arg-type]
+	streams: dict[str, list[tuple[str, str, Any]]] = {}
+	for row, vector in zip(rows, vectors, strict=True):
+		streams.setdefault(row.account, []).append(
+			(detector_text(task, row.text), request_domain(task, row.text), vector)  # type: ignore[arg-type]
+		)
+	return list(streams), list(streams.values())
+
+
+@app.command("evidence-monitor-calibrate")
+def evidence_monitor_calibrate_command(
+	fitting: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	score_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	policy_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False, help="New monitor calibration.")],
+	task: str = "gateway",
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+	look_every: int = 50,
+	rarefied_size: int = 40,
+	alpha: float = 0.01,
+	cells: int = 64,
+	seed: int = 0,
+	encoder_model: Annotated[
+		str | None, typer.Option(help="Model behind --embeddings, checked at API startup.")
+	] = None,
+	encoder_revision: str | None = None,
+) -> None:
+	"""Fit the whole-campaign evidence monitor from three disjoint benign roles.
+
+	Feature nulls come from score-calibration accounts and the alert rule from separate
+	policy-calibration accounts. Never pass the locked benign test.
+	"""
+	from harness.campaign_evidence import EvidenceSettings, calibrate
+
+	if embeddings is not None and not (encoder_model and encoder_revision):
+		raise typer.BadParameter(
+			"cached embeddings need --encoder-model and --encoder-revision of the model behind them"
+		)
+	encoder = make_encoder(embeddings, device)
+	identity = (
+		{"model": encoder_model, "revision": encoder_revision, "source": "declared"}
+		if embeddings is not None
+		else encoder.identity()
+	)
+	settings = EvidenceSettings(
+		look_every=look_every, rarefied_size=rarefied_size, alpha=alpha, cells=cells, seed=seed
+	)
+	fit_rows = read_any_requests(fitting)
+	fit_vectors = encoder.encode([detector_text(task, r.text) for r in fit_rows])  # type: ignore[arg-type]
+	score_accounts, score = _monitor_campaigns(score_calibration, task, encoder)
+	policy_accounts, policy = _monitor_campaigns(policy_calibration, task, encoder)
+	if set(score_accounts) & set(policy_accounts):
+		raise typer.BadParameter("score and policy calibration must use different accounts")
+	monitor = calibrate(
+		fitting=np.asarray(fit_vectors, dtype=np.float64),
+		score_campaigns=score,
+		policy_campaigns=policy,
+		settings=settings,
+		encoder=identity,
+	)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(monitor.model_dump_json(indent=4) + "\n")
+	for profile, maxima in monitor.maxima.items():
+		typer.echo(
+			f"{profile}: {len(maxima)} benign campaigns, horizon "
+			f"{monitor.horizon_looks[profile]} looks of {look_every}"
+		)
+
+
+@app.command("evidence-monitor-check")
+def evidence_monitor_check_command(
+	monitor: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False, help="New JSON report.")],
+	task: str = "gateway",
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+) -> None:
+	"""Replay accounts through the monitor offline and report each one's first alert."""
+	from harness.campaign_evidence import EvidenceCalibration, new_state, observe
+
+	calibration = EvidenceCalibration.model_validate_json(monitor.read_text())
+	centroids = calibration.cell_centroids()
+	accounts, campaigns = _monitor_campaigns(requests, task, make_encoder(embeddings, device))
+	report = []
+	for account, campaign in zip(accounts, campaigns, strict=True):
+		state = new_state()
+		looks = []
+		for text, domain, vector in campaign:
+			result = observe(
+				state,
+				text=text,
+				domain=domain,
+				embedding=vector,
+				calibration=calibration,
+				centroids=centroids,
+			)
+			if result is not None:
+				looks.append({k: v for k, v in result.items() if k != "features"})
+		alert = next((look for look in looks if look["decision"] == "alert"), None)
+		report.append(
+			{
+				"account": account,
+				"requests": len(campaign),
+				"looks": len(looks),
+				"alert_look": alert["look"] if alert else None,
+				"alert_requests": alert["requests"] if alert else None,
+				"final": looks[-1] if looks else None,
+			}
+		)
+	summary = {
+		"version": calibration.settings.version,
+		"monitor_sha256": calibration.digest,
+		"accounts": len(report),
+		"alerted": sum(r["alert_look"] is not None for r in report),
+		"results": report,
+		"qualified": False,
+	}
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(summary, indent=4) + "\n")
+	typer.echo(f"{summary['alerted']} of {summary['accounts']} accounts alerted")
+
+
 @app.command("corpus-index")
 def corpus_index_command(
 	sources: Annotated[Path, typer.Option(exists=True, dir_okay=False)],

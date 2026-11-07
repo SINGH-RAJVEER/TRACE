@@ -2334,3 +2334,69 @@ async def test_concurrent_linked_principals_release_exactly_the_cluster_budget(
 	assert {r.json()["detail"]["code"] for r in responses if r.status_code != 200} == {
 		"cluster_rolling_budget_exceeded"
 	}
+
+
+@pytest.mark.asyncio
+async def test_campaign_evidence_logs_looks_without_changing_responses_across_restart(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	from harness.campaign_evidence import EvidenceSettings
+	from harness.campaign_evidence import calibrate as calibrate_evidence
+
+	encoder = Encoder()
+
+	def campaign(prefix: str) -> list[tuple[str, str, Any]]:
+		texts = [f"{prefix} {i}" for i in range(40)]
+		return [(t, "text", v) for t, v in zip(texts, encoder.encode(texts), strict=True)]
+
+	monitor = calibrate_evidence(
+		fitting=encoder.encode([f"fit {i}" for i in range(100)]),
+		score_campaigns=[campaign(f"s{i}") for i in range(30)],
+		policy_campaigns=[campaign(f"p{i}") for i in range(30)],
+		settings=EvidenceSettings(look_every=20, rarefied_size=10, alpha=0.05, cells=4),
+		encoder=encoder.identity(),
+	)
+	path = tmp_path / "monitor.json"
+	path.write_text(monitor.model_dump_json())
+
+	async def run(app: Any, start: int, count: int) -> list[int]:
+		async with httpx.AsyncClient(
+			transport=httpx.ASGITransport(app=app), base_url="http://test"
+		) as client:
+			return [
+				(await _ask_at(client, f"q {i}", i)).status_code
+				for i in range(start, start + count)
+			]
+
+	app, _, log = _rolling_app(artifacts, tmp_path, HARNESS_CAMPAIGN_EVIDENCE=path)
+	assert await run(app, 0, 25) == [200] * 25
+	restarted, _, log2 = _rolling_app(artifacts, tmp_path, HARNESS_CAMPAIGN_EVIDENCE=path)
+	assert await run(restarted, 25, 15) == [200] * 15
+	looks = [
+		json.loads(line)["campaign_evidence"]
+		for file in (log, log2)
+		for line in file.read_text().splitlines()
+		if '"campaign_evidence"' in line
+	]
+	# The state survives the restart, so the second look comes at 40 evaluated requests.
+	assert [look["requests"] for look in looks] == [20, 40]
+	assert all(look["qualified"] is False for look in looks)
+	other = tmp_path / "other.json"
+	other.write_text(monitor.model_copy(update={"maxima": {}}).model_dump_json())
+	with pytest.raises(ValueError, match="evidence calibration"):
+		_rolling_app(artifacts, tmp_path, HARNESS_CAMPAIGN_EVIDENCE=other)
+	foreign = tmp_path / "foreign.json"
+	foreign.write_text(
+		monitor.model_copy(
+			update={"encoder": {"model": "other", "revision": "x"}}
+		).model_dump_json()
+	)
+	with pytest.raises(ValueError, match="another encoder"):
+		_app(
+			artifacts,
+			tmp_path,
+			[1e9] * 4,
+			HARNESS_POLICY="allow",
+			HARNESS_STATE_DB=tmp_path / "foreign.sqlite3",
+			HARNESS_CAMPAIGN_EVIDENCE=foreign,
+		)

@@ -282,6 +282,8 @@ class Transaction(Protocol):
 	def linkage(self, key: str) -> dict[str, Any] | None: ...
 	def put_linkage(self, key: str, value: dict[str, Any]) -> None: ...
 	def linkage_keys(self, prefix: str) -> list[str]: ...
+	def evidence(self, key: str) -> dict[str, Any] | None: ...
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None: ...
 	def account(self, name: str) -> AccountState | None: ...
 	def put_account(self, name: str, state: AccountState) -> None: ...
 	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None: ...
@@ -324,6 +326,7 @@ class StateStore(Protocol):
 	def enable_output_receipts(self) -> None: ...
 	def bind_campaign(self, config_hash: str) -> None: ...
 	def bind_linkage(self, config_hash: str) -> None: ...
+	def bind_evidence(self, calibration_hash: str) -> None: ...
 	def bind_path(self, calibration_hash: str) -> None: ...
 
 	def transaction(self) -> AbstractContextManager[Transaction]:
@@ -439,6 +442,12 @@ class _MemoryTransaction:
 
 	def linkage_keys(self, prefix: str) -> list[str]:
 		return sorted(key for key in self.store.links if key.startswith(prefix))
+
+	def evidence(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.evidence.get(key))
+
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None:
+		self.store.evidence[key] = copy.deepcopy(value)
 
 	def __init__(self, store: MemoryStore) -> None:
 		self.store = store
@@ -581,6 +590,8 @@ class MemoryStore:
 		self.output_receipts: dict[str, tuple[str, float, dict[str, Any]]] = {}
 		self._linkage_binding: str | None = None
 		self.links: dict[str, dict[str, Any]] = {}
+		self._evidence_binding: str | None = None
+		self.evidence: dict[str, dict[str, Any]] = {}
 
 	def enable_output_receipts(self) -> None:
 		pass
@@ -590,6 +601,12 @@ class MemoryStore:
 			if self._linkage_binding not in {None, config_hash}:
 				raise ValueError("state store is bound to another linkage config")
 			self._linkage_binding = config_hash
+
+	def bind_evidence(self, calibration_hash: str) -> None:
+		with self._lock:
+			if self._evidence_binding not in {None, calibration_hash}:
+				raise ValueError("state store is bound to another campaign evidence calibration")
+			self._evidence_binding = calibration_hash
 
 	def bind_campaign(self, config_hash: str) -> None:
 		with self._lock:
@@ -619,6 +636,7 @@ class MemoryStore:
 					self.campaigns,
 					self.output_receipts,
 					self.links,
+					self.evidence,
 				)
 			)
 			try:
@@ -636,6 +654,7 @@ class MemoryStore:
 					self.campaigns,
 					self.output_receipts,
 					self.links,
+					self.evidence,
 				) = snapshot
 				raise
 
@@ -815,6 +834,19 @@ class _SQLiteTransaction:
 			(prefix, prefix + "\uffff"),
 		).fetchall()
 		return [row[0] for row in rows]
+
+	def evidence(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute(
+			"SELECT state FROM campaign_evidence WHERE key = ?", (key,)
+		).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO campaign_evidence VALUES (?, ?) "
+			"ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
 
 	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
@@ -1140,6 +1172,19 @@ class SQLiteStore:
 			tx.db.execute("INSERT OR IGNORE INTO meta VALUES ('linkage_config', ?)", (config_hash,))
 			tx.db.execute(
 				"CREATE TABLE IF NOT EXISTS linkage (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
+
+	def bind_evidence(self, calibration_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'campaign_evidence'").fetchone()
+			if row is not None and row[0] != calibration_hash:
+				raise ValueError("state store is bound to another campaign evidence calibration")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta VALUES ('campaign_evidence', ?)", (calibration_hash,)
+			)
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS campaign_evidence "
+				"(key TEXT PRIMARY KEY, state TEXT NOT NULL)"
 			)
 
 	def bind_path(self, calibration_hash: str) -> None:

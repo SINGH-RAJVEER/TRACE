@@ -62,6 +62,9 @@ from harness.campaign import (
 	prepare_session_observation,
 	text_identity,
 )
+from harness.campaign_evidence import EvidenceCalibration
+from harness.campaign_evidence import new_state as new_evidence_state
+from harness.campaign_evidence import observe as observe_evidence
 from harness.deception import noise
 from harness.encoder import Encoder
 from harness.linkage import (
@@ -88,7 +91,7 @@ from harness.policy import (
 )
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
-from harness.shadow import ShadowMonitor
+from harness.shadow import ShadowMonitor, request_domain
 from harness.store import (
 	IdempotencyRecord,
 	MemoryStore,
@@ -661,7 +664,17 @@ def create_app(
 		and calibration.aggregate is not None
 		else None
 	)
-	base_needs_embeddings = config.policy in {"mmd", "path"} or monitor is not None
+	evidence = (
+		EvidenceCalibration.model_validate_json(config.campaign_evidence.read_text())
+		if config.campaign_evidence is not None
+		else None
+	)
+	evidence_centroids = evidence.cell_centroids() if evidence is not None else None
+	if evidence is not None:
+		store.bind_evidence(evidence.digest)
+	base_needs_embeddings = (
+		config.policy in {"mmd", "path"} or monitor is not None or evidence is not None
+	)
 	needs_embeddings = base_needs_embeddings or campaign_needs_embeddings
 	shadow: ShadowMonitor | None = None
 	if config.shadow_scorers:
@@ -680,6 +693,12 @@ def create_app(
 		from harness.encoder import BGEEncoder
 
 		encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+	if evidence is not None and evidence.encoder and encoder is not None:
+		served = encoder.identity()
+		if any(
+			served.get(k) != v for k, v in evidence.encoder.items() if k in {"model", "revision"}
+		):
+			raise ValueError("the campaign evidence calibration was fitted with another encoder")
 	if token_counter is None and config.tokenizer_model:
 		from transformers import AutoTokenizer
 
@@ -1822,6 +1841,7 @@ def create_app(
 		alert = None
 		# The campaign evidence of the committed attempt only: a rolled-back attempt leaves none.
 		campaign_result: dict[str, Any] | None = None
+		evidence_result: dict[str, Any] | None = None
 		campaign_override = False
 		campaign_throttle: JSONResponse | None = None
 		campaign_until: float | None = None
@@ -1950,6 +1970,22 @@ def create_app(
 						binding=binding,
 						prepared=prepared,
 					)
+					evidence_result = None
+					if evidence is not None and embedding is not None:
+						assert evidence_centroids is not None
+						# Keyed by principal. Inferred clusters can share one state once
+						# linkage lands, by changing this key only.
+						evidence_key = "principal:" + account
+						evidence_state = tx.evidence(evidence_key) or new_evidence_state()
+						evidence_result = observe_evidence(
+							evidence_state,
+							text=detector_text(served_task, text),
+							domain=request_domain(served_task, text),
+							embedding=np.asarray(embedding, dtype=np.float64).tolist(),
+							calibration=evidence,
+							centroids=evidence_centroids,
+						)
+						tx.put_evidence(evidence_key, evidence_state)
 					if (
 						decision.action == "refuse"
 						and decision.reason != "path_stop"
@@ -2114,6 +2150,8 @@ def create_app(
 				if campaign is not None
 				else {}
 			),
+			# Present only at a look of the configured evidence monitor. Telemetry only.
+			**({"campaign_evidence": evidence_result} if evidence_result is not None else {}),
 		)
 		if rejection is not None:
 			return rejection

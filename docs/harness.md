@@ -228,6 +228,30 @@ Generated `edges` always have `inferred: true`; `organizations` stays empty. Sup
 
 Fusion uses a frozen five-family mixture with weight 0.2 each: volume request count, session revisit/follow-up rank, novelty rank, linkage and corpus-match content rank. Linkage remains neutral until a separate fixed cluster null exists. Missing families contribute e=1 without reallocating weights. Valid horizon p-values become e-values by `0.5 / sqrt(p)`, then receive a convex average, never a max or a product across correlated sensors. Validity requires superuniform family ranks under exchangeable same-profile benign horizons and fixed missingness by design/profile, or calibration of the full missingness rule. Arbitrary dependence among valid families is allowed. These assumptions are not certified by empirical ranks, synthetic data, adaptive graph selection or volume-dependent missingness. The result is shadow evidence, not a sequential e-process or a time-uniform guarantee. Freeze components, weights, missingness and thresholds on development data, then test once on locked data.
 
+## Whole-campaign evidence monitor
+
+The `campaign-evidence-v1` monitor is the intended replacement for fixed-window MMD as the primary campaign signal. MMD asks whether a window looks unlike benign traffic, which ranks broad extraction as ordinary. The monitor instead asks whether a principal's campaign so far explores more of the request space, and more systematically, than benign campaigns of the same profile at the same point. Its state per principal is bounded: a 64 x 64 inverse for the log-determinant gain, fixed k-means cell counts, a reservoir of 128 recent projected prompts, and digest sets capped at 4,096.
+
+| Feature | Statistic |
+| --- | --- |
+| `coverage_gain` | Mean incremental log-determinant over distinct prompts ([logdet](../packages/harness/src/harness/logdet.py)) |
+| `novelty` | Mean distance from each distinct prompt to its nearest earlier one in the reservoir |
+| `cell_coverage` | Expected occupied cells in a rarefied subset of fixed size, independent of order and volume |
+| `template_diversity`, `answer_only_share` | Session shape from bounded counters |
+
+Every `look_every` evaluated requests (default 50), each feature is ranked against benign campaigns of the same profile at the same request count. Ranks become e-values with the fixed calibrator 0.5 / sqrt(p), averaged with equal weights, and an abstaining feature contributes e = 1. A campaign alerts when the running maximum of its look scores ranks at or below `alpha` (default 0.01) among the running maxima of separate benign calibration campaigns. Under exchangeability of benign campaigns of the same profile, this bounds the chance a benign campaign ever alerts within the horizon by `alpha`. The horizon is the shortest benign calibration campaign; past it the monitor expires and does not rearm. Repeats add no coverage, and exact repeats count once.
+
+```bash
+harness evidence-monitor-calibrate --fitting FIT.jsonl --score-calibration SCORE.jsonl \
+	--policy-calibration POLICY.jsonl --output artifacts/monitor.json --task gateway
+harness evidence-monitor-check --monitor artifacts/monitor.json \
+	--requests readings/v7/schedules/A1/requests.jsonl --output artifacts/monitor-A1.json
+```
+
+Calibration replays the benign roles through the same `observe` code that serves requests, refuses overlapping score and policy accounts, and records the encoder identity. Both commands accept `--embeddings` with a cached npz instead of the BGE model. In the API, `HARNESS_CAMPAIGN_EVIDENCE` names the artifact and requires `HARNESS_STATE_DB`. Each look adds a `campaign_evidence` object to that request's decision event. It never changes a level, response or budget, and it is not part of the policy revision. State is keyed by principal; keying it by inferred cluster once request-path linkage lands is a one-line change in the API. A state file is bound to one monitor calibration, and startup rejects an artifact fitted with a different encoder.
+
+**What this does not establish.** On synthetic fixtures, broad sweeps alert and fresh benign accounts alert near `alpha`. That is the only measurement so far. It has not been calibrated or evaluated on the v7 roles and attack schedules, and it has no real-user false-alert rate. The synthetic benign campaigns bound claims to their generator, and the shortest one sets the horizon: v7's benign accounts average about 190 requests, so the monitor would decide within the first few looks and be silent afterwards. Topic sorting changes novelty and the log-determinant gain at intermediate looks, but not cell coverage. A campaign whose prompts follow the benign distribution, or one split across accounts below the first look, is indistinguishable by any content feature. Enforcement on these alerts would need its own qualification.
+
 ## Experimental coverage and whole-campaign stopping
 
 `harness.logdet` adds an opt-in geometric coverage proxy. It normalizes embeddings, applies a frozen seeded 64-dimensional random projection, and computes each prompt's incremental log-determinant gain with a Sherman-Morrison update. The mean gain after the first prompt is ranked against same-profile reference horizons in the same request-count band. This is a geometric novelty measure, not information about teacher weights or a predictor of student learning. Cumulative log-determinant is deliberately excluded because it grows with volume.
