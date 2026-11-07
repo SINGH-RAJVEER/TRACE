@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "coding-task",
+    "dashboard-api",
     "distillation-core",
     "evaluating-an-account-level-harness-against-multi-domain-model-distillation",
     "extraction-harness",
@@ -311,6 +312,25 @@ nvtx = [
 ]
 
 [[package]]
+name = "dashboard-api"
+version = "0.1.0"
+source = { editable = "apps/dashboard-api" }
+dependencies = [
+    { name = "distillation-core" },
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "distillation-core", editable = "packages/distillation" },
+    { name = "fastapi", specifier = ">=0.116.1" },
+    { name = "pydantic-settings", specifier = ">=2.10.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
+]
+
+[[package]]
 name = "datasets"
 version = "5.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -387,6 +407,7 @@ name = "evaluating-an-account-level-harness-against-multi-domain-model-distillat
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "dashboard-api" },
     { name = "distillation-core" },
     { name = "extraction-harness" },
     { name = "harness-api" },
@@ -415,6 +436,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dashboard-api", editable = "apps/dashboard-api" },
     { name = "distillation-core", editable = "packages/distillation" },
     { name = "distillation-core", extras = ["coding"], marker = "extra == 'coding'", editable = "packages/distillation" },
     { name = "distillation-core", extras = ["eval"], marker = "extra == 'eval'", editable = "packages/distillation" },

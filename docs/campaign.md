@@ -33,7 +33,8 @@ The generator creates a new JSON exclusively and defaults to observation mode; e
 | `just checkpoint-export CAMPAIGN OUTPUT ...` | Exclusive receipt-ordered export; repeat `--response-count N` |
 | `just checkpoint-plan EXPORT SUITE OUTPUT --target-accuracy VALUE ...` | GSM8K student plan; accepts repeated `--seed` and explicit `--include-pending` |
 | `just checkpoint-execute OUTPUT`, `just checkpoint-summary OUTPUT` | Explicit GPU execution, then CPU reporting |
-| `just test [PYTEST_ARGS...]`, `just test-campaign`, `just test-checkpoints` | Full/custom tests or focused feature suites |
+| `just dashboard` | Read-only results dashboard over `readings/` and `artifacts/`; see [the dashboard guide](dashboard.md) |
+| `just test [PYTEST_ARGS...]`, `just test-campaign`, `just test-checkpoints`, `just test-dashboard` | Full/custom tests or focused feature suites |
 | `just check`, `just format` | Lint/format/type/shell checks, or explicit Python formatting |
 | `just reading RUN_ID [NAME]`, `just backfill` | Explicit research export or historical index maintenance |
 | `just lock` | Explicit dependency-lock maintenance |

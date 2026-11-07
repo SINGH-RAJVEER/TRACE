@@ -10,6 +10,8 @@ __pycache__/
 
 # Build outputs
 dist/
+node_modules/
+*.tsbuildinfo
 build/
 .devenv/
 .jj/
