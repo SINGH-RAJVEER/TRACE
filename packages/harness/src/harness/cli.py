@@ -875,3 +875,43 @@ def campaign_coverage_calibrate_command(
 			json.dumps(artifact.model_dump(mode="json"), indent="\t", allow_nan=False) + "\n"
 		)
 	typer.echo(json.dumps({"calibration_sha256": artifact.digest, "qualified": False}))
+
+
+@app.command("link-accounts")
+def link_accounts_command(
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option()],
+	max_accounts: int = 256,
+	max_requests: int = 512,
+	max_features: int = 256,
+	max_df: float = 0.5,
+	minimum_overlap: float = 0.5,
+	time_bin_seconds: float = 10,
+	minimum_coactivity: float = 0.5,
+) -> None:
+	"""Propose offline inferred links from rare prompt overlap AND timing co-activity."""
+	from harness.account_links import propose_links
+
+	try:
+		# Bound ingestion before collecting a potentially large file in memory.
+		rows: list[BenignRequest] = []
+		with requests.open() as stream:
+			for line in stream:
+				if len(line) > 131072 or len(rows) >= max_accounts * max_requests:
+					raise ValueError("input exceeds bounds")
+				if line.strip():
+					rows.append(BenignRequest.model_validate_json(line))
+		result = propose_links(
+			rows,
+			max_accounts=max_accounts,
+			max_requests=max_requests,
+			max_features=max_features,
+			max_df=max_df,
+			minimum_overlap=minimum_overlap,
+			time_bin_seconds=time_bin_seconds,
+			minimum_coactivity=minimum_coactivity,
+		)
+		with output.open("x") as target:
+			target.write(json.dumps(result, indent="\t") + "\n")
+	except (ValueError, OSError) as error:
+		raise typer.BadParameter(str(error)) from error
