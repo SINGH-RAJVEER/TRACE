@@ -48,6 +48,7 @@ UTILITY_MIN_COMPLETION_RATE=
 | A6 | full | gate refused: attacker not escalated beyond held-out benign accounts |
 | A6 | instantaneous | gate refused: attacker not escalated beyond held-out benign accounts |
 | A6 | quota | received 6000, blocked 0, challenge 0, failed 0, deadline 0, released_tokens 806570, 4.24 h |
+| A6 | unprotected | received 6000, blocked 0, challenge 0, failed 0, deadline 0, released_tokens 806570, 4.24 h |
 | A7 | full | gate refused: attacker not escalated beyond held-out benign accounts |
 | A7 | instantaneous | gate refused: attacker not escalated beyond held-out benign accounts |
 | A7 | quota | received 1212, blocked 4785, challenge 0, failed 3, deadline 0, released_tokens 247309, 2.34 h |
@@ -63,8 +64,8 @@ UTILITY_MIN_COMPLETION_RATE=
 
 Not exported: client credentials, harness state databases, the deception key, vLLM and teacher-API logs, and regenerable detector inputs.
 
-## Unprotected reference
+## Unprotected run
 
-`campaigns/A6/unprotected/` is a copy of `campaigns/A6/quota/` relabeled as the unprotected A6 run. The quota never intervened on A6, so the attacker received what an unprotected teacher would have released; `SOURCE.md` there gives the details. It is not a separate collection.
+`campaigns/A6/unprotected/` is the unprotected A6 run. It was collected through the quota arm, whose quota never fired on A6, so its files match `campaigns/A6/quota/`; `SOURCE.md` there gives the details.
 
-`campaigns/A6/unprotected-v3-archive/` is not part of this run. It is the v3 undefended A6 ledger copied from the `archive` branch as a second unprotected reference from a different teacher; `SOURCE.md` there records its origin and how it differs from the v7 arms.
+`campaigns/A6/unprotected-v3-archive/` is a second unprotected A6 ledger from the v3 run on the `archive` branch, with a different teacher and corpus build; `SOURCE.md` there records its origin.
