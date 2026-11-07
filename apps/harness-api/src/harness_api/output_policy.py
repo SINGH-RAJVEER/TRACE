@@ -2,8 +2,8 @@
 
 The teacher's draft is buffered, never streamed, so it can be replaced before release. The draft
 stays in this process: clients, logs and stored records get its SHA-256 at most. Rewrite failures
-go to the declared fallback and never to the draft. The GSM8K `####` format is the only declared
-task; other tasks follow `unsupported_task` and are recorded as unprotected.
+go to the declared fallback and never to the draft. Each task in ANSWER_FORMATS has its own locked
+answer; other tasks follow `unsupported_task` and are recorded as unprotected.
 
 This has never run on a real teacher or student, so it establishes no suppression. A correct
 released answer is still training data, and the policy changes the product for every client.
@@ -12,11 +12,12 @@ released answer is still training data, and the policy changes the product for e
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from distillation.benchmarks.scoring import numeric_answer
+from distillation.benchmarks.scoring import numeric_answer, squad_normalize
 from distillation.io import canonical_json
 from distillation.output_sets import INSTRUCTIONS, MAX_COPIED_FRACTION, copied_fraction
 from distillation.schemas import Message, TeacherGeneration, TeacherGenerationRequest
@@ -26,6 +27,12 @@ OUTPUT_POLICY_VERSION = "output-policy-v1"
 RECEIPT_HEADER = "X-Harness-Output-Receipt"
 REWRITE_MODES = ("compact_verified", "paraphrase", "dense_locked")
 ANSWER_MARKER = "####"
+ANSWER_ONLY_TASKS = {"ag_news", "squad"}
+AG_NEWS_LABELS = ("World", "Sports", "Business", "Sci/Tech")
+# A development value: longer SQuAD output may carry reasoning that cannot be separated from it.
+SQUAD_MAX_ANSWER_WORDS = 32
+_CODE_FENCE = "```"
+_PYTHON_FENCE = re.compile(r"```(?:python|py)\s*\n.*?```", re.DOTALL | re.IGNORECASE)
 _TRUNCATED = {"length", "max_tokens"}
 
 
@@ -38,7 +45,7 @@ class OutputPolicy(BaseModel):
 	mode: Literal["final_answer_only", "compact_verified", "paraphrase", "dense_locked"]
 	# Used when a rewrite cannot be released. There is deliberately no default.
 	fallback: Literal["withhold", "final_answer"]
-	tasks: tuple[Literal["gsm8k"], ...] = Field(min_length=1)
+	tasks: tuple[Literal["gsm8k", "coding", "ag_news", "squad"], ...] = Field(min_length=1)
 	# Requests for another task: refuse before admission, or release unmodified and say so.
 	unsupported_task: Literal["refuse", "pass_through"]
 	rewrite_max_output_tokens: int | None = Field(default=None, ge=1, le=32768)
@@ -55,6 +62,12 @@ class OutputPolicy(BaseModel):
 			)
 		if self.mode not in REWRITE_MODES and bounds != (None, None):
 			raise ValueError(f"{self.mode} makes no rewrite call, so it takes no rewrite bounds")
+		answer_only = set(self.tasks) & ANSWER_ONLY_TASKS
+		if self.mode in REWRITE_MODES and self.fallback == "withhold" and answer_only:
+			raise ValueError(
+				f"{sorted(answer_only)} have no explanation to rewrite, so {self.mode} with "
+				"fallback withhold would withhold every response"
+			)
 		return self
 
 	def binding(self) -> dict[str, Any]:
@@ -107,6 +120,59 @@ def parse_gsm8k(text: str) -> LockedAnswer | None:
 
 def final_answer_text(locked: LockedAnswer) -> str:
 	return f"{ANSWER_MARKER} {locked.answer}"
+
+
+def parse_coding(text: str) -> LockedAnswer | None:
+	"""The prose around one Python fence, and the fence itself, unmodified, as the answer."""
+	from coding.extract import extract_code
+
+	matches = _PYTHON_FENCE.findall(text)
+	if len(matches) != 1 or text.count(_CODE_FENCE) != 2:
+		return None
+	code = extract_code(matches[0])
+	if code is None:
+		return None
+	before, after = text.split(matches[0])
+	return LockedAnswer(f"{before.strip()}\n{after.strip()}".strip(), matches[0], code)
+
+
+def parse_ag_news(text: str) -> LockedAnswer | None:
+	"""One topic label and nothing else, read the way the benchmark's label scorer reads it."""
+	answer = text.strip().strip("\"'").rstrip(".").strip().casefold()
+	label = next((name for name in AG_NEWS_LABELS if name.casefold() == answer), None)
+	return None if label is None else LockedAnswer("", label, label)
+
+
+def parse_squad(text: str) -> LockedAnswer | None:
+	"""One short line. SQuAD has no marker, so length is the only sign of added reasoning."""
+	answer = text.strip()
+	if "\n" in answer or len(answer.split()) > SQUAD_MAX_ANSWER_WORDS:
+		return None
+	value = squad_normalize(answer)
+	return LockedAnswer("", answer, value) if value else None
+
+
+@dataclass(frozen=True)
+class AnswerFormat:
+	"""How a task's draft splits into an explanation and an answer the server locks."""
+
+	parse: Callable[[str], LockedAnswer | None]
+	final: Callable[[LockedAnswer], str]
+	# A rewrite holding this would be a second, unchecked answer.
+	marker: str | None = None
+	separator: str = "\n"
+
+
+def _answer(locked: LockedAnswer) -> str:
+	return locked.answer
+
+
+ANSWER_FORMATS = {
+	"gsm8k": AnswerFormat(parse_gsm8k, final_answer_text, ANSWER_MARKER),
+	"coding": AnswerFormat(parse_coding, _answer, _CODE_FENCE, "\n\n"),
+	"ag_news": AnswerFormat(parse_ag_news, _answer),
+	"squad": AnswerFormat(parse_squad, _answer),
+}
 
 
 def _sha256(text: str) -> str:
@@ -239,6 +305,7 @@ async def _rewrite(
 	Cancellation is not caught: the client left and nothing is released.
 	"""
 	policy = attempt.policy
+	answer_format = ANSWER_FORMATS[attempt.domain]
 	assert policy.rewrite_timeout_seconds is not None
 	prompt = rewrite_request(policy, locked.explanation, request)
 	cap = prompt.max_output_tokens
@@ -261,14 +328,14 @@ async def _rewrite(
 		attempt.failure = "rewrite_truncated"
 	elif not text:
 		attempt.failure = "rewrite_empty"
-	elif ANSWER_MARKER in text:
+	elif answer_format.marker is not None and answer_format.marker in text:
 		# The server attaches the answer, so a marker here would be a second, unchecked answer.
 		attempt.failure = "rewrite_answer_marker"
 	elif copied_fraction(text, locked.explanation) >= policy.max_copied_fraction:
 		attempt.failure = "rewrite_copies_draft"
 	else:
-		released = f"{text}\n{final_answer_text(locked)}"
-		parsed = parse_gsm8k(released)
+		released = f"{text}{answer_format.separator}{answer_format.final(locked)}"
+		parsed = answer_format.parse(released)
 		if parsed is None or not parsed.explanation:
 			attempt.failure = "task_invalid"
 		elif parsed.value != locked.value:
@@ -298,7 +365,8 @@ async def apply_policy(
 	if draft.finish_reason in _TRUNCATED:
 		attempt.withhold("draft_truncated")
 		return None
-	locked = parse_gsm8k(text)
+	answer_format = ANSWER_FORMATS[attempt.domain]
+	locked = answer_format.parse(text)
 	if locked is None:
 		attempt.withhold("draft_answer_missing")
 		return None
@@ -317,7 +385,7 @@ async def apply_policy(
 		if policy.fallback == "withhold":
 			attempt.withhold(attempt.failure or "rewrite_failed")
 			return None
-	answer = final_answer_text(locked)
+	answer = answer_format.final(locked)
 	tokens = count(answer)
 	if tokens > limit:
 		attempt.withhold("released_over_limit")

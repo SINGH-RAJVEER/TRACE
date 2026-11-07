@@ -1,12 +1,17 @@
 """CPU fixture runner exercises grid planning, execution and measured matching."""
 
 import json
+import os
+import socket
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 from distillation.cli import app
-from distillation.development_grid import derive_grid, digest, execute_grid, plan_grid
+from distillation.development_grid import derive_grid, digest, execute_grid, load_plan, plan_grid
+from distillation.development_grid_runner import gateway_command, gateway_environment, run_setting
 from typer.testing import CliRunner
 
 
@@ -211,3 +216,181 @@ def test_unusable_measurements_refused(tmp_path: Path, damage: str) -> None:
 	with pytest.raises(ValueError):
 		execute_grid(root, damaged)
 		derive_grid(root)
+
+
+GATEWAY = {
+	"port": 18999,
+	"tasks_dir": "tasks",
+	"max_output_tokens": {"gsm8k": 64},
+	"env": {"HARNESS_TASK": "gateway"},
+	"candidate": {"policy": "mmd", "env": {"HARNESS_ACCUMULATOR": "paper"}},
+}
+# A real listener that reports as a gateway does, and starts a child the runner must also stop.
+FIXTURE_GATEWAY = (
+	sys.executable,
+	"-c",
+	"""
+import http.server, json, os, subprocess, sys
+
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+open("child.pid", "w").write(str(child.pid))
+report = {
+	"status": "ready",
+	"policy": os.environ.get("FIXTURE_POLICY", os.environ["HARNESS_POLICY"]),
+	"instance_id": os.environ["HARNESS_INSTANCE_ID"],
+}
+
+
+class Health(http.server.BaseHTTPRequestHandler):
+	def do_GET(self):
+		self.send_response(200)
+		self.end_headers()
+		self.wfile.write(json.dumps(report).encode())
+
+	def log_message(self, *args):
+		pass
+
+
+address = (os.environ["HARNESS_HOST"], int(os.environ["HARNESS_PORT"]))
+http.server.HTTPServer(address, Health).serve_forever()
+""",
+)
+
+
+def _gateway() -> dict[str, Any]:
+	with socket.socket() as sock:
+		sock.bind(("127.0.0.1", 0))
+		return GATEWAY | {"port": sock.getsockname()[1]}
+
+
+def _assert_stopped(output: Path) -> None:
+	pid = int((output / "child.pid").read_text())
+	deadline = time.monotonic() + 5
+	while time.monotonic() < deadline:
+		try:
+			os.kill(pid, 0)
+		except ProcessLookupError:
+			return
+		time.sleep(0.05)
+	os.kill(pid, 9)
+	pytest.fail("the launcher's child outlived its cell")
+
+
+def test_gateway_environment_isolates_each_setting(tmp_path: Path) -> None:
+	setting = {
+		"id": "tokens",
+		"policy": "quota_tokens",
+		"request_quota": 2,
+		"output_token_budget": 9,
+	}
+	inherited = {"PATH": "/bin", "HARNESS_OUTPUT_POLICY": "{}", "HARNESS_TEACHER_TOKEN": "secret"}
+	environment = gateway_environment(setting, GATEWAY, tmp_path / "s", tmp_path, inherited)
+	assert environment["HARNESS_POLICY"] == "quota_tokens"
+	assert environment["HARNESS_REQUEST_QUOTA"] == "2"
+	assert environment["HARNESS_OUTPUT_TOKEN_BUDGET"] == "9"
+	assert environment["HARNESS_STATE_DB"] == str(tmp_path / "s")
+	assert environment["HARNESS_TEACHER_TOKEN"] == "secret"
+	assert environment["PATH"] == "/bin" and "HARNESS_OUTPUT_POLICY" not in environment
+	candidate = gateway_environment(
+		{"id": "c", "policy": "candidate"}, GATEWAY, tmp_path / "s", tmp_path, {}
+	)
+	assert candidate["HARNESS_POLICY"] == "mmd" and candidate["HARNESS_ACCUMULATOR"] == "paper"
+	with pytest.raises(ValueError, match="may not declare"):
+		gateway_environment(
+			{"id": "x", "policy": "allow", "env": {"HARNESS_STATE_DB": "/elsewhere"}},
+			GATEWAY,
+			tmp_path / "s",
+			tmp_path,
+			{},
+		)
+
+
+def test_only_a_declared_campaign_uses_the_product_launcher(tmp_path: Path) -> None:
+	state = tmp_path / "s"
+	assert gateway_command({"policy": "candidate"}, GATEWAY, state) == ["legacy"]
+	declared = {**GATEWAY, "candidate": {"policy": "allow", "campaign_config": "/c.json"}}
+	assert gateway_command({"policy": "quota"}, declared, state) == ["legacy"]
+	assert gateway_command({"policy": "candidate"}, declared, state) == [
+		"serve",
+		"--config",
+		"/c.json",
+		"--state-db",
+		str(state),
+		"--base-policy",
+		"allow",
+	]
+
+
+def test_the_runner_measures_a_grid_and_always_stops_its_gateway(tmp_path: Path) -> None:
+	root = tmp_path / "grid"
+	plan_grid(spec(tmp_path) | {"gateway": _gateway()}, root)
+	started: list[str] = []
+
+	def runner(setting: dict[str, Any], state: Path, output: Path, plan: dict[str, Any]) -> None:
+		def measure(*args: Any) -> None:
+			fixture_runner(setting, state, output, plan)
+			started.append(setting["id"])
+
+		policy = "mmd" if setting["policy"] == "candidate" else setting["policy"]
+		run_setting(
+			setting,
+			state,
+			output,
+			plan,
+			python=FIXTURE_GATEWAY,
+			measure=measure,
+		)
+		_assert_stopped(output)
+		assert json.loads((output / "gateway.json").read_text())["policy"] == policy
+		assert (output / "credentials.json").stat().st_mode & 0o777 == 0o600
+
+	execute_grid(root, runner)
+	assert started == ["allow", "candidate", "quota", "tokens"]
+	assert derive_grid(root)["development"]["schedule_sha256"]
+
+
+def _refused_cell(tmp_path: Path, message: str, **overrides: Any) -> Path:
+	root = tmp_path / "grid"
+	plan_grid(spec(tmp_path) | {"gateway": _gateway()}, root)
+	output = tmp_path / "cell"
+	output.mkdir()
+	with pytest.raises(ValueError, match=message):
+		run_setting(
+			{"id": "allow", "policy": "allow"},
+			output / "state.sqlite",
+			output,
+			load_plan(root) | {"root": str(root)},
+			**({"python": FIXTURE_GATEWAY} | overrides),
+		)
+	return output
+
+
+def _measured(*args: Any) -> None:
+	pytest.fail("measured the wrong gateway")
+
+
+def test_the_runner_refuses_a_port_already_serving(tmp_path: Path) -> None:
+	ready = {"status": "ready", "policy": "allow", "instance_id": "foreign"}
+	_refused_cell(tmp_path, "already serving", probe=lambda url: ready, measure=_measured)
+
+
+def test_the_runner_refuses_a_service_that_took_the_port_after_the_check(tmp_path: Path) -> None:
+	replies = iter([None, {"status": "ready", "policy": "allow", "instance_id": "foreign"}])
+	output = _refused_cell(
+		tmp_path, "another process", probe=lambda url: next(replies), measure=_measured
+	)
+	assert not (output / "gateway.json").exists()
+
+
+def test_the_runner_refuses_its_own_gateway_on_the_wrong_policy(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	monkeypatch.setenv("FIXTURE_POLICY", "quota")
+	_assert_stopped(_refused_cell(tmp_path, "gateway serves quota", measure=_measured))
+
+
+def test_a_failed_measurement_still_stops_the_gateway_and_its_children(tmp_path: Path) -> None:
+	def measure(*args: Any) -> None:
+		raise ValueError("measurement failed")
+
+	_assert_stopped(_refused_cell(tmp_path, "measurement failed", measure=measure))

@@ -23,7 +23,7 @@ keep the v1 summary exactly.
 """
 
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,7 @@ ATTRIBUTED_FIELDS = (
 	"restriction_wait_seconds",
 	"restriction_give_ups",
 	"first_entitlement_restriction_seconds",
+	"output_receipts",
 	"campaign",
 	"ambiguous_policy_rows",
 )
@@ -189,6 +190,7 @@ def _attributed(
 	ambiguous = sum(e["event"] == "attribution_ambiguous" for e in events)
 	first_campaign_alert = first(campaign_alert)
 	first_campaign_restriction = first(campaign_restriction)
+	receipts = [o["output_receipt"] for o in outcomes.values() if "output_receipt" in o]
 	return {
 		"summary_version": ATTRIBUTED_SUMMARY_VERSION,
 		"restricted": len(restricted),
@@ -207,6 +209,14 @@ def _attributed(
 			first(lambda a: restriction.get(a["id"], {}).get("decision") == "block"),
 		),
 		"first_entitlement_restriction_seconds": first(entitlement_restriction),
+		"output_receipts": {
+			"received": len(receipts),
+			"by_outcome": dict(sorted(Counter(str(r.get("outcome")) for r in receipts).items())),
+			"invalid": sum(r.get("valid") is not True for r in receipts),
+			"released_hash_mismatches": sum(
+				r.get("released_hash_matches") is False for r in receipts
+			),
+		},
 		"campaign": {
 			"first_alert_seconds": first_campaign_alert,
 			"first_restriction_seconds": first_campaign_restriction,

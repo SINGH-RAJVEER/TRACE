@@ -17,7 +17,7 @@ from typing import Any
 
 from distillation.campaign_summary import load_campaign_summary
 
-INDEX_VERSION = "results-index-v3"
+INDEX_VERSION = "results-index-v4"
 COLUMNS = (
 	"reading",
 	"run_id",
@@ -83,8 +83,22 @@ COLUMNS = (
 	"gate_inputs_sha256",
 	"base_revision",
 	"student_revision",
+	# Attributed campaign rows, appended so older rows load with these unknown.
+	"restricted",
+	"restrictions_campaign",
+	"restrictions_entitlement",
+	"restrictions_rate",
+	"restrictions_output",
+	"restriction_wait_seconds",
+	"restriction_give_ups",
+	"first_entitlement_restriction_seconds",
+	"policy_binding",
+	"campaign_digest",
+	"output_receipts",
+	"output_receipt_mismatches",
 )
 KEY = ("run_id", "kind", "attack", "arm", "stratum")
+RESTRICTION_COLUMNS = ("campaign", "entitlement", "rate", "output")
 STUDY = {"exploratory": "development", "confirmatory": "confirmatory"}
 
 
@@ -141,6 +155,32 @@ def _arm_settings(directory: Path, arm: str, calibration: Path | None) -> dict[s
 		"accumulator": accumulator if policy == "mmd" else None,
 		"calibration_sha256": _sha256(calibration) if calibration and policy != "none" else None,
 		"policy_revision": _policy_revision(directory / "decisions.jsonl"),
+	}
+
+
+def _attributed_fields(report: dict[str, Any], summary: dict[str, Any] | None) -> dict[str, Any]:
+	"""Empty for a run without attribution, because there these are unknown rather than zero."""
+	binding = (summary or {}).get("policy_binding")
+	binding = binding if isinstance(binding, dict) else {}
+	digests = binding.get("campaign_digests") or []
+	fields: dict[str, Any] = {
+		"policy_binding": binding.get("status"),
+		"campaign_digest": digests[0] if len(digests) == 1 else None,
+	}
+	if "restricted" not in report:
+		return fields
+	kinds = report.get("restrictions_by_kind") or {}
+	receipts = report.get("output_receipts") or {}
+	return fields | {
+		"restricted": report["restricted"],
+		**{f"restrictions_{kind}": kinds.get(kind, 0) for kind in RESTRICTION_COLUMNS},
+		"restriction_wait_seconds": report.get("restriction_wait_seconds"),
+		"restriction_give_ups": report.get("restriction_give_ups"),
+		"first_entitlement_restriction_seconds": report.get(
+			"first_entitlement_restriction_seconds"
+		),
+		"output_receipts": receipts.get("received"),
+		"output_receipt_mismatches": receipts.get("released_hash_mismatches"),
 	}
 
 
@@ -222,6 +262,7 @@ def campaign_row(
 		# Without policy events, empty level cells mean unattributed, not unescalated.
 		"attribution_complete": report.get("attribution_complete"),
 		"unattributed_queries": report.get("unattributed_queries"),
+		**_attributed_fields(report, summary),
 		# J and Q are left empty for an unreached level rather than given censored values.
 		**{
 			f"L{level}_{field}": (levels.get(f"L{level}") or {}).get(field)

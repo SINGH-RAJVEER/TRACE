@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
+from coding.extract import extract_code
 from distillation.output_sets import DENSE_INSTRUCTION, INSTRUCTIONS
 from distillation.schemas import (
 	Message,
@@ -24,7 +25,7 @@ from harness.calibration import Calibration
 from harness.mmd import WindowScorer
 from harness_api import launcher
 from harness_api.app import _policy_fields, create_app
-from harness_api.output_policy import RECEIPT_HEADER, OutputPolicy
+from harness_api.output_policy import ANSWER_FORMATS, RECEIPT_HEADER, OutputPolicy, parse_coding
 from harness_api.settings import Settings
 from test_harness_api import Encoder, _solved
 from test_harness_api import artifacts as artifacts
@@ -38,6 +39,13 @@ DRAFT = f"{EXPLANATION}\n#### 42"
 REWRITTEN = "Summation over the enumerated quantities yields the terminal value"
 RELEASED = f"{REWRITTEN}\n#### 42"
 URL = "/v1/teacher/generate"
+
+
+def _fixed(text: str) -> Any:
+	async def rewrite(request: TeacherGenerationRequest) -> TeacherGeneration:
+		return generation(text)
+
+	return rewrite
 
 
 def generation(text: str, *, finish: str = "stop", output: int | None = 1000) -> TeacherGeneration:
@@ -519,7 +527,7 @@ def test_the_policy_is_bound_into_the_revision_and_state_scope(
 		({"HARNESS_OUTPUT_POLICY": {"mode": "dense_locked"}}, "version"),
 		({"HARNESS_OUTPUT_POLICY": policy(version="v0")}, "version"),
 		({"HARNESS_OUTPUT_POLICY": policy(mode="summary")}, "mode"),
-		({"HARNESS_OUTPUT_POLICY": policy(tasks=["squad"])}, "tasks"),
+		({"HARNESS_OUTPUT_POLICY": policy(tasks=["text"])}, "tasks"),
 		({"HARNESS_OUTPUT_POLICY": policy(tasks=[])}, "tasks"),
 		({"HARNESS_OUTPUT_POLICY": policy(extra=1)}, "extra"),
 		({"HARNESS_OUTPUT_POLICY": policy(rewrite_timeout_seconds=None)}, "rewrite_max"),
@@ -585,3 +593,138 @@ async def test_padded_copy_of_the_draft_is_never_released_or_retained(
 	assert response.status_code == replay.status_code == 502
 	assert SENTINEL not in response.text and SENTINEL not in replay.text
 	assert SENTINEL.encode() not in retained_bytes(log, state)
+
+
+FENCE = "```python\ndef add(a, b):\n\treturn a + b\n```"
+
+
+@pytest.mark.parametrize(
+	("task", "text", "explanation", "answer"),
+	[
+		("coding", f"Sum the arguments.\n{FENCE}\nDone.", "Sum the arguments.\nDone.", FENCE),
+		("coding", FENCE, "", FENCE),
+		("ag_news", ' "sci/tech." ', "", "Sci/Tech"),
+		("squad", "the Eiffel Tower", "", "the Eiffel Tower"),
+	],
+)
+def test_answer_formats_lock_the_answer(
+	task: str, text: str, explanation: str, answer: str
+) -> None:
+	locked = ANSWER_FORMATS[task].parse(text)
+	assert locked is not None
+	assert (locked.explanation, locked.answer) == (explanation, answer)
+
+
+@pytest.mark.parametrize(
+	("task", "text"),
+	[
+		("coding", "No code here."),
+		("coding", f"{FENCE}\n{FENCE}"),
+		("coding", "```python\ndef broken(:\n```"),
+		("coding", "```bash\nls\n```"),
+		("ag_news", "Sports, because of the match."),
+		("squad", "First line.\nSecond line."),
+		("squad", " ".join(["word"] * 33)),
+		("squad", "the"),
+	],
+)
+def test_answer_formats_refuse_what_they_cannot_separate(task: str, text: str) -> None:
+	assert ANSWER_FORMATS[task].parse(text) is None
+
+
+async def test_coding_rewrites_the_prose_and_keeps_the_fence_unchanged(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	prose = f"Add {SENTINEL} the two numbers"
+	teacher = Teacher(
+		rewrite=_fixed("Deduce the additive aggregate of both operands"),
+		draft=generation(f"{prose}\n{FENCE}"),
+	)
+	app, log, state = make_app(
+		artifacts,
+		tmp_path,
+		teacher,
+		HARNESS_TASK="coding",
+		HARNESS_OUTPUT_POLICY=policy(tasks=["coding"]),
+	)
+	async with client(app) as http:
+		response = await http.post(URL, json=question(), headers={"X-Benchmark-Actor": "a"})
+	assert response.status_code == 200
+	assert response.json()["message"]["content"] == (
+		f"Deduce the additive aggregate of both operands\n\n{FENCE}"
+	)
+	assert SENTINEL.encode() not in retained_bytes(log, state)
+
+
+async def test_a_rewrite_with_its_own_fence_never_replaces_the_locked_code(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	teacher = Teacher(
+		rewrite=_fixed("```python\nother()\n```"), draft=generation(f"Add both.\n{FENCE}")
+	)
+	app, _, _ = make_app(
+		artifacts,
+		tmp_path,
+		teacher,
+		HARNESS_TASK="coding",
+		HARNESS_OUTPUT_POLICY=policy(tasks=["coding"], fallback="final_answer"),
+	)
+	async with client(app) as http:
+		response = await http.post(URL, json=question(), headers={"X-Benchmark-Actor": "a"})
+	assert response.json()["message"]["content"] == FENCE
+
+
+async def test_a_bare_answer_task_withholds_a_draft_with_added_reasoning(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	teacher = Teacher(draft=generation(f"It is about a match {SENTINEL}, so Sports."))
+	app, log, state = make_app(
+		artifacts,
+		tmp_path,
+		teacher,
+		HARNESS_TASK="ag_news",
+		HARNESS_OUTPUT_POLICY=policy(mode="final_answer_only", tasks=["ag_news"]),
+	)
+	async with client(app) as http:
+		response = await http.post(URL, json=question(), headers={"X-Benchmark-Actor": "a"})
+	assert response.status_code == 502
+	assert SENTINEL not in response.text
+	assert SENTINEL.encode() not in retained_bytes(log, state)
+
+
+def test_a_rewrite_mode_cannot_withhold_every_bare_answer() -> None:
+	with pytest.raises(ValueError, match="withhold every response"):
+		OutputPolicy.model_validate(policy(tasks=["gsm8k", "squad"]))
+	OutputPolicy.model_validate(policy(tasks=["gsm8k", "squad"], fallback="final_answer"))
+
+
+async def test_health_reports_the_served_configuration(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	app, _, _ = make_app(artifacts, tmp_path, Teacher())
+	async with client(app) as http:
+		health = (await http.get("/healthz")).json()
+	assert health["status"] == "ready"
+	assert len(health["policy_revision"]) == 64
+	assert health["output_policy_digest"] == OutputPolicy.model_validate(policy()).digest
+	assert "campaign_digest" not in health
+
+
+def test_a_crlf_fence_reads_as_the_scorer_reads_it() -> None:
+	text = "Adds.\r\n```python\r\ndef add(a, b):\r\n\treturn a + b\r\n```\r\n"
+	locked = parse_coding(text)
+	assert locked is not None and locked.value == extract_code(text)
+	assert locked.answer in text and locked.answer.startswith("```python\r\n")
+
+
+async def test_health_echoes_an_instance_without_changing_the_revision(
+	artifacts: Artifacts, tmp_path: Path
+) -> None:
+	reports = []
+	for name, extra in (("plain", {}), ("named", {"HARNESS_INSTANCE_ID": "launch"})):
+		(tmp_path / name).mkdir()
+		app, _, _ = make_app(artifacts, tmp_path / name, Teacher(), **extra)
+		async with client(app) as http:
+			reports.append((await http.get("/healthz")).json())
+	assert "instance_id" not in reports[0] and reports[1]["instance_id"] == "launch"
+	assert reports[0]["policy_revision"] == reports[1]["policy_revision"]
