@@ -1,13 +1,13 @@
-// Small hand-drawn chart pieces. They draw a missing value as its own hatched mark, so an absent
+// Small hand-drawn chart pieces. A missing value is drawn as its own hatched mark, so an absent
 // bar can never be read as a zero-length one.
 
 import * as React from "react";
 import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleMinus } from "lucide-react";
-import { ARM_LABELS, armColor, type CoverageState } from "../data";
+import { armColor, type CoverageState } from "../data";
 import { cn } from "../lib";
 
 /**
- * Hover and focus tooltip for a mark. It is placed with fixed coordinates so scrolling tables
+ * Hover and focus tooltip for a mark. It is placed with fixed coordinates so scrolling containers
  * cannot clip it, and flips below the mark near the top of the window.
  */
 export function Tip({ content, children, className }: { content: React.ReactNode; children: React.ReactNode; className?: string }) {
@@ -34,38 +34,24 @@ export function ArmSwatch({ arm, className }: { arm: string; className?: string 
 	return <span aria-hidden className={cn("inline-block size-2.5 shrink-0 rounded-[3px]", className)} style={{ background: armColor(arm) }} />;
 }
 
-export function ArmName({ arm }: { arm: string }) {
-	return <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><ArmSwatch arm={arm} /><span>{arm}</span></span>;
-}
+export type LegendItem = { label: string; color?: string; hatched?: boolean; outline?: boolean; line?: "solid" | "dashed" };
 
-export function ArmLegend({ arms }: { arms: string[] }) {
-	return <ul className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-		{arms.map(arm => <li key={arm} className="flex items-center gap-1.5"><ArmSwatch arm={arm} />{ARM_LABELS[arm] ?? arm}<span className="num text-faint">{arm}</span></li>)}
-	</ul>;
-}
-
-export function Legend({ items }: { items: { label: string; color?: string; hatched?: boolean; outline?: boolean }[] }) {
-	return <ul className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+export function Legend({ items }: { items: LegendItem[] }) {
+	return <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
 		{items.map(item => <li key={item.label} className="flex items-center gap-1.5">
-			<span aria-hidden className={cn("inline-block h-2.5 w-3.5 rounded-[3px]", item.hatched && "hatched", item.outline && "border border-dashed border-faint")} style={item.color ? { background: item.color } : undefined} />
+			{item.line
+				? <span aria-hidden className={cn("inline-block h-3 border-l-2", item.line === "dashed" && "border-dashed")} style={{ borderColor: item.color }} />
+				: <span aria-hidden className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", item.hatched && "hatched", item.outline && "border border-dashed border-faint")} style={item.color ? { background: item.color } : undefined} />}
 			{item.label}
 		</li>)}
 	</ul>;
 }
 
 /** A large figure with a label, without a box around it. */
-export function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: "caution" | "fail" | "pass" }) {
+export function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "caution" | "fail" | "pass" }) {
 	return <div className="min-w-0 space-y-1">
-		<div className="text-xs font-medium tracking-wide text-muted uppercase">{label}</div>
-		<div className={cn("figure text-3xl leading-none", tone === "caution" && "text-caution", tone === "fail" && "text-fail", tone === "pass" && "text-pass")}>{value}</div>
-		{sub && <div className="text-xs text-muted">{sub}</div>}
-	</div>;
-}
-
-/** A ratio as a thin track, with the parts named in the label rather than by color alone. */
-export function Meter({ parts, total, label }: { parts: { value: number; color: string; label: string }[]; total: number; label: string }) {
-	return <div role="img" aria-label={label} className="flex h-1.5 w-full gap-[2px] overflow-hidden rounded-full bg-track">
-		{parts.filter(p => p.value > 0).map(p => <span key={p.label} className="h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(p.value / Math.max(total, 1)) * 100}%`, background: p.color }} />)}
+		<div className="text-xs text-muted">{label}</div>
+		<div className={cn("figure text-2xl leading-none", tone === "caution" && "text-caution", tone === "fail" && "text-fail", tone === "pass" && "text-pass")}>{value}</div>
 	</div>;
 }
 
@@ -74,7 +60,7 @@ const COVERAGE: Record<CoverageState, { label: string; icon: typeof CircleCheck;
 	partial: { label: "partial", icon: CircleDot, className: "text-caution" },
 	missing: { label: "missing", icon: CircleDashed, className: "text-faint" },
 	error: { label: "error", icon: CircleAlert, className: "text-fail" },
-	na: { label: "n/a", icon: CircleMinus, className: "text-faint/60" },
+	na: { label: "n/a", icon: CircleMinus, className: "text-faint/50" },
 };
 
 export function CoverageMark({ state, compact = false }: { state: CoverageState; compact?: boolean }) {
@@ -86,38 +72,109 @@ export function CoverageMark({ state, compact = false }: { state: CoverageState;
 	</span>;
 }
 
-/** Horizontal bar against a shared scale; a null value draws the hatched "not recorded" bar. */
-export function HBar({ value, max, color, label, missing, tip, height = "h-3.5" }: { value: number | null; max: number; color: string; label?: React.ReactNode; missing?: string; tip?: React.ReactNode; height?: string }) {
-	const width = value === null ? 0 : Math.max((value / Math.max(max, 1e-12)) * 100, value > 0 ? 0.6 : 0);
-	const bar = value === null
-		? <span className="flex min-w-0 items-center gap-2"><span className={cn("hatched inline-block w-16 rounded-[3px]", height)} /><span className="unrecorded">{missing ?? "not recorded"}</span></span>
-		: <span className="flex min-w-0 flex-1 items-center gap-2">
-			<span className={cn("inline-block rounded-r-[4px]", height)} style={{ width: `${width}%`, background: color, minWidth: value > 0 ? 2 : 0 }} />
-			{label !== undefined && <span className="num shrink-0 text-xs text-ink">{label}</span>}
-		</span>;
-	return tip ? <Tip content={tip} className="w-full">{bar}</Tip> : bar;
-}
-
-/** A labeled block of charts, sitting on the page without borders. */
-export function Panel({ title, note, children, className, aside }: { title: string; note?: React.ReactNode; children: React.ReactNode; className?: string; aside?: React.ReactNode }) {
-	return <div className={cn("min-w-0 space-y-3", className)}>
-		<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-			<div>
-				<h4 className="text-sm font-semibold">{title}</h4>
-				{note && <p className="max-w-2xl text-xs text-muted">{note}</p>}
-			</div>
-			{aside}
-		</div>
+/** A chart with a title and nothing else around it. */
+export function Figure({ title, legend, children, className }: { title: string; legend?: LegendItem[]; children: React.ReactNode; className?: string }) {
+	return <figure className={cn("min-w-0 space-y-3", className)}>
+		<figcaption className="space-y-1.5">
+			<h3 className="text-sm font-semibold">{title}</h3>
+			{legend && <Legend items={legend} />}
+		</figcaption>
 		{children}
-	</div>;
+	</figure>;
 }
 
-/** A collapsed table or list behind a quiet toggle. */
+/** A collapsed block behind a quiet toggle. */
 export function More({ label, children }: { label: string; children: React.ReactNode }) {
 	return <details className="group text-sm">
 		<summary className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-muted hover:text-ink">
 			<span className="inline-block transition-transform group-open:rotate-90" aria-hidden>&#9656;</span>{label}
 		</summary>
-		<div className="mt-3">{children}</div>
+		<div className="mt-4">{children}</div>
 	</details>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Grouped bar chart. One group per category, one bar per arm, every bar on the same axis.
+
+export type BarState = "value" | "no-value" | "absent" | "none";
+
+export type Bar = {
+	key: string;
+	color: string;
+	value: number | null;
+	/** value: drawn to scale; no-value: hatched stub; absent: dashed stub (no row); none: ran, nothing happened. */
+	state: BarState;
+	label?: string;
+	flag?: string;
+	tip: React.ReactNode;
+};
+
+export type Scale = { kind: "log" | "linear"; min: number; max: number; ticks: number[]; tick: (value: number) => string };
+
+/** A log axis over whole decades, so every recorded value is visible however small. */
+export function logScale(values: number[], tick: (value: number) => string): Scale {
+	const positive = values.filter(v => v > 0);
+	const lo = positive.length ? Math.floor(Math.log10(Math.min(...positive))) : 0;
+	const hi = positive.length ? Math.max(Math.ceil(Math.log10(Math.max(...positive))), lo + 1) : 1;
+	const ticks = Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i));
+	return { kind: "log", min: 10 ** lo, max: 10 ** hi, ticks, tick };
+}
+
+/** A linear axis from zero to a rounded maximum. */
+export function linearScale(values: number[], tick: (value: number) => string, fixedMax?: number): Scale {
+	const top = fixedMax ?? Math.max(...values, 0);
+	if (fixedMax !== undefined) return { kind: "linear", min: 0, max: fixedMax, ticks: [0, 0.25, 0.5, 0.75, 1].map(f => f * fixedMax), tick };
+	const raw = top > 0 ? top / 4 : 1;
+	const magnitude = 10 ** Math.floor(Math.log10(raw));
+	const step = [1, 2, 2.5, 5, 10].map(m => m * magnitude).find(s => s >= raw) ?? raw;
+	const max = Math.max(step * Math.ceil(top / step), step);
+	const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+	return { kind: "linear", min: 0, max, ticks, tick };
+}
+
+function position(scale: Scale, value: number): number {
+	if (scale.kind === "log") {
+		if (value <= scale.min) return 0;
+		return Math.min((Math.log10(value) - Math.log10(scale.min)) / (Math.log10(scale.max) - Math.log10(scale.min)), 1);
+	}
+	return Math.min(Math.max(value / scale.max, 0), 1);
+}
+
+function BarMark({ bar, scale }: { bar: Bar; scale: Scale }) {
+	let body: React.ReactNode;
+	if (bar.state === "value" && bar.value !== null) {
+		const height = Math.max(position(scale, bar.value) * 100, 1.5);
+		body = <span className="relative flex h-full w-full flex-col justify-end">
+			<span className="absolute left-1/2 -translate-x-1/2 text-[0.6rem] tabular-nums tracking-tight whitespace-nowrap text-muted" style={{ bottom: `calc(${height}% + 2px)` }}>{bar.flag && <span className="text-caution">{bar.flag} </span>}{bar.label}</span>
+			<span className="block w-full rounded-t-[4px]" style={{ height: `${height}%`, background: bar.color }} />
+		</span>;
+	} else {
+		const style = bar.state === "absent" ? "border border-dashed border-faint/70" : bar.state === "none" ? "border border-faint/70" : "hatched";
+		body = <span className="relative flex h-full w-full flex-col justify-end">
+			{bar.state === "none" && <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[0.62rem] text-faint">none</span>}
+			<span className={cn("block h-3 w-full rounded-t-[3px]", style)} />
+		</span>;
+	}
+	return <Tip content={bar.tip} className="h-full max-w-7 min-w-1.5 flex-1">{body}</Tip>;
+}
+
+export function GroupedBars({ groups, scale, height = 180 }: { groups: { key: string; label: string; bars: Bar[] }[]; scale: Scale; height?: number }) {
+	return <div className="flex gap-2 pt-4">
+		<div className="relative w-9 shrink-0" style={{ height }}>
+			{scale.ticks.map(t => <span key={t} className="num absolute right-0 translate-y-1/2 text-[0.62rem] text-faint" style={{ bottom: `${position(scale, t) * 100}%` }}>{scale.tick(t)}</span>)}
+		</div>
+		<div className="min-w-0 flex-1">
+			<div className="relative" style={{ height }}>
+				{scale.ticks.map(t => <span key={t} aria-hidden className={cn("absolute inset-x-0 border-t", position(scale, t) === 0 ? "border-faint/60" : "border-rule/70")} style={{ bottom: `${position(scale, t) * 100}%` }} />)}
+				<div className="relative flex h-full gap-3 px-1 sm:gap-5">
+					{groups.map(g => <div key={g.key} className="flex h-full flex-1 items-end justify-center gap-[2px]">
+						{g.bars.map(bar => <BarMark key={bar.key} bar={bar} scale={scale} />)}
+					</div>)}
+				</div>
+			</div>
+			<div className="flex gap-3 px-1 pt-1.5 sm:gap-5">
+				{groups.map(g => <span key={g.key} className="flex-1 truncate text-center text-xs text-muted" title={g.label}>{g.label}</span>)}
+			</div>
+		</div>
+	</div>;
 }

@@ -154,12 +154,11 @@ describe("coverage and gaps", () => {
 		expect(cells.find(c => c.key === "curves")?.state).toBe("missing");
 		const text = gaps(run, ["A1", "A2", "A3", "A7"]).map(g => g.text).join("\n");
 		expect(text).toContain("No campaign rows for A7");
-		expect(text).toContain("1 of 4 arms were refused");
-		expect(text).toContain("A2/full was interrupted after 1,537 attempts of 6,000");
-		expect(text).toContain("A2/full has incomplete attribution (1,537 unattributed queries)");
-		expect(text).toContain("Attribution was not recorded for A3/undefended");
+		expect(text).toContain("1 of 4 arms refused by the detectability gate");
+		expect(text).toContain("A2/full interrupted after 1,537 of 6,000 attempts");
+		expect(text).toContain("Intervention times unknown for A2/full, A3/undefended");
 		expect(text).toContain("No benign utility");
-		expect(text).toContain("Not found under the configured roots: learning curves, checkpoints, transfer report, student index rows.");
+		expect(text).toContain("Not recorded: headroom gate, capacity preflight, problem scores, learning curves, checkpoints, transfer report, student index rows, clean-student gate");
 	});
 });
 
@@ -173,6 +172,6 @@ describe("applies", () => {
 		expect(coverage(run).find(c => c.key === "checkpoints")?.state).toBe("missing");
 		const text = gaps(run).map(g => g.text).join("\n");
 		expect(text).not.toContain("No campaign rows");
-		expect(text).toContain("not attached to an indexed run");
+		expect(text).toContain("Not attached to an indexed run");
 	});
 });

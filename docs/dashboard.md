@@ -42,30 +42,35 @@ When the index already holds a run's campaign and utility rows, they are shown a
 
 ## Layout
 
-The page opens on **All runs**, which loads every run and shows three things:
+**All runs** has two parts:
 
-- **Evidence coverage**: one row per run and one column per kind of evidence (campaign arms, benign utility, headroom gate, capacity preflight, problem scores, learning curves, checkpoints, transfer report, student index rows, clean-student gate, detectability refusals). Each cell is recorded, partial, missing, error or n/a, with the reason on hover. N/a marks evidence that cannot exist for that kind of entry: a student plan or gate directory found on its own never holds campaigns or utility. Partial means the artifact exists but some arms are refused or interrupted, a `utility.json` is absent or an LFS pointer, or a curve or checkpoint plan has no summary.
-- **Campaign arms by attack**: every attack named by any run, against each run's arms. A cell holds the responses received, or is marked refused (detectability gate, no requests sent), interrupted, or empty (no row at all).
-- **Missing data, run by run**: the specific gaps, worded as facts. Examples are refused or interrupted arms, unknown attribution, attacks other runs recorded, unhydrated `utility.json`, unknown comparison validity, plans without a summary, artifacts not found under the roots, and absent commits or teacher configuration. A plan or gate directory whose name matches no run ID or reading is listed as its own entry and flagged as not attached. A configured root that does not exist is reported at the top, since it is the usual cause of missing teacher, gate and student evidence.
+- **What each run recorded**: one row per run, one column per evidence group (Acquisition, Utility, Teacher, Students, Gates). Each cell is recorded, partial, missing, error or n/a; hover it for the artifacts behind it. N/a marks evidence that cannot exist for that entry, such as campaigns for a lone student plan. The last column counts the run's gaps. Student plans whose names match no run ID or reading are listed separately as not attached.
+- **Released tokens by attack and arm**: every attack named by any run against each run's arms. A cell holds the released tokens, or is hatched (refused by the detectability gate), tinted (interrupted) or outlined (no row).
 
-Selecting a run opens one scrolling page with a section index (`#run=<id>&s=<section>` links to a section):
+A run page (`#run=<id>`) is one short screen:
 
-- **Summary**: arms run, attacks with a run arm, arms with complete attribution, the lowest and highest benign completion, and evidence recorded, followed by the coverage strip and the run's gaps. These are counts of coverage; responses and tokens are never summed across arms or policies.
-- **Acquisition**: small multiples per attack. One chart splits each arm's attempts into received, challenged, blocked and failed. One shows released tokens. One places the first alert, restriction and refusal on a shared time axis. Full tables sit behind toggles.
-- **Legitimate utility**: pooled completion, served-only quality and unconditional utility on one 0 to 100% scale, then p50/p95/p99 latency against the client deadline, then a heatmap of the strata (domain, domain profile, client type) for a chosen rate.
-- **Teacher**, **Students**, **Gates** and **Provenance**: as described below. The Students section opens with every checkpoint's accuracy, from every plan, on one scale against the untrained base and the declared target. A section whose artifacts are all missing collapses to a list of what is missing and why.
+- **Headline figures**: arms that ran, the lowest and highest benign completion, the best student accuracy against its target, and how many evidence kinds were recorded. None of them sums acquisition across arms.
+- **Missing**: one line per gap, for example refused or interrupted arms, unknown attribution, attacks other runs recorded, a `utility.json` that is an LFS pointer, unknown validity, plans without a summary, an unattached plan or no commit. Artifacts not found under the roots are folded into one "Not recorded" line. Past five lines the rest sit behind a toggle.
+- **Released tokens per attack**: grouped bars per arm on a log axis, so small values stay visible.
+- **Minutes until the policy first intervened**: the earliest alert, restriction or refusal per arm.
+- **Benign workload served**: completion, quality when served and overall utility per arm on a 0 to 100% axis, with p95 latency below.
+- **Student accuracy**: each checkpoint on a 0 to 100% axis, with the untrained base, the teacher and the declared target marked. A learning curve is added when a plan has one.
+- Gate verdicts (headroom, capacity, clean student) appear as badges when recorded.
+- **Recorded values and run configuration**, collapsed: the campaign and utility tables, any transfer reports and student index rows, and the provenance (index labels, run directories, teacher identity, settings, README).
+
+A chart or figure with nothing behind it is not drawn; the gap appears in Missing instead.
 
 Each arm keeps one color in every run: full is blue, instantaneous orange, quota green and undefended gray.
 
 ## How values are shown
 
-- An empty index cell or a missing JSON field is "not recorded", drawn with a hatched mark, including in charts: a bar that was not recorded is a hatched bar, never a zero-length one. Zero and `false` are shown as values. Booleans keep their recorded value, so the v3 A2 campaign shows incomplete attribution with 1,537 unattributed queries.
-- A section without an artifact says it is unavailable and why. The checked-in readings have no student, gate, checkpoint, transfer or capacity artifacts, so those sections are reported missing for v3, v4 and v5.
+- An empty index cell or a missing JSON field is "not recorded", drawn with a hatched mark, including in charts: a bar that was not recorded is a hatched stub, never a zero-length one. An arm that ran and saw no intervention is an outlined stub marked "none", and only when every query was attributed; otherwise it is hatched as unknown. Zero and `false` are shown as values. Booleans keep their recorded value, so the v3 A2 campaign shows incomplete attribution with 1,537 unattributed queries.
+- Evidence without an artifact is listed under Missing rather than drawn as an empty section.
 - Gate-refused and interrupted campaign arms keep their rows, with the runner's `outcome` text. Failed and development-only gates are listed with their reasons. A gate report whose digest no longer matches is flagged as edited; a learning-curve plan whose files do not match their hashes is flagged.
-- Campaign acquisition (requests received, blocked and challenged, released tokens, distinct examples, intervention times and `J`/`Q`) is a separate section from model accuracy. Neither is presented as evidence that distillation was prevented.
-- Legitimate utility shows each arm's pooled completion, served-only quality, unconditional utility and latency, then the same per domain, domain profile and client type. Validity comes from the index or from `utility_validity`; unbound runs read unknown.
-- Teacher headroom (task capability against the pinned base) and the capacity preflight (whether the teacher could serve the workload) are separate sections.
-- A curve is charted only for an arm with at least two summarized sizes, with its bootstrap interval. Checkpoint charts plot reached checkpoints only; censored ones are listed and never drawn as zero accuracy.
+- Campaign acquisition (requests received, blocked and challenged, released tokens, distinct examples, intervention times and `J`/`Q`) is charted separately from model accuracy. Neither is presented as evidence that distillation was prevented.
+- Legitimate utility shows each arm's pooled completion, served-only quality, unconditional utility and p95 latency. Validity comes from the index or from `utility_validity`; unbound runs read unknown.
+- Teacher headroom (task capability against the pinned base) and the capacity preflight (whether the teacher could serve the workload) are separate verdicts.
+- A curve is charted only for an arm with at least two summarized sizes, with its bootstrap interval. Censored checkpoints are drawn hatched, never as zero accuracy.
 - Study labels (development or confirmatory), seeds, attacker partition, commits, suite hashes, the student base and revision and the teacher model and revision are shown wherever an artifact records them. Teacher identity is copied from the run's configuration. A GGUF or other quantized teacher appears under the name and revision it was configured with and is not merged with other teachers.
 
 ## Safety

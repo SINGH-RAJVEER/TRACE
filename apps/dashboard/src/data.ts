@@ -233,80 +233,73 @@ function rawCoverage(detail: RunDetail): CoverageCell[] {
 
 export type Gap = { area: string; severity: "missing" | "partial"; text: string };
 
-function list(values: string[], limit = 6): string {
-	return values.length <= limit ? values.join(", ") : `${values.slice(0, limit).join(", ")} and ${values.length - limit} more`;
+function list(values: string[], limit = 4): string {
+	return values.length <= limit ? values.join(", ") : `${values.slice(0, limit).join(", ")} +${values.length - limit}`;
 }
 
 /**
- * The specific things this run did not record, worded as facts. Each item names what is absent
- * and what the dashboard therefore cannot show; nothing here is inferred or filled in.
+ * The specific things this run did not record, one short line each. Nothing here is inferred or
+ * filled in; absent artifacts are folded into one "Not recorded" line.
  */
 export function gaps(detail: RunDetail, attacks: string[] = []): Gap[] {
 	const out: Gap[] = [];
 	const campaigns = failed(detail.campaigns) ? null : detail.campaigns;
 	const utility = failed(detail.utility) ? null : detail.utility;
 	const kind = detail.run.kind;
-	if (!detail.run.run_id && kind !== "study") out.push({ area: "Provenance", severity: "partial", text: `This ${kind} directory is not attached to an indexed run: its name matches no run ID or reading, so it is listed on its own instead of under the run its data came from.` });
-	if (campaigns && campaigns.state !== "available" && applies(kind, "Acquisition")) out.push({ area: "Acquisition", severity: "missing", text: `No campaign rows: ${campaigns.reason ?? "none found"}.` });
+	if (!detail.run.run_id && kind !== "study") out.push({ area: "Provenance", severity: "partial", text: "Not attached to an indexed run (its name matches no run ID)" });
+	if (campaigns && campaigns.state !== "available" && applies(kind, "Acquisition")) out.push({ area: "Acquisition", severity: "missing", text: "No campaign rows" });
 	if (campaigns?.state === "available") {
 		const rows = campaigns.items;
 		const key = (row: CampaignItem) => `${row.attack}/${row.arm}`;
 		const recorded = new Set(rows.map(row => row.attack));
 		const skipped = sortAttacks(attacks.filter(attack => !recorded.has(attack)));
-		if (skipped.length) out.push({ area: "Acquisition", severity: "partial", text: `No campaign rows for ${list(skipped)}, which other runs recorded.` });
+		if (skipped.length) out.push({ area: "Acquisition", severity: "partial", text: `No campaign rows for ${list(skipped)}` });
 		const refused = rows.filter(row => row.status === "gate-refused");
-		if (refused.length) out.push({ area: "Acquisition", severity: "partial", text: `${refused.length} of ${rows.length} arms were refused by the detectability gate and sent no requests: ${list(refused.map(key))}.` });
+		if (refused.length) out.push({ area: "Acquisition", severity: "partial", text: `${refused.length} of ${rows.length} arms refused by the detectability gate` });
 		for (const row of rows.filter(r => r.status === "interrupted")) {
-			out.push({ area: "Acquisition", severity: "partial", text: `${key(row)} was interrupted after ${format(row.attempts, "int") ?? "an unrecorded number of"} attempts${isNumber(row.attempt_budget) ? ` of ${format(row.attempt_budget, "int")}` : ""}.` });
+			out.push({ area: "Acquisition", severity: "partial", text: `${key(row)} interrupted after ${format(row.attempts, "int") ?? "?"}${isNumber(row.attempt_budget) ? ` of ${format(row.attempt_budget, "int")}` : ""} attempts` });
 		}
 		const ran = rows.filter(row => row.status !== "gate-refused" && row.status !== "not-run");
-		const unknownAttribution = ran.filter(row => row.attribution_complete === null || row.attribution_complete === undefined);
-		if (unknownAttribution.length) out.push({ area: "Acquisition", severity: "partial", text: `Attribution was not recorded for ${list(unknownAttribution.map(key))}, so their intervention times and escalation levels are unknown rather than "none observed".` });
-		for (const row of ran.filter(r => r.attribution_complete === false)) {
-			out.push({ area: "Acquisition", severity: "partial", text: `${key(row)} has incomplete attribution (${format(row.unattributed_queries, "int") ?? "an unrecorded number of"} unattributed queries); its intervention times are unknown.` });
-		}
+		const noAttribution = ran.filter(row => row.attribution_complete !== true).map(key);
+		if (noAttribution.length) out.push({ area: "Acquisition", severity: "partial", text: `Intervention times unknown for ${list(noAttribution)} (attribution incomplete)` });
 		const unknownTokens = ran.filter(row => isNumber(row.released_tokens_unknown) && row.released_tokens_unknown > 0);
-		if (unknownTokens.length) out.push({ area: "Acquisition", severity: "partial", text: `Released-token usage was unknown for some responses in ${list(unknownTokens.map(key))}.` });
+		if (unknownTokens.length) out.push({ area: "Acquisition", severity: "partial", text: `Some released tokens unknown in ${list(unknownTokens.map(key))}` });
 		if (utility?.state === "available") {
 			const campaignArms = new Set(rows.map(row => row.arm ?? "unknown"));
 			const utilityArms = new Set(utility.items.map(arm => arm.arm));
 			const noCampaign = sortArms([...utilityArms].filter(arm => !campaignArms.has(arm)));
 			const noUtility = sortArms([...campaignArms].filter(arm => !utilityArms.has(arm)));
-			if (noCampaign.length) out.push({ area: "Acquisition", severity: "partial", text: `Utility was measured for ${list(noCampaign)} but no campaign was run for ${noCampaign.length === 1 ? "it" : "them"}.` });
-			if (noUtility.length) out.push({ area: "Utility", severity: "partial", text: `Campaigns ran for ${list(noUtility)} but no utility was measured for ${noUtility.length === 1 ? "it" : "them"}.` });
+			if (noCampaign.length) out.push({ area: "Acquisition", severity: "partial", text: `No campaign for ${list(noCampaign)} (utility only)` });
+			if (noUtility.length) out.push({ area: "Utility", severity: "partial", text: `No utility for ${list(noUtility)}` });
 		}
 	}
-	if (utility && utility.state !== "available" && applies(kind, "Utility")) out.push({ area: "Utility", severity: "missing", text: `No benign utility: ${utility.reason ?? "none found"}.` });
+	if (utility && utility.state !== "available" && applies(kind, "Utility")) out.push({ area: "Utility", severity: "missing", text: "No benign utility" });
 	if (utility?.state === "available") {
-		const why: Record<string, string> = { "lfs-pointer": "is an unhydrated Git LFS pointer (run git lfs pull)", missing: "does not exist", malformed: "is malformed", "too-large": "is too large to read", refused: "was refused by the path checks" };
+		const why: Record<string, string> = { "lfs-pointer": "is a Git LFS pointer (run git lfs pull)", missing: "missing", malformed: "malformed", "too-large": "too large to read", refused: "refused by path checks" };
 		const noFile = utility.items.filter(arm => arm.file?.state !== "ok");
 		for (const state of [...new Set(noFile.map(arm => arm.file?.state ?? "missing"))]) {
 			const arms = noFile.filter(arm => (arm.file?.state ?? "missing") === state).map(a => a.arm);
-			out.push({ area: "Utility", severity: "partial", text: `utility.json ${why[state] ?? state} for ${list(arms)}; p50 and p99 latency, throughput and load settings are therefore not shown.` });
+			out.push({ area: "Utility", severity: "partial", text: `utility.json ${why[state] ?? state} for ${list(arms)}` });
 		}
 		const unknown = utility.items.filter(arm => arm.validity !== "valid" && arm.validity !== "invalid");
-		if (unknown.length) out.push({ area: "Utility", severity: "partial", text: `Comparison validity is unknown for ${unknown.length === utility.items.length ? "every arm" : list(unknown.map(a => a.arm))}: no teacher capacity preflight was bound to the run.` });
+		if (unknown.length) out.push({ area: "Utility", severity: "partial", text: `Utility validity unknown for ${unknown.length === utility.items.length ? "every arm" : list(unknown.map(a => a.arm))} (no capacity preflight)` });
 	}
 	const students = failed(detail.students) ? null : detail.students;
 	const unsummarized = students?.checkpoints.items.filter(item => !item.summary) ?? [];
-	if (unsummarized.length) out.push({ area: "Students", severity: "partial", text: `Checkpoint plan${unsummarized.length === 1 ? "" : "s"} ${list(unsummarized.map(item => item.place.path))} ${unsummarized.length === 1 ? "has" : "have"} no summary.json, so no student accuracy is recorded for ${unsummarized.length === 1 ? "it" : "them"}.` });
+	if (unsummarized.length) out.push({ area: "Students", severity: "partial", text: `No summary.json for ${list(unsummarized.map(item => shortLabel(item.place.path)))}, so no accuracy` });
 	const censored = students?.checkpoints.items.flatMap(item => (item.summary?.checkpoints ?? []).filter(row => row.status === "censored").map(row => `${shortLabel(item.place.path)}/${row.id}`)) ?? [];
-	if (censored.length) out.push({ area: "Students", severity: "partial", text: `Censored checkpoints with no accuracy: ${list(censored)}.` });
+	if (censored.length) out.push({ area: "Students", severity: "partial", text: `Censored checkpoints: ${list(censored)}` });
 	const unsummarizedCurves = students?.curves.items.filter(curve => !curve.summary) ?? [];
-	if (unsummarizedCurves.length) out.push({ area: "Students", severity: "partial", text: `Learning-curve plan${unsummarizedCurves.length === 1 ? "" : "s"} ${list(unsummarizedCurves.map(curve => curve.place.path))} ${unsummarizedCurves.length === 1 ? "has" : "have"} no summary.json yet.` });
-	// Absent artifacts are listed once per area; their individual reasons sit with each section.
+	if (unsummarizedCurves.length) out.push({ area: "Students", severity: "partial", text: `No learning-curve summary for ${list(unsummarizedCurves.map(curve => shortLabel(curve.place.path)))}` });
 	const absent = coverage(detail).filter(c => c.group !== "Acquisition" && c.group !== "Utility" && c.key !== "detectability" && (c.state === "missing" || c.state === "error"));
-	for (const area of COVERAGE_GROUPS) {
-		const cells = absent.filter(c => c.group === area);
-		if (!cells.length) continue;
-		const errors = cells.filter(c => c.state === "error");
-		out.push({ area, severity: "missing", text: `Not found under the configured roots: ${cells.map(c => c.label.toLowerCase()).join(", ")}.${errors.length ? ` Could not read: ${errors.map(c => `${c.label} (${c.detail})`).join("; ")}.` : ""}` });
-	}
+	const missing = absent.filter(c => c.state === "missing");
+	if (missing.length) out.push({ area: "Not recorded", severity: "missing", text: `Not recorded: ${missing.map(c => c.label.toLowerCase()).join(", ")}` });
+	for (const c of absent.filter(c => c.state === "error")) out.push({ area: c.group, severity: "missing", text: `Could not read ${c.label.toLowerCase()}: ${c.detail}` });
 	const provenance = failed(detail.provenance) ? null : detail.provenance;
 	if (provenance) {
-		if (!provenance.commits.length) out.push({ area: "Provenance", severity: "partial", text: "No commit is recorded for this run." });
-		if (!provenance.sources.length && kind === "study") out.push({ area: "Provenance", severity: "missing", text: "No run directory under the configured roots matches this run; configuration, README and teacher identity are unavailable." });
-		else if (kind === "study" && !provenance.sources.some(s => s.teacher.TEACHER_MODEL || s.teacher.TEACHER_UPSTREAM_MODEL)) out.push({ area: "Provenance", severity: "partial", text: "The run configuration does not name a teacher model." });
+		if (!provenance.commits.length) out.push({ area: "Provenance", severity: "partial", text: "No commit recorded" });
+		if (!provenance.sources.length && kind === "study") out.push({ area: "Provenance", severity: "missing", text: "No run directory found; configuration and teacher identity unknown" });
+		else if (kind === "study" && !provenance.sources.some(s => s.teacher.TEACHER_MODEL || s.teacher.TEACHER_UPSTREAM_MODEL)) out.push({ area: "Provenance", severity: "partial", text: "Teacher model not named in the run configuration" });
 	}
 	return out;
 }
