@@ -1,4 +1,4 @@
-"""Draw the paper's figures from figures/v7.json.
+"""Draw the paper's figures from figures/v7.json and figures/students.json.
 
 Run from the repository root:
 uv run --no-project --with matplotlib python paper/figures/plots.py
@@ -154,7 +154,36 @@ def a5_ranks():
 	fig.savefig(HERE / "a5-ranks.pdf")
 
 
+def students():
+	data = json.loads((HERE / "students.json").read_text())
+	rows = [
+		("teacher", "Teacher", NEUTRAL),
+		("A6/unprotected end", "A6, no control, 1,473", SLOT[1]),
+		("A5/full end", "A5, full policy, 197", SLOT[0]),
+		("base", "Untrained base", NEUTRAL),
+	]
+	fig, ax = plt.subplots(figsize=(3.5, 1.7))
+	for y, (key, _, color) in enumerate(rows):
+		cell = data["cells"][key]
+		low, high = (100 * v for v in cell["wilson95"])
+		acc = 100 * cell["accuracy"]
+		ax.plot([low, high], [y, y], color=color, linewidth=1.6, solid_capstyle="butt", zorder=2)
+		ax.scatter([acc], [y], s=22, color=color, edgecolor="white", linewidth=0.6, zorder=3)
+		ax.text(high + 0.8, y, f"{acc:.1f}%", va="center", fontsize=7, color=INK)
+	target = 100 * data["target_accuracy"]
+	ax.axvline(target, color=INK, linewidth=0.7, linestyle="--")
+	ax.text(target, -0.8, f"target {target:.0f}%", fontsize=6.5, color=INK, ha="center", va="bottom")
+	ax.set_yticks(range(len(rows)), [label for _, label, _ in rows])
+	ax.set_ylim(len(rows) - 0.5, -1.0)
+	ax.set_xlim(45, 95)
+	ax.set_xlabel("Accuracy on 746 GSM8K items (%)")
+	style(ax)
+	fig.tight_layout(pad=0.3)
+	fig.savefig(HERE / "students.pdf")
+
+
 if __name__ == "__main__":
 	released_by_domain()
 	a5_curves()
 	a5_ranks()
+	students()
