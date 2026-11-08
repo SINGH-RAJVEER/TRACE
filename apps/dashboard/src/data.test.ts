@@ -156,7 +156,8 @@ describe("coverage and gaps", () => {
 		expect(text).toContain("No campaign rows for A7");
 		expect(text).toContain("1 of 4 arms refused by the detectability gate");
 		expect(text).toContain("A2/full interrupted after 1,537 of 6,000 attempts");
-		expect(text).toContain("Intervention times unknown for A2/full, A3/undefended");
+		expect(text).toContain("Attribution incomplete for A2/full (1,537 unattributed queries)");
+		expect(text).toContain("Attribution not recorded for A3/undefended");
 		expect(text).toContain("No benign utility");
 		expect(text).toContain("Not recorded: headroom gate, capacity preflight, problem scores, learning curves, checkpoints, transfer report, student index rows, clean-student gate");
 	});

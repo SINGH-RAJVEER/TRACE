@@ -39,7 +39,7 @@ function stubState(cell: OutcomeRow): Bar["state"] {
 function TokensChart({ cells, attacks, arms }: { cells: OutcomeRow[]; attacks: string[]; arms: string[] }) {
 	const values = cells.map(c => c.releasedTokens).filter(isNumber);
 	const scale = logScale(values, v => v >= 1e6 ? `${v / 1e6}M` : v >= 1e3 ? `${v / 1e3}k` : `${v}`);
-	return <Figure title="Released tokens per attack (log scale)" legend={[...armLegend(arms), { label: "refused by the gate", hatched: true }, ...(cells.some(c => c.state === "absent") ? [{ label: "no row", outline: true }] : [])]}>
+	return <Figure title="Released tokens per attack (log scale)" legend={[...armLegend(arms), ...(cells.some(c => c.state === "gate-refused" || c.state === "not-run") ? [{ label: "refused by the gate", hatched: true }] : []), ...(cells.some(c => c.state === "interrupted") ? [{ label: "! interrupted", color: "var(--caution)" }] : []), ...(cells.some(c => c.state === "absent") ? [{ label: "no row", outline: true }] : [])]}>
 		<GroupedBars scale={scale} groups={attacks.map(attack => ({
 			key: attack,
 			label: attack,
@@ -60,7 +60,7 @@ function firstIntervention(cell: OutcomeRow): number | null {
 function InterventionChart({ cells, attacks, arms }: { cells: OutcomeRow[]; attacks: string[]; arms: string[] }) {
 	const minutes = (s: number | null) => s === null ? null : s / 60;
 	const values = cells.map(c => minutes(firstIntervention(c))).filter(isNumber);
-	if (!values.length && !cells.some(c => c.state === "complete")) return null;
+	if (!values.length) return null;
 	const scale = linearScale(values, v => `${Math.round(v)}`);
 	return <Figure title="Minutes until the policy first intervened" legend={[...armLegend(arms), { label: "not run or unknown", hatched: true }, { label: "never intervened", outline: true }]}>
 		<GroupedBars scale={scale} groups={attacks.map(attack => ({
@@ -232,8 +232,9 @@ function RunBody({ detail, attacks }: { detail: RunDetail; attacks: string[] }) 
 	const cells = coverage(detail).filter(c => c.state !== "na");
 	const recorded = cells.filter(c => c.state === "present" || c.state === "partial").length;
 	const list = gaps(detail, attacks);
-	const best = plans.flatMap(p => p.summary?.checkpoints ?? []).map(r => r.status === "censored" ? null : r.mean_accuracy).filter(isNumber);
-	const target = plans.map(p => p.summary?.target_accuracy ?? p.target_accuracy).find(isNumber);
+	const best = plans.flatMap(p => (p.summary?.checkpoints ?? []).map(r => ({ plan: shortLabel(p.place.path), value: r.status === "censored" ? null : r.mean_accuracy ?? null, target: p.summary?.target_accuracy ?? p.target_accuracy })))
+		.filter((r): r is { plan: string; value: number; target: number | null } => isNumber(r.value))
+		.sort((a, b) => b.value - a.value)[0];
 	const completion = utility.map(a => a.pooled?.completion_rate).filter(isNumber);
 
 	return <>
@@ -241,7 +242,7 @@ function RunBody({ detail, attacks }: { detail: RunDetail; attacks: string[] }) 
 			<div className="grid grid-cols-2 content-start gap-x-10 gap-y-6">
 				{totals.arms > 0 && <Stat label="Arms that ran" value={<>{totals.ran}<span className="text-base text-faint"> / {totals.arms}</span></>} tone={totals.ran < totals.arms ? "caution" : undefined} />}
 				{completion.length > 0 && <Stat label="Benign completion" value={completion.length > 1 ? `${format(Math.min(...completion), "fraction")}–${format(Math.max(...completion), "fraction")}` : format(completion[0], "fraction")} />}
-				{best.length > 0 && <Stat label={`Best student${isNumber(target) ? ` (target ${format(target, "fraction")})` : ""}`} value={format(Math.max(...best), "fraction")} tone={isNumber(target) ? (Math.max(...best) >= target ? "pass" : "caution") : undefined} />}
+				{best && <Stat label={`Best student: ${best.plan}${isNumber(best.target) ? ` (target ${format(best.target, "fraction")})` : ""}`} value={format(best.value, "fraction")} />}
 				<Stat label="Evidence recorded" value={<>{recorded}<span className="text-base text-faint"> / {cells.length}</span></>} tone={recorded < cells.length ? "caution" : undefined} />
 			</div>
 			<div className="min-w-0 space-y-2 lg:border-l lg:border-rule lg:pl-8">

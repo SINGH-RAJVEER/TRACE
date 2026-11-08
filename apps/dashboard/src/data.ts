@@ -260,8 +260,11 @@ export function gaps(detail: RunDetail, attacks: string[] = []): Gap[] {
 			out.push({ area: "Acquisition", severity: "partial", text: `${key(row)} interrupted after ${format(row.attempts, "int") ?? "?"}${isNumber(row.attempt_budget) ? ` of ${format(row.attempt_budget, "int")}` : ""} attempts` });
 		}
 		const ran = rows.filter(row => row.status !== "gate-refused" && row.status !== "not-run");
-		const noAttribution = ran.filter(row => row.attribution_complete !== true).map(key);
-		if (noAttribution.length) out.push({ area: "Acquisition", severity: "partial", text: `Intervention times unknown for ${list(noAttribution)} (attribution incomplete)` });
+		for (const row of ran.filter(r => r.attribution_complete === false)) {
+			out.push({ area: "Acquisition", severity: "partial", text: `Attribution incomplete for ${key(row)} (${format(row.unattributed_queries, "int") ?? "?"} unattributed queries), so intervention times are unknown` });
+		}
+		const unrecorded = ran.filter(row => row.attribution_complete === null || row.attribution_complete === undefined).map(key);
+		if (unrecorded.length) out.push({ area: "Acquisition", severity: "partial", text: `Attribution not recorded for ${list(unrecorded)}` });
 		const unknownTokens = ran.filter(row => isNumber(row.released_tokens_unknown) && row.released_tokens_unknown > 0);
 		if (unknownTokens.length) out.push({ area: "Acquisition", severity: "partial", text: `Some released tokens unknown in ${list(unknownTokens.map(key))}` });
 		if (utility?.state === "available") {
