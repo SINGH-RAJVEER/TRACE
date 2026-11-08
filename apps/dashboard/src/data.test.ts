@@ -125,7 +125,18 @@ describe("outcomeGrid", () => {
 		const cell = (attack: string, arm: string) => grid.cells.find(c => c.attack === attack && c.arm === arm)!;
 		expect(cell("A1", "quota").blocked).toBe(0);
 		expect(cell("A1", "full")).toMatchObject({ state: "gate-refused", received: null, releasedTokens: null });
-		expect(cell("A2", "quota")).toMatchObject({ state: "absent", received: null });
+		expect(cell("A2", "quota")).toMatchObject({ state: "absent", received: null, assumed: null });
+	});
+
+	test("assumes a refused arm answered every attempt, from the same attack in the same run", () => {
+		const rows = [campaign("A1", "quota", "complete", { received: 1200, released_tokens: 120000 }), campaign("A1", "full", "complete", { received: 300, released_tokens: 90000 }), refused("A1", "instantaneous"), refused("A2", "full")];
+		const cell = (attack: string, arm: string) => outcomeGrid(rows).cells.find(c => c.attack === attack && c.arm === arm)!;
+		expect(cell("A1", "instantaneous").releasedTokens).toBeNull();
+		expect(cell("A1", "instantaneous").assumed?.tokens).toBe(600000);
+		expect(cell("A2", "full").assumed).toBeNull();
+		expect(cell("A1", "quota").assumed).toBeNull();
+		const withUndefended = [...rows, campaign("A1", "undefended", "complete", { received: 6000, released_tokens: 700000 })];
+		expect(outcomeGrid(withUndefended).cells.find(c => c.attack === "A1" && c.arm === "instantaneous")!.assumed?.tokens).toBe(700000);
 	});
 
 	test("orders arms by the fixed arm order", () => {

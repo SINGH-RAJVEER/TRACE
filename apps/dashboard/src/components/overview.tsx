@@ -75,11 +75,13 @@ function CoverageTable({ loaded, attacks, onSelect }: { loaded: Loaded[]; attack
 
 function CellMark({ cell }: { cell: OutcomeRow | undefined }) {
 	const state = cell?.state ?? "absent";
-	const tip = cell && <TipRows title={`${cell.attack} / ${cell.arm}`} rows={[["Status", cell.status ?? "no row"], ["Answered", format(cell.received, "int") ?? "not recorded"], ["Released tokens", format(cell.releasedTokens, "int") ?? "not recorded"]]} />;
+	const tip = cell && <TipRows title={`${cell.attack} / ${cell.arm}`} rows={[["Status", cell.status ?? "no row"], ["Answered", format(cell.received, "int") ?? "not recorded"], ["Released tokens", format(cell.releasedTokens, "int") ?? (cell.assumed ? `≈${format(cell.assumed.tokens, "int")} assumed` : "not recorded")], ...(cell.assumed ? [["Basis", cell.assumed.basis] as [string, string]] : [])]} />;
 	const body = state === "absent"
 		? <span className="block h-6 w-full rounded-[3px] border border-dashed border-faint/50" />
 		: state === "gate-refused" || state === "not-run"
-			? <span className="hatched block h-6 w-full rounded-[3px]" />
+			? cell?.assumed
+				? <span className="num flex h-6 w-full items-center justify-center rounded-[3px] border border-dashed border-faint/60 text-[0.68rem] text-faint">≈{compact(cell.assumed.tokens)}</span>
+				: <span className="hatched block h-6 w-full rounded-[3px]" />
 			: <span className={cn("num flex h-6 w-full items-center justify-center rounded-[3px] text-[0.68rem]", state === "complete" ? "bg-wash text-ink" : "bg-caution/15 text-caution")}>{compact(cell?.releasedTokens) ?? "?"}</span>;
 	return tip ? <Tip content={tip} className="w-full">{body}</Tip> : body;
 }
@@ -89,7 +91,7 @@ function ArmMatrix({ loaded, attacks }: { loaded: Loaded[]; attacks: string[] })
 	if (!runs.length) return null;
 	return <section className="space-y-3">
 		<h2 className="text-sm font-semibold">Released tokens by attack and arm</h2>
-		<Legend items={[{ label: "ran", color: "var(--wash)" }, { label: "interrupted", color: "color-mix(in srgb, var(--caution) 15%, transparent)" }, { label: "refused by the gate", hatched: true }, { label: "no row", outline: true }]} />
+		<Legend items={[{ label: "ran", color: "var(--wash)" }, { label: "interrupted", color: "color-mix(in srgb, var(--caution) 15%, transparent)" }, { label: "refused by the gate, assumed let through (≈)", assumed: true }, { label: "refused, no basis for an estimate", hatched: true }, { label: "no row", outline: true }]} />
 		<div className="overflow-x-auto">
 			<table className="border-separate border-spacing-[3px] text-xs">
 				<thead>

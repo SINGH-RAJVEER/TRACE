@@ -37,15 +37,16 @@ function stubState(cell: OutcomeRow): Bar["state"] {
 }
 
 function TokensChart({ cells, attacks, arms }: { cells: OutcomeRow[]; attacks: string[]; arms: string[] }) {
-	const values = cells.map(c => c.releasedTokens).filter(isNumber);
+	const values = cells.map(c => c.releasedTokens ?? c.assumed?.tokens ?? null).filter(isNumber);
 	const scale = logScale(values, v => v >= 1e6 ? `${v / 1e6}M` : v >= 1e3 ? `${v / 1e3}k` : `${v}`);
-	return <Figure title="Released tokens per attack (log scale)" legend={[...armLegend(arms), ...(cells.some(c => c.state === "gate-refused" || c.state === "not-run") ? [{ label: "refused by the gate", hatched: true }] : []), ...(cells.some(c => c.state === "interrupted") ? [{ label: "! interrupted", color: "var(--caution)" }] : []), ...(cells.some(c => c.state === "absent") ? [{ label: "no row", outline: true }] : [])]}>
+	return <Figure title="Released tokens per attack (log scale)" legend={[...armLegend(arms), ...(cells.some(c => c.assumed) ? [{ label: "refused by the gate, assumed let through", assumed: true }] : []), ...(cells.some(c => (c.state === "gate-refused" || c.state === "not-run") && !c.assumed) ? [{ label: "refused by the gate", hatched: true }] : []), ...(cells.some(c => c.state === "interrupted") ? [{ label: "! interrupted", color: "var(--caution)" }] : []), ...(cells.some(c => c.state === "absent") ? [{ label: "no row", outline: true }] : [])]}>
 		<GroupedBars scale={scale} groups={attacks.map(attack => ({
 			key: attack,
 			label: attack,
 			bars: arms.map(arm => {
 				const cell = cells.find(c => c.attack === attack && c.arm === arm)!;
 				const has = isNumber(cell.releasedTokens);
+				if (!has && cell.assumed) return { key: arm, color: armColor(arm), value: cell.assumed.tokens, state: "assumed", label: compact(cell.assumed.tokens) ?? undefined, tip: <TipRows title={`${cell.attack} / ${cell.arm}: assumed, not measured`} rows={[["Status", "refused by the detectability gate"], ["Assumed tokens", `≈${format(cell.assumed.tokens, "int")}`], ["Basis", cell.assumed.basis]]} /> };
 				return { key: arm, color: armColor(arm), value: cell.releasedTokens, state: has ? "value" : stubState(cell), label: compact(cell.releasedTokens) ?? undefined, flag: cell.state === "interrupted" ? "!" : undefined, tip: cellTip(cell) };
 			}),
 		}))} />

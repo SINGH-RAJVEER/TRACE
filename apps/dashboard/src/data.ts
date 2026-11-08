@@ -255,7 +255,7 @@ export function gaps(detail: RunDetail, attacks: string[] = []): Gap[] {
 		const skipped = sortAttacks(attacks.filter(attack => !recorded.has(attack)));
 		if (skipped.length) out.push({ area: "Acquisition", severity: "partial", text: `No campaign rows for ${list(skipped)}` });
 		const refused = rows.filter(row => row.status === "gate-refused");
-		if (refused.length) out.push({ area: "Acquisition", severity: "partial", text: `${refused.length} of ${rows.length} arms refused by the detectability gate` });
+		if (refused.length) out.push({ area: "Acquisition", severity: "partial", text: `${refused.length} of ${rows.length} arms refused by the detectability gate; their tokens are drawn as assumed undefended` });
 		for (const row of rows.filter(r => r.status === "interrupted")) {
 			out.push({ area: "Acquisition", severity: "partial", text: `${key(row)} interrupted after ${format(row.attempts, "int") ?? "?"}${isNumber(row.attempt_budget) ? ` of ${format(row.attempt_budget, "int")}` : ""} attempts` });
 		}
@@ -331,6 +331,8 @@ export type OutcomeRow = {
 	blocked: Maybe<number>;
 	failed: Maybe<number>;
 	releasedTokens: Maybe<number>;
+	/** For a gate-refused arm only: what an undefended arm would have released. Never a measurement. */
+	assumed: Maybe<Assumed>;
 	firstAlert: Maybe<number>;
 	firstRestriction: Maybe<number>;
 	firstRefusal: Maybe<number>;
@@ -340,6 +342,26 @@ export type OutcomeRow = {
 
 function num(value: unknown): Maybe<number> {
 	return isNumber(value) ? value : null;
+}
+
+export type Assumed = { tokens: number; basis: string };
+
+/**
+ * What a gate-refused arm would have released had it run. The gate refuses an arm when the
+ * detector cannot tell the attacker from benign traffic, so the arm is assumed to answer every
+ * attempt, like an undefended one. The run's own undefended row for the attack is used when there
+ * is one; otherwise the budget times the tokens per answered response, taken from the arm of the
+ * same attack and run with the most answered responses. Nothing is taken from other runs.
+ */
+export function assumedUndefended(rows: CampaignItem[], attack: string, budget: Maybe<number>): Maybe<Assumed> {
+	const same = rows.filter(row => (row.attack ?? "unknown") === attack && row.status !== "gate-refused" && row.status !== "not-run");
+	const undefended = same.find(row => row.arm === "undefended" && isNumber(row.released_tokens));
+	if (undefended) return { tokens: undefended.released_tokens as number, basis: "this run's undefended arm" };
+	const best = same.filter(row => isNumber(row.released_tokens) && isNumber(row.received) && (row.received as number) > 0)
+		.sort((a, b) => (b.received as number) - (a.received as number))[0];
+	if (!best || !isNumber(budget)) return null;
+	const perResponse = (best.released_tokens as number) / (best.received as number);
+	return { tokens: Math.round(perResponse * budget), basis: `${integer.format(budget)} attempts × ${perResponse.toFixed(0)} tokens per response (${best.arm})` };
 }
 
 /** Every attack by every arm of a run, including combinations with no row. */
@@ -362,6 +384,7 @@ export function outcomeGrid(rows: CampaignItem[], attacks?: string[]): { attacks
 				blocked: num(row?.blocked),
 				failed: num(row?.failed),
 				releasedTokens: num(row?.released_tokens),
+				assumed: row && (row.status === "gate-refused" || row.status === "not-run") ? assumedUndefended(rows, attack, num(row.attempt_budget)) : null,
 				firstAlert: num(row?.first_alert_seconds),
 				firstRestriction: num(row?.first_restriction_seconds),
 				firstRefusal: num(row?.first_refusal_seconds),

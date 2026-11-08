@@ -34,14 +34,14 @@ export function ArmSwatch({ arm, className }: { arm: string; className?: string 
 	return <span aria-hidden className={cn("inline-block size-2.5 shrink-0 rounded-[3px]", className)} style={{ background: armColor(arm) }} />;
 }
 
-export type LegendItem = { label: string; color?: string; hatched?: boolean; outline?: boolean; line?: "solid" | "dashed" };
+export type LegendItem = { label: string; color?: string; hatched?: boolean; outline?: boolean; assumed?: boolean; line?: "solid" | "dashed" };
 
 export function Legend({ items }: { items: LegendItem[] }) {
 	return <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
 		{items.map(item => <li key={item.label} className="flex items-center gap-1.5">
 			{item.line
 				? <span aria-hidden className={cn("inline-block h-3 border-l-2", item.line === "dashed" && "border-dashed")} style={{ borderColor: item.color }} />
-				: <span aria-hidden className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", item.hatched && "hatched", item.outline && "border border-dashed border-faint")} style={item.color ? { background: item.color } : undefined} />}
+				: <span aria-hidden className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", item.hatched && "hatched", item.outline && "border border-dashed border-faint", item.assumed && "border border-dashed border-faint/80")} style={item.assumed ? { background: "color-mix(in srgb, var(--faint) 28%, transparent)" } : item.color ? { background: item.color } : undefined} />}
 			{item.label}
 		</li>)}
 	</ul>;
@@ -96,7 +96,7 @@ export function More({ label, children }: { label: string; children: React.React
 // ---------------------------------------------------------------------------------------------
 // Grouped bar chart. One group per category, one bar per arm, every bar on the same axis.
 
-export type BarState = "value" | "no-value" | "absent" | "none";
+export type BarState = "value" | "assumed" | "no-value" | "absent" | "none";
 
 export type Bar = {
 	key: string;
@@ -114,10 +114,15 @@ export type Scale = { kind: "log" | "linear"; min: number; max: number; ticks: n
 /** A log axis over whole decades, so every recorded value is visible however small. */
 export function logScale(values: number[], tick: (value: number) => string): Scale {
 	const positive = values.filter(v => v > 0);
-	const lo = positive.length ? Math.floor(Math.log10(Math.min(...positive))) : 0;
-	const hi = positive.length ? Math.max(Math.ceil(Math.log10(Math.max(...positive))), lo + 1) : 1;
-	const ticks = Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i));
-	return { kind: "log", min: 10 ** lo, max: 10 ** hi, ticks, tick };
+	if (!positive.length) return { kind: "log", min: 1, max: 10, ticks: [1, 10], tick };
+	const top = Math.max(...positive);
+	const lo = Math.floor(Math.log10(Math.min(...positive)));
+	const decade = 10 ** Math.floor(Math.log10(top));
+	const max = Math.max([1, 2, 5, 10].map(m => m * decade).find(v => v >= top) ?? 10 * decade, 10 ** (lo + 1));
+	const ticks: number[] = [];
+	for (let e = lo; 10 ** e <= max; e++) ticks.push(10 ** e);
+	if (max / ticks[ticks.length - 1] >= 3) ticks.push(max);
+	return { kind: "log", min: 10 ** lo, max, ticks, tick };
 }
 
 /** A linear axis from zero to a rounded maximum. */
@@ -140,13 +145,14 @@ function position(scale: Scale, value: number): number {
 	return Math.min(Math.max(value / scale.max, 0), 1);
 }
 
-function BarMark({ bar, scale }: { bar: Bar; scale: Scale }) {
+function BarMark({ bar, scale, label = "own" }: { bar: Bar; scale: Scale; label?: "own" | "span" | "none" }) {
 	let body: React.ReactNode;
-	if (bar.state === "value" && bar.value !== null) {
+	if ((bar.state === "value" || bar.state === "assumed") && bar.value !== null) {
 		const height = Math.max(position(scale, bar.value) * 100, 1.5);
+		const assumed = bar.state === "assumed";
 		body = <span className="relative flex h-full w-full flex-col justify-end">
-			<span className="absolute left-1/2 -translate-x-1/2 text-[0.6rem] tabular-nums tracking-tight whitespace-nowrap text-muted" style={{ bottom: `calc(${height}% + 2px)` }}>{bar.flag && <span className="text-caution">{bar.flag} </span>}{bar.label}</span>
-			<span className="block w-full rounded-t-[4px]" style={{ height: `${height}%`, background: bar.color }} />
+			{label !== "none" && <span className={cn("absolute -translate-x-1/2 text-[0.6rem] tabular-nums tracking-tight whitespace-nowrap", label === "span" ? "left-[calc(100%+1px)]" : "left-1/2", assumed ? "text-faint" : "text-muted")} style={{ bottom: `calc(${height}% + 2px)` }}>{bar.flag && <span className="text-caution">{bar.flag} </span>}{assumed && "≈"}{bar.label}</span>}
+			<span className={cn("block w-full rounded-t-[4px]", assumed && "border border-b-0 border-dashed border-faint/80")} style={{ height: `${height}%`, background: assumed ? "color-mix(in srgb, var(--faint) 28%, transparent)" : bar.color }} />
 		</span>;
 	} else {
 		const style = bar.state === "absent" ? "border border-dashed border-faint/70" : bar.state === "none" ? "border border-faint/70" : "hatched";
@@ -168,7 +174,10 @@ export function GroupedBars({ groups, scale, height = 180 }: { groups: { key: st
 				{scale.ticks.map(t => <span key={t} aria-hidden className={cn("absolute inset-x-0 border-t", position(scale, t) === 0 ? "border-faint/60" : "border-rule/70")} style={{ bottom: `${position(scale, t) * 100}%` }} />)}
 				<div className="relative flex h-full gap-3 px-1 sm:gap-5">
 					{groups.map(g => <div key={g.key} className="flex h-full flex-1 items-end justify-center gap-[2px]">
-						{g.bars.map(bar => <BarMark key={bar.key} bar={bar} scale={scale} />)}
+						{g.bars.map((bar, i) => {
+							const twin = (other: Bar | undefined) => other?.state === "assumed" && bar.state === "assumed" && other.label === bar.label;
+							return <BarMark key={bar.key} bar={bar} scale={scale} label={twin(g.bars[i - 1]) ? "none" : twin(g.bars[i + 1]) ? "span" : "own"} />;
+						})}
 					</div>)}
 				</div>
 			</div>
