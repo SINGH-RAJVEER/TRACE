@@ -1,6 +1,7 @@
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts";
-import { checkpointPlot, curvePlot, isNumber } from "../data";
-import type { Checkpoints, Curve, IndexRow, RunDetail, Transfer, TransferSeed } from "../types";
+import { checkpointPlot, curvePlot, format, isNumber, shortLabel } from "../data";
+import { HBar, Legend, Panel, TipRows } from "./charts";
+import type { CheckpointRow, Checkpoints, Curve, IndexRow, RunDetail, Transfer, TransferSeed } from "../types";
 import { Facts, Section, Source, Unavailable, Value } from "./evidence";
 import { Badge } from "./ui/badge";
 import { ChartContainer, ChartLegend, ChartTooltip, type ChartConfig } from "./ui/chart";
@@ -129,7 +130,7 @@ function CheckpointBlock({ item }: { item: Checkpoints }) {
 				</ComposedChart>
 			</ChartContainer>
 			<figcaption className="text-xs text-muted">Reached checkpoints in plan order. {plot.censored.length ? `Censored and not drawn: ${plot.censored.join(", ")}.` : ""}</figcaption>
-		</figure> : <Unavailable reason={`${plot.reason}${plot.censored.length ? `; censored: ${plot.censored.join(", ")}` : ""}`} />}
+		</figure> : <p className="text-xs text-muted">No trend line: a trend needs at least two reached checkpoints, and each reached checkpoint is drawn in the accuracy chart above.{plot.censored.length ? ` Censored: ${plot.censored.join(", ")}.` : ""}</p>}
 		<Table>
 			<TableHeader><TableRow><TableHead>Checkpoint</TableHead><TableHead>Kind</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Cutoff</TableHead><TableHead className="text-right">Acquired</TableHead><TableHead className="text-right">Trainable</TableHead><TableHead className="text-right">Mean accuracy</TableHead><TableHead className="text-right">Gain</TableHead><TableHead className="text-right">Seeds at target</TableHead></TableRow></TableHeader>
 			<TableBody>{(summary.checkpoints ?? []).map(r => <TableRow key={r.id}>
@@ -144,6 +145,37 @@ function CheckpointBlock({ item }: { item: Checkpoints }) {
 		</Table>
 		{summary.claim_boundary && <p className="text-xs text-muted">{summary.claim_boundary}</p>}
 	</div>;
+}
+
+/**
+ * Accuracy of every checkpoint of every plan on one 0 to 100% scale, with the base and the target
+ * marked. One point is drawn as a bar, not a trend; censored checkpoints and plans without a
+ * summary keep a row with the reason.
+ */
+function CheckpointAccuracy({ items }: { items: Checkpoints[] }) {
+	const rows = items.flatMap(item => {
+		const plan = shortLabel(item.place.path);
+		if (!item.summary) return [{ key: plan, plan, id: null as string | null, value: null as number | null, reason: "no summary.json yet", base: null as number | null, target: item.target_accuracy, row: null as CheckpointRow | null }];
+		return (item.summary.checkpoints ?? []).map(row => ({ key: `${plan}/${row.id}`, plan, id: row.id, value: row.status === "censored" ? null : row.mean_accuracy ?? null, reason: row.status === "censored" ? "censored, not reached" : "accuracy not recorded", base: item.summary?.base_accuracy ?? null, target: item.summary?.target_accuracy ?? item.target_accuracy, row }));
+	});
+	if (!rows.length) return null;
+	const bases = [...new Set(rows.map(r => r.base).filter(isNumber))];
+	const targets = [...new Set(rows.map(r => r.target).filter(isNumber))];
+	const at = (v: number) => `${v * 100}%`;
+	return <Panel title="Student accuracy by checkpoint" note="Mean accuracy across training seeds on the frozen suite, on a 0 to 100% scale. Plans are listed side by side, not pooled.">
+		<Legend items={[{ label: "Mean accuracy", color: "var(--accent)" }, ...(bases.length ? [{ label: "Untrained base", color: "var(--faint)" }] : []), ...(targets.length ? [{ label: "Declared target", color: "var(--gold)" }] : []), { label: "Not recorded or censored", hatched: true }]} />
+		<div className="space-y-2">
+			{rows.map(r => <div key={r.key} className="grid grid-cols-[14rem_1fr] items-center gap-3 text-xs">
+				<span className="num truncate text-muted" title={r.key}>{r.plan}{r.id ? <span className="text-faint"> / {r.id}</span> : null}</span>
+				<span className="relative flex h-5 items-center">
+					{isNumber(r.base) && <span aria-hidden className="absolute top-0 h-full border-l-2 border-faint" style={{ left: at(r.base) }} />}
+					{isNumber(r.target) && <span aria-hidden className="absolute top-0 h-full border-l-2 border-dashed border-gold" style={{ left: at(r.target) }} />}
+					<HBar value={r.value} max={1} color="var(--accent)" label={format(r.value, "fraction")} missing={r.reason}
+						tip={<TipRows title={r.key} rows={[["Mean accuracy", format(r.value, "fraction") ?? r.reason], ["Seed range", r.row && isNumber(r.row.min_accuracy) && isNumber(r.row.max_accuracy) ? `${format(r.row.min_accuracy, "fraction")} to ${format(r.row.max_accuracy, "fraction")}` : "not recorded"], ["Gain over base", format(r.row?.mean_gain_pp, "pp") ?? "not recorded"], ["Base", format(r.base, "fraction") ?? "not recorded"], ["Target", format(r.target, "fraction") ?? "not recorded"], ["Trainable examples", format(r.row?.trainable_count, "int") ?? "not recorded"]]} />} />
+				</span>
+			</div>)}
+		</div>
+	</Panel>;
 }
 
 const ROLES = ["teacher", "base", "clean", "defended"] as const;
@@ -204,7 +236,7 @@ export function StudentsView({ data }: { data: RunDetail["students"] }) {
 			{data.curves.state === "available" ? <div className="space-y-10">{data.curves.items.map(c => <CurveBlock key={c.place.path} curve={c} />)}</div> : <Unavailable reason={data.curves.reason} />}
 		</Section>
 		<Section title="Chronological checkpoints" kicker="Students trained on what a campaign had actually received by each cutoff. Unreached checkpoints are censored, not zero.">
-			{data.checkpoints.state === "available" ? <div className="space-y-10">{data.checkpoints.items.map(c => <CheckpointBlock key={c.place.path} item={c} />)}</div> : <Unavailable reason={data.checkpoints.reason} />}
+			{data.checkpoints.state === "available" ? <div className="space-y-10"><CheckpointAccuracy items={data.checkpoints.items} />{data.checkpoints.items.map(c => <CheckpointBlock key={c.place.path} item={c} />)}</div> : <Unavailable reason={data.checkpoints.reason} />}
 		</Section>
 		<Section title="Base, clean and defended students" kicker="Paired correctness of the teacher, base, clean-data student and defended-data student. Suppression is reported only when a passing clean-student gate covers the same task, base and recipe.">
 			{data.transfers.state === "available" ? <div className="space-y-10">{data.transfers.items.map(t => <TransferBlock key={t.place.path} item={t} />)}</div> : <Unavailable reason={data.transfers.reason} />}

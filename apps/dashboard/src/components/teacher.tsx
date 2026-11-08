@@ -60,7 +60,7 @@ function Scores({ items }: { items: ScoreFile[] }) {
 	</Table>;
 }
 
-export function TeacherView({ data, provenance }: { data: RunDetail["teacher"]; provenance: Provenance | Failed }) {
+export function TeacherView({ data, provenance, hideMissing = false }: { data: RunDetail["teacher"]; provenance: Provenance | Failed; hideMissing?: boolean }) {
 	if ("state" in data) return <Unavailable reason={data.reason} tone="error" />;
 	const configured = "state" in provenance ? [] : provenance.sources.filter(s => s.teacher.TEACHER_MODEL || s.teacher.TEACHER_UPSTREAM_MODEL);
 	return <div className="space-y-8">
@@ -76,14 +76,14 @@ export function TeacherView({ data, provenance }: { data: RunDetail["teacher"]; 
 				</TableRow>)}</TableBody>
 			</Table> : <Unavailable reason="No run configuration in this run's directories names a teacher model." />}
 		</Section>
-		<Section title="Task headroom over the student base" kicker="Teacher and pinned base scored on the same held-out problems. The gate passes only when the gain meets the declared margin and its interval excludes zero. This is task capability.">
+		{!hideMissing && <Section title="Task headroom over the student base" kicker="Teacher and pinned base scored on the same held-out problems. The gate passes only when the gain meets the declared margin and its interval excludes zero. This is task capability.">
 			{data.headroom.state === "available" ? <div className="space-y-6">{data.headroom.items.map(g => <Headroom key={g.place.path} gate={g} />)}</div> : <Unavailable reason={data.headroom.reason} />}
-		</Section>
-		<Section title="Serving capacity preflight" kicker="Throughput, latency, errors and queueing of the undefended teacher on the frozen benign schedule. It says whether the teacher could serve the workload, not whether it answers correctly.">
+		</Section>}
+		{!hideMissing && <Section title="Serving capacity preflight" kicker="Throughput, latency, errors and queueing of the undefended teacher on the frozen benign schedule. It says whether the teacher could serve the workload, not whether it answers correctly.">
 			{data.capacity.state === "available" ? <div className="space-y-6">{data.capacity.items.map(c => <CapacityReport key={c.place.path} report={c} />)}</div> : <Unavailable reason={data.capacity.reason} />}
-		</Section>
-		<Section title="Score files" kicker="Per-problem correctness files that feed the headroom gate.">
+		</Section>}
+		{!hideMissing && <Section title="Score files" kicker="Per-problem correctness files that feed the headroom gate.">
 			{data.scores.state === "available" ? <Scores items={data.scores.items} /> : <Unavailable reason={data.scores.reason} />}
-		</Section>
+		</Section>}
 	</div>;
 }

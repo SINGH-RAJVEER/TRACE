@@ -1,48 +1,97 @@
 @import "tailwindcss";
 
 :root {
-	--paper: #f1f3f5;
-	--ink: #18212b;
-	--muted: #5b6673;
-	--rule: #d3d8de;
-	--wash: #e3e7eb;
-	--accent: #1f62a8;
-	--gold: #a86f12;
-	--defended: #7b4397;
-	--pass: #2c7350;
-	--fail: #a93434;
-	--caution: #8a5a00;
-	--hatch: #c3cad2;
+	--paper: #fbfbfa;
+	--plane: #f4f4f2;
+	--ink: #14181d;
+	--muted: #5d636b;
+	--faint: #8a9097;
+	--rule: #e1e2de;
+	--wash: #eeefec;
+	--accent: #2a78d6;
+	--gold: #b07812;
+	--pass: #18803a;
+	--fail: #c03535;
+	--caution: #9a6400;
+	--hatch: #c9ccd0;
+	--track: #eceeeb;
+	/* Arms keep one color in every run. Undefended is the neutral reference. */
+	--arm-full: #2a78d6;
+	--arm-instantaneous: #eb6834;
+	--arm-quota: #1baf7a;
+	--arm-undefended: #8a9097;
+	--arm-other: #6250d6;
+	/* Outcome of each attempt, as one blue ramp from released to refused. */
+	--out-received: #2a78d6;
+	--out-challenge: #86b6ef;
+	--out-blocked: #cdd3da;
+	--out-failed: #c03535;
+	/* Sequential ramp for heatmaps, light to dark. */
+	--seq-0: #eef4fc;
+	--seq-1: #cde2fb;
+	--seq-2: #9ec5f4;
+	--seq-3: #6da7ec;
+	--seq-4: #3987e5;
+	--seq-5: #256abf;
+	--seq-6: #184f95;
+	--seq-7: #0d366b;
+	--on-seq-low: #14181d;
+	--on-seq-high: #ffffff;
+	--on-seq-4: #ffffff;
 	color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
-		--paper: #11161c;
-		--ink: #e3e8ee;
-		--muted: #93a0ad;
-		--rule: #2a343e;
-		--wash: #1b232c;
-		--accent: #4d94de;
-		--gold: #bd8020;
-		--defended: #a877d0;
-		--pass: #6cc79a;
-		--fail: #e88080;
+		--paper: #15191e;
+		--plane: #0f1215;
+		--ink: #e8ebee;
+		--muted: #a1a9b2;
+		--faint: #79818a;
+		--rule: #2a3038;
+		--wash: #1d2228;
+		--accent: #3987e5;
+		--gold: #c98f2a;
+		--pass: #4cc27a;
+		--fail: #ec7373;
 		--caution: #e0b050;
-		--hatch: #34404c;
+		--hatch: #39414a;
+		--track: #222830;
+		--arm-full: #3987e5;
+		--arm-instantaneous: #d95926;
+		--arm-quota: #199e70;
+		--arm-undefended: #79818a;
+		--arm-other: #9085e9;
+		--out-received: #3987e5;
+		--out-challenge: #1c5cab;
+		--out-blocked: #39414a;
+		--out-failed: #ec7373;
+		--seq-0: #1a2433;
+		--seq-1: #13305a;
+		--seq-2: #184f95;
+		--seq-3: #1c5cab;
+		--seq-4: #2a78d6;
+		--seq-5: #5598e7;
+		--seq-6: #86b6ef;
+		--seq-7: #b7d3f6;
+		--on-seq-low: #e8ebee;
+		--on-seq-high: #0f1215;
+		--on-seq-4: #e8ebee;
 		color-scheme: dark;
 	}
 }
 
 @theme inline {
 	--color-paper: var(--paper);
+	--color-plane: var(--plane);
 	--color-ink: var(--ink);
 	--color-muted: var(--muted);
+	--color-faint: var(--faint);
 	--color-rule: var(--rule);
 	--color-wash: var(--wash);
+	--color-track: var(--track);
 	--color-accent: var(--accent);
 	--color-gold: var(--gold);
-	--color-defended: var(--defended);
 	--color-pass: var(--pass);
 	--color-fail: var(--fail);
 	--color-caution: var(--caution);
@@ -63,9 +112,8 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-/* Headings use the condensed end of Instrument Sans's width axis. */
 .display {
-	font-stretch: 78%;
+	font-stretch: 82%;
 	font-weight: 640;
 	letter-spacing: -0.01em;
 }
@@ -76,7 +124,17 @@ body {
 	font-size: 0.82rem;
 }
 
-/* The one recurring mark of the page: a value that was never recorded is hatched, never blank or zero. */
+.figure {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+/* The recurring mark of the page: a value that was never recorded is hatched, never blank or zero. */
+.hatched {
+	background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 5px);
+}
+
 .unrecorded {
 	display: inline-block;
 	padding: 0 0.35rem;
@@ -100,11 +158,19 @@ body {
 .chart-tooltip {
 	min-width: 10rem;
 	border: 1px solid var(--rule);
-	border-radius: 4px;
+	border-radius: 6px;
 	background: var(--paper);
 	padding: 0.5rem 0.6rem;
 	font-size: 0.75rem;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+	box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+
+details > summary {
+	list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+	display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

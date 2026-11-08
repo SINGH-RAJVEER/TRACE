@@ -51,7 +51,7 @@ export function ProvenanceView({ data }: { data: Provenance | Failed }) {
 				<summary className="cursor-pointer text-muted">{name}.txt</summary>
 				<pre className="prose-pre mt-2 border-l-2 border-rule pl-3">{text}</pre>
 			</details>)}
-			{source.readme ? <details className="text-sm" open>
+			{source.readme ? <details className="text-sm">
 				<summary className="cursor-pointer text-muted">README.md{source.readme_truncated ? ` (${source.readme_truncated})` : ""}</summary>
 				<pre className="prose-pre mt-2 max-h-[32rem] overflow-y-auto border-l-2 border-rule pl-3">{source.readme}</pre>
 			</details> : <Source place={source} />}

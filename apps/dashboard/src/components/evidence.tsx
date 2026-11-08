@@ -64,9 +64,11 @@ export function Source({ place, file }: { place: Place; file?: Maybe<FileState> 
 }
 
 export function Facts({ items }: { items: [string, React.ReactNode][] }) {
-	return <dl className="grid grid-cols-[minmax(8rem,max-content)_1fr] gap-x-6 gap-y-1.5 text-sm sm:grid-cols-[minmax(8rem,max-content)_1fr_minmax(8rem,max-content)_1fr]">
-		{items.map(([label, value]) => <React.Fragment key={label}><dt className="text-muted">{label}</dt><dd className="min-w-0 break-words">{value}</dd></React.Fragment>)}
-	</dl>;
+	return <div className="@container">
+		<dl className="grid grid-cols-[minmax(8rem,max-content)_1fr] gap-x-6 gap-y-1.5 text-sm @3xl:grid-cols-[minmax(8rem,max-content)_1fr_minmax(8rem,max-content)_1fr]">
+			{items.map(([label, value]) => <React.Fragment key={label}><dt className="text-muted">{label}</dt><dd className="min-w-0 break-words">{value}</dd></React.Fragment>)}
+		</dl>
+	</div>;
 }
 
 export function Reasons({ reasons }: { reasons: Maybe<string[]> | undefined }) {

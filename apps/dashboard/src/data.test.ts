@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { checkpointPlot, curvePlot, emptyIntervention, format, strataByGroup, studyLabel, verdict } from "./data";
-import type { CheckpointRow, Curve, UtilityArm } from "./types";
+import { applies, campaignTotals, checkpointPlot, compact, coverage, curvePlot, emptyIntervention, format, gaps, outcomeGrid, sortArms, strataByGroup, studyLabel, verdict } from "./data";
+import type { CampaignItem, CheckpointRow, Curve, RunDetail, UtilityArm } from "./types";
 
 const file = { state: "ok" as const, path: "x", error: null, sha256: null };
 
@@ -95,4 +95,84 @@ test("an empty intervention cell claims absence only under complete attribution"
 	expect(emptyIntervention({ status: "complete", attribution_complete: null })).toBe("unknown");
 	expect(emptyIntervention({ status: "gate-refused", attribution_complete: null })).toBe("not run");
 	expect(emptyIntervention({ status: "complete", attribution_complete: true }, "unreached")).toBe("unreached");
+});
+
+const missing = { state: "unavailable" as const, reason: "none here", items: [] };
+
+function campaign(attack: string, arm: string, status: string, extra: Partial<CampaignItem> = {}): CampaignItem {
+	return { kind: "campaign", attack, arm, status, source: "index", outcome: null, attempts: 6000, attempt_budget: 6000, received: 1200, blocked: 4800, released_tokens: 1000, attribution_complete: true, ...extra } as CampaignItem;
+}
+
+function detail(rows: CampaignItem[]): RunDetail {
+	return {
+		run: { id: "0", label: "r", kind: "study", run_id: "r", readings: [], studies: [], commits: ["abc"], statuses: [], rows: {}, artifacts: {}, places: [] },
+		provenance: { run_id: "r", readings: [], commits: ["abc"], commit_recorded: true, studies: [], statuses: {}, seeds: [], partitions: [], sources: [] },
+		campaigns: { state: "available", reason: null, items: rows },
+		utility: missing,
+		teacher: { capacity: missing, headroom: missing, scores: missing },
+		students: { curves: missing, checkpoints: missing, transfers: missing, index: missing },
+		gates: { reports: missing, index: missing, detectability: missing },
+	};
+}
+
+const refused = (attack: string, arm: string) => campaign(attack, arm, "gate-refused", { attempts: null, received: null, blocked: null, released_tokens: null, attribution_complete: null });
+
+describe("outcomeGrid", () => {
+	test("keeps refused and absent cells apart from zero", () => {
+		const grid = outcomeGrid([campaign("A1", "quota", "complete", { blocked: 0 }), refused("A1", "full")], ["A2"]);
+		expect(grid.attacks).toEqual(["A1", "A2"]);
+		expect(grid.arms).toEqual(["full", "quota"]);
+		const cell = (attack: string, arm: string) => grid.cells.find(c => c.attack === attack && c.arm === arm)!;
+		expect(cell("A1", "quota").blocked).toBe(0);
+		expect(cell("A1", "full")).toMatchObject({ state: "gate-refused", received: null, releasedTokens: null });
+		expect(cell("A2", "quota")).toMatchObject({ state: "absent", received: null });
+	});
+
+	test("orders arms by the fixed arm order", () => {
+		expect(sortArms(["quota", "zeta", "full", "undefended", "instantaneous"])).toEqual(["undefended", "full", "instantaneous", "quota", "zeta"]);
+	});
+});
+
+describe("campaignTotals", () => {
+	test("counts coverage without pooling acquisition across arms", () => {
+		const rows = [campaign("A1", "quota", "complete"), refused("A1", "full"), campaign("A2", "quota", "complete", { attribution_complete: null })];
+		expect(campaignTotals(rows, ["A1", "A2", "A7"])).toEqual({ arms: 3, complete: 2, refused: 1, interrupted: 0, ran: 2, attributed: 1, attacks: 3, attacksRun: 2 });
+	});
+
+	test("compacts counts for direct labels", () => {
+		expect(compact(806570)).toBe("807k");
+		expect(compact(2784)).toBe("2.8k");
+		expect(compact(null)).toBeNull();
+	});
+});
+
+describe("coverage and gaps", () => {
+	test("marks a run with refused arms as partial and names what is missing", () => {
+		const run = detail([campaign("A1", "quota", "complete"), refused("A1", "full"), campaign("A2", "full", "interrupted", { attempts: 1537, attribution_complete: false, unattributed_queries: 1537 }), campaign("A3", "undefended", "complete", { attribution_complete: null })]);
+		const cells = coverage(run);
+		expect(cells.find(c => c.key === "campaigns")?.state).toBe("partial");
+		expect(cells.find(c => c.key === "curves")?.state).toBe("missing");
+		const text = gaps(run, ["A1", "A2", "A3", "A7"]).map(g => g.text).join("\n");
+		expect(text).toContain("No campaign rows for A7");
+		expect(text).toContain("1 of 4 arms were refused");
+		expect(text).toContain("A2/full was interrupted after 1,537 attempts of 6,000");
+		expect(text).toContain("A2/full has incomplete attribution (1,537 unattributed queries)");
+		expect(text).toContain("Attribution was not recorded for A3/undefended");
+		expect(text).toContain("No benign utility");
+		expect(text).toContain("Not found under the configured roots: learning curves, checkpoints, transfer report, student index rows.");
+	});
+});
+
+describe("applies", () => {
+	test("marks campaign evidence not applicable to a lone student plan", () => {
+		const run = detail([]);
+		run.run = { ...run.run, kind: "checkpoints", run_id: null };
+		run.campaigns = missing;
+		expect(applies("checkpoints", "Acquisition")).toBe(false);
+		expect(coverage(run).find(c => c.key === "campaigns")?.state).toBe("na");
+		expect(coverage(run).find(c => c.key === "checkpoints")?.state).toBe("missing");
+		const text = gaps(run).map(g => g.text).join("\n");
+		expect(text).not.toContain("No campaign rows");
+		expect(text).toContain("not attached to an indexed run");
+	});
 });
