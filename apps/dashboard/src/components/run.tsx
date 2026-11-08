@@ -2,8 +2,8 @@
 // Everything else sits behind a single toggle at the bottom.
 
 import * as React from "react";
-import { armColor, campaignTotals, compact, coverage, emptyIntervention, format, gaps, isNumber, outcomeGrid, shortLabel, sortArms, type Gap, type OutcomeRow } from "../data";
-import type { CampaignItem, Checkpoints, GateReport, RunDetail, RunSummary, UtilityArm } from "../types";
+import { armColor, campaignTotals, compact, coverage, emptyIntervention, format, gaps, isNumber, outcomeGrid, planCell, shortLabel, sortArms, type Gap, type OutcomeRow } from "../data";
+import type { Benchmark, BenchmarkCell, CampaignItem, Checkpoints, GateReport, RunDetail, RunSummary, UtilityArm } from "../types";
 import { cn } from "../lib";
 import { ArmSwatch, CoverageMark, Figure, GroupedBars, More, Stat, Tip, TipRows, linearScale, logScale, type Bar, type LegendItem } from "./charts";
 import { Hash, Unavailable, Value, Verdict } from "./evidence";
@@ -151,6 +151,75 @@ function StudentChart({ plans, teacher }: { plans: Checkpoints[]; teacher: numbe
 }
 
 // ---------------------------------------------------------------------------------------------
+// Student benchmark panel
+
+function cellColor(cell: BenchmarkCell): string {
+	if (cell.role === "teacher") return "var(--ink)";
+	if (cell.role === "base") return "var(--faint)";
+	return armColor(cell.name.split("/")[1] ?? cell.name);
+}
+
+/** The paired difference of `a` over `b`, whichever order the producer stored the pair in. */
+function versus(panel: Benchmark, a: string, b: string): string {
+	const pair = panel.pairs.find(p => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+	if (!pair || !isNumber(pair.difference)) return "not recorded";
+	const sign = pair.a === a ? 1 : -1;
+	const pp = (v: number) => `${v * sign * 100 >= 0 ? "+" : ""}${(v * sign * 100).toFixed(1)}`;
+	const ci = pair.paired_item_bootstrap95 ? ` [${[pp(pair.paired_item_bootstrap95[0]), pp(pair.paired_item_bootstrap95[1])].sort((x, y) => Number(x) - Number(y)).join(", ")}]` : "";
+	const p = isNumber(pair.mcnemar_holm_p) ? `, p ${pair.mcnemar_holm_p < 0.001 ? "< 0.001" : pair.mcnemar_holm_p.toFixed(3)}` : "";
+	return `${pp(pair.difference)} pp${ci}${p}`;
+}
+
+/** Each model's accuracy with its 95% interval on one shared axis, best first between teacher and base. */
+function BenchmarkChart({ panel, target }: { panel: Benchmark; target: number | null }) {
+	const rank = (c: BenchmarkCell) => c.role === "teacher" ? 0 : c.role === "base" ? 2 : 1;
+	const rows = [...panel.cells].sort((a, b) => rank(a) - rank(b) || (b.accuracy ?? -1) - (a.accuracy ?? -1));
+	const bounds = rows.flatMap(c => c.wilson95 ?? (isNumber(c.accuracy) ? [c.accuracy] : [])).concat(isNumber(target) ? [target] : []);
+	const lo = Math.floor(Math.min(...bounds) * 10) / 10;
+	const hi = Math.ceil(Math.max(...bounds) * 10) / 10;
+	const at = (v: number) => `${((v - lo) / (hi - lo)) * 100}%`;
+	const ticks = Array.from({ length: Math.round((hi - lo) * 10) + 1 }, (_, i) => lo + i / 10);
+	const base = rows.find(c => c.role === "base")?.accuracy ?? null;
+	const teacher = rows.find(c => c.role === "teacher")?.accuracy ?? null;
+	const arms = sortArms(rows.filter(c => c.role === "student").map(c => c.name.split("/")[1] ?? c.name));
+	return <Figure title={`Student benchmark: ${panel.task?.toUpperCase() ?? "task"} ${panel.split ?? ""}, ${panel.items ?? "?"} items`} legend={[...arms.map(arm => ({ label: arm, color: armColor(arm) })), { label: "teacher", color: "var(--ink)" }, { label: "base", color: "var(--faint)" }, ...(isNumber(target) ? [{ label: "target", color: "var(--gold)", line: "dashed" as const }] : [])]}>
+		<div className="space-y-1">
+			{rows.map(c => {
+				const name = c.role === "student" ? c.name : c.role ?? c.name;
+				const tip = <TipRows title={c.name} rows={[
+					["Accuracy", `${format(c.accuracy, "fraction") ?? "not recorded"} (${c.correct ?? "?"} / ${panel.items ?? "?"})`],
+					["95% interval", c.wilson95 ? `${format(c.wilson95[0], "fraction")} to ${format(c.wilson95[1], "fraction")}` : "not recorded"],
+					...(c.role === "student" ? [["Training examples", format(c.training_examples, "int") ?? "not recorded"] as [string, string], ["vs base", versus(panel, c.name, "base")] as [string, string], ["vs teacher", versus(panel, c.name, "teacher")] as [string, string]] : []),
+					["Model", c.hf_repo ?? c.model ?? "not recorded"],
+					...(c.consistent === false ? [["Check", "correctness does not match the count"] as [string, string]] : []),
+				]} />;
+				return <div key={c.name} className="grid grid-cols-[1fr_3.5rem] items-center gap-x-3 text-xs sm:grid-cols-[11.5rem_1fr_3.5rem]">
+					<span className="col-span-2 min-w-0 truncate sm:col-span-1"><span className="num text-ink">{name}</span>{c.role === "student" && isNumber(c.training_examples) && <span className="text-faint"> · {compact(c.training_examples)} ex</span>}</span>
+					<span className="relative h-6">
+						<span aria-hidden className="absolute inset-x-0 top-1/2 border-t border-rule/70" />
+						{isNumber(base) && <span aria-hidden className="absolute inset-y-0 border-l border-faint/70" style={{ left: at(base) }} />}
+						{isNumber(teacher) && <span aria-hidden className="absolute inset-y-0 border-l border-ink/50" style={{ left: at(teacher) }} />}
+						{isNumber(target) && <span aria-hidden className="absolute inset-y-0 border-l border-dashed border-gold" style={{ left: at(target) }} />}
+						{c.wilson95 && <span aria-hidden className="absolute top-1/2 h-0.5 -translate-y-1/2 rounded-full" style={{ left: at(c.wilson95[0]), width: `calc(${at(c.wilson95[1])} - ${at(c.wilson95[0])})`, background: cellColor(c) }} />}
+						{isNumber(c.accuracy)
+							? <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: at(c.accuracy) }}><Tip content={tip}><span className="block size-3 rounded-full border-2 border-paper" style={{ background: cellColor(c) }} /></Tip></span>
+							: <span className="unrecorded absolute top-1/2 left-0 -translate-y-1/2">not recorded</span>}
+					</span>
+					<span className={cn("num text-right", c.consistent === false ? "text-caution" : "text-ink")}>{format(c.accuracy, "fraction") ?? "—"}</span>
+				</div>;
+			})}
+			<div className="grid grid-cols-[1fr_3.5rem] gap-x-3 sm:grid-cols-[11.5rem_1fr_3.5rem]">
+				<span className="hidden sm:block" />
+				<span className="relative h-4 text-[0.62rem] text-faint">
+					{ticks.map((t, i) => <span key={t} className={cn("num absolute", i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2")} style={{ left: at(t) }}>{Math.round(t * 100)}%</span>)}
+				</span>
+			</div>
+		</div>
+		<p className="text-xs text-faint">{panel.evaluation_mode === "validated_recorded_inference" ? "Recorded inference, validated. " : ""}Lines are 95% Wilson intervals over items; one training seed per student.</p>
+	</Figure>;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Page
 
 function Checks({ headroom, capacity, clean }: { headroom: GateReport[]; capacity: { passed: boolean | null }[]; clean: GateReport[] }) {
@@ -233,17 +302,24 @@ function RunBody({ detail, attacks }: { detail: RunDetail; attacks: string[] }) 
 	const cells = coverage(detail).filter(c => c.state !== "na");
 	const recorded = cells.filter(c => c.state === "present" || c.state === "partial").length;
 	const list = gaps(detail, attacks);
-	const best = plans.flatMap(p => (p.summary?.checkpoints ?? []).map(r => ({ plan: shortLabel(p.place.path), value: r.status === "censored" ? null : r.mean_accuracy ?? null, target: p.summary?.target_accuracy ?? p.target_accuracy })))
-		.filter((r): r is { plan: string; value: number; target: number | null } => isNumber(r.value))
-		.sort((a, b) => b.value - a.value)[0];
+	const panels = students?.benchmarks?.items ?? [];
+	const benchmarked = new Set(panels.flatMap(b => b.cells.map(c => c.name)));
+	const stripPlans = plans.filter(p => !benchmarked.has(planCell(p.place.path) ?? ""));
+	const target = plans.map(p => p.summary?.target_accuracy ?? p.target_accuracy).find(isNumber) ?? null;
+	const candidates = [
+		...panels.flatMap(b => b.cells.filter(c => c.role === "student" && isNumber(c.accuracy)).map(c => ({ plan: c.name, value: c.accuracy as number }))),
+		...stripPlans.flatMap(p => (p.summary?.checkpoints ?? []).map(r => ({ plan: shortLabel(p.place.path), value: r.status === "censored" ? null : r.mean_accuracy ?? null }))),
+	].filter((r): r is { plan: string; value: number } => isNumber(r.value));
+	const top = candidates.length ? Math.max(...candidates.map(c => c.value)) : null;
+	const best = top === null ? null : { plan: [...new Set(candidates.filter(c => c.value === top).map(c => c.plan))].join(", "), value: top, target };
 	const completion = utility.map(a => a.pooled?.completion_rate).filter(isNumber);
 
 	return <>
-		<section className="grid gap-x-12 gap-y-6 lg:grid-cols-[auto_1fr]">
+		<section className="grid gap-x-12 gap-y-6 lg:grid-cols-[minmax(0,26rem)_1fr]">
 			<div className="grid grid-cols-2 content-start gap-x-10 gap-y-6">
 				{totals.arms > 0 && <Stat label="Arms that ran" value={<>{totals.ran}<span className="text-base text-faint"> / {totals.arms}</span></>} tone={totals.ran < totals.arms ? "caution" : undefined} />}
 				{completion.length > 0 && <Stat label="Benign completion" value={completion.length > 1 ? `${format(Math.min(...completion), "fraction")}–${format(Math.max(...completion), "fraction")}` : format(completion[0], "fraction")} />}
-				{best && <Stat label={`Best student: ${best.plan}${isNumber(best.target) ? ` (target ${format(best.target, "fraction")})` : ""}`} value={format(best.value, "fraction")} />}
+				{best && <Stat label={`Best student${isNumber(best.target) ? ` (target ${format(best.target, "fraction")})` : ""}`} value={<>{format(best.value, "fraction")}<span className="num mt-1.5 block text-xs font-normal tracking-normal text-muted">{best.plan}</span></>} />}
 				<Stat label="Evidence recorded" value={<>{recorded}<span className="text-base text-faint"> / {cells.length}</span></>} tone={recorded < cells.length ? "caution" : undefined} />
 			</div>
 			<div className="min-w-0 space-y-2 lg:border-l lg:border-rule lg:pl-8">
@@ -255,9 +331,10 @@ function RunBody({ detail, attacks }: { detail: RunDetail; attacks: string[] }) 
 			<TokensChart cells={grid.cells} attacks={grid.attacks} arms={grid.arms} />
 			<InterventionChart cells={grid.cells} attacks={grid.attacks} arms={grid.arms} />
 		</section>}
-		{(utility.length > 0 || plans.length > 0 || curves.length > 0) && <section className="grid gap-x-12 gap-y-10 lg:grid-cols-2">
+		{(utility.length > 0 || panels.length > 0 || stripPlans.length > 0 || curves.length > 0) && <section className="grid gap-x-12 gap-y-10 lg:grid-cols-2">
 			{utility.length > 0 && <UtilityChart arms={utility} />}
-			{plans.length > 0 && <StudentChart plans={plans} teacher={teacherScore} />}
+			{panels.map(panel => <BenchmarkChart key={panel.place.path} panel={panel} target={target} />)}
+			{stripPlans.length > 0 && <StudentChart plans={stripPlans} teacher={teacherScore} />}
 			{curves.map(c => <Figure key={c.place.path} title={`Learning curve: ${shortLabel(c.place.path)}`}><CurveChart curve={c} /></Figure>)}
 		</section>}
 		<Checks headroom={teacher?.headroom.items ?? []} capacity={teacher?.capacity.items ?? []} clean={gates?.reports.items ?? []} />

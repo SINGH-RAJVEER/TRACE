@@ -222,6 +222,40 @@ export type Checkpoints = {
 	}>;
 };
 
+export type BenchmarkCell = {
+	name: string;
+	role: Maybe<"base" | "teacher" | "student" | string>;
+	model: Maybe<string>;
+	revision: Maybe<string>;
+	seed: Maybe<number>;
+	training_examples: Maybe<number>;
+	checkpoint: Maybe<string>;
+	correct: Maybe<number>;
+	accuracy: Maybe<number>;
+	wilson95: Maybe<[number, number]>;
+	hf_repo: Maybe<string>;
+	/** Whether the stored correctness vector matches the recorded count; null when absent. */
+	consistent: Maybe<boolean>;
+};
+
+export type BenchmarkPair = { a: string; b: string; difference: Maybe<number>; paired_item_bootstrap95: Maybe<[number, number]>; mcnemar_holm_p: Maybe<number> };
+
+export type Benchmark = {
+	place: Place;
+	file: FileState;
+	copies: Place[];
+	version: Maybe<string>;
+	task: Maybe<string>;
+	split: Maybe<string>;
+	metric: Maybe<string>;
+	items: Maybe<number>;
+	evaluation_mode: Maybe<string>;
+	recipe: Record<string, unknown>;
+	limitations: Maybe<string[]>;
+	cells: BenchmarkCell[];
+	pairs: BenchmarkPair[];
+};
+
 export type Quantity = { value: Maybe<number>; interval: Maybe<[number, number]>; reason?: Maybe<string> };
 
 export type Denominator = { estimate: number; interval: [number, number]; minimum: number; usable: boolean; reason: Maybe<string> };
@@ -288,6 +322,6 @@ export type RunDetail = {
 	campaigns: Section<CampaignItem> | Failed;
 	utility: Section<UtilityArm> | Failed;
 	teacher: { capacity: Section<Capacity>; headroom: Section<GateReport>; scores: Section<ScoreFile> } | Failed;
-	students: { curves: Section<Curve>; checkpoints: Section<Checkpoints>; transfers: Section<Transfer>; index: Section<IndexRow> } | Failed;
+	students: { curves: Section<Curve>; checkpoints: Section<Checkpoints>; transfers: Section<Transfer>; index: Section<IndexRow>; benchmarks?: Section<Benchmark> } | Failed;
 	gates: { reports: Section<GateReport>; index: Section<IndexRow>; detectability: Section<IndexRow> } | Failed;
 };

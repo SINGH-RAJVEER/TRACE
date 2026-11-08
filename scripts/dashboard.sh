@@ -8,7 +8,7 @@ if [ "${1:-}" = --help ]; then
 	cat <<'HELP'
 Usage: just dashboard
 Serves the read-only dashboard at http://127.0.0.1:8002 by default.
-Settings: DASHBOARD_ROOTS (default readings,artifacts), DASHBOARD_INDEX (readings/index.tsv),
+Settings: DASHBOARD_ROOTS (default readings,artifacts,paper/figures), DASHBOARD_INDEX (readings/index.tsv),
 DASHBOARD_HOST (127.0.0.1), DASHBOARD_PORT (8002).
 HELP
 	exit 0

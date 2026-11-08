@@ -562,6 +562,81 @@ def _transfer_report(report: Any) -> dict[str, Any]:
 	}
 
 
+CELL_KEYS = (
+	"role",
+	"model",
+	"revision",
+	"seed",
+	"training_examples",
+	"checkpoint",
+	"correct",
+	"accuracy",
+	"wilson95",
+	"hf_repo",
+)
+
+
+def benchmark(artifact: Artifact) -> dict[str, Any]:
+	"""A consolidated student benchmark. Correctness vectors are checked, then left out."""
+	loaded = read_json(artifact.absolute, artifact.path)
+	value = loaded.value if isinstance(loaded.value, dict) else {}
+	items = value.get("items")
+	cells = []
+	for name, entry in (value.get("cells") or {}).items():
+		if not isinstance(entry, dict):
+			continue
+		bits = entry.get("correctness")
+		consistent = (
+			None
+			if not isinstance(bits, str)
+			else len(bits) == items and bits.count("1") == entry.get("correct")
+		)
+		cells.append(
+			{"name": name, **{k: entry.get(k) for k in CELL_KEYS}, "consistent": consistent}
+		)
+	pairs = [
+		{
+			key: pair.get(key)
+			for key in ("a", "b", "difference", "paired_item_bootstrap95", "mcnemar_holm_p")
+		}
+		for pair in (value.get("pairs") or {}).values()
+		if isinstance(pair, dict)
+	]
+	recipe = value.get("recipe") or {}
+	return {
+		"place": _place(artifact),
+		"file": loaded.public(),
+		"version": value.get("version"),
+		"task": value.get("task"),
+		"split": value.get("split"),
+		"metric": value.get("metric"),
+		"items": items,
+		"evaluation_mode": value.get("evaluation_mode"),
+		"recipe": {
+			key: recipe.get(key) for key in ("base_model", "revision", "epochs", "lora_rank")
+		},
+		"limitations": value.get("limitations"),
+		"cells": cells,
+		"pairs": pairs,
+	}
+
+
+def _distinct(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	"""Byte-identical copies of one report are shown once, with the other places listed."""
+	kept: dict[str, dict[str, Any]] = {}
+	out = []
+	for report in reports:
+		digest = report["file"].get("sha256")
+		if digest and digest in kept:
+			kept[digest]["copies"].append(report["place"])
+			continue
+		report["copies"] = []
+		if digest:
+			kept[digest] = report
+		out.append(report)
+	return out
+
+
 def students(run: Run) -> dict[str, Any]:
 	rows = [r for r in run.rows if r["kind"] == "student"]
 	return {
@@ -578,6 +653,10 @@ def students(run: Run) -> dict[str, Any]:
 			"no saved transfer report (role teacher/base/clean/defended) for this run",
 		),
 		"index": section(rows, "the results index holds no student rows for this run"),
+		"benchmarks": section(
+			_distinct([benchmark(a) for a in _of(run, "benchmark")]),
+			"no student benchmark panel names this run",
+		),
 	}
 
 

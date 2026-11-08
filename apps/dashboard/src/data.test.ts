@@ -170,7 +170,7 @@ describe("coverage and gaps", () => {
 		expect(text).toContain("Attribution incomplete for A2/full (1,537 unattributed queries)");
 		expect(text).toContain("Attribution not recorded for A3/undefended");
 		expect(text).toContain("No benign utility");
-		expect(text).toContain("Not recorded: headroom gate, capacity preflight, problem scores, learning curves, checkpoints, transfer report, student index rows, clean-student gate");
+		expect(text).toContain("Not recorded: headroom gate, capacity preflight, problem scores, learning curves, checkpoints, benchmark panel, transfer report, student index rows, clean-student gate");
 	});
 });
 

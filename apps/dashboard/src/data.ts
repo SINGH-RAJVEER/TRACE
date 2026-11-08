@@ -133,7 +133,14 @@ export const ARM_LABELS: Record<string, string> = {
 };
 
 export function armColor(arm: string): string {
+	if (arm === "unprotected") return "var(--arm-undefended)";
 	return (ARM_ORDER as readonly string[]).includes(arm) ? `var(--arm-${arm})` : "var(--arm-other)";
+}
+
+/** The benchmark cell name a student plan directory corresponds to: plan-A5-full is A5/full. */
+export function planCell(path: string): Maybe<string> {
+	const match = shortLabel(path).match(/^plan-([^-]+)-(.+)$/);
+	return match ? `${match[1]}/${match[2]}` : null;
 }
 
 export function sortArms(arms: Iterable<string>): string[] {
@@ -224,6 +231,9 @@ function rawCoverage(detail: RunDetail): CoverageCell[] {
 		}
 		cells.push(cell);
 	}
+	// Responses from an API that predates benchmark panels have no such section: nothing recorded, not an error.
+	const benchmarks = studentSections ? studentSections.benchmarks ?? { state: "unavailable" as const, reason: "no student benchmark panel names this run", items: [] } : undefined;
+	cells.push(sectionCell("benchmarks", "Students", "Benchmark panel", benchmarks, "panel"));
 	cells.push(sectionCell("transfers", "Students", "Transfer report", studentSections?.transfers, "report"));
 	cells.push(sectionCell("student_rows", "Students", "Student index rows", studentSections?.index, "row"));
 	cells.push(sectionCell("clean_gate", "Gates", "Clean-student gate", gateSections?.reports, "report"));
@@ -288,7 +298,10 @@ export function gaps(detail: RunDetail, attacks: string[] = []): Gap[] {
 		if (unknown.length) out.push({ area: "Utility", severity: "partial", text: `Utility validity unknown for ${unknown.length === utility.items.length ? "every arm" : list(unknown.map(a => a.arm))} (no capacity preflight)` });
 	}
 	const students = failed(detail.students) ? null : detail.students;
-	const unsummarized = students?.checkpoints.items.filter(item => !item.summary) ?? [];
+	const benchmarked = new Set(students?.benchmarks?.items.flatMap(b => b.cells.map(c => c.name)) ?? []);
+	const unsummarized = students?.checkpoints.items.filter(item => !item.summary && !benchmarked.has(planCell(item.place.path) ?? "")) ?? [];
+	const inconsistent = students?.benchmarks?.items.flatMap(b => b.cells.filter(c => c.consistent === false).map(c => c.name)) ?? [];
+	if (inconsistent.length) out.push({ area: "Students", severity: "partial", text: `Benchmark correctness does not match the recorded count for ${list(inconsistent)}` });
 	if (unsummarized.length) out.push({ area: "Students", severity: "partial", text: `No summary.json for ${list(unsummarized.map(item => shortLabel(item.place.path)))}, so no accuracy` });
 	const censored = students?.checkpoints.items.flatMap(item => (item.summary?.checkpoints ?? []).filter(row => row.status === "censored").map(row => `${shortLabel(item.place.path)}/${row.id}`)) ?? [];
 	if (censored.length) out.push({ area: "Students", severity: "partial", text: `Censored checkpoints: ${list(censored)}` });

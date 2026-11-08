@@ -14,7 +14,7 @@ Open `http://127.0.0.1:8002`. On first use the command installs the frontend fro
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `DASHBOARD_ROOTS` | `readings,artifacts` | Comma-separated roots, as `path` or `name=path`. Relative paths resolve from the repository root. |
+| `DASHBOARD_ROOTS` | `readings,artifacts,paper/figures` | Comma-separated roots, as `path` or `name=path`. Relative paths resolve from the repository root. |
 | `DASHBOARD_INDEX` | `readings/index.tsv` | The results index |
 | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Keep it local: run directories hold account and credential files. |
 | `DASHBOARD_PORT` | `8002` | Port. The teacher uses 8000, vLLM 8001 and the harness 8003. |
@@ -35,8 +35,9 @@ Runs come from two places. Every `run_id` in the index is a run. A directory und
 | Learning curve | `plan.json` with `math-learning-curve-v1` or `ag-news-learning-curve-v1`, plus `summary.json` | Students |
 | Chronological checkpoints | `plan.json` and `summary.json` with `checkpoint-learning-v1` | Students |
 | Transfer report | A saved `distill learning-curve transfer` output, which starts with `"evidence"` | Students |
+| Student benchmark panel | `"version": "<run>-student-benchmark-v1"`, as written by `paper.figures.student_panel` | Students |
 
-An indexed run joins a directory whose name matches its run ID or its reading, so `v5-20261102` shows `readings/v5`. Artifacts nested inside a run directory belong to that run; a `just baseline-gates` run directory therefore shows its gates, score files and curve together. The walk is bounded in depth and skips `campaigns`, `utility`, `logs`, `steps`, `scores`, `schedules`, `calibration`, `benign`, `provenance` and similar bulky subtrees, which the run adapters read directly.
+A student benchmark panel joins the run its version names, wherever the file lives: `v7-student-benchmark-v1` in `paper/figures/student-panel.json` belongs to `v7`. Byte-identical copies, such as the one under `artifacts/hf-upload/`, are shown once. A panel naming no known run is listed on its own. An indexed run joins a directory whose name matches its run ID or its reading, so `v5-20261102` shows `readings/v5`. Artifacts nested inside a run directory belong to that run; a `just baseline-gates` run directory therefore shows its gates, score files and curve together. The walk is bounded in depth and skips `campaigns`, `utility`, `logs`, `steps`, `scores`, `schedules`, `calibration`, `benign`, `provenance` and similar bulky subtrees, which the run adapters read directly.
 
 When the index already holds a run's campaign and utility rows, they are shown as indexed. A run directory that has not been exported yet is read through the same `results_index.campaign_row` and `utility_rows` functions the export uses, and is labelled as read from the directory.
 
@@ -49,12 +50,13 @@ When the index already holds a run's campaign and utility rows, they are shown a
 
 A run page (`#run=<id>`) is one short screen:
 
-- **Headline figures**: arms that ran, the lowest and highest benign completion, the best student accuracy against its target, and how many evidence kinds were recorded. None of them sums acquisition across arms.
+- **Headline figures**: arms that ran, the lowest and highest benign completion, the best student accuracy against its target (from the benchmark panel when there is one, ties listed), and how many evidence kinds were recorded. None of them sums acquisition across arms.
 - **Missing**: one line per gap, for example refused or interrupted arms, unknown attribution, attacks other runs recorded, a `utility.json` that is an LFS pointer, unknown validity, plans without a summary, an unattached plan or no commit. Artifacts not found under the roots are folded into one "Not recorded" line. Past five lines the rest sit behind a toggle.
 - **Released tokens per attack**: grouped bars per arm on a log axis, so small values stay visible. An arm the detectability gate refused is drawn as a gray dashed bar marked with ≈, which is an assumption and not a measurement (see below).
 - **Minutes until the policy first intervened**: the earliest alert, restriction or refusal per arm.
 - **Benign workload served**: completion, quality when served and overall utility per arm on a 0 to 100% axis, with p95 latency below.
-- **Student accuracy**: each checkpoint on a 0 to 100% axis, with the untrained base, the teacher and the declared target marked. A learning curve is added when a plan has one.
+- **Student benchmark**: when a run has a benchmark panel, every model in it (teacher, each trained student and the untrained base) is drawn as its accuracy with the 95% Wilson interval on one shared axis, with the declared target marked. Students are colored by arm and labelled with their training-set size. The tooltip gives the paired difference against the base and the teacher, with its item-bootstrap interval and Holm-adjusted McNemar p-value. The dashboard checks each stored correctness vector against its recorded count and flags any mismatch.
+- **Student accuracy**: checkpoints that no benchmark panel covers, on a 0 to 100% axis with the untrained base, the teacher and the declared target marked. A plan named `plan-<attack>-<arm>` counts as covered by the panel's `<attack>/<arm>` model, so its missing `summary.json` is no longer reported as a gap. A learning curve is added when a plan has one.
 - Gate verdicts (headroom, capacity, clean student) appear as badges when recorded.
 - **Recorded values and run configuration**, collapsed: the campaign and utility tables, any transfer reports and student index rows, and the provenance (index labels, run directories, teacher identity, settings, README).
 

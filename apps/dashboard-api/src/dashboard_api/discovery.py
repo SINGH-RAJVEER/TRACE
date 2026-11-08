@@ -40,7 +40,7 @@ VERSION = re.compile(rb'^\s*\{\s*"version"\s*:\s*"([^"]{1,80})"')
 TRANSFER = re.compile(rb'^\s*\{\s*"evidence"\s*:')
 
 ArtifactKind = Literal[
-	"gate", "capacity", "scores", "transfer", "learning-curve", "checkpoints", "study"
+	"gate", "capacity", "scores", "transfer", "learning-curve", "checkpoints", "benchmark", "study"
 ]
 FILE_KINDS: dict[str, ArtifactKind] = {
 	"clean-baseline-gate-v1": "gate",
@@ -49,6 +49,9 @@ FILE_KINDS: dict[str, ArtifactKind] = {
 }
 CURVE_VERSIONS = ("math-learning-curve-v1", "ag-news-learning-curve-v1")
 CHECKPOINT_VERSION = "checkpoint-learning-v1"
+# A consolidated student benchmark names the run it scores in its version:
+# v7-student-benchmark-v1 belongs to run v7.
+BENCHMARK = re.compile(r"(?P<run>[A-Za-z0-9_.:-]+)-student-benchmark-v\d+")
 
 
 @dataclass(frozen=True)
@@ -106,6 +109,8 @@ def _classify(directory: Path, root: str, relative: str) -> list[Artifact]:
 		version = _version(path)
 		if version in FILE_KINDS:
 			found.append(Artifact(FILE_KINDS[version], root, child, path, version))
+		elif version is not None and BENCHMARK.fullmatch(version):
+			found.append(Artifact("benchmark", root, child, path, version))
 		elif version is None and TRANSFER.match(sniff(path)):
 			found.append(Artifact("transfer", root, child, path))
 	return found
@@ -185,10 +190,14 @@ def build_runs(
 ) -> list[Run]:
 	"""Group artifacts into runs and join index rows by run ID or reading name.
 
+	A student benchmark joins the run its version names, wherever the file lives; with no such
+	run it is listed on its own.
+
 	`readings` maps a directory name directly under a root to that directory, so an indexed run
 	whose reading has no runner files, such as a backfilled one, still shows its README.
 	"""
-	runs = _directory_runs(artifacts)
+	benchmarks = [a for a in artifacts if a.kind == "benchmark"]
+	runs = _directory_runs([a for a in artifacts if a.kind != "benchmark"])
 	by_name: dict[str, list[Path]] = {}
 	for directory in runs:
 		by_name.setdefault(directory.name, []).append(directory)
@@ -228,7 +237,19 @@ def build_runs(
 			if kinds == {"gate"}
 			else "index"
 		)
-	return list(indexed.values()) + [r for d, r in runs.items() if d not in consumed]
+	loose = [r for d, r in runs.items() if d not in consumed]
+	for artifact in benchmarks:
+		name = BENCHMARK.fullmatch(artifact.version or "")["run"]  # type: ignore[index]
+		owner = next(
+			(r for r in indexed.values() if name in (r.run_id, r.run_id.split(":", 1)[-1])), None
+		)
+		owner = owner or next((r for r in loose if r.label.rsplit("/", 1)[-1] == name), None)
+		if owner is None:
+			key = f"dir:{artifact.root}/{artifact.path}"
+			owner = Run(opaque(key), key, "benchmark", f"{artifact.root}/{artifact.path}")
+			loose.append(owner)
+		owner.artifacts.append(artifact)
+	return list(indexed.values()) + loose
 
 
 def reading_directories(roots: Roots) -> dict[str, Artifact]:

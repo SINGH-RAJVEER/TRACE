@@ -327,3 +327,53 @@ def test_utility_from_a_run_directory_keeps_nulls(tmp_path: Path) -> None:
 		"latency_p95": None,
 	}
 	assert "results" not in json.dumps(quota["detail"])
+
+
+def _panel(run: str, correct: int = 2) -> str:
+	cells = {
+		"base": {"role": "base", "correctness": "1000", "correct": 1, "accuracy": 0.25},
+		"A1/full": {
+			"role": "student",
+			"training_examples": 12,
+			"correctness": "1100",
+			"correct": correct,
+			"accuracy": correct / 4,
+			"wilson95": [0.15, 0.85],
+		},
+	}
+	pairs = {"base minus A1/full": {"a": "base", "b": "A1/full", "difference": -0.25}}
+	return json.dumps(
+		{
+			"version": f"{run}-student-benchmark-v1",
+			"task": "gsm8k",
+			"items": 4,
+			"cells": cells,
+			"pairs": pairs,
+		}
+	)
+
+
+def test_student_benchmark_joins_its_named_run_once(tmp_path: Path) -> None:
+	study = tmp_path / "artifacts" / "v9"
+	study.mkdir(parents=True)
+	(study / "steps.tsv").write_text("step\n")
+	(tmp_path / "artifacts" / "upload").mkdir()
+	(tmp_path / "artifacts" / "upload" / "panel.json").write_text(_panel("v9"))
+	(tmp_path / "figures").mkdir()
+	(tmp_path / "figures" / "panel.json").write_text(_panel("v9"))
+	(tmp_path / "figures" / "other.json").write_text(_panel("v8", correct=3))
+	app = client(Roots.parse("artifacts,figures", tmp_path), tmp_path / "index.tsv")
+	found = runs(app)
+	assert found["artifacts/v9"]["artifacts"] == {"benchmark": 2}
+	detail = app.get(f"/api/runs/{found['artifacts/v9']['id']}").json()
+	(panel,) = detail["students"]["benchmarks"]["items"]
+	assert len(panel["copies"]) == 1
+	cells = {c["name"]: c for c in panel["cells"]}
+	assert cells["A1/full"]["training_examples"] == 12 and cells["A1/full"]["consistent"] is True
+	assert "correctness" not in cells["A1/full"]
+	assert panel["pairs"][0]["difference"] == -0.25
+	# A panel naming no known run is listed on its own, and a count that disagrees is flagged.
+	loose = found["figures/other.json"]
+	assert loose["kind"] == "benchmark"
+	(other,) = app.get(f"/api/runs/{loose['id']}").json()["students"]["benchmarks"]["items"]
+	assert {c["name"]: c["consistent"] for c in other["cells"]}["A1/full"] is False
