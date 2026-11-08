@@ -115,7 +115,7 @@ def run_cell(output: Path, recipe: dict[str, Any], n: int | None, seed: int) -> 
 				max_length=recipe["max_length"],
 				per_device_train_batch_size=recipe["batch_size"],
 				gradient_accumulation_steps=recipe["gradient_accumulation_steps"],
-				# transformers 5 reads a warmup_steps value below 1 as a ratio, rounded up as warmup_ratio was.
+				# Transformers 5 accepts a fractional warmup_steps value as a ratio.
 				warmup_steps=recipe["warmup_ratio"],
 				seed=seed,
 				data_seed=seed,
