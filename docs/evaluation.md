@@ -149,6 +149,12 @@ The optional runner uses the [Qwen3.5 text-only model class](https://huggingface
 
 ## Acquisition manifests, math curves and clean-baseline gates
 
+### Recorded v7 student benchmark panel
+
+The [v7 student benchmark report](../paper/figures/student-panel.md) consolidates all five trained end-checkpoint students (A2-full, A2-instantaneous, A5-full, A5-instantaneous and A6-unprotected) with the untrained base and teacher on the same frozen 746-item GSM8K development suite. It validates recorded inference rather than rerunning models. No quota student is included. The [machine-readable snapshot](../paper/figures/student-panel.json) contains ordered item IDs, per-model correctness vectors, model and source hashes, Wilson intervals and all 21 paired comparisons with item-bootstrap intervals and exact McNemar tests with Holm adjustment. Run `uv run python -m paper.figures.student_panel` to rebuild from local artifacts, or `uv run python -m paper.figures.student_panel --verify paper/figures/student-panel.json` to reproduce the statistics from the snapshot alone. `uv run --with matplotlib python -m paper.figures.student_panel --plot` regenerates the [comparison plot](../paper/figures/student-panel.svg).
+
+All five students use seed 42. These are exploratory development results with unequal training sets, not an official full-test benchmark, independent campaign replication or a matched detector-versus-quota effectiveness result. Item-level intervals may understate shared-source dependence. The original two-student paper figure is preserved separately in `paper/figures/students.json`; the complete panel is the newer artifact.
+
 For receipt-ordered campaign prefixes, intervention bounds and checkpoint students, use the [chronological checkpoint workflow](checkpoints.md). The ordinary learning-curve subsets described below are hash-ordered and cannot establish intervention timing.
 
 The restored tooling separates a valid extraction experiment from a successful defense. It has CPU fixture coverage; GPU execution, live teacher collection and actual student learning still require qualification on the intended host. Run `distill acquisition --help`, `distill baseline --help` and `distill learning-curve --help` for all options.
