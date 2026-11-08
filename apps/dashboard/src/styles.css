@@ -1,84 +1,27 @@
 @import "tailwindcss";
 
 :root {
-	--paper: #fbfbfa;
-	--plane: #f4f4f2;
-	--ink: #14181d;
-	--muted: #5d636b;
-	--faint: #8a9097;
-	--rule: #e1e2de;
-	--wash: #eeefec;
-	--accent: #2a78d6;
-	--gold: #b07812;
-	--pass: #18803a;
-	--fail: #c03535;
-	--caution: #9a6400;
-	--hatch: #c9ccd0;
-	--track: #eceeeb;
-	/* Arms keep one color in every run. Undefended is the neutral reference. */
-	--arm-full: #2a78d6;
-	--arm-instantaneous: #eb6834;
-	--arm-quota: #1baf7a;
-	--arm-undefended: #8a9097;
-	--arm-other: #6250d6;
-	/* Outcome of each attempt, as one blue ramp from released to refused. */
-	--out-received: #2a78d6;
-	--out-challenge: #86b6ef;
-	--out-blocked: #cdd3da;
-	--out-failed: #c03535;
-	/* Sequential ramp for heatmaps, light to dark. */
-	--seq-0: #eef4fc;
-	--seq-1: #cde2fb;
-	--seq-2: #9ec5f4;
-	--seq-3: #6da7ec;
-	--seq-4: #3987e5;
-	--seq-5: #256abf;
-	--seq-6: #184f95;
-	--seq-7: #0d366b;
-	--on-seq-low: #14181d;
-	--on-seq-high: #ffffff;
-	--on-seq-4: #ffffff;
-	color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
-		--paper: #15191e;
-		--plane: #0f1215;
-		--ink: #e8ebee;
-		--muted: #a1a9b2;
-		--faint: #79818a;
-		--rule: #2a3038;
-		--wash: #1d2228;
-		--accent: #3987e5;
-		--gold: #c98f2a;
-		--pass: #4cc27a;
-		--fail: #ec7373;
-		--caution: #e0b050;
-		--hatch: #39414a;
-		--track: #222830;
-		--arm-full: #3987e5;
-		--arm-instantaneous: #d95926;
-		--arm-quota: #199e70;
-		--arm-undefended: #79818a;
-		--arm-other: #9085e9;
-		--out-received: #3987e5;
-		--out-challenge: #1c5cab;
-		--out-blocked: #39414a;
-		--out-failed: #ec7373;
-		--seq-0: #1a2433;
-		--seq-1: #13305a;
-		--seq-2: #184f95;
-		--seq-3: #1c5cab;
-		--seq-4: #2a78d6;
-		--seq-5: #5598e7;
-		--seq-6: #86b6ef;
-		--seq-7: #b7d3f6;
-		--on-seq-low: #e8ebee;
-		--on-seq-high: #0f1215;
-		--on-seq-4: #e8ebee;
-		color-scheme: dark;
-	}
+	/* Dark only. Arms keep one color in every run; undefended is the neutral reference. */
+	--paper: #15191e;
+	--plane: #0f1215;
+	--ink: #e8ebee;
+	--muted: #a1a9b2;
+	--faint: #79818a;
+	--rule: #2a3038;
+	--wash: #1d2228;
+	--accent: #3987e5;
+	--gold: #c98f2a;
+	--pass: #4cc27a;
+	--fail: #ec7373;
+	--caution: #e0b050;
+	--hatch: #39414a;
+	--track: #222830;
+	--arm-full: #3987e5;
+	--arm-instantaneous: #d95926;
+	--arm-quota: #199e70;
+	--arm-undefended: #79818a;
+	--arm-other: #9085e9;
+	color-scheme: dark;
 }
 
 @theme inline {

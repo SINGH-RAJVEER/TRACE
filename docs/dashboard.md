@@ -60,7 +60,7 @@ A run page (`#run=<id>`) is one short screen:
 
 A chart or figure with nothing behind it is not drawn; the gap appears in Missing instead.
 
-Each arm keeps one color in every run: full is blue, instantaneous orange, quota green and undefended gray.
+The page uses a dark theme only. Each arm keeps one color in every run: full is blue, instantaneous orange, quota green and undefended gray.
 
 ## How values are shown
 
