@@ -40,19 +40,58 @@ from distillation.schemas import (
 	TeacherGenerationRequest,
 	TokenUsage,
 )
-from distillation.teacher import Teacher, TeacherAPIGateway, TeacherUpstreamError
+from distillation.teacher import (
+	THINK_CLOSE,
+	THINK_OPEN,
+	Teacher,
+	TeacherAPIGateway,
+	TeacherUpstreamError,
+)
+from distillation.watermark import key_id as watermark_key_id
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from harness import review
 from harness.calibration import Calibration, load_aggregate, load_calibration, load_shadow
+from harness.campaign import (
+	CampaignConfig,
+	CampaignError,
+	campaign_cooldown,
+	campaign_key,
+	load_campaign_config,
+	observe_campaign,
+	prepare_session_observation,
+	text_identity,
+)
+from harness.campaign_evidence import EvidenceCalibration
+from harness.campaign_evidence import new_state as new_evidence_state
+from harness.campaign_evidence import observe as observe_evidence
 from harness.deception import noise
 from harness.encoder import Encoder
+from harness.linkage import (
+	ClusterBudget,
+	content_signal,
+	declared_signals,
+	load_linkage_config,
+	network_signal,
+)
+from harness.linkage import (
+	observe as observe_linkage,
+)
 from harness.mmd import WindowScorer
 from harness.monitor import AggregateMonitor, AggregateWindow
-from harness.policy import Decision, MMDPolicy, Policy, ScoreWindow, request_digest
+from harness.path_runtime import RuntimePathCalibration, encoder_contract
+from harness.policy import (
+	Decision,
+	MMDPolicy,
+	PathStopPolicy,
+	Policy,
+	ScoreWindow,
+	StalePathAdmission,
+	request_digest,
+)
 from harness.replay import make_policy
 from harness.serialization import detector_text, gateway_turn, valid_gateway_turn
-from harness.shadow import ShadowMonitor
+from harness.shadow import ShadowMonitor, request_domain
 from harness.store import (
 	IdempotencyRecord,
 	MemoryStore,
@@ -74,11 +113,21 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.types import Message as ASGIMessage
 
 from harness_api.batching import EncoderBatcher
-from harness_api.settings import Settings
+from harness_api.output_policy import (
+	RECEIPT_HEADER,
+	OutputAttempt,
+	ProviderCall,
+	apply_policy,
+)
+from harness_api.settings import TIERS, Settings
 
 
 class ScoringUnavailable(Exception):
 	"""The off-path scorer cannot accept a window, so the admission must not commit."""
+
+
+class CampaignObservationFailed(Exception):
+	"""The campaign observation was refused, so its attempt rolls back and runs without it."""
 
 
 def current_turn(request: TeacherGenerationRequest) -> str:
@@ -93,6 +142,13 @@ def decision_header(decision: Decision) -> str:
 
 
 ROLLING_REFUSALS = {
+	"cluster_rolling_budget_exceeded": (
+		429,
+		"the rolling budget shared by linked accounts is used up",
+		"block",
+	),
+	"tier_output_cap_exceeded": (403, "this tier cannot request that much output", "block"),
+	"sampling_tier_required": (403, "this tier cannot set sampling parameters", "block"),
 	"supervision_budget_exceeded": (429, "supervision budget is used up", "block"),
 	"tier_budget_exceeded": (429, "tier budget is used up", "block"),
 	"rolling_budget_exceeded": (429, "the account's rolling budget is used up", "block"),
@@ -162,7 +218,12 @@ def _mimic(identifier: str | None) -> str | None:
 	return head + secrets.token_hex((len(tail) + 1) // 2)[: len(tail)]
 
 
-def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, Any]:
+def _policy_fields(
+	settings: Settings,
+	calibration: Calibration,
+	path: RuntimePathCalibration | None = None,
+	campaign: CampaignConfig | None = None,
+) -> dict[str, Any]:
 	"""The policy, its actions and limits, and the calibration behind a decision."""
 	fields = settings.model_dump(
 		include={
@@ -185,9 +246,15 @@ def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, An
 			"tokenizer_revision",
 		}
 	)
+	if settings.request_quota is not None:
+		fields["request_quota"] = settings.request_quota
 	# Omitted for the default version so existing legacy state files keep their scope.
 	if settings.policy_version != "legacy-v1":
 		fields["policy_version"] = settings.policy_version
+	if path is not None:
+		fields["path_calibration"] = path.input_hash
+		fields["path_policy_version"] = path.recipe.version
+		fields["path_qualified"] = False
 	# Likewise omitted when unset, so a file written without rolling limits keeps its scope.
 	if settings.rolling_request_budget or settings.rolling_token_budget:
 		fields["rolling"] = [
@@ -218,6 +285,29 @@ def _policy_fields(settings: Settings, calibration: Calibration) -> dict[str, An
 			if settings.accounts_file
 			else None,
 		]
+	if settings.watermark:
+		fields["watermark"] = settings.watermark_namespace
+	if settings.linkage_config is not None:
+		fields["linkage"] = [
+			hashlib.sha256(settings.linkage_config.read_bytes()).hexdigest(),
+			settings.rolling_window_seconds,
+			settings.cluster_rolling_request_budget,
+			settings.cluster_rolling_token_budget,
+		]
+	# Omitted when unset, so files written without release-detail tiers keep their scope.
+	if settings.tier_output_caps:
+		fields["tier_output_caps"] = dict(sorted(settings.tier_output_caps.items()))
+	if settings.sampling_min_tier is not None:
+		fields["sampling_min_tier"] = settings.sampling_min_tier
+	# Present only when the campaign detector is configured, so other state keeps its scope.
+	if campaign is not None:
+		fields["campaign"] = {
+			"config_sha256": campaign.digest,
+			"unqualified_enforcement": settings.campaign_allow_unqualified_enforcement,
+		}
+	# Likewise omitted when unset, so the default revision and state scope do not change.
+	if settings.output_policy is not None:
+		fields["output_policy"] = settings.output_policy.binding()
 	fields["calibration"] = hashlib.sha256(calibration.model_dump_json().encode()).hexdigest()
 	return fields
 
@@ -228,10 +318,12 @@ def _scope(
 	scorer: WindowScorer,
 	aggregate_scorer: WindowScorer | None,
 	deception_key: bytes | None,
+	path: RuntimePathCalibration | None = None,
+	campaign: CampaignConfig | None = None,
 ) -> str:
 	"""Everything that gives stored state its meaning: the policy, its actions, and the
 	calibration. Secrets and service addresses are left out."""
-	fields = _policy_fields(settings, calibration)
+	fields = _policy_fields(settings, calibration, path, campaign)
 	fields["references"] = hashlib.sha256(scorer.references.tobytes()).hexdigest()
 	fields["scorer"] = [scorer.sigma, scorer.scales]
 	fields["deception_key"] = hashlib.sha256(deception_key).hexdigest() if deception_key else None
@@ -246,6 +338,26 @@ def _scope(
 		else None
 	)
 	return canonical_json(fields)
+
+
+def _attributes(settings: Settings) -> dict[str, dict[str, str]]:
+	"""Declared linkage attributes per principal. Every key of a principal must agree."""
+	if settings.accounts_file is None:
+		return {}
+	result: dict[str, dict[str, str]] = {}
+	for entry in json.loads(settings.accounts_file.read_text()).values():
+		if isinstance(entry, str):
+			entry = {"principal": entry}
+		declared = entry.get("attributes", {})
+		if not isinstance(declared, dict) or not all(
+			isinstance(k, str) and isinstance(v, str) and k and v for k, v in declared.items()
+		):
+			raise ValueError("account attributes must map names to nonblank strings")
+		principal = entry["principal"]
+		if principal in result and result[principal] != declared:
+			raise ValueError("a principal must declare the same attributes for every key")
+		result[principal] = declared
+	return result
 
 
 def _accounts(settings: Settings) -> dict[str, tuple[str, str | None]]:
@@ -291,22 +403,107 @@ def create_app(
 	served_task = calibration.config.task
 	if served_task != config.task:
 		raise ValueError(f"HARNESS_TASK is {config.task}, but the calibration is for {served_task}")
+	path = (
+		RuntimePathCalibration.model_validate_json(config.path_calibration.read_text())
+		if config.path_calibration is not None
+		else None
+	)
+	if path is not None:
+		if encoder is None:
+			from harness.encoder import BGEEncoder
+
+			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+		path.require_compatible(calibration, scorer, encoder.identity())
+	campaign = (
+		load_campaign_config(config.campaign_config) if config.campaign_config is not None else None
+	)
+	campaign_needs_embeddings = campaign is not None and (
+		campaign.coverage is not None
+		or (campaign.session is not None and campaign.session.encoder_identity is not None)
+	)
+	if campaign_needs_embeddings:
+		if encoder is None:
+			from harness.encoder import BGEEncoder
+
+			encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+		assert campaign is not None
+		identities = []
+		if campaign.session is not None and campaign.session.encoder_identity is not None:
+			identities.append(campaign.session.encoder_identity)
+		if campaign.coverage is not None:
+			identities.append(campaign.coverage.monitor.encoder_identity)
+		if any(encoder_contract(encoder.identity()) != identity for identity in identities):
+			raise ValueError("campaign encoder representation differs from configured identity")
+	if (
+		campaign is not None
+		and campaign.coverage is not None
+		and campaign.coverage.monitor.serialization
+		!= ("gateway_turn" if config.task == "gateway" else "raw_turn")
+	):
+		raise ValueError("coverage serialization differs from the served task's encoder input")
+	if (
+		campaign is not None
+		and campaign.mode == "throttle"
+		and not config.campaign_allow_unqualified_enforcement
+	):
+		raise ValueError(
+			"campaign throttle mode is experimental and unqualified; set "
+			"HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT to enforce it for diagnosis"
+		)
 	if config.scoring_mode == "off_path" and config.state_db is not None:
 		# Queued windows live in this process, so a restart would silently drop their evidence.
 		raise ValueError("off-path scoring keeps queued windows in memory; unset HARNESS_STATE_DB")
 	store: StateStore = (
 		SQLiteStore(
 			config.state_db,
-			_scope(config, calibration, scorer, aggregate_scorer, key),
+			_scope(config, calibration, scorer, aggregate_scorer, key, path, campaign),
 			review_enabled=config.review_enabled,
 		)
 		if config.state_db is not None
 		else MemoryStore()
 	)
+	if campaign is not None:
+		if "campaign_throttled" in config.review_verify_codes:
+			raise ValueError("campaign throttling cannot be converted to verification")
+		store.bind_campaign(campaign.digest)
+	output_policy = config.output_policy
+	if output_policy is not None:
+		store.enable_output_receipts()
+	linkage = (
+		load_linkage_config(config.linkage_config) if config.linkage_config is not None else None
+	)
+	attributes = _attributes(config) if linkage is not None else {}
+	if linkage is not None:
+		store.bind_linkage(linkage.digest)
+	cluster_budget = (
+		ClusterBudget(
+			config.rolling_window_seconds,
+			config.cluster_rolling_request_budget,
+			config.cluster_rolling_token_budget,
+		)
+		if config.cluster_rolling_request_budget or config.cluster_rolling_token_budget
+		else None
+	)
 	# Binds every logged event to the exact policy and calibration behind it.
 	policy_revision = hashlib.sha256(
-		canonical_json(_policy_fields(config, calibration)).encode()
+		canonical_json(_policy_fields(config, calibration, path, campaign)).encode()
 	).hexdigest()
+	path_fields = (
+		{
+			"path_policy": {
+				"calibration_hash": path.input_hash,
+				"policy_version": path.recipe.version,
+				"qualified": False,
+			}
+		}
+		if path is not None
+		else {}
+	)
+	# Present only with an output policy, so other decision logs keep their schema.
+	event_fields = {
+		**path_fields,
+		**(output_policy.event_fields() if output_policy is not None else {}),
+	}
 	rolling = (
 		RollingBudget(
 			config.rolling_window_seconds,
@@ -448,16 +645,37 @@ def create_app(
 			policy_version=config.policy_version,
 			submit_window=submit_window if config.scoring_mode == "off_path" else None,
 		)
+	elif path is not None:
+		policy = PathStopPolicy(calibration, scorer, path, store=store)
 	else:
 		if config.scoring_mode == "off_path":
 			raise ValueError("off-path scoring requires the MMD policy")
-		policy = make_policy(config.policy, calibration, scorer, store=store)
+		policy = make_policy(
+			"quota" if config.policy == "quota_tokens" else config.policy,
+			calibration,
+			scorer,
+			store=store,
+			request_quota=config.request_quota,
+		)
 	monitor = (
 		AggregateMonitor(aggregate_scorer, calibration.aggregate)
-		if aggregate_scorer is not None and calibration.aggregate is not None
+		if config.policy != "path"
+		and aggregate_scorer is not None
+		and calibration.aggregate is not None
 		else None
 	)
-	needs_embeddings = config.policy == "mmd" or monitor is not None
+	evidence = (
+		EvidenceCalibration.model_validate_json(config.campaign_evidence.read_text())
+		if config.campaign_evidence is not None
+		else None
+	)
+	evidence_centroids = evidence.cell_centroids() if evidence is not None else None
+	if evidence is not None:
+		store.bind_evidence(evidence.digest)
+	base_needs_embeddings = (
+		config.policy in {"mmd", "path"} or monitor is not None or evidence is not None
+	)
+	needs_embeddings = base_needs_embeddings or campaign_needs_embeddings
 	shadow: ShadowMonitor | None = None
 	if config.shadow_scorers:
 		if calibration.shadow is None:
@@ -475,6 +693,12 @@ def create_app(
 		from harness.encoder import BGEEncoder
 
 		encoder = BGEEncoder(device=config.encoder_device, batch_size=config.encoder_batch_size)
+	if evidence is not None and evidence.encoder and encoder is not None:
+		served = encoder.identity()
+		if any(
+			served.get(k) != v for k, v in evidence.encoder.items() if k in {"model", "revision"}
+		):
+			raise ValueError("the campaign evidence calibration was fitted with another encoder")
 	if token_counter is None and config.tokenizer_model:
 		from transformers import AutoTokenizer
 
@@ -665,7 +889,13 @@ def create_app(
 		return None
 
 	def previous(
-		tx: Transaction, account: str, key: str | None, digest: str, *, proof: bool = False
+		tx: Transaction,
+		account: str,
+		key: str | None,
+		digest: str,
+		*,
+		proof: bool = False,
+		now: float | None = None,
 	) -> JSONResponse | None:
 		if key is None:
 			return None
@@ -678,6 +908,24 @@ def create_app(
 			return _error(
 				409, "idempotency_pending", "request is pending or its outcome is unknown", None
 			)
+		if campaign is not None and now is not None:
+			body = json.loads(record.outcome.body)
+			if body.get("detail", {}).get("code") == "campaign_throttled":
+				until = body.get("campaign", {}).get("throttle_until")
+				if isinstance(until, int | float) and now >= until:
+					return None
+				if isinstance(until, int | float):
+					remaining = max(1, math.ceil(until - now))
+					body["campaign"]["retry_after_seconds"] = remaining
+					headers = {
+						k: v
+						for k, v in record.outcome.headers.items()
+						if k.lower() not in {"content-length", "retry-after"}
+					}
+					headers["Retry-After"] = str(remaining)
+					return JSONResponse(
+						body, status_code=record.outcome.status_code, headers=headers
+					)
 		if proof and record.outcome.status_code == 428:
 			return None
 		return JSONResponse(
@@ -702,7 +950,15 @@ def create_app(
 		if not config.review_enabled:
 			return response
 		assert hasattr(tx, "db")
-		ref = review.open_appeal(
+		prior_appeal = None
+		campaign_state = None
+		if code == "campaign_throttled" and campaign is not None:
+			campaign_state = tx.campaign(campaign_key(campaign, account))
+			if campaign_state is not None:
+				cached = campaign_state.get("api_appeal", {})
+				if cached.get("until") == reset_at:
+					prior_appeal = cached.get("ref")
+		ref = prior_appeal or review.open_appeal(
 			tx.db,
 			account=account,
 			organization=organization,
@@ -714,6 +970,9 @@ def create_app(
 			now=now,
 			digest=digest,
 		)
+		if campaign_state is not None and prior_appeal is None and campaign is not None:
+			campaign_state["api_appeal"] = {"until": reset_at, "ref": ref}
+			tx.put_campaign(campaign_key(campaign, account), campaign_state)
 		body = json.loads(bytes(response.body))
 		body["detail"].update(
 			{
@@ -732,6 +991,48 @@ def create_app(
 			headers["x-harness-decision"] = "throttle"
 		return JSONResponse(body, status_code=status, headers=headers)
 
+	def cooldown_until(
+		tx: Transaction, account: str, organization: str | None, now: float
+	) -> float | None:
+		assert campaign is not None
+		return campaign_cooldown(tx, campaign, account, now)
+
+	def throttle_response(
+		tx: Transaction,
+		account: str,
+		organization: str | None,
+		digest: str,
+		now: float,
+		until: float,
+	) -> JSONResponse:
+		retry_after = max(1, math.ceil(until - now))
+		response = JSONResponse(
+			{
+				"detail": {
+					"code": "campaign_throttled",
+					"message": "experimental campaign throttle is active for this account",
+				},
+				"campaign": {
+					"qualified": False,
+					"mode": "throttle",
+					"throttle_until": until,
+					"retry_after_seconds": retry_after,
+				},
+			},
+			status_code=429,
+			headers={"X-Harness-Decision": "throttle", "Retry-After": str(retry_after)},
+		)
+		return review_response(
+			tx,
+			response,
+			account,
+			organization,
+			digest,
+			now,
+			"campaign_throttled",
+			reset_at=until,
+		)
+
 	def reserve(
 		tx: Transaction,
 		decision: Decision,
@@ -743,7 +1044,7 @@ def create_app(
 		proof: bool = False,
 		domain: str = "text",
 	) -> tuple[Reservation | None, JSONResponse | None]:
-		old = previous(tx, decision.account, idem, digest, proof=proof)
+		old = previous(tx, decision.account, idem, digest, proof=proof, now=now)
 		if old is not None:
 			return None, old
 		row = Reservation(
@@ -863,6 +1164,8 @@ def create_app(
 
 	def policy_response(decision: Decision) -> JSONResponse:
 		if decision.action == "refuse":
+			if decision.reason == "path_stop":
+				return _error(403, "path_stop", "campaign path stopped", "block")
 			return _error(403, "blocked", "request refused", "block")
 		return JSONResponse(
 			{
@@ -877,9 +1180,36 @@ def create_app(
 			headers={"X-Harness-Decision": "throttle"},
 		)
 
-	async def call_teacher(request: TeacherGenerationRequest) -> TeacherGeneration:
+	def detail_refusal(
+		tx: Transaction, account: str, request: TeacherGenerationRequest, now: float
+	) -> str | None:
+		"""Refuse detail the principal's trust tier does not grant, before any embedding."""
+		if tier is None or not (config.tier_output_caps or config.sampling_min_tier):
+			return None
+		level = tier.level(tx, account, now)
+		cap = next((c for name, c in config.tier_output_caps.items() if name == level), None)
+		if cap is not None and request.max_output_tokens > cap:
+			return "tier_output_cap_exceeded"
+		sampled = request.temperature != 0 or any(
+			value is not None for value in (request.seed, request.top_p, request.top_k)
+		)
+		if (
+			sampled
+			and config.sampling_min_tier is not None
+			and TIERS.index(level) < TIERS.index(config.sampling_min_tier)
+		):
+			return "sampling_tier_required"
+		return None
+
+	async def call_teacher(request: TeacherGenerationRequest, account: str) -> TeacherGeneration:
+		if config.watermark:
+			request = request.model_copy(
+				update={"watermark_key": watermark_key_id(config.watermark_namespace, account)}
+			)
 		started = time.perf_counter()
 		generation = await upstream.generate(request)
+		if config.watermark and generation.watermarked is not True:
+			raise TeacherUpstreamError("the teacher did not apply the watermark")
 		latencies.append(time.perf_counter() - started)
 		template[:] = [generation]
 		return generation
@@ -897,6 +1227,8 @@ def create_app(
 			usage=TokenUsage(),
 			request_id=_mimic(model.request_id),
 			endpoint=model.endpoint,
+			# A missing mode would tell noise apart from a real reasoning response.
+			thinking=model.thinking,
 		)
 
 	async def release(
@@ -917,11 +1249,16 @@ def create_app(
 			inflight[release_id] = decision.account
 		# The release accounting middleware clears the in-flight entry after the response.
 		http_request.state.release_id = release_id
+		attempt = (
+			OutputAttempt(output_policy, reservation.domain) if output_policy is not None else None
+		)
 		status: Settlement = "failed"
 		tokens: int | None = None
 		response: JSONResponse | None = None
 		try:
-			response, tokens = await produce(decision, request, text, binding, benchmark_request)
+			response, tokens = await produce(
+				decision, request, text, binding, benchmark_request, attempt
+			)
 			if response.status_code == 200:
 				if (
 					config.output_token_budget is not None
@@ -966,6 +1303,12 @@ def create_app(
 							),
 						)
 					)
+				if attempt is not None:
+					# Settled with the reservation, so the two ledgers cannot disagree.
+					attempt.settle(status)
+					tx.put_output_receipt(
+						reservation.key, decision.account, settled_at, attempt.receipt()
+					)
 			log.write(
 				"release",
 				time=settled_at,
@@ -973,9 +1316,16 @@ def create_app(
 				horizon=decision.horizon,
 				attempt=decision.attempt,
 				status=status,
+				**(
+					{"path": decision.path, "reason": decision.reason}
+					if decision.path is not None
+					else {}
+				),
 				output_tokens=tokens if status == "released" else None,
 				deceive=decision.deceive,
 				policy_revision=policy_revision,
+				**path_fields,
+				**({"output_policy": attempt.receipt()} if attempt is not None else {}),
 				request_digest=reservation.request_digest,
 				benchmark_request=benchmark_request,
 			)
@@ -991,6 +1341,7 @@ def create_app(
 		text: str,
 		binding: str,
 		benchmark_request: str | None,
+		attempt: OutputAttempt | None = None,
 	) -> tuple[JSONResponse, int | None]:
 		"""The response, and the output tokens it releases by the server's own count: the
 		victim tokenizer's when configured, else the teacher's usage for a truthful answer."""
@@ -1009,6 +1360,12 @@ def create_app(
 				request_digest=hashlib.sha256(binding.encode()).hexdigest(),
 				benchmark_request=benchmark_request,
 			)
+		if attempt is not None:
+			# Settings refuse deception with an output policy, so this is always a real draft.
+			assert content is None
+			attempt.calls["draft"] = ProviderCall(
+				"interrupted", max_output_tokens=request.max_output_tokens
+			)
 		try:
 			if content is not None and template:
 				# Noise needs no teacher call; wait like a real call so timing gives nothing away.
@@ -1017,12 +1374,36 @@ def create_app(
 				generation = fabricate(content)
 			else:
 				# Until one real response has been seen there is no shape to copy.
-				generation = await call_teacher(request)
+				generation = await call_teacher(request, decision.account)
 		except TeacherUpstreamError as error:
 			failed = _error(
 				502, "teacher_upstream_error", str(error), headers["X-Harness-Decision"]
 			)
+			if attempt is not None:
+				attempt.calls["draft"] = ProviderCall(
+					"error",
+					max_output_tokens=request.max_output_tokens,
+					error=type(error).__name__,
+				)
 			return failed, None
+		if content is None and any(
+			marker in generation.message.content for marker in (THINK_OPEN, THINK_CLOSE)
+		):
+			# The teacher should already withhold reasoning; never release a trace that leaks.
+			leak = _error(502, "reasoning_withheld", "teacher reasoning cannot be released", None)
+			if attempt is not None:
+				attempt.calls["draft"] = ProviderCall(
+					"error", max_output_tokens=request.max_output_tokens, error="reasoning_leak"
+				)
+			return leak, None
+		# Reasoning length is teacher compute, and whether a response carries a watermark is
+		# for attribution, so neither is part of what a client receives.
+		generation.usage = generation.usage.model_copy(update={"reasoning_tokens": None})
+		generation.watermarked = None
+		if attempt is not None:
+			return await release_under_policy(
+				attempt, request, generation, headers, decision.account
+			)
 		tokens = generation.usage.output_tokens if content is None else None
 		if content is not None:
 			generation.message = Message(role="assistant", content=content)
@@ -1034,6 +1415,48 @@ def create_app(
 		if config.l4_action == "deceive":
 			generation.usage = TokenUsage(output_tokens=tokens if token_counter else None)
 		return JSONResponse(generation.model_dump(mode="json"), headers=headers), tokens
+
+	async def release_under_policy(
+		attempt: OutputAttempt,
+		request: TeacherGenerationRequest,
+		draft: TeacherGeneration,
+		headers: dict[str, str],
+		account: str,
+	) -> tuple[JSONResponse, int | None]:
+		"""Replace the draft before any response exists. No store transaction is open here.
+
+		Everything client-visible is rebuilt from the released text: the draft's finish reason
+		and output count would reveal its truncation and length. Any failure after the draft
+		exists withholds; an unexpected error is logged by type only.
+		"""
+		assert token_counter is not None
+		try:
+			# Rewrites go through call_teacher so they carry the same watermark key.
+			released = await apply_policy(
+				attempt, request, draft, lambda r: call_teacher(r, account), token_counter
+			)
+		except Exception as error:
+			attempt.failure = f"internal_error:{type(error).__name__}"
+			released = None
+		if released is None:
+			attempt.withhold("internal_error")
+			withheld = _error(
+				502,
+				"output_withheld",
+				"the response could not be released under the configured output policy",
+				headers["X-Harness-Decision"],
+			)
+			withheld.headers[RECEIPT_HEADER] = attempt.receipt_header()
+			return withheld, None
+		if attempt.protected:
+			draft.finish_reason = "stop"
+		draft.message = Message(role="assistant", content=released)
+		draft.usage = TokenUsage(
+			input_tokens=None if config.l4_action == "deceive" else draft.usage.input_tokens,
+			output_tokens=attempt.released_tokens,
+		)
+		headers[RECEIPT_HEADER] = attempt.receipt_header()
+		return JSONResponse(draft.model_dump(mode="json"), headers=headers), attempt.released_tokens
 
 	class ReviewDecision(BaseModel):
 		action: str
@@ -1082,7 +1505,15 @@ def create_app(
 
 	@app.get("/healthz")
 	async def health() -> dict[str, str]:
-		return {"status": "ready", "policy": config.policy}
+		# Hashes of the served configuration, so a client can check it before spending anything.
+		return {
+			"status": "ready",
+			"policy": config.policy,
+			"policy_revision": policy_revision,
+			**({"campaign_digest": campaign.digest} if campaign is not None else {}),
+			**({"output_policy_digest": output_policy.digest} if output_policy is not None else {}),
+			**({"instance_id": config.instance_id} if config.instance_id is not None else {}),
+		}
 
 	@app.post("/v1/teacher/generate", response_model=None)
 	async def generate(
@@ -1101,6 +1532,8 @@ def create_app(
 		if identity is None:
 			return _error(401, "unauthorized", "unknown API key", None)
 		account, organization = identity
+		if request.watermark_key is not None:
+			return _error(422, "invalid_field", "watermark_key is set by the service", None)
 		if score_failure:
 			return _error(503, "scoring_unavailable", "off-path scoring failed", None)
 		now = now_from(x_harness_time)
@@ -1130,9 +1563,31 @@ def create_app(
 			{"request": request.model_dump(mode="json"), "detector_turn": text}
 		)
 		digest = hashlib.sha256(binding.encode()).hexdigest()
+		if (
+			output_policy is not None
+			and output_policy.unsupported_task == "refuse"
+			and (x_gateway_domain if served_task == "gateway" else served_task)
+			not in output_policy.tasks
+		):
+			# Nothing was admitted or generated, so nothing is charged or observed.
+			log.write(
+				"output_policy_refusal",
+				time=now,
+				account=account,
+				policy_revision=policy_revision,
+				**output_policy.event_fields(),
+				request_digest=digest,
+				benchmark_request=x_benchmark_request,
+			)
+			return _error(
+				422,
+				"output_policy_unsupported_task",
+				"the configured output policy does not cover this task",
+				None,
+			)
 		with store.transaction() as tx:
 			prior = previous(
-				tx, account, idempotency_key, digest, proof=x_harness_proof is not None
+				tx, account, idempotency_key, digest, proof=x_harness_proof is not None, now=now
 			)
 		if prior is not None:
 			return prior
@@ -1143,11 +1598,25 @@ def create_app(
 			held: Decision | None = None
 			reservation = None
 			rejection = None
+			proof_throttle: JSONResponse | None = None
+			proof_until: float | None = None
 			with store.transaction() as tx:
-				prior = previous(tx, account, idempotency_key, digest, proof=True)
+				prior = previous(tx, account, idempotency_key, digest, proof=True, now=now)
 				if prior is not None:
 					return prior
-				if isinstance(policy, MMDPolicy) and counter.isdigit():
+				# An active experimental cooldown also stops redemption. The challenge stays
+				# unspent, its reservation and the stored 428 stay as they are, and the
+				# refusal is not remembered, so the same proof can be sent after expiry.
+				if campaign is not None and campaign.mode == "throttle":
+					proof_until = cooldown_until(tx, account, organization, now)
+					# Held proofs reuse pre-grant reservations, so reservation-counted
+					# review allowances cannot safely bound their redemption. Grants apply
+					# to fresh admissions only; held proofs wait for cooldown expiry.
+					if proof_until is not None:
+						proof_throttle = throttle_response(
+							tx, account, organization, digest, now, proof_until
+						)
+				if proof_throttle is None and isinstance(policy, MMDPolicy) and counter.isdigit():
 					challenge_record = tx.challenge(nonce)
 					if (
 						challenge_record is not None
@@ -1171,6 +1640,19 @@ def create_app(
 						remember(tx, account, idempotency_key, digest, now, rejection)
 					elif idempotency_key is not None:
 						tx.put_idempotency(IdempotencyRecord(account, idempotency_key, digest, now))
+			if proof_throttle is not None:
+				log.write(
+					"campaign_throttle",
+					time=now,
+					account=account,
+					stage="proof",
+					throttle_until=proof_until,
+					policy_revision=policy_revision,
+					qualified=False,
+					request_digest=digest,
+					benchmark_request=x_benchmark_request,
+				)
+				return proof_throttle
 			log.write(
 				"redeem",
 				account=account,
@@ -1212,12 +1694,37 @@ def create_app(
 			organization=organization,
 			domain=domain,
 		)
+		linked: dict[str, Any] | None = None
 		with store.transaction() as tx:
 			# Admission drops an unlinked principal's organization; the early check matches it.
 			if tx.unlinked(account, organization):
 				candidate = replace(candidate, organization=None)
-			code = rolling_refusal(
-				tx, candidate, now, rolling, organization_rolling, supervision, tier
+			if linkage is not None:
+				# Evidence from refused requests counts too: probing from a second account
+				# after a refusal is part of what links them.
+				signals = declared_signals(attributes.get(account, {}))
+				signals += [
+					signal
+					for signal in (
+						network_signal(
+							linkage, http_request.client.host if http_request.client else None
+						),
+						content_signal(linkage, text),
+					)
+					if signal is not None
+				]
+				linked = observe_linkage(tx, linkage, account, signals, now)
+			code = (
+				detail_refusal(tx, account, request, now)
+				or rolling_refusal(
+					tx, candidate, now, rolling, organization_rolling, supervision, tier
+				)
+				or (
+					"cluster_rolling_budget_exceeded"
+					if cluster_budget is not None
+					and cluster_budget.exceeded(tx, account, request.max_output_tokens, now)
+					else None
+				)
 			)
 			if code is not None:
 				status_code, message, header = ROLLING_REFUSALS[code]
@@ -1234,6 +1741,17 @@ def create_app(
 					window=config.rolling_window_seconds,
 				)
 				remember(tx, account, idempotency_key, digest, now, spent)
+		if linked is not None and linked["events"]:
+			log.write(
+				"linkage",
+				time=now,
+				account=account,
+				cluster=linked["cluster"],
+				size=linked["size"],
+				events=linked["events"],
+				qualified=False,
+				policy_revision=policy_revision,
+			)
 		if spent is not None:
 			log.write(
 				"decision",
@@ -1245,6 +1763,7 @@ def create_app(
 				action="refuse",
 				reason=None,
 				policy_revision=policy_revision,
+				**event_fields,
 				deceive=False,
 				window_completed=False,
 				p_value=None,
@@ -1256,19 +1775,49 @@ def create_app(
 			)
 			return spent
 		embedding = None
+		campaign_embedding = None
+		campaign_semantic_complete: bool | None = None
 		if needs_embeddings and encoder is not None:
 			try:
-				encoded_text = detector_text(served_task, text)
-				embedding = (
-					await batcher.encode(encoded_text)
-					if batcher is not None
-					else (await asyncio.to_thread(encoder.encode, [encoded_text]))[0]
-				)
+				encoded_text = detector_text(served_task, text) if base_needs_embeddings else None
+				if encoded_text is not None:
+					embedding = (
+						await batcher.encode(encoded_text)
+						if batcher is not None
+						else (await asyncio.to_thread(encoder.encode, [encoded_text]))[0]
+					)
+				if campaign_needs_embeddings:
+					assert campaign is not None
+					# Tokenizer work happens before the write transaction. Unknown or
+					# truncated representations cannot supply semantic evidence.
+					campaign_text = text[: campaign.max_text_chars]
+					complete = getattr(encoder, "input_complete", None)
+					if campaign_text != text:
+						campaign_semantic_complete = False
+					elif callable(complete):
+						campaign_semantic_complete = await asyncio.to_thread(
+							complete, campaign_text
+						)
+						if not isinstance(campaign_semantic_complete, bool):
+							raise ValueError("encoder completeness must be a boolean")
+					if campaign_semantic_complete is True:
+						campaign_embedding = (
+							embedding
+							if campaign_text == encoded_text
+							else (
+								await batcher.encode(campaign_text)
+								if batcher is not None
+								else (await asyncio.to_thread(encoder.encode, [campaign_text]))[0]
+							)
+						)
 			except asyncio.QueueFull:
 				return _error(503, "encoder_overloaded", "encoder queue is full", None)
 			except Exception:
 				log.write("encoder_error", account=account, request_digest=digest)
 				return _error(503, "encoder_error", "encoder failed", None)
+		if campaign is not None and campaign.session is None and campaign.coverage is None:
+			# Preserve v2 telemetry when the experimental extension is disabled.
+			campaign_embedding = embedding
 		if shadow is not None and embedding is None and encoder is not None:
 			# Shadow-only encoding happens before anything commits; a failure only skips it.
 			try:
@@ -1290,88 +1839,212 @@ def create_app(
 		rejection = None
 		policy_result = None
 		alert = None
-		# A failed off-path submission rolls the whole admission back.
-		try:
-			with store.transaction() as tx:
-				prior = previous(tx, account, idempotency_key, digest)
-				if prior is not None:
-					return prior
-				code = (
-					rolling_refusal(
-						tx, candidate, now, rolling, organization_rolling, supervision, tier
+		# The campaign evidence of the committed attempt only: a rolled-back attempt leaves none.
+		campaign_result: dict[str, Any] | None = None
+		evidence_result: dict[str, Any] | None = None
+		campaign_override = False
+		campaign_throttle: JSONResponse | None = None
+		campaign_until: float | None = None
+		# One identity per real request: a retry carries its idempotency key, and replays return
+		# before this point, so a retry is never observed twice.
+		campaign_request = (
+			hashlib.sha256(canonical_json([account, idempotency_key]).encode()).hexdigest()
+			if idempotency_key is not None
+			else secrets.token_hex(16)
+		)
+		observe_failed = False
+		campaign_identity = text_identity(text) if campaign is not None else None
+		campaign_session_observation = (
+			prepare_session_observation(text[: campaign.max_text_chars])
+			if campaign is not None and campaign.session is not None
+			else None
+		)
+		while True:
+			campaign_result = None
+			campaign_override = False
+			prepared = (
+				await asyncio.to_thread(policy.prepare, account, text, now, embedding, binding)
+				if isinstance(policy, PathStopPolicy)
+				else None
+			)
+			# A failed off-path submission rolls the whole admission back.
+			try:
+				with store.transaction() as tx:
+					prior = previous(tx, account, idempotency_key, digest, now=now)
+					if prior is not None:
+						return prior
+					code = (
+						rolling_refusal(
+							tx, candidate, now, rolling, organization_rolling, supervision, tier
+						)
+						if supervision is not None or tier is not None
+						else None
+					) or (
+						# Rechecked in the admission transaction, so concurrent members of
+						# one cluster cannot both pass the early check and overshoot.
+						"cluster_rolling_budget_exceeded"
+						if cluster_budget is not None
+						and cluster_budget.exceeded(tx, account, request.max_output_tokens, now)
+						else None
 					)
-					if supervision is not None or tier is not None
-					else None
-				)
-				if code is not None:
-					status_code, message, header = ROLLING_REFUSALS[code]
-					refusal = _error(status_code, code, message, header)
-					remember(tx, account, idempotency_key, digest, now, refusal)
-					log.write(
-						"decision",
-						time=now,
-						account=account,
-						attempt=None,
-						horizon=None,
-						level=4,
-						action="refuse",
-						reason=None,
-						policy_revision=policy_revision,
-						deceive=False,
-						window_completed=False,
-						p_value=None,
-						statistic=None,
-						witness=[],
-						request_digest=digest,
-						benchmark_request=x_benchmark_request,
-						entitlement=code,
-					)
-					return refusal
-				decision = policy.admit_in_transaction(
-					tx, account, text, now, embedding=embedding, binding=binding
-				)
-				if decision.action == "refuse" and tx.allowance(
-					account, decision.reason or "blocked", now, request.max_output_tokens
-				):
-					decision = replace(decision, action="serve", release_at=now)
-				if (
-					monitor
-					and embedding is not None
-					and tx.append_aggregate(embedding, account, now)
-					>= monitor.calibration.window_size
-				):
-					index, rows = tx.take_aggregate()
-					window = AggregateWindow(
-						index,
-						np.stack([r[0] for r in rows]),
-						[r[1] for r in rows],
-						rows[0][2],
-						rows[-1][2],
-					)
-					alert = monitor.score(window)
-					tx.put_aggregate_alert(index, asdict(alert))
-				if decision.action in {"serve", "challenge"}:
-					reservation, rejection = reserve(
+					if code is not None:
+						status_code, message, header = ROLLING_REFUSALS[code]
+						refusal = _error(status_code, code, message, header)
+						remember(tx, account, idempotency_key, digest, now, refusal)
+						log.write(
+							"decision",
+							time=now,
+							account=account,
+							attempt=None,
+							horizon=None,
+							level=4,
+							action="refuse",
+							reason=None,
+							policy_revision=policy_revision,
+							**event_fields,
+							deceive=False,
+							window_completed=False,
+							p_value=None,
+							statistic=None,
+							witness=[],
+							request_digest=digest,
+							benchmark_request=x_benchmark_request,
+							entitlement=code,
+						)
+						return refusal
+					if campaign is not None:
+						# The observation and any cooldown it starts commit with this admission,
+						# so a concurrent worker sees both or neither.
+						if not observe_failed:
+							try:
+								campaign_result = observe_campaign(
+									tx,
+									campaign,
+									principal=account,
+									organization=organization,
+									request_id=campaign_request,
+									text=text[: campaign.max_text_chars],
+									identity=campaign_identity,
+									resampling=request.temperature > 0,
+									semantic_complete=campaign_semantic_complete,
+									session_observation=campaign_session_observation,
+									now=now,
+									domain=domain,
+									embedding=(
+										np.asarray(campaign_embedding, dtype=np.float64).tolist()
+										if campaign_embedding is not None
+										else None
+									),
+								)
+							except CampaignError as error:
+								raise CampaignObservationFailed(type(error).__name__) from error
+							if campaign_result.get("qualified") is not False:
+								raise RuntimeError("campaign evidence must stay unqualified")
+						if campaign.mode == "throttle":
+							campaign_until = cooldown_until(tx, account, organization, now)
+							if (
+								campaign_result is not None
+								and campaign_result["should_throttle"]
+								and campaign_result["throttle_until"] is not None
+							):
+								campaign_until = float(campaign_result["throttle_until"])
+							if campaign_until is not None:
+								if tx.allowance(
+									account, "campaign_throttled", now, request.max_output_tokens
+								):
+									campaign_override = True
+								else:
+									campaign_throttle = throttle_response(
+										tx, account, organization, digest, now, campaign_until
+									)
+									remember(
+										tx, account, idempotency_key, digest, now, campaign_throttle
+									)
+									break
+					decision = policy.admit_in_transaction(
 						tx,
-						decision,
-						request,
-						digest,
+						account,
+						text,
 						now,
-						organization,
-						idempotency_key,
-						domain=domain,
+						embedding=embedding,
+						binding=binding,
+						prepared=prepared,
 					)
-					if rejection is not None:
-						remember(tx, account, idempotency_key, digest, now, rejection)
-					elif decision.action == "challenge":
-						assert decision.challenge is not None
-						challenge_record = tx.challenge(decision.challenge.nonce)
-						assert challenge_record is not None
-						challenge, held_data = challenge_record
-						held_data["idempotency_key"] = idempotency_key
-						# Replace the held metadata in the same transaction as the reservation.
-						tx.delete_challenge(challenge.nonce)
-						tx.put_challenge(challenge, held_data)
+					evidence_result = None
+					if evidence is not None and embedding is not None:
+						assert evidence_centroids is not None
+						# Keyed by principal. Inferred clusters can share one state once
+						# linkage lands, by changing this key only.
+						evidence_key = "principal:" + account
+						evidence_state = tx.evidence(evidence_key) or new_evidence_state()
+						evidence_result = observe_evidence(
+							evidence_state,
+							text=detector_text(served_task, text),
+							domain=request_domain(served_task, text),
+							embedding=np.asarray(embedding, dtype=np.float64).tolist(),
+							calibration=evidence,
+							centroids=evidence_centroids,
+						)
+						tx.put_evidence(evidence_key, evidence_state)
+					if (
+						decision.action == "refuse"
+						and decision.reason != "path_stop"
+						and tx.allowance(
+							account, decision.reason or "blocked", now, request.max_output_tokens
+						)
+					):
+						decision = replace(decision, action="serve", release_at=now)
+					if (
+						monitor
+						and embedding is not None
+						and tx.append_aggregate(embedding, account, now)
+						>= monitor.calibration.window_size
+					):
+						index, rows = tx.take_aggregate()
+						window = AggregateWindow(
+							index,
+							np.stack([r[0] for r in rows]),
+							[r[1] for r in rows],
+							rows[0][2],
+							rows[-1][2],
+						)
+						alert = monitor.score(window)
+						tx.put_aggregate_alert(index, asdict(alert))
+					if decision.action in {"serve", "challenge"}:
+						reservation, rejection = reserve(
+							tx,
+							decision,
+							request,
+							digest,
+							now,
+							organization,
+							idempotency_key,
+							domain=domain,
+						)
+						if rejection is not None:
+							remember(tx, account, idempotency_key, digest, now, rejection)
+						elif decision.action == "challenge":
+							assert decision.challenge is not None
+							challenge_record = tx.challenge(decision.challenge.nonce)
+							assert challenge_record is not None
+							challenge, held_data = challenge_record
+							held_data["idempotency_key"] = idempotency_key
+							# Replace the held metadata in the same transaction as the reservation.
+							tx.delete_challenge(challenge.nonce)
+							tx.put_challenge(challenge, held_data)
+							policy_result = review_response(
+								tx,
+								policy_response(decision),
+								account,
+								organization,
+								digest,
+								now,
+								decision.reason or "challenge_required",
+								decision.horizon,
+								decision.horizon + calibration.config.horizon_seconds,
+							)
+							remember(tx, account, idempotency_key, digest, now, policy_result)
+					else:
 						policy_result = review_response(
 							tx,
 							policy_response(decision),
@@ -1379,27 +2052,60 @@ def create_app(
 							organization,
 							digest,
 							now,
-							decision.reason or "challenge_required",
+							decision.reason or "blocked",
 							decision.horizon,
 							decision.horizon + calibration.config.horizon_seconds,
 						)
 						remember(tx, account, idempotency_key, digest, now, policy_result)
-				else:
-					policy_result = review_response(
-						tx,
-						policy_response(decision),
-						account,
-						organization,
-						digest,
-						now,
-						decision.reason or "blocked",
-						decision.horizon,
-						decision.horizon + calibration.config.horizon_seconds,
-					)
-					remember(tx, account, idempotency_key, digest, now, policy_result)
-		except ScoringUnavailable:
-			log.write("off_path_queue_error", account=account, request_digest=digest)
-			return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
+			except StalePathAdmission:
+				continue
+			except CampaignObservationFailed as error:
+				# The attempt rolled back, so nothing was observed. Rerun it without an
+				# observation; an enforced cooldown on record still applies.
+				if campaign is not None and campaign.mode == "throttle":
+					with store.transaction() as tx:
+						active = cooldown_until(tx, account, organization, now)
+					if active is None:
+						log.write(
+							"campaign_error",
+							time=now,
+							account=account,
+							error=str(error),
+							policy_revision=policy_revision,
+							request_digest=digest,
+						)
+						return _error(
+							503, "campaign_unavailable", "campaign scoring unavailable", None
+						)
+				observe_failed = True
+				log.write(
+					"campaign_error",
+					time=now,
+					account=account,
+					error=str(error),
+					policy_revision=policy_revision,
+					request_digest=digest,
+					benchmark_request=x_benchmark_request,
+				)
+				continue
+			except ScoringUnavailable:
+				log.write("off_path_queue_error", account=account, request_digest=digest)
+				return _error(503, "scoring_unavailable", "off-path scoring queue failed", None)
+			break
+		if campaign_throttle is not None:
+			log.write(
+				"campaign_throttle",
+				time=now,
+				account=account,
+				stage="admission",
+				throttle_until=campaign_until,
+				policy_revision=policy_revision,
+				qualified=False,
+				campaign=campaign_result,
+				request_digest=digest,
+				benchmark_request=x_benchmark_request,
+			)
+			return campaign_throttle
 		for sequence, metrics in score_metrics.items():
 			if score_accounts[sequence] == account:
 				metrics["admissions"] += 1
@@ -1421,6 +2127,7 @@ def create_app(
 			action=decision.action,
 			reason=decision.reason,
 			policy_revision=policy_revision,
+			**event_fields,
 			deceive=decision.deceive,
 			window_completed=decision.window_completed,
 			p_value=decision.p_value,
@@ -1435,6 +2142,16 @@ def create_app(
 			if rejection is None
 			else json.loads(bytes(rejection.body))["detail"]["code"],
 			**shadow_fields,
+			**({"path": decision.path} if decision.path is not None else {}),
+			# Present only with the campaign detector configured. None means no observation
+			# was committed for this admission; an override means a review grant served it.
+			**(
+				{"campaign": campaign_result, "campaign_override": campaign_override}
+				if campaign is not None
+				else {}
+			),
+			# Present only at a look of the configured evidence monitor. Telemetry only.
+			**({"campaign_evidence": evidence_result} if evidence_result is not None else {}),
 		)
 		if rejection is not None:
 			return rejection

@@ -20,6 +20,14 @@ eval = [
 	"datasets>=4.0.0",
 	"huggingface-hub>=0.34.0"
 ]
+# Student training and base scoring for the checkpoint and baseline-gate workflows.
+train = [
+	"datasets>=4.0.0",
+	"peft>=0.21.2",
+	"torch>=2.14.1,<3",
+	"transformers>=5.19.0,<6",
+	"trl>=1.17.1"
+]
 
 [project.scripts]
 distill = "distillation.cli:app"

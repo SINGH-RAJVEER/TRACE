@@ -1,0 +1,3 @@
+Installed 49 packages in 275ms
+3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 16.2.0]
+Linux-7.3.0-x86_64-with-glibc2.44

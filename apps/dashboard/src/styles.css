@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+:root {
+	/* Dark only. Arms keep one color in every run; undefended is the neutral reference. */
+	--paper: #15191e;
+	--plane: #0f1215;
+	--ink: #e8ebee;
+	--muted: #a1a9b2;
+	--faint: #79818a;
+	--rule: #2a3038;
+	--wash: #1d2228;
+	--accent: #3987e5;
+	--gold: #c98f2a;
+	--pass: #4cc27a;
+	--fail: #ec7373;
+	--caution: #e0b050;
+	--hatch: #39414a;
+	--track: #222830;
+	--arm-full: #3987e5;
+	--arm-instantaneous: #d95926;
+	--arm-quota: #199e70;
+	--arm-undefended: #79818a;
+	--arm-other: #9085e9;
+	color-scheme: dark;
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-plane: var(--plane);
+	--color-ink: var(--ink);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-rule: var(--rule);
+	--color-wash: var(--wash);
+	--color-track: var(--track);
+	--color-accent: var(--accent);
+	--color-gold: var(--gold);
+	--color-pass: var(--pass);
+	--color-fail: var(--fail);
+	--color-caution: var(--caution);
+	--font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+	background: var(--paper);
+	color: var(--ink);
+}
+
+body {
+	font-family: var(--font-sans);
+	font-size: 15px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+.display {
+	font-stretch: 82%;
+	font-weight: 640;
+	letter-spacing: -0.01em;
+}
+
+.num {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: 0.82rem;
+}
+
+.figure {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+/* The recurring mark of the page: a value that was never recorded is hatched, never blank or zero. */
+.hatched {
+	background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 5px);
+}
+
+.unrecorded {
+	display: inline-block;
+	padding: 0 0.35rem;
+	border-radius: 2px;
+	font-family: var(--font-mono);
+	font-size: 0.7rem;
+	letter-spacing: 0.02em;
+	color: var(--muted);
+	background-image: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 5px);
+	white-space: nowrap;
+}
+
+.prose-pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--font-mono);
+	font-size: 0.78rem;
+	line-height: 1.55;
+}
+
+.chart-tooltip {
+	min-width: 10rem;
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	background: var(--paper);
+	padding: 0.5rem 0.6rem;
+	font-size: 0.75rem;
+	box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+
+details > summary {
+	list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+	display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition: none !important;
+		animation: none !important;
+	}
+}

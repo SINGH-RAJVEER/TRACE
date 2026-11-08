@@ -39,7 +39,8 @@ class LinkEvidence:
 	inferred: bool = False
 
 
-def _template(text: str) -> str:
+def prompt_template(text: str) -> str:
+	"""Case, whitespace and digits normalized, so numeric variants share one template."""
 	return re.sub(r"\d+", "#", " ".join(text.lower().split()))
 
 
@@ -55,7 +56,10 @@ def infer_edges(accounts: Sequence[PrincipalHorizon]) -> list[LinkEvidence]:
 			result.append(
 				LinkEvidence(left.principal, right.principal, "creation_within_60s", 0.3, True)
 			)
-		lt, rt = {_template(p) for p in left.prompts}, {_template(p) for p in right.prompts}
+		lt, rt = (
+			{prompt_template(p) for p in left.prompts},
+			{prompt_template(p) for p in right.prompts},
+		)
 		if lt and rt:
 			share = len(lt & rt) / len(lt | rt)
 			if share >= 0.5:

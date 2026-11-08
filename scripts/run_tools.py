@@ -1,11 +1,15 @@
-"""Helpers for scripts/start.sh. Run inside the workspace environment.
+"""Helpers for scripts/study.sh. Run inside the workspace environment.
 
 corpus-ready TASK_DIR                    exit 0 when a task build is complete and partitioned
 caps MANIFEST                            print a benign schedule's per-domain output caps
 accounts DIR REQUESTS...                 write DIR/credentials.json (mode 600) and accounts.json
-utility SCHEDULE TASKS KEYS OUTPUT URL N measure benign utility through a running harness
+utility SCHEDULE TASKS KEYS OUTPUT URL N [PREFLIGHT OFFERED_RPS MIN_COMPLETION]
+                                         measure benign utility, optionally bound to a passing
+                                         teacher preflight of the same schedule
 summary CAMPAIGN_JSON                    print a one-line campaign summary
-export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets
+export RUN READINGS [NAME]               copy the run's evidence into READINGS/vN, minus secrets,
+                                         and replace its rows in READINGS/index.tsv
+backfill READINGS                        replace the frozen v3 and v4 rows in READINGS/index.tsv
 """
 
 import asyncio
@@ -40,7 +44,7 @@ EXCLUDED = (
 def corpus_ready(directory: Path) -> int:
 	try:
 		manifest = json.loads((directory / "manifest.json").read_text())
-	except (OSError, ValueError):
+	except OSError, ValueError:
 		return 1
 	partitions = manifest.get("attacker_partitions")
 	if manifest.get("complete") is False or not partitions:
@@ -68,15 +72,37 @@ def accounts(directory: Path, schedules: list[Path]) -> None:
 
 
 def utility(
-	schedule: Path, tasks: Path, keys_file: Path, output: Path, url: str, concurrency: int
+	schedule: Path,
+	tasks: Path,
+	keys_file: Path,
+	output: Path,
+	url: str,
+	concurrency: int,
+	preflight: Path | None = None,
+	offered_rps: float | None = None,
+	min_completion_rate: float | None = None,
 ) -> None:
 	from distillation.io import read_jsonl
 	from distillation.schemas import GatewayRequest
 	from distillation.tasks import task_directory
+	from distillation.teacher_capacity import bind_utility_baseline
 	from distillation.utility import measure_utility
 	from distillation.workloads import task_references
 	from harness.calibration import BenignRequest
 
+	# Matches the default request deadline of measure_utility.
+	baseline = None
+	if any(value is not None for value in (preflight, offered_rps, min_completion_rate)):
+		if preflight is None or offered_rps is None or min_completion_rate is None:
+			raise ValueError("utility binding needs preflight, offered rate and minimum completion")
+		baseline = bind_utility_baseline(
+			preflight,
+			schedule_sha256=_sha256(schedule / "requests.jsonl"),
+			declared_offered_rps=offered_rps,
+			min_completion_rate=min_completion_rate,
+			concurrency=concurrency,
+			request_deadline=120,
+		)
 	manifest = json.loads((schedule / "manifest.json").read_text())
 	rows = read_jsonl(schedule / "requests.jsonl", GatewayRequest)
 	caps = manifest["max_output_tokens"]
@@ -106,7 +132,10 @@ def utility(
 			max_output_tokens=caps,
 			account_profiles={row.account: row.domain_profile or "unknown" for row in rows},
 			output=output,
+			baseline=baseline,
 			concurrency=concurrency,
+			# Set by the opt-in campaign arms of scripts/study.sh only.
+			attribute_restrictions=os.environ.get("TRACE_UTILITY_ATTRIBUTION") == "1",
 		)
 	)
 	scalars = {k: v for k, v in result.items() if not isinstance(v, (list, dict))}
@@ -114,9 +143,14 @@ def utility(
 
 
 def summary(path: Path) -> None:
+	from distillation.campaign_summary import load_campaign_summary
+
 	campaign = json.loads(path.read_text())
-	fields = ("received", "blocked", "challenge", "failed", "released_output_tokens")
-	parts = [f"{key} {campaign[key]}" for key in fields if key in campaign]
+	canonical = load_campaign_summary(path.parent) or {}
+	fields = ("received", "blocked", "challenge", "failed", "deadline", "released_tokens")
+	parts = [f"{key} {canonical.get(key)}" for key in fields]
+	if "restricted" in canonical:
+		parts.insert(1, f"restricted {canonical['restricted']}")
 	hours = campaign.get("elapsed_seconds", 0) / 3600
 	print(", ".join(parts) + f", {hours:.2f} h")
 
@@ -192,6 +226,9 @@ def export(run: Path, readings: Path, requested: str) -> None:
 		else "unknown"
 	)
 	config = attempts[-1].with_name("config.env").read_text() if attempts else ""
+	from distillation.results_index import run_rows, update_index
+
+	indexed = update_index(readings / "index.tsv", run_rows(run, name, commit))
 	summary_table = (run / "summary.tsv").read_text() if (run / "summary.tsv").exists() else ""
 	record.write_text(
 		json.dumps(
@@ -236,7 +273,9 @@ def export(run: Path, readings: Path, requested: str) -> None:
 		"Not exported: client credentials, harness state databases, the deception key, vLLM "
 		"and teacher-API logs, and regenerable detector inputs.\n"
 	)
-	print(f"{destination} ({status}, {len(files)} files)")
+	print(
+		f"{destination} ({status}, {len(files)} files); readings/index.tsv has {len(indexed)} rows"
+	)
 
 
 def main() -> None:
@@ -248,10 +287,29 @@ def main() -> None:
 	elif command == "accounts":
 		accounts(Path(args[0]), [Path(arg) for arg in args[1:]])
 	elif command == "utility":
+		if len(args) not in (6, 9):
+			raise SystemExit(
+				"utility needs six arguments, optionally followed by three binding arguments"
+			)
 		schedule, tasks, keys, output = (Path(arg) for arg in args[:4])
-		utility(schedule, tasks, keys, output, args[4], int(args[5]))
+		utility(
+			schedule,
+			tasks,
+			keys,
+			output,
+			args[4],
+			int(args[5]),
+			Path(args[6]) if len(args) == 9 else None,
+			float(args[7]) if len(args) == 9 else None,
+			float(args[8]) if len(args) == 9 else None,
+		)
 	elif command == "summary":
 		summary(Path(args[0]))
+	elif command == "backfill":
+		from distillation.results_index import backfill_rows, update_index
+
+		rows = update_index(Path(args[0]) / "index.tsv", backfill_rows(Path(args[0])))
+		print(f"{args[0]}/index.tsv has {len(rows)} rows")
 	elif command == "export":
 		export(Path(args[0]), Path(args[1]), args[2] if len(args) > 2 else "")
 	else:

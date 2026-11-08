@@ -5,7 +5,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from distillation.schemas import TeacherGeneration, TeacherGenerationRequest
-from distillation.teacher import OpenAICompatibleTeacher, Teacher, TeacherUpstreamError
+from distillation.teacher import (
+	OpenAICompatibleTeacher,
+	Teacher,
+	TeacherReasoningError,
+	TeacherUpstreamError,
+	TeacherWatermarkError,
+)
+from distillation.watermark import WatermarkSpec, read_master_secret
 from fastapi import FastAPI, Header, HTTPException, status
 
 from teacher_api.settings import Settings
@@ -16,6 +23,20 @@ def create_app(*, settings: Settings | None = None, teacher: Teacher | None = No
 
 	resolved_settings = settings or Settings()
 	resolved_teacher = teacher
+	watermark = (
+		WatermarkSpec(
+			gamma=resolved_settings.watermark_gamma,
+			delta=resolved_settings.watermark_delta,
+			eligible_vocab=resolved_settings.watermark_eligible_vocab,
+		)
+		if resolved_settings.watermark_key_file is not None
+		else None
+	)
+	secret = (
+		read_master_secret(resolved_settings.watermark_key_file)
+		if resolved_settings.watermark_key_file is not None
+		else None
+	)
 	if resolved_teacher is None and resolved_settings.is_configured:
 		resolved_teacher = OpenAICompatibleTeacher(
 			base_url=resolved_settings.upstream_base_url,
@@ -23,6 +44,10 @@ def create_app(*, settings: Settings | None = None, teacher: Teacher | None = No
 			model=resolved_settings.upstream_model,
 			provider=resolved_settings.provider_name,
 			timeout_seconds=resolved_settings.timeout_seconds,
+			default_thinking=resolved_settings.enable_thinking,
+			reasoning_budget_tokens=resolved_settings.reasoning_budget_tokens,
+			watermark=watermark,
+			watermark_secret=secret,
 		)
 
 	@asynccontextmanager
@@ -55,6 +80,16 @@ def create_app(*, settings: Settings | None = None, teacher: Teacher | None = No
 			)
 		try:
 			return await resolved_teacher.generate(request)
+		except TeacherWatermarkError as error:
+			raise HTTPException(
+				status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+				detail={"code": "watermark_unavailable", "message": str(error)},
+			) from error
+		except TeacherReasoningError as error:
+			raise HTTPException(
+				status_code=status.HTTP_502_BAD_GATEWAY,
+				detail={"code": "teacher_reasoning_withheld", "message": str(error)},
+			) from error
 		except TeacherUpstreamError as error:
 			raise HTTPException(
 				status_code=status.HTTP_502_BAD_GATEWAY,

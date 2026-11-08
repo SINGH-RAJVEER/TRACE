@@ -1,0 +1,259 @@
+{
+	"note": "PUBLIC NONSECRET TEST MATERIAL. This key is published on purpose; never use it, or a production key, outside these vectors.",
+	"nonsecret": true,
+	"key_hex": "7075626c69632d6e6f6e7365637265742d666978747572652d6b65792d7631",
+	"key_id": "public-fixture",
+	"epoch": 3,
+	"cases": [
+		{
+			"case_id": "width1-vocab5000",
+			"gamma": 0.25,
+			"delta": 1.0,
+			"context_width": 1,
+			"vocab_size": 5000,
+			"contexts": [
+				[
+					0
+				],
+				[
+					17
+				],
+				[
+					4999
+				]
+			]
+		},
+		{
+			"case_id": "width2-vocab5000",
+			"gamma": 0.25,
+			"delta": 1.0,
+			"context_width": 2,
+			"vocab_size": 5000,
+			"contexts": [
+				[
+					17,
+					4
+				],
+				[
+					4,
+					17
+				],
+				[
+					0,
+					4999
+				]
+			]
+		},
+		{
+			"case_id": "width4-vocab50000",
+			"gamma": 0.25,
+			"delta": 2.0,
+			"context_width": 4,
+			"vocab_size": 50000,
+			"contexts": [
+				[
+					1,
+					2,
+					3,
+					4
+				],
+				[
+					4,
+					3,
+					2,
+					1
+				]
+			]
+		},
+		{
+			"case_id": "width4-vocab200000",
+			"gamma": 0.25,
+			"delta": 0.5,
+			"context_width": 4,
+			"vocab_size": 200000,
+			"contexts": [
+				[
+					0,
+					199999,
+					65536,
+					256
+				],
+				[
+					100000,
+					100001,
+					100002,
+					100003
+				]
+			]
+		},
+		{
+			"case_id": "width1-vocab200000-gamma50",
+			"gamma": 0.5,
+			"delta": 0.5,
+			"context_width": 1,
+			"vocab_size": 200000,
+			"contexts": [
+				[
+					199999
+				]
+			]
+		}
+	],
+	"expected": {
+		"algorithm_id": "kgw-hmac-splitmix",
+		"algorithm_version": 1,
+		"mask_digest_method": "sha256(numpy.packbits(mask, bitorder='big'))",
+		"key_id": "public-fixture",
+		"epoch": 3,
+		"cases": [
+			{
+				"case_id": "width1-vocab5000",
+				"gamma": 0.25,
+				"delta": 1.0,
+				"context_width": 1,
+				"vocab_size": 5000,
+				"vectors": [
+					{
+						"context": [
+							0
+						],
+						"seed": "0f26ce97b41f4098",
+						"mask_sha256": "bd6dcb8508b127c2ca224191e5e19bfc6dd03880892c09d6f0d65bbb17906736",
+						"mask_first_32": "10011100010100110001100000000010"
+					},
+					{
+						"context": [
+							17
+						],
+						"seed": "bcc55b4cca914262",
+						"mask_sha256": "dfabe1a8f4d86160707f9e1bd838653d83978f173616e0cab999d0d1bfd9cd35",
+						"mask_first_32": "00010000100000000110000000010010"
+					},
+					{
+						"context": [
+							4999
+						],
+						"seed": "2b0c9ac9434a10ee",
+						"mask_sha256": "ff2f9c211819a20c1e08b2a22def2cb6976deaca07500378b3c234af6f5cb163",
+						"mask_first_32": "11001000001000000110110010001101"
+					}
+				]
+			},
+			{
+				"case_id": "width2-vocab5000",
+				"gamma": 0.25,
+				"delta": 1.0,
+				"context_width": 2,
+				"vocab_size": 5000,
+				"vectors": [
+					{
+						"context": [
+							17,
+							4
+						],
+						"seed": "b60618ca68f85229",
+						"mask_sha256": "b1855ffe575a494de8ada51b23b44f5e5f3c7ea139b790bcd11bcc4e64b129c2",
+						"mask_first_32": "10001010001000010000101000001000"
+					},
+					{
+						"context": [
+							4,
+							17
+						],
+						"seed": "d5d500b6c1f821a5",
+						"mask_sha256": "a7f1f13803655a7d9f9ae8c2335d5b851b489edfa012c051785ddaf207c49b4a",
+						"mask_first_32": "00000000100100000000000000001001"
+					},
+					{
+						"context": [
+							0,
+							4999
+						],
+						"seed": "eb2028288f3fd612",
+						"mask_sha256": "1306cf3335bb86bff503cee9e5e3340e5b176448d8168bf1834f7e7002d848d9",
+						"mask_first_32": "00010000000001001001000000100010"
+					}
+				]
+			},
+			{
+				"case_id": "width4-vocab50000",
+				"gamma": 0.25,
+				"delta": 2.0,
+				"context_width": 4,
+				"vocab_size": 50000,
+				"vectors": [
+					{
+						"context": [
+							1,
+							2,
+							3,
+							4
+						],
+						"seed": "ec345b2034c782b6",
+						"mask_sha256": "99115f22d40651f9909c8e226492dfb4b1f3b858b35403168189ff7d998f8acb",
+						"mask_first_32": "00000001001001010011000111010100"
+					},
+					{
+						"context": [
+							4,
+							3,
+							2,
+							1
+						],
+						"seed": "13d587e11f9ed85b",
+						"mask_sha256": "1605fef0550d38064d9a63bbee0415ec94b01dd2cf18fa19cdcdf96c79965156",
+						"mask_first_32": "00110011101110100110100011000010"
+					}
+				]
+			},
+			{
+				"case_id": "width4-vocab200000",
+				"gamma": 0.25,
+				"delta": 0.5,
+				"context_width": 4,
+				"vocab_size": 200000,
+				"vectors": [
+					{
+						"context": [
+							0,
+							199999,
+							65536,
+							256
+						],
+						"seed": "1ba9bdfde5d7e9b5",
+						"mask_sha256": "7ee406107f2ebd53c09f9655b66e25d18bf2bf21496e3aa29aacb51c7282a79b",
+						"mask_first_32": "00100001001010000010111010000000"
+					},
+					{
+						"context": [
+							100000,
+							100001,
+							100002,
+							100003
+						],
+						"seed": "0a3bd5c3b87736e5",
+						"mask_sha256": "c21d48f7c323bdaab092dee46306ae00d95bb64e18e80db011291ef493d6f4c0",
+						"mask_first_32": "00000100000001000011001001010110"
+					}
+				]
+			},
+			{
+				"case_id": "width1-vocab200000-gamma50",
+				"gamma": 0.5,
+				"delta": 0.5,
+				"context_width": 1,
+				"vocab_size": 200000,
+				"vectors": [
+					{
+						"context": [
+							199999
+						],
+						"seed": "18ee4c1c718c316d",
+						"mask_sha256": "33d771fb4a7510d07d8de24891753bca7db1ed4e6242fc1a5b969fa1a367f056",
+						"mask_first_32": "11000001011110010000100111000010"
+					}
+				]
+			}
+		]
+	}
+}

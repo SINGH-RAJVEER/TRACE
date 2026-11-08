@@ -1,360 +1,256 @@
-# Benchmarking and result tracking: open fixes
+# TRACE detection product roadmap
 
-These come from a review of the evaluation methodology on 2026-11-02. They are listed by severity. Each item names the evidence and what counts as done.
+Updated 2026-11-05. This is the active implementation and testing backlog for extraction-risk detection at the teacher API. Its scope follows the [research report](<docs/reports/Distillation detection methods and standards.md>) and the [academic](<docs/research_notes/Distillation detection methods and standards/academic.md>), [industry](<docs/research_notes/Distillation detection methods and standards/industry.md>) and [standards](<docs/research_notes/Distillation detection methods and standards/standards.md>) notes.
 
-## 1. Run the declared campaign matrix
+All checkboxes below describe remaining work. Existing plumbing is a starting point, not completion of these product requirements. Mark an item complete only with linked implementation, relevant checks and the evidence named in its section. Record software completion separately from measured detection performance and live operational qualification.
 
-`readings/v3/protocol.json` declares seeds 42, 1 and 20, attacks A1, A2, A5 and A7, and arms full, instantaneous and quota. Only A1 at seed 42 completed. A2 was interrupted. A5, A6 and A7 have schedules but no protected runs.
+An initial [experimental campaign detector](docs/campaign.md) implements bounded per-principal state, component evidence and diagnostic API treatment, with CPU regression coverage. The items below remain open until their full completion evidence exists; this partial implementation does not establish calibrated detection or prevention.
 
-- [ ] Write a new protocol file for the next study, with the seeds, attacks (including A8 and the adaptive variants) and arms it will actually run, before any of them run.
-- [ ] Run each attack and arm at every declared seed on the exploratory partition, using fresh state files and output directories.
-- [ ] Record every run, including interrupted and refused ones, in the results index (item 5).
-- [ ] Use separate real credentials for the multi-account A5 and A6 campaigns and for account rotation. A shared token only tests local bookkeeping.
+## Starting point and release order
 
-Done when every declared cell has a completed run or a recorded reason why it has none.
+TRACE already has domain-conditional MMD, rarefied coverage, session/novelty/corpus signals, offline linkage and fusion, durable accounting, quotas, review and experimental whole-path stopping. The chronological [checkpoint workflow](docs/checkpoints.md) can plan and run GSM8K students from actual acquired prefixes. Most evidence signals remain telemetry-only; shadow history is process-local, and experimental path state grows with the full prefix. No effective general-purpose distillation detector or live student-capability prevention result is established.
 
-## 2. Measure student capability beyond AG News
+The first product release is a gateway with persistent campaign evidence, calibrated alerts, reversible API treatment and an operator investigation workflow. It must address ordinary final-answer collection as well as any separately supported protected-reasoning threat. Identical observable transcripts provide no passive evidence of different downstream uses. Quota, cost and transport failures must never be relabeled as successful extraction detections.
 
-Transfer has been measured only for AG News, which is under 1% of released A1 tokens. GSM8K (about 63%) and coding (about 35%) have no student evaluation. The learning-curve tooling has only been validated on CPU fixtures.
+| Stage | Work | Dependencies | Exit evidence |
+| --- | --- | --- | --- |
+| First implementation | D0 contract, D1 durable monitor, D2 incremental signals, D3 combined scorer, D5 API treatment and D6 incident workflow | Existing store, accounting, signal modules and review | One observable request-to-evidence-to-action-to-restoration path, with CPU integration coverage |
+| Qualified detector pilot | D4 calibration, T0 reliability, T1 data, T2 adaptive attacks and T3 detector/utility study | Freeze the actual deployed procedure and obtain independent data | Declared false-alert burden, detection power, delay and resource costs on locked evaluation |
+| Capability and product release | T4 chronological students, T5 operating qualification and G1 release gates | Passing pilot, teacher capacity and clean-student gates | Live evidence supports exactly the product claims being made |
+| Follow-on detection | C1 coordinated accounts, C2 learned classifier, C3 protected reasoning and C4 statistical extensions | Each section's data, telemetry and calibration prerequisites | Independent evidence before enabling additional treatment |
 
-- [ ] Qualify the learning-curve runner on the GPU host and record the training-library versions.
-- [ ] Run the AG News curve (`distill learning-curve`) and declare a development capability target from it.
-- [ ] Extend the learning curve to GSM8K and coding, using objective metrics (numeric answers, sandboxed tests) and held-out source families.
-- [ ] Use the curves to decide whether 1,500 prompts per domain is the right budget, and whether the 1,215-request quota still releases enough data to train a useful student.
+Keep implementation in the existing harness, store and API where appropriate. Extend the existing evaluation commands instead of creating a parallel experiment stack. Preserve frozen readings and legacy defaults; new detector behavior and artifacts must be explicitly versioned and opt-in. Existing shadow scorers retain their telemetry-only contract.
 
-Done when each domain has a curve with base, gold and undefended-teacher controls.
+## D0. Freeze the product and measurement contract
 
-## 3. Stop reusing the A1 development data
+- [ ] D0.1 Define supported endpoints, teacher models, authenticated identity scope, legitimate workflows and attacker capabilities. Separate final-answer collection, protected-reasoning extraction and cross-account coordination in the threat model.
+- [ ] D0.2 Specify a compact campaign-monitor interface for admission observations, release settlements and evidence retrieval. Define ordering, deduplication, failure behavior and per-request resource limits before implementation.
+- [ ] D0.3 Version the encoder/serialization, references, features, routing, score, missingness rules, monitoring scales, resets, horizon, action thresholds and review behavior as one reproducible detector contract.
+- [ ] D0.4 Declare the pilot's false-alert budget, utility tolerance, detection-delay target, memory/storage limits and latency budget before selecting the detector. These are product choices, not industry-certified thresholds.
 
-The A1 prompts have been examined by the v4 audit, the shadow checks, the evidence replay and the separation study. The separation verdict changes with the split: at W=50 it survives under 2 of 5 split seeds.
+Completion evidence: a reviewable contract and artifact schema distinguish observed risk, unknown evidence, confirmed incidents, acquisition limits and student capability. Sources: [industry findings](<docs/research_notes/Distillation detection methods and standards/industry.md>) and [standards mappings](<docs/research_notes/Distillation detection methods and standards/standards.md>).
 
-- [ ] Write and hash a preregistration file before anyone queries the confirmatory partition. It should cover the primary comparisons, arms, seeds, decision rules, acceptance targets and multiple-testing correction.
-- [ ] Generate fresh exploratory schedules from a new seed for further development work, instead of reusing the v3 A1 schedule.
-- [ ] For the separation study, run the next step it names (finer topic cells, larger attack pools, more split seeds) on fresh exploratory schedules, and report the verdict as a distribution over split seeds.
-- [ ] Log each development look at a dataset in the results index, so how many times each dataset has been inspected stays visible.
+## D1. Persist bounded campaign state
 
-## 4. Strengthen the benign baseline
+- [ ] D1.1 Add durable campaign state scoped to tenant, authenticated principal and verified organization. Preserve mapping provenance and key rotation/revocation history; never trust client-supplied identity or workflow labels without validation.
+- [ ] D1.2 Track both request-count and wall-clock scales, with bounded recent buffers and compact longer-lived sketches. Declare retention, inactivity expiry, resets and any lifetime monitoring limits.
+- [ ] D1.3 Persist observation positions, deduplication identities, feature state, score state, calibration binding, alerts and action history atomically. Concurrent workers must not lose, reorder or double-count observations.
+- [ ] D1.4 Reconcile query attempts, proof redemptions, retries, reservations, releases, failures and cancellations with the existing ledger. Keep actual released tokens separate from conservative budget charges and unknown usage.
+- [ ] D1.5 Define crash recovery, outstanding reservations, stale workers, leases, clock behavior and restart recovery. Neither detector history nor collection allowance may reset accidentally.
+- [ ] D1.6 Replace full-prefix recomputation/serialization in the product monitor with bounded work. Leave legacy experimental path artifacts interpretable; do not silently reuse their calibration for a changed scorer.
+- [ ] D1.7 Decide synchronous versus queued scoring. If queued scoring is supported, persist jobs and application positions, bound backlog, reject stale results and measure releases while evidence is pending. The existing in-memory off-path mode is not a durable product queue.
+- [ ] D1.8 Add state migration, incompatible-contract rejection, retention cleanup, backup/restore and deterministic event replay. Define explicit behavior when the database, encoder or references are unavailable.
 
-The multi-domain null has 13 account horizons, so the session, novelty and volume ranks all abstain. The coding null has 12 independent windows and GSM8K has 2, so the per-domain shadow scorer abstains for both. The undefended utility baseline completed only 29% of requests, so the teacher was overloaded and utility comparisons against it are invalid.
-
-- [ ] Rebuild larger source-disjoint role pools. The GSM8K score-calibration pool has only 682 prompts.
-- [ ] Obtain and audit source-family provenance (publisher, problem family, problem lineage, document title) for the `gateway-clients-v5` workload, then run `scripts/recalibrate-profiles.sh`.
-- [ ] Reach at least 19 independent horizons per profile for upper-tail ranks and 39 for two-sided ranks, including coding and GSM8K specialists.
-- [ ] Pass `teacher-preflight` at the declared offered rate before collecting any new utility baseline.
-- [ ] Add benign roles that use the A7 external corpora, so that A7 can be balanced by corpus.
+Completion evidence: T0 proves durable, ordered, bounded state under retries, worker races and failures; resource growth remains within D0 limits over the supported lifetime. Starting files: [store.py](packages/harness/src/harness/store.py), [shadow.py](packages/harness/src/harness/shadow.py) and [path runtime](packages/harness/src/harness/path_runtime.py).
 
-## 5. Make results tracking queryable and reproducible
+## D2. Adapt research signals for online use
 
-Results are kept as prose tables in `docs/evaluation.md` and `docs/harness.md`. Their supporting reports are in the gitignored `artifacts/` directory, which is missing from this checkout.
+- [ ] D2.1 Reuse conditional-domain MMD with references matched to supported task, endpoint/model, language and legitimate workflow. Verify identical calibration/serving serialization, embedding normalization and scoring statistics. Unsupported cohorts abstain explicitly.
+- [ ] D2.2 Add bounded semantic nearest-neighbor history and template-family repetition for paraphrase sweeps and local exploration. Distinguish idempotent retries from new collection attempts; retain legitimate editing, tutoring and debugging as negative controls.
+- [ ] D2.3 Add request-count-matched coverage/novelty summaries for systematic broad collection. Require permutation invariance for features advertised as order-invariant coverage and report ordered novelty separately. Compare rarefied cells and incremental projected log-determinant features; test volume confounding and topic sorting before selecting one.
+- [ ] D2.4 Incrementally compute supported session features: independent questions versus follow-ups, rephrasing, template diversity, topic transitions, interarrival variability, sustained activity and answer-format preference. Test languages and prompt transformations before relying on lexical heuristics.
+- [ ] D2.5 Use attempts, concurrency, released tokens and exposure velocity as context with explicit missingness. High volume, broad topics, structured output or answer-only requests alone must not establish prohibited training.
+- [ ] D2.6 Keep public-corpus resemblance as optional provenance evidence. Freeze index versions, test legitimate benchmark users and remove source/generator labels that would leak evaluation ground truth.
+- [ ] D2.7 Version feature extraction and any learned similarity encoder. Cache safely within the tenant/contract scope, bound encode cost and test feature failures, long inputs and missing embeddings without substituting fake evidence.
 
-- [ ] Add an append-only results index under `readings/` (for example `readings/index.jsonl`) with one row per run, keyed by contract hash. Each row should record the commit, attack, schedule hash, partition, seed, policy, calibration hash, accumulator, budget, completed or interrupted status, development or confirmatory status, and headline metrics.
-- [ ] Add a command that appends a row from a run directory (contract, `campaign.json`, `detectability.json`, `evaluation-report` output) and refuses duplicate contract hashes.
-- [ ] Freeze the 2026-11-02 separation study and the shadow-check outputs into a versioned reading, with input hashes and the run script, so the numbers in the docs can be reproduced from the repo.
-- [ ] Generate the result tables in the docs from the index, and keep `docs/` for method rather than data.
-- [ ] Record per-file SHA-256 manifests for each new reading, as `readings/v4/verified-20261031/verification-manifest.json` does.
-
-## 6. Correct stale budget references
-
-The code default is 6,000 HTTP attempts, split evenly into 1,500 prompts per domain (`gateway_cli.py:163`).
-
-- [ ] `docs/evaluation.md:11` says the default budget is 12,000 HTTP attempts.
-- [ ] `docs/evaluation.md:15` uses `--budget 12000` in the A8 example.
-- [ ] `docs/evaluation.md:48` says the default needs 3,000 distinct eligible prompts per domain.
-- [ ] `evaluation_protocol.py:8` sets `CHECKPOINTS` up to 12,000. This is above the campaign budget. Decide whether the 6,000 and 12,000 checkpoints should stay, and update `docs/evaluation.md:70` and its tests to match.
-
----
-
-# Proposed improvements from `research/`
-
-Every proposal from the research report "Build defenses around acquired model capability" (cutoff 2026-10-31) and its three notes: `frontier-practice.md`, `detection-research.md` and `output-architecture.md`. The `research/` directory was removed after this list was completed; it is present in git history at commit `5da3d98d`, including the full annotated source register. Each item cites the report section or note it came from. The research describes designs, not measured improvements. Source IDs used below are listed with links in "Sources cited" at the end.
-
-Items already present in the repository are checked, with a pointer to where. Items that are partly present stay unchecked, and their note says what is missing. The research was written against commit `43464d2e` and refers to paths such as `legacy/packages/distillation/src/distillation/gateway_study.py` that no longer exist in this checkout.
-
-## 7. Claims, framing and citations
-
-Report: "The decision is to evolve TRACE", "Use citation categories honestly", "What remains unknown".
-
-- [ ] Adopt the four priorities in order: durable acquisition accounting and identity-bound entitlements, then calibration and evaluation rebuilt around realistic specialists and source-disjoint roles, then selective content and campaign evidence only where it beats the accounting baselines, then output-side methods in a separate inference-access track with provenance beside it.
-- [ ] Frame the project goal as raising the money, time and verified identities needed to obtain a useful student while preserving legitimate task completion. Never claim universal prevention while the threat model includes indistinguishable useful-answer collection.
-- [ ] State in the manuscript that no design has a measured gain until a new study produces one.
-- [ ] Present the interrupted A2 full log as 1,537 admissions and 1,536 responses, never as a completed 6,000-request campaign.
-- [ ] Record that the calibration mixture warning is warning-only and changes no enforcement.
-- [ ] Cite peer-reviewed sources only within their evaluated setting. Cite preprints as preprints and pin the inspected version. Distinguish arXiv venue metadata from checked proceedings.
-- [ ] Keep the MMD paper's June v1 (used in the online study) and v3 (in the inherited source check) as separate provenance records. Audit the version the manuscript cites.
-- [ ] Phrase provider evidence as "Anthropic reports" and keep its outcome unit, population and date. Do not convert harvested-reasoning reduction into capability reduction, or a provider's self-reported false-positive rate into a guarantee for TRACE.
-- [ ] Use practitioner essays only for incentives and motivation, and anonymous posts only as usability leads, labelled as unverified.
-- [ ] For TRACE results, cite the frozen revision, calibration hash, source-role manifest, workload contract and exact artifact. Keep completed live outcomes, interrupted logs, deterministic offline replay and proposed arms separate.
-- [ ] Before any novelty claim, run a second literature search around the chosen narrow objective.
-- [ ] Audit the full methods of D25 (Chandrasekaran et al.), D26 (Knockoff Nets) and D27 (ActiveThief). They were checked at abstract level only.
-- [ ] Get independent reproduction, or full-text checks, of the 2026 preprints and abstract-only sources: D01, D13, D20 and D21 proofs, D24, O05 (ADS-C).
-- [ ] Keep an explicit list of unknowns in the manuscript: live lab state and revision, real legitimate traffic and profile prevalence, available identity signals, acceptable explanation loss, account acquisition costs, output-token teaching value by task, false-link rates, student learning curves, and serving overhead.
-
-## 8. Threat model and attacker declaration
-
-Report: "The threat model determines what a defense can control"; `output-architecture.md` "Frozen study design" step 1.
-
-- [ ] Add the actor and access table (one opaque-API account, many cheap accounts, genuine-session replay or purchased logs, reasoning-extraction operator, provider with sampler or logits, provider with weights, suspect-model investigator) to `docs/`, with observations, feasible controls and residual problems for each.
-- [ ] Treat answer-only transfer, rationale extraction, numerical or structural extraction, and provenance as separate problems with separate success criteria. Keep closed-teacher capability emulation and literal weight extraction as distinct endpoints.
-- [ ] State the total-variation identifiability limit in the docs and the paper: if attacker and benign observables have the same distribution, any detector's true-positive rate equals its false-positive rate.
-- [ ] Declare three independent attacker budgets for every study: online queries, output tokens and money; available distinct prompts and outside data; offline compute.
-- [ ] Declare the attacker interface: logits, answer-only modes, prefill, tools, attachments, multi-turn history, reasoning summaries and streaming. Declare account cost and available verified identities separately.
-- [ ] Report the identity budget explicitly: k unlinkable identities obtain about k times B units, plus concurrency overshoot.
-- [ ] Report residual risk from cheaper identities, outside data and longer deadlines alongside every result.
-- [ ] Do not expose probabilities or other numerical channels the product does not need. Test any numerical interface separately, since hard-label and text extraction remain possible without it.
-
-## 9. Acquisition accounting and entitlements
-
-Report: "Reserve before inference and settle every released prefix", "Define component contracts"; `output-architecture.md` "Evolutionary TRACE design"; `frontier-practice.md` inference 1.
-
-- [x] One transactional store for admission, reservation and settlement across restarts. Done: `HARNESS_STATE_DB`, `packages/harness/src/harness/store.py`.
-- [x] Reserve request count and maximum output tokens before inference; failed and cancelled requests keep their charge; unsettled reservations count as acquired. Done: `docs/harness.md` "Acquisition accounting".
-- [x] Idempotency keys bound to the full canonical request; a different request under the same key conflicts; retries never regenerate. Done: `Idempotency-Key` handling.
-- [x] Per-principal concurrency cap and reservation leases; outstanding reservations survive horizon rollover. Done: `HARNESS_IN_FLIGHT_LIMIT`, `HARNESS_RESERVATION_LEASE_SECONDS`.
-- [x] Per-principal and organization output-token budgets, rolling request and token budgets, trust tiers, contractual organization budgets and supervision-weighted budgets. Done: `docs/harness.md` "Rolling budgets" and "Weighted and tiered rolling allowances".
-- [x] Separate admission (`decision`) and settlement (`release`) events; a rejected proof releases no new label. Done.
-- [x] Crash test with a stand-in teacher. Done: `tests/test_crash.py`.
-- [ ] Add request-plus-output-token quota as a named baseline arm. `distill gateway collect --policy` accepts only `mmd`, `quota`, `rate`, `allow` and `none` (`gateway_cli.py:461`).
-- [ ] Support streaming. Reserve the maximum output cap or issue bounded incremental grants per chunk, meter released prefixes, and on cancellation charge the emitted prefix rather than refunding it. Responses are currently buffered.
-- [ ] Add fencing tokens or monotonic reservation versions, so an expired lease cannot grant the same entitlement again while the old worker can still emit. The current rule that an expired worker must withhold covers part of this; check it against the full failure model.
-- [ ] Derive and test the unrecorded-exposure bound: at most n times g tokens when n grants are in flight and each worker can emit g tokens after its last durable grant.
-- [ ] Measure and report detection-lag overshoot: about R times L extra units at campaign rate R and analysis delay L, plus reserved in-flight work.
-- [ ] Give proof submissions a separate abuse limit, since they count as load without releasing new supervision.
-- [ ] Keep provider cost (including hidden reasoning tokens) separate from delivered supervision in the ledger.
-- [ ] Reconcile the JSON-lines decision log with database commits. A crash after commit can omit the aggregate event.
-- [ ] Reconcile `off_path_score` records with the reservation ledger, and build the durable multi-process account store that `off_path` needs.
-- [ ] Persist the aggregate monitor so more than one worker can run.
-- [ ] Define an operational reconciliation process for pending idempotency keys, which are currently kept indefinitely.
-- [ ] Check cross-tenant privacy boundaries for any response-cache reuse.
-- [ ] Cover every listed accounting failure case with a test: simultaneous near-limit admission, worker death before and after emission, cancellation, duplicate proof redemption, idempotent reconnect, horizon rollover, clock changes, multiple workers and state recovery. Check which of these `tests/test_crash.py` and `tests/test_acquisition_store.py` already cover before adding any.
-- [ ] Define component contracts in `apps/harness-api/src/harness_api/app.py` and `packages/harness/src/harness/policy.py`:
-	- a principal resolver returning account, verified organization, tier and versioned campaign memberships;
-	- a canonicalizer covering domain, messages, tools, attachments, generation parameters and output limits;
-	- an admission service that reserves every applicable scope atomically;
-	- a scoring service returning typed evidence, a calibration version and an abstention state;
-	- a policy evaluator returning allow, space, challenge, hold, reduce tier or refuse, with a reason;
-	- a teacher adapter returning stream events and authoritative usage;
-	- a settlement service that records release without rerunning admission.
-- [ ] Keep raw observation, derived feature, policy evidence and enforcement action in separate event fields, so a new scoring policy can be replayed without pretending it was deployed.
-- [ ] Keep the fake teacher so failure scenarios run without the lab GPU.
-- [ ] Evaluate holding a suspicious response until checks finish before release, and measure the latency it adds.
-- [ ] Document each future revision's contracts, provenance and measured outcomes in `docs/harness.md` and `docs/evaluation.md`, keeping proposed design separate from qualified measurements.
-
-## 10. Identity and campaign evidence
-
-Report: "Identifiability and Sybil limits", "Persist evidence"; `detection-research.md` inference 5; `frontier-practice.md` inference 2.
-
-- [x] Explicit organization mapping with no inferred links; organization budgets. Done: accounts JSON.
-- [x] Human review with unlink and budget restoration that keeps the audit trail. Done: `harness review`.
-- [ ] Build campaign edges from verified organization or payment, specific infrastructure matches, and rare-template or timing correlation. Treat office NAT, VPNs and public dataset prompts as weak edges.
-- [ ] Store each edge's type, evidence, creation time, expiry, confidence and reviewer disposition. Expire uncertain links.
-- [ ] Never propagate denial through the transitive closure of weak edges. Weak edges nominate review only.
-- [ ] Measure false merges and false splits, including shared NAT, shared public datasets, shared templates, correlated automation and close creation times.
-- [ ] Build a fixed, independent cluster null before linkage contributes non-neutral fusion evidence. Treat ranks on adaptively selected clusters as descriptive unless selective validity is proved.
-- [ ] Label any graph policy with perfect attack membership as an oracle baseline, not the deployable method.
-- [ ] Link the aggregate monitor's exposure (`packages/harness/src/harness/monitor.py`) to evidence-backed campaign review. Never block every account that contributed to a global alert.
-- [ ] Separate permissions for abuse review, dataset export and ownership attribution.
-- [ ] Model reseller controls, stronger identity checks, contractual research or batch access and cross-provider intelligence sharing as explicit assumptions and costs.
-- [ ] Measure the burden of identity verification on privacy and accessibility.
-
-## 11. Detection as evidence
-
-Report: "Detection should contribute evidence rather than impersonate intent"; `detection-research.md` inferences; `frontier-practice.md` inference 3.
-
-- [x] Domain-conditional MMD and cumulative coverage in shadow mode, abstaining on sparse strata. Done: `harness calibrate --shadow`.
-- [x] Session, novelty, volume, public-corpus and cluster evidence offline, with fixed convex fusion. Done: `harness evidence-calibrate` and `evidence-check`.
-- [x] Source-disjoint separation study with classifier two-sample tests, learned MMD and volume features, and a stop rule. Done: `harness separation`.
-- [ ] Keep MMD, instantaneous MMD, request quota and rate limit as named baselines. Keep MMD in alert mode until it beats quota and rate at matched legitimate utility on unseen sources.
-- [ ] Organize features into four families with distinct purposes: acquisition, session, semantic and integrity. Make the policy report which family caused each action. Do not count correlated semantic scores as independent corroboration.
-- [ ] Add integrity features, none of which exist yet: explicit reasoning-extraction instructions, context-binding misuse and strong account-link evidence.
-- [ ] Add the remaining cheap features: exact and template hashes, input length, mixture entropy, repeat clusters, and released output tokens as evidence.
-- [ ] Track domain mixture separately from conditional MMD, since conditioning removes broad-coverage differences by design.
-- [ ] Include benign topic-ordered sessions in the null.
-- [ ] Keep an "unknown client profile" group in evaluation. Base entitlements on verification and contract as well as declared profiles. Count null selection after seeing a score as selection.
-- [ ] Test whether coverage works better as a budget weight or as review evidence. Keep raw request and token accounting beside any novelty-weighted quantity.
-- [ ] Choose raw versus novelty-weighted budgets from task learning curves. Deduplication can discard valuable diverse stochastic answers, and naive deduplication misses paraphrases.
-- [ ] Validate PRADA and SEAT neighborhood-geometry features on text before using them.
-- [ ] If multiple window sizes are used, account for the multiplicity and memory cost.
-- [ ] Build an exchange classifier only for explicit prohibited actions with labelled examples. Evaluate paraphrases, other languages, legitimate debugging of reasoning interfaces and real normal sessions.
-- [ ] Preserve a random sample of first-stage negatives, and a random audit sample that bypasses nomination, for independent labelling.
-- [ ] Evaluate any model judge or self-assessment against independent labels, not teacher agreement. Make its timeout fallback explicit and include it in utility tests. Never let it be the sole gate.
-- [ ] In shadow mode, measure incremental campaign recall at fixed legitimate restriction and utility, rather than tuning a request-level ROC. Measure whether alerts arrive before the attacker already has enough data.
-- [ ] Use bounded sketches or prototypes for per-account history, with exact nearest-neighbor history only for candidates. Check power and numerical accuracy of any approximation such as random features.
-- [ ] Follow up the separation study: finer topic cells, larger attack pools, more split seeds. If separation persists, check that it predicts withheld sources and delayed attacks before promoting it to enforcement.
-- [ ] Include an explicitly source-shifted condition to measure what a distribution detector can detect well.
-
-## 12. Sequential evidence and calibration
-
-Report: "Sequential methods help only after validity is justified", "Calibration must include the policy"; `detection-research.md` "How should sequential evidence and calibration be rebuilt?".
-
-- [x] `e_process` and `e_cusum`, with Ville thresholds restricted to the e-process. Done: `accumulators.py`.
-- [ ] Make calibration in `packages/harness/src/harness/calibration.py` conditional on source and client profile, with explicit abstention and versioned artifacts, and evaluate it on source-disjoint policy horizons.
-- [ ] Never let inspected attacks or appeal outcomes enter a calibration role.
-- [ ] Use explicitly empirical account-horizon thresholds in the near term: freeze a horizon, score every policy decision over it, and estimate worst-group restriction on held-out independent accounts with intervals.
-- [ ] Calibrate alerting, spacing, challenges and hard restriction separately, including latching, repeated tests and recovery rules.
-- [ ] Calibrate the complete frozen fusion rule, including domain routing and missing-feature handling.
-- [ ] On recalibration, freeze a new version rather than reinterpreting old logs.
-- [ ] Keep a time series of score and client-mixture changes. Do not retrain on all recent traffic, since campaigns can contaminate the reference.
-- [ ] On drift, distinguish a changed client population, an upstream model update, an encoder change and a campaign.
-- [ ] Set alert targets from reviewer capacity (about M times alpha false alerts for M accounts). Make hard-denial targets stricter than review targets and report them per account and organization. Account for real abuse prevalence when stating positive predictive value.
-- [ ] For a formal sequential arm, define the filtration and establish conditional superuniformity before claiming Ville bounds. Use non-overlapping windows, and address shared sources, latent topics, adaptation and drift.
-- [ ] Calibrate CUSUM and reset procedures by average run length and repeated testing. Never claim an unreset Ville guarantee for a reset or floored process.
-- [ ] Select learned fusion weights on development data only and evaluate the full rule once on locked data.
-- [ ] Optional: a separate formal-statistics thesis on conditional calibration under account mixtures and adaptive campaign selection.
-
-## 13. Output protection
-
-Report: "Output protection offers a separate, access-dependent research track"; `output-architecture.md` "Which output defenses offer actual protection?".
-
-- [ ] Offer answer-only or compact-explanation tiers only for tasks with a measured legitimate need. Measure solved tasks and explanation need separately.
-- [ ] Do not expose hidden reasoning through the wrapper. Respect upstream bindings.
-- [ ] If inference is owned, bind protected context to permitted model and account transitions. Validate preceding messages and tools, define mismatch behavior, handle key rotation and legacy keys, and log rejected transfers, dropped protected items and preserved context separately. Test that legitimate multi-turn context survives.
-- [ ] Pin reasoning-interface versions and measure semantic continuity rather than HTTP success.
-- [ ] Keep keyed deception (`packages/harness/src/harness/deception.py`) as a consented, labelled research arm with explicit utility measurement. Never degrade code, arithmetic or factual answers with hidden noise in normal production.
-- [ ] Compare every output intervention with returning fewer tokens or fewer responses at the same legitimate utility. Charge the attacker for forced retries and the defender for extra inference and denied tasks. Include the cost of any external verifier or teacher the attacker uses.
-- [ ] Do not present randomized language, temperature changes, a weaker model or mixed teachers as security without student experiments.
-- [ ] Run ADS, ADFP and sampler watermarking only in a sampler-access branch, each behind a policy version with quality tests before release.
-- [ ] Measure the costs of each output method on the intended serving stack: ADS's two proxy passes (about 1.86 times dense parameter work for a 7B teacher with two 3B proxies), proxy caches and memory, post-hoc rewriting latency, and sampler watermark overhead.
-- [ ] Give output defenses adaptive tests: free repetition cleanup, watermark removal, paraphrasing and backtranslation, and model averaging (WASH) where access permits. Test assistant prefill only where the real API allows it, and test user-message prefixes separately.
-- [ ] If resources allow, run a small frozen factorial output panel: no intervention, compact answers, a sampler fingerprint, and ADS.
-- [ ] Treat training the teacher against transfer as a separate research program only.
-
-## 14. Provenance and attribution
-
-Report: "Provenance is useful after release"; `output-architecture.md` step 7 and the attribution gate.
-
-- [ ] Run attribution as a separate service after a suspected student appears, with registered keys, approved access and a documented hypothesis test. Never count attribution as prevention.
-- [ ] Use separate secret keys and thresholds for text detection and suspect-model attribution.
-- [ ] Register negative controls before probing. Count candidate models and keys searched, and adjust for multiple comparisons.
-- [ ] Include independent clean models, clean fine-tunes, mixed-source students, key-rotation controls and spoofing attacks.
-- [ ] Record the suspect access needed to reach the stated confidence, and preserve the access conditions so the test can be reproduced.
-
-## 15. Privacy and retention
-
-Report: "Persist evidence without turning the service into a surveillance archive"; `output-architecture.md` cost model.
-
-- [ ] By default, store only policy counters, timestamps, output usage, keyed prompt digests, coarse domains and calibration metadata.
-- [ ] Keep full exchanges only in a restricted, short-lived investigation store with a stated purpose, access logs and deletion rules.
-- [ ] Use keyed rather than plain hashes for prompt digests. Treat embeddings as sensitive data.
-- [ ] Protect the state database as sensitive data, since it stores response bodies.
-
-## 16. User recovery
-
-Report: "Persist evidence"; `output-architecture.md` design item 5.
-
-- [x] Refusals carry a limit code, scope, reset time and appeal reference. Done: `HARNESS_REVIEW_ENABLED`.
-- [ ] Use low-friction verification or review before irreversible restriction on uncertain detections.
-- [ ] Give verified enterprise automation explicit contractual budgets.
-- [ ] Measure time to review, successful restoration and challenge-loop abandonment.
-
-## 17. Latency and cost
-
-Report: "Keep the critical path small and measure tail latency"; `output-architecture.md` "Cost model and engineering budgets".
-
-- [x] Bounded encoder microbatching. Done: `HARNESS_ENCODER_BATCH_WAIT_MS`.
-- [ ] Keep only authentication, canonicalization, reservation, cheap entitlement and integrity checks, and the teacher call on the synchronous path. Include the delay of expensive scoring in the exposure metric.
-- [ ] Measure admission p50/p95/p99, time to first token, completed-response latency, token throughput, total GPU-seconds and correct tasks per dollar.
-- [ ] Test the proposed targets: at most 10 ms extra p95 admission latency for cheap accounting, and at most 5% end-to-end overhead for the selected wrapper policy.
-- [ ] Measure MMD completion-window tail latency, which per-request averages hide. Dense MMD costs about O(k times w squared times d). Measure long inputs and cold caches.
-- [ ] Size embedding storage: 1,536 bytes per 384-dimensional float32 vector, about 1.54 GB per million.
-- [ ] Measure the cost of the shadow scorers, which currently run on the request path and have not been measured.
-
-## 18. Provider rebuild (only if inference is owned)
-
-Report: "A provider rebuild adds inference controls and organization operations".
-
-- [ ] Put an account service and durable entitlement ledger before the inference router, so the synchronous release policy enforces budgets even when analysis is unavailable.
-- [ ] Feed an asynchronous analysis service from privacy-reduced events. Have a separate enforcement service issue versioned, time-bounded actions with a reason and an expiry or review point.
-- [ ] Keep detector evidence separate from account status. A new link can reduce a shared allowance without marking linked accounts as historically malicious.
-- [ ] Train and audit any activation probe for distillation specifically, not reuse a jailbreak detector. Use self-assessment only for retrospective review prioritization.
-- [ ] Meter each released chunk in the output gateway, with streaming holds where checks run.
-
-## 19. Deployment and rollback
-
-Report: "Deployment needs drift controls and a way to recover".
-
-- [ ] Run shadow observation on representative legitimate clients first, against the allow, quota and rate baselines.
-- [ ] Introduce hard controls first where their meaning is clear, such as explicit entitlement exhaustion. Use a small canary for uncertain evidence-triggered spacing or review, and keep a holdout audit stream.
-- [ ] Monitor per-client correct-task completion, challenge abandonment, review backlog and restoration time alongside attack indicators.
-- [ ] Make rollback stop a bad policy without erasing durable usage or regenerating old samples. Keep prior calibration artifacts and policy versions for replay.
-- [ ] Freeze a new study when output channels or account semantics change. Note that a model update can change answer length and token costs.
-
-## 20. Validation protocol additions
-
-Report: "Validation must measure capability, utility and acquisition together"; `output-architecture.md` "Frozen study design"; `detection-research.md` acceptance criteria.
-
-Already present: five source-family roles with near-duplicate screening (`scripts/recalibrate-profiles.sh`), sealed confirmatory partitions, teacher-capacity preflight, matched-budget and matched-utility comparison views (`compare_conditions`), the student-plan checkpoints and controls, and most adaptive attack variants (topic order, bursts, deduplication, answer-only, batching, selective retries, verifier filtering, alternative-teacher mixing, session replay, prefill, rotation, A8).
-
-- [x] Fix the workload topic-truncation bug in a new workload version, with coverage checks. Done: category balancing in `gateway-clients-v3` and `gateway-clients-v5`. A fresh calibration on the fixed workload is still covered by item 4.
-- [ ] Add a temporal-drift evaluation period, separate from the locked final test.
-- [ ] Balance legitimate and attacker sources so corpus membership cannot win the comparison by itself.
-- [ ] Add the missing legitimate client types: multilingual sessions, repetitive translation, and stable long-term users versus new accounts. Replay genuine sessions only with consent or a defensible licence. Hold out organizations as well as source families.
-- [ ] Add the missing campaign types: explanation-focused collection, explanation requests in other formats, purchased or replayed genuine sessions as a campaign, low-and-slow specialists, campaigns that cannot be linked, uncertain-link cases, and runs with 1, 5, 20 and 100 identities with churn.
-- [ ] Add the missing adaptations: backtranslation and semantic paraphrasing beyond the current phrase substitutions, additional unlabelled data, student-side filtering, and attacker knowledge of the budgets and approximate detector family. Test tools, attachments, multi-turn state and protected-reasoning replay only in permitted controlled conditions.
-- [ ] Keep the data-pool budget separate from the teacher-query budget.
-- [ ] Declare deadlines for every comparison. Rate limits can slow collection without changing eventual capability. Benchmark honest batch use before selecting rate limits.
-- [ ] Add an alternative or public-teacher student control, so gains can be compared with what the attacker could get elsewhere.
-- [ ] Extend the baseline panel with conditional MMD in alert mode plus quota, and the selected proposed policy, once development ends.
-- [ ] At the final conditions, train at least two student families with three seeds each. Add far-transfer tests and held-out problem lineages. Do not use a style or preference judge as evidence of capability.
-- [ ] Freeze the capability target on development curves, for example half the teacher-over-base gain. Report cost and time to that target, with censoring.
-- [ ] Report the full denominators for every account and campaign: admitted attempts, completed and withheld responses, emitted prefixes, released tokens, distinct examples, time to each level, release before the first restriction, and totals by deadline across identities, including acquisition after a nominal detection. Separate first alert, first reduced service and first hard refusal; an L1 alert is not a blocked request. Count all accounts and scored accounts separately so warm-up evasion is visible.
-- [ ] Report campaign-graph precision, recall and false merges, CPU cost and retained bytes.
-- [ ] Report legitimate outcomes per profile, never only a pooled benign average, including explanation availability, recovery burden, review load, ledger throughput and memory. Report organization-level denominators for shared restrictions.
-- [ ] Use a hierarchical analysis or separate conditional-variability summary for training seeds.
-- [ ] Plan for about 300 independent benign horizons per priority group for a zero-event bound near 1%.
-- [ ] Add the two missing acceptance gates to `docs/evaluation.md`: attribution (clean and mixed-source controls meet a declared accusation-level error target) and deployment cost (overhead within a declared latency and compute budget, with sustainable review demand).
-- [ ] Add the rejection rules to `docs/evaluation.md`: reject semantic restriction triggers that lose all value under topic reordering or cannot beat budgets for specialists; reject a fingerprint as prevention if student capability is unchanged; reject ADS for deployment if cleanup, retries or permitted inputs erase its matched-utility gain.
-- [ ] Have stakeholders choose the final utility and security thresholds before any confirmatory run.
-- [ ] Record, for each change, whether it needs recalibration and a new frozen study:
-
-| Stage | Work | Recalibration | New frozen study |
-|---|---|---|---|
-| Research hygiene | Provenance, admission versus release, manuscript corrections, warning-only status | No | No efficacy claim from this alone |
-| Systems foundation | Durable ledger, idempotency, streaming settlement, restart-safe horizons | Not for the accounting invariant; limits still need selection | Yes, before claiming security or utility gains |
-| Workload repair | Topic coverage, specialists, automation, genuine sessions | Yes | Yes; never mutate the frozen experiment |
-| Conditional detection | Client and domain references, abstention, coverage, frozen fusion | Yes, for every changed score and the full policy | Yes, with fresh source-disjoint confirmation |
-| Identity and campaign controls | Verified budgets, uncertain links, review and recovery | Empirical linkage and intervention calibration | Yes, including false merges and splits and rotation costs |
-| Output tiers | Compact answers, reasoning exposure, optional sampler experiments | Utility and transfer; detector recalibration if features change | Yes, with adaptive students and matched-output controls |
-| Provider-only | Probes, cryptographic context binding, ADS, ADFP, training changes | Method-specific | Separate study with declared access |
-
-## 21. Research contribution
-
-Report: "A defensible contribution needs a sharper claim than an ensemble"; `output-architecture.md` "Originality ledger"; `detection-research.md` candidates A to C; `frontier-practice.md` publication inferences.
-
-- [ ] Main track: utility-constrained, identity-aware acquisition allocation. Choose a policy that maximizes the minimum attacker spend to reach a frozen capability threshold, subject to a lower bound on legitimate correct-task completion in every prespecified client group. The attacker optimizes prompt selection, output requests, account splitting and cleanup, with identity price, outside data, deadline and offline compute as explicit constraints.
-- [ ] Measure task learning curves G_c(B) and compare raw request and token budgets with supervision-weighted budgets.
-- [ ] Report attack dollars per capability point, transfer against denied specialist utility, and review load.
-- [ ] Systems foundation: a restart-safe release bound under a declared crash and concurrency model, paired with an empirical capability envelope and an open benchmark of failures.
-- [ ] Optional, needing sampler access and training budget: a factorial study of whether acquisition limits constrain cleanup, retries and mixing enough to give an output method value beyond fewer-output controls.
-- [ ] Alternative: specialist-safe composite nulls under uncertain campaign attribution, comparing global, account, verified-organization and inferred-cluster detectors at fixed attacker spend, with worst-group intervention and false merges.
-- [ ] Alternative: an online adaptive same-source acquisition benchmark with real enforcement, identity ambiguity and cost-constrained adaptation, distinguished from D01's static lifecycle tables.
-- [ ] Fallback: a systematic source-disjoint counterevaluation of current TRACE and public output defenses, presented as an empirical contribution rather than a new algorithm.
-- [ ] Title the work around measured acquisition risk under legitimate-utility constraints, not prevention of all distillation. Publish negative results if conditional detectors fail.
-
-## 22. Phases and resources
-
-Report: "Resource planning should narrow the study before buying compute"; `output-architecture.md` "Phases and estimated resources". All figures are estimates.
-
-- [ ] Phase A, CPU only, 1 to 3 days: provenance and split audit, protocol, offline replay, accounting design.
-- [ ] Phase B, 2 to 5 days: accounting prototype with a fake teacher and failure injection, then a 100-prompt generation pilot with realistic context lengths to measure token throughput and training speed. At 1,024 output tokens, 6,000 examples are about 6.14 million teacher tokens per condition, roughly 34 hours at 50 tokens per second or 8.5 hours at 200.
-- [ ] Phase C, 1 to 3 weeks: a narrowed student matrix. Four conditions times two families times three seeds is 24 fits per acquisition point, or 96 over four points, about 192 to 768 GPU-hours before generation and evaluation.
-- [ ] Phase D, 2 or more weeks: held-out simultaneous benign and attack runs, deployment shadow measurements and appeals review.
-- [ ] Select policies offline on development data, then train students only for the strongest baselines and the final candidate. Use early checkpoints to decide whether a larger campaign is informative. Never use early final-test student results to select the policy.
-- [ ] Benchmark training on the actual hardware rather than assuming that a 24 GB or 80 GB card fits a configuration.
-
-## Sources cited
-
-- D01: Liu et al., "Do Defenses Against LLM Extraction Work Across Attacks? A Lifecycle Benchmark of Black-Box Model Extraction", arXiv preprint, 2026. https://arxiv.org/html/2610.00839v1
-- D03: Juuti et al., "PRADA: Protecting against DNN Model Stealing Attacks", EuroS&P 2019. https://arxiv.org/html/1805.02628v3
-- D04: Zhang, Chen and Wagner, "SEAT: Similarity Encoder by Adversarial Training for Detecting Model Extraction Attack Queries", AISec 2021. https://surrealyz.github.io/files/pubs/seat-aisec2021.pdf
-- D13: "Stealing and Defending the Ends of LLMs", ICLR 2026 OpenReview submission (excerpt only). https://openreview.net/pdf?id=dOS3e1kC5u
-- D20: Bhattacharyya and Ramdas, "Change detection with conformal martingales: new optimal constructions, and suboptimality of existing methods", arXiv preprint, 2026. https://arxiv.org/html/2609.27179v1
-- D21: "Non-partitioned e-detectors for nonparametric sequential change detection", arXiv preprint, 2026. https://arxiv.org/html/2607.28322v1
-- D24: Hasan, "Bounded Behavioral Indistinguishability for Black-Box LLM Distillation", arXiv preprint, 2026 (abstract only). https://arxiv.org/abs/2605.30448
-- D25: Chandrasekaran et al., "Exploring Connections Between Active Learning and Model Extraction", USENIX Security 2020. https://www.usenix.org/conference/usenixsecurity20/presentation/chandrasekaran
-- D26: Orekondy et al., "Knockoff Nets: Stealing Functionality of Black-Box Models", CVPR 2019. https://openaccess.thecvf.com/content_CVPR_2019/html/Orekondy_Knockoff_Nets_Stealing_Functionality_of_Black-Box_Models_CVPR_2019_paper.html
-- D27: Pal et al., "ActiveThief: Model Extraction Using Active Learning and Unannotated Public Data", AAAI 2020. https://ojs.aaai.org/index.php/AAAI/article/view/5432
-- O05: Ullah and Khojasteh, "ADS-C: Antidistillation Sampling for Classification", arXiv preprint, 2026 (abstract only). https://arxiv.org/abs/2607.15467
-- ADS: Savani et al., "Antidistillation Sampling", 2025. https://arxiv.org/html/2504.13146v5
-- ADS reevaluation: Libon et al., "What Does It Mean to Break a Distillation Defense?", arXiv preprint, 2026. https://arxiv.org/html/2606.25059v2
-- ADFP: Xu et al., "Antidistillation Fingerprinting", arXiv preprint, 2026. https://arxiv.org/html/2602.03812v2
-- WASH: Wu et al., arXiv preprint, 2026. https://arxiv.org/html/2605.30501v1
+Completion evidence: deterministic fixtures establish feature semantics and resource bounds; T1/T3 show which features retain detection value after task, topic, source, volume and timing controls. Compare existing shadows and each candidate individually before fusion. Sources: [PRADA](https://arxiv.org/html/1805.02628v3), [SEAT](https://people.eecs.berkeley.edu/~daw/papers/seat-aisec21.pdf), [VarDetect](https://arxiv.org/pdf/2107.05166) and [LLM MMD](https://arxiv.org/html/2606.05725v1). Their published thresholds do not transfer to TRACE.
+
+Implementation note: the opt-in `semantic-session-v2` experiment covers bounded current-anchor semantic and lexical-rephrasing families, repeat/resampling controls, lightweight session definitions and a frozen maximum of legacy lexical and corroborated session contributions. Its revised contract preserves the legacy lexical contribution, caps rephrasing state, and checks semantic input completeness outside the admission transaction. Deterministic CPU/API controls exercise missingness, long prefixes, actual answer-format instructions and legitimate workflows. This is partial development work for D2.2/D2.4 and D3.1/D3.2/D3.5; the checkboxes remain open pending representative cohorts, replay/qualification and the broader contracts below. Multiscale scoring and conditional MMD are follow-on work. See [campaign configuration and limits](docs/campaign.md#opt-in-semantic-session-experiment).
+
+## D3. Implement a combined campaign scorer
+
+- [ ] D3.1 Start with a transparent frozen combination of supported signals. Retain component values, reference support, contributions and abstention reasons with each score. A raw score is not automatically a probability of distillation.
+- [ ] D3.2 Define how missing families, incomplete windows, sparse strata and delayed observations affect scoring. Freeze neutral contributions or abstention behavior; do not silently renormalize weights after evidence disappears.
+- [ ] D3.3 Combine short-burst and longer-running evidence without counting shared requests as independent samples. Bind every score to a campaign position and declared look schedule.
+- [ ] D3.4 Compare the combination with pooled MMD, conditional MMD, similarity-only, coverage-only, behavior-only and simple resource baselines. Retire features that add cost or confounding without held-out value.
+- [ ] D3.5 Keep an immutable version history, replay command and observation-only rollout mode. Changing feature routing, score direction, weights, references or reset rules requires a new contract and fresh qualification.
+
+Completion evidence: request-path integration produces reproducible risk evidence and T3 demonstrates incremental value at matched legitimate-user burden. The current offline fusion is not automatically a sequentially valid online detector. Starting files: [signals.py](packages/harness/src/harness/signals.py), [evidence.py](packages/harness/src/harness/evidence.py) and [policy.py](packages/harness/src/harness/policy.py).
+
+## D4. Calibrate the complete operating procedure
+
+- [ ] D4.1 Freeze independent representation/reference fitting, score calibration, policy development and locked testing roles. Separate source families, accounts, organizations and appropriate time periods; audit exact and near-duplicate leakage.
+- [ ] D4.2 Build sufficiently large legitimate cohort references and an independent audit sample for the declared false-alert budget. Report effective independent sample counts, attainable resolution and uncertainty; overlapping windows do not create independent campaigns.
+- [ ] D4.3 Calibrate the maximum alert statistic over the actual multiscale monitoring path, horizon, reset policy and account/group searches. Measure probability of ever alerting on a legitimate account/campaign, not only per-window error.
+- [ ] D4.4 Bind score construction and threshold construction to the same statistic, reference averaging and missingness. Reproduce the chosen method with negative controls before combining methods; do not borrow a paper's nominal percentile as a deployment guarantee.
+- [ ] D4.5 Require support checks and held-out benign audit before activating statistical restrictions for a cohort. Missing/stale/incompatible calibration produces an explicit unqualified state; independent configured resource limits continue.
+- [ ] D4.6 Define drift detection, reference refresh approval, rollback and retraining rules. Freeze reference provenance and prevent untrusted live traffic from silently poisoning the null. Every refresh rechecks false alerts and power.
+- [ ] D4.7 Allocate and record error budgets across monitoring periods, detector versions and cluster searches, or explicitly limit the claim to the audited horizon. A durable campaign must not silently rearm a finite-horizon statistical guarantee.
+
+Completion evidence: calibration and independent audit artifacts bind the exact deployed procedure and state their assumptions, uncertainty and unsupported strata. Existing finite-H path stopping remains experimental until separately qualified. Sources: [time-uniform testing](https://proceedings.mlr.press/v202/podkopaev23a/podkopaev23a.pdf), [testing by betting](https://arxiv.org/html/2112.09162v6) and [conditional tests](https://arxiv.org/abs/2506.03898).
+
+## D5. Connect evidence to reversible API treatment
+
+- [ ] D5.1 Integrate the new scorer with admission and release handling behind an explicit detector version. Define observe, alert, temporary throttle, verification/review and confirmed revocation states with expiry and restoration rules.
+- [ ] D5.2 Require supported calibration and the declared evidence/corroboration conditions for each automated treatment. Weak behavioral evidence alone must not become a permanent accusation or irreversible stop.
+- [ ] D5.3 Keep detector, request quota, token entitlement, rate, concurrency, provider failure and transport failure reasons separate in API errors, telemetry and reports. Preserve existing resource controls across scoring abstention and review.
+- [ ] D5.4 Make proof redemption, idempotency, credits, appeals and administrator actions obey the new state machine. Verification cannot erase exposure history or refill budgets implicitly.
+- [ ] D5.5 Record alert observation, decision application, server release and client receipt separately where available. Reconcile late/in-flight outputs by identity, without summing overlapping delay intervals twice.
+- [ ] D5.6 Test a complete campaign through alert, actual API restriction, operator review, expiry/restoration and subsequent legitimate use. With the feature off, retain legacy contracts, policy revisions, state scopes and frozen outputs.
+
+Completion evidence: T0 and T3 show correct API consequences and recovery, not merely nonzero scores. Existing treatment and review are documented in [harness.md](docs/harness.md).
+
+## D6. Ship investigation, observability and operating controls
+
+- [ ] D6.1 Add a tenant-scoped incident feed and authenticated administrative interface with campaign evidence, score history, affected identities, treatments, expiries and review/restoration decisions. Expose unknown evidence honestly.
+- [ ] D6.2 Add signed, retryable alert webhooks with event IDs and delivery status. Use a durable outbox or equivalent recovery so database commits and notification failures cannot silently lose incidents; consumers must tolerate duplicate delivery.
+- [ ] D6.3 Enforce tenant isolation, administrator roles, least-privilege keys, rotation/revocation and audited configuration changes. Prevent forged identity headers, cross-tenant evidence access and secret leakage in exports or logs.
+- [ ] D6.4 Set retention and access policies for prompts, completions, embeddings, identity links and incident evidence. Prefer minimized summaries where sufficient; make deletion, backup and any retained deduplication semantics explicit.
+- [ ] D6.5 Export health metrics for scorer/encoder latency, queue delay, state growth, reference freshness, abstention, missing tokens, webhook failures, action rates and restoration burden. Exclude sensitive content from metric labels.
+- [ ] D6.6 Provide installation/onboarding, calibration validation, rollback, backup/restore, capacity and incident-response runbooks. Reject unsupported worker/storage combinations at startup rather than presenting an unsafe deployment as supported.
+- [ ] D6.7 Document the supported teacher protocol and release behavior. Add an OpenAI-compatible adapter only as an explicitly tested integration; preserve request identity, usage accounting and treatment semantics through it.
+
+Completion evidence: an operator can configure, inspect, act on and recover from a campaign without reading raw experiment directories. Authentication, isolation, notification recovery and operational limits are covered by T0/T5.
+
+## T0. Software correctness and compatibility
+
+- [ ] T0.1 Add focused CPU tests for incremental features, routing, score combinations, missingness, calibration binding, state migrations and deterministic replay through their public interfaces.
+- [ ] T0.2 Add multi-worker integration tests for duplicate requests, shared organization state, ordering races, proof redemption, lease expiry, stale scores and atomic observation/release settlement.
+- [ ] T0.3 Inject crashes around admission, state commit, dispatch, release settlement, incident creation and webhook delivery. Verify recovery, no double acquisition and correct treatment of unknown delivery.
+- [ ] T0.4 Test encoder/reference/database outages, queue saturation, cancellation, corrupt artifacts, clock jumps, retention boundaries, long inputs and unsupported cohorts. Assert the declared outage behavior and independent budget enforcement.
+- [ ] T0.5 Test tenant isolation, admin authorization, identity spoofing, API-key rotation, webhook authentication, evidence redaction and cross-tenant cache separation.
+- [ ] T0.6 Keep meaningful existing frozen-schedule, calibration, contract, state and quota regression checks. Run repository pytest, Ruff lint/format and strict mypy through `devenv shell -- uv run`; use `bun` for any new TypeScript workspace.
+
+Completion evidence: required checks pass and failure-injection fixtures exercise actual API/state consequences. CPU fixtures establish software behavior only. Do not add repetitive smoke tests or implementation-mirroring assertions.
+
+## T1. Legitimate data, labels and negative controls
+
+- [ ] T1.1 Obtain consented legitimate traces or documented representative customer pilots. Cover broad researchers, benchmark sweeps, batch labeling, tutoring, iterative coding, document QA, retries, shared enterprise keys and nighttime automation.
+- [ ] T1.2 Keep synthetic fixtures for development, with generator versions and limitations. Do not certify real-user false-alert rates from simulated actors whose definitions encode the detector's own heuristics.
+- [ ] T1.3 Separate observed behavior, operational flags, independently investigated incidents and experimentally known attack labels. Preserve unknown cases; an earlier detector alert is not ground-truth training intent.
+- [ ] T1.4 Add balanced controls for domain, topic, corpus/source, prompt length, request count, repetition, timing, language, workflow and endpoint/model. Audit source-family leakage and train/test connected groups.
+- [ ] T1.5 Rebuild insufficient role pools into fresh versioned directories. Keep fitting/development/locked roles and frozen readings immutable; never borrow locked test prompts to fix sparse calibration strata.
+- [ ] T1.6 Include same-transcript benign/attack pairs and legitimate coordinated evaluation campaigns. Report these as observability limits and confound controls, not mislabeled negatives to remove until accuracy improves.
+
+Completion evidence: frozen inventories, source/identity/time provenance, label basis and adequacy reports support D4. Existing [separation tooling](docs/evaluation.md#development-only-separation-study) is a development diagnostic, not a final confirmation set.
+
+## T2. Fixed and adaptive attack coverage
+
+- [ ] T2.1 Preserve A1-A7 fixed schedules as regression cases and test A8 online selection. Include ordinary final-answer harvesting that never requests protected reasoning.
+- [ ] T2.2 Test topic sorting, benign padding, low contamination, paraphrases/query blinding, prompt wrappers, language changes, diverse public inputs, answer-only collection and multiple questions per HTTP request.
+- [ ] T2.3 Test slow collection, human-like bursts, long idle gaps, staggered accounts, credential rotation, verified-organization boundaries and campaigns spanning multiple supported monitoring periods.
+- [ ] T2.4 Test malicious accounts sharing legitimate proxy/relay traffic and benign accounts sharing templates or infrastructure. Include weak/small colluding populations, complementary task collection and confidence-ranked uncertain links.
+- [ ] T2.5 Test calibration/reference poisoning, score-probing, boundary walking, detector-aware query selection and attempts to reset state through restarts, renewals, replays or review. Pin attacker access to public/client-visible information.
+- [ ] T2.6 Implement and evaluate the student-updating A8 uncertainty/selection hook. Record student checkpoints, seeds, model/scorer identity and offline compute; do not count the callback interface or a phrase rewrite as a learned adaptive attack.
+- [ ] T2.7 Charge every online HTTP attempt, failure, retry, proof and cover request to shared campaign resources. Account for external teacher access and offline selection/training cost explicitly, including any multi-provider threat supported by the experiment.
+
+Completion evidence: locked attacks include strategies that evade alarms while retaining useful learning. Unknown or unsupported adaptations remain named limitations, not assumed successes.
+
+## T3. Detector performance, legitimate utility and baseline comparison
+
+- [ ] T3.1 Report per-cohort and overall precision/recall at stated prevalence, campaign detection probability, account/campaign probability of any false alert over the declared horizon, uncertainty, abstention and incomplete/censored campaigns.
+- [ ] T3.2 Report requests/tokens released before first alert and first effective treatment, wall-clock delay, queued/in-flight overshoot and unknown usage. Keep server evidence and client receipt bounds distinct.
+- [ ] T3.3 Measure legitimate task success, completion, latency, throttling, proof/verification cost, review load and restoration time by workflow. Customer burden includes false restrictions and operator work.
+- [ ] T3.4 Automate allow/candidate/quota/quota_tokens/rate development-grid collection with teacher capacity binding and fresh state. Derive per-stratum utility losses from actual runs and bind selected settings to those artifacts.
+- [ ] T3.5 Freeze matched baseline settings on development data using the existing quota matcher, then confirm held-out utility. If no single setting matches all declared strata, report no match instead of interpolating favorable strata.
+- [ ] T3.6 Run equal attacker-attempt/time/account/cost comparisons as the primary access-control experiment. Add equal-released-query/token controls to isolate information value without hiding the access prevented.
+- [ ] T3.7 Run signal ablations and pooled/conditional/similarity/behavior/coverage comparisons on frozen data. Report matched controls, source imbalance, classifier label limitations and negative or inconclusive findings.
+- [ ] T3.8 Audit continuous monitoring, sparse cohorts, drift, version changes and resets over the full deployed path. Treat finite-horizon guarantees as finite; do not extrapolate marginal FPR or synthetic AUC to lifetime product behavior.
+
+Completion evidence: an independent report establishes what the detector adds beyond inexpensive access limits at comparable legitimate-user burden. The [utility and quota workflow](docs/evaluation.md#utility-validity-and-measured-quota-matching) already exists in part; measured-grid orchestration and automatic run binding remain work.
+
+## T4. Capability transfer and chronological intervention testing
+
+- [ ] T4.1 Preregister a useful capability target with a source-disjoint evaluation suite, passing teacher-headroom/clean-student gates and pinned student recipe/seeds. Report if the base already meets the target.
+- [ ] T4.2 Reuse checkpoint exports for response counts, first-alert/restriction/refusal bounds and campaign end. Retain late/in-flight responses, tied receipts, acquired-versus-trainable counts, pending-quality opt-in and censored targets.
+- [ ] T4.3 Extend checkpoint joins only where required for replay, batching, response selection or other supported gateway variants. Freeze raw received-response provenance and attribution rules; keep ambiguous variants refused until tested end to end.
+- [ ] T4.4 Run real GPU students on what every arm actually released, with matched-volume mechanism controls, paired seeds and verified resume artifacts. Report target crossing as first observed at a checkpoint, not an exact unobserved learning time.
+- [ ] T4.5 Add task-specific checkpoint eligibility, overlap checks, metrics and runner support for AG News, coding or QA only when required by the product claim. GSM8K support alone cannot qualify cross-task protection.
+- [ ] T4.6 Report retained student gain for adaptive campaigns, collection exposure, training/selection cost and legitimate utility together. Failure to reach a target within the experiment is censored evidence, not proof of impossibility.
+
+Completion evidence: actual teacher/GPU results support any claim about reduced learned capability. Existing fixture coverage and checkpoint plumbing alone support no prevention claim. See [checkpoints.md](docs/checkpoints.md) and [restoration boundaries](docs/distillation-defense-plan.md).
+
+Implementation note for T2.7/T4.2: opt-in attributed collection now records 429 policy restrictions by cause, charges rejected submissions and retry-after waits to the attacker, retains campaign evidence, exports campaign intervention bounds and binds the campaign configuration and observed policy revision. `scripts/study.sh` has opt-in `campaign-observe` and `campaign-throttle` arms. This is CPU-tested tooling with mock gateways; no arm has run live, so these items stay open. See [Measuring a campaign arm](docs/evaluation.md#measuring-a-campaign-arm).
+
+## T5. Live operating and performance qualification
+
+- [ ] T5.1 Benchmark encoder and scorer overhead, p50/p95/p99 API latency, sustained throughput, storage growth and memory on target hardware. Exercise maximum supported campaigns, tenants and idle-state retention.
+- [ ] T5.2 Measure locking, contention, queue delay and backpressure with concurrent workers. Validate SQLite deployment limits before promising horizontal scale; add another store only against a demonstrated requirement.
+- [ ] T5.3 Run a bounded observation pilot on representative authorized traffic, review sampled alerts and misses, freeze changes, then conduct an independent supported-enforcement pilot with rollback available.
+- [ ] T5.4 Demonstrate full recovery from process/host failure, backup restoration, configuration rollback, reference expiry, webhook outage and provider timeout without silent allowance resets or lost incident records.
+- [ ] T5.5 Keep local fixture checks, replay/development studies, live teacher collection, GPU student outcomes, customer pilots and deployment activation as separate evidence states in the release record.
+
+Completion evidence: measured costs fit D0 budgets, the supported deployment topology is explicit and failures have exercised recovery paths.
+
+WP4 implementation note: development-grid plan/execute/match now supports explicit runner injection, fresh per-setting state, verified resume and measured-row quota matching. CPU fixtures cover these contracts; live grid collection and held-out confirmation remain open, so T3.4/T3.5 are not marked complete.
+
+## C1. Follow-on cross-account coordination
+
+- [ ] C1.1 Add centered/normalized semantic direction summaries and bounded candidate-link searches. Evaluate random-Fourier/spectral coordination against simpler overlap/timing baselines before choosing the algorithm.
+- [ ] C1.2 Corroborate behavior using verified organizations and available identity/infrastructure evidence. Preserve link confidence, provenance, expiry and unlink decisions; shared IP alone never establishes common malicious ownership.
+- [ ] C1.3 Calibrate the complete cluster-selection/search procedure with an independent benign cluster null. Adaptively selected components cannot inherit an individual-account false-positive guarantee.
+- [ ] C1.4 Test false merges/splits using independently supplied identity truth, including enterprise NATs, shared keys, resellers, proxy mixtures and legitimate coordinated evaluations. Unknown identity truth remains unknown.
+- [ ] C1.5 Audit small colluder populations, low-rate/padded campaigns, complementarity, poisoning, real-user relays, cluster churn and alarm delay. Connect tentative findings to review before any punitive group action.
+
+Prerequisites: D1-D4, sufficient independent account populations and a declared linkage data policy. Source: [coordination research](https://arxiv.org/html/2610.13083v1). Vendor deployment descriptions do not supply transferable cluster thresholds.
+
+## C2. Follow-on learned session and similarity models
+
+- [ ] C2.1 Collect independently investigated labels and hard benign examples before fitting an operational campaign classifier. Start with a transparent baseline; compare a learned model only for measured held-out improvement.
+- [ ] C2.2 Separate representation/model fitting, hyperparameter selection, score calibration and final source/time/organization-disjoint testing. Evaluate unseen attack strategies, workflow shift, class prevalence and operational versus oracle label sensitivity.
+- [ ] C2.3 Test whether predictions survive removal of dataset/source, synthetic actor, identity and automation shortcuts. Calibrate classifier outputs before presenting probabilities and document unsupported populations.
+- [ ] C2.4 Evaluate a learned text-similarity encoder only if bounded nearest-neighbor/template features fail on valuable attacks. Include paraphrase robustness, natural editing/retries, latency and adaptation by a white-box attacker.
+
+Prerequisites: T1 labels and D3/T3 baselines. Source: [session-classifier report](https://arxiv.org/html/2609.38239v1). Its generated-session results are not production validation.
+
+## C3. Conditional protected-reasoning and artifact defense
+
+- [ ] C3.1 Inventory whether the teacher exposes hidden reasoning, reusable reasoning artifacts, prefills, tool outputs or streamed protected content. Mark this work not applicable to unsupported channels instead of claiming generic coverage.
+- [ ] C3.2 If applicable, implement a narrow elicitation/reconstruction detector, with a cheap first stage and richer second stage only where justified. Distinguish ordinary explanations and debugging from attempts to recover protected internal content.
+- [ ] C3.3 Bind protected artifacts to authorized user/workspace/organization/model/context, close replay paths and check every supported release path. Hold protected content before emitting it; test tool, provider-adapter and streaming paths independently.
+- [ ] C3.4 Red-team encoding/translation, wrappers, role changes, replay, cross-context/model/account reuse and repeated probing. Measure request-level FPR, residual leaked reasoning tokens and actual student learning separately from final-answer campaigns.
+- [ ] C3.5 Evaluate output summarization or restricted channel/logprob exposure only when compatible with the product. Measure legitimate task impact and retained training value; never transplant another provider's hidden-reasoning success rate to TRACE.
+
+Prerequisites: a real protected channel and its supported provenance/release contract. Sources: [Anthropic](https://www.anthropic.com/news/distillation-defenses) and [OpenAI](https://openai.com/index/disrupting-a-coordinated-model-distillation-campaign/).
+
+## C4. Statistical research extensions and deferred methods
+
+- [ ] C4.1 Evaluate a genuine sequential MMD/betting or time-uniform detector only after specifying the null, predictable sampling, overlap, reference updates, drift and account/group multiplicity. Reproduce current corrections and compare delay/power with D4's calibrated finite path.
+- [ ] C4.2 Evaluate formal covariate-conditioned testing only if cohort routing leaves a measured gap and sample/compute requirements are feasible. Document assumptions; conditioning references by task is not automatically formal conditional MMD.
+- [ ] C4.3 Reproduce selected published traffic methods with matched negative controls and a pinned implementation before adapting them. Keep original task, access assumptions and window sizes explicit; do not import classic image-model thresholds.
+- [ ] C4.4 Record a feasibility decision for HODA, FDINet and training-anchor/internal-feature methods. Keep them deferred unless teacher checkpoint/activation access and LLM-specific validation exist. ATOM's graph-model defense likewise requires a new applicability case.
+- [ ] C4.5 Keep watermarking, fingerprints and suspect-model distillation inference in a separate attribution backlog. Any future work needs authorized suspect access, independent-model controls, false attribution/spoofing/removal tests and measured response-quality impact; it cannot substitute for active-campaign detection. A CPU-only [decoder watermark probe](docs/watermark-probe.md) covers the keyed bias and detector mechanics; none of the evidence named here exists yet.
+- [ ] C4.6 Preserve the indistinguishable-transcript limit in threat models and reports. Do not generalize decision-tree impossibility results to every LLM defense or claim that increasing detector complexity solves unobservable intent.
+
+Prerequisites: a demonstrated gap beyond D1-D4 and independent evaluation capacity. Sources and scope limits are consolidated in the [academic notes](<docs/research_notes/Distillation detection methods and standards/academic.md>).
+
+## S1. Standards mapping and defensible claims
+
+- [ ] S1.1 Maintain a versioned control/evidence map to NIST AI 100-2e2025 extraction terminology, AI RMF measurement/monitoring/response and AI 600-1 extraction red-teaming. Link each claimed control to implementation and observed evidence.
+- [ ] S1.2 Map authentication, token-aware budgets, rate/burst/concurrency/size/time limits, hard spending caps, logging and circuit breakers to OWASP API4/API6:2023 and GenAI LLM06:2026. Check gaps against existing controls rather than implementing duplicate accounting.
+- [ ] S1.3 Map tested attacks to ATLAS extraction/inference/proxy techniques and mitigations AML.M0004, AML.M0024 and AML.M0035. Record the edition and source checked; older category numbers must retain their year.
+- [ ] S1.4 Keep formal ISO management-system conformity separate from research performance. Public scope summaries and framework mapping cannot support an ISO-certified detector or a NIST-approved algorithm claim.
+- [ ] S1.5 Maintain threat/data/model documentation, incident response, appeals, retention/access policies and a release evidence register. Label provider claims, prototypes, inaccessible advisory content, synthetic results and unverified assumptions accurately.
+
+Completion evidence: a customer can trace each security claim to its scope, test and remaining limitation. Source versions and exact mappings are in the [standards notes](<docs/research_notes/Distillation detection methods and standards/standards.md>); no reviewed source prescribes an industry-standard extraction detector.
+
+## G1. First-release acceptance
+
+- [ ] G1.1 D0-D6 deliver a working request-to-durable-evidence-to-alert-to-treatment-to-restoration path. New defaults remain opt-in until supported activation is explicitly configured.
+- [ ] G1.2 T0 passes required software checks; T1 supplies adequate independent populations; T2/T3 measure detection and customer burden against the declared alternatives and baselines.
+- [ ] G1.3 T5 qualifies resource bounds, deployment topology and recovery on the intended host. Publish supported cohorts, retention, horizon, failure behavior and known evasion cases.
+- [ ] G1.4 Complete T4 before claiming reduced learned capability or prevention. If only detection/acquisition evidence exists, narrow the release claim accordingly and keep the capability gate open.
+- [ ] G1.5 Publish negative/inconclusive results, abstentions, false-alert intervals, delayed releases, review/restoration burden and any unmatched baseline. Do not turn a passed fixture, ignored alert or incomplete campaign into qualification.
+
+## Research-to-work coverage
+
+| Research finding | Implementation or explicit disposition | Validation |
+| --- | --- | --- |
+| Provider campaign classifiers and fingerprints | D1-D3 first; C2 after credible labels | T1, T2, T3, T5 |
+| PRADA/SEAT stateful similarity and query blinding | D2.2; optional learned encoder C2.4; reproduce selectively C4.3 | T1 editing/retry controls; T2 transformations; T3 ablation |
+| VarDetect and LLM semantic MMD | D2.1, D3, D4; no borrowed vision/text-window thresholds | T1 matched sources; T3 power, dilution and delay |
+| Information-gain/coverage and natural-data active learning | D2.3/D2.5; T2.6 learned selection | T1 legitimate broad users; T2 diverse natural inputs; T4 retained gain |
+| Cross-account spectral/centered coordination | C1, separate verified identity from inferred links | T1 benign sweeps; T2 relay/poisoning/small groups; C1 false merges and delay |
+| Betting/time-uniform/conditional tests | D4 whole-path calibration; C4.1/C4.2 research alternatives | T3 full-horizon error, overlap, drift, resets and multiplicity |
+| Reasoning elicitation, replay and artifact isolation | Conditional C3 with a supported protected channel | C3.4 channel attacks/benign explanations and T4 student transfer |
+| Account, token, spending and resource limits | D1/D5/D6 and S1.2; reuse existing controls | T0 races/failures; T3 matched utility and exposure |
+| HODA/FDINet/ATOM teacher-internal or graph assumptions | C4.4 feasibility gate; deferred from first release | New LLM applicability evidence required |
+| Watermark/fingerprint/suspect-model inference | C4.5 separate attribution work | False attribution, spoofing, removal and quality tests |
+| Covert learning and observational limits | D0 scope, T1 same-transcript controls and C4.6 | Report indistinguishable and evading cases explicitly |
+| NIST/OWASP/ATLAS/ISO scope and evidence limits | S1 and G1 | Traceable controls, red-team evidence and bounded product claims |
+
+Implementation note for D1.2/D1.6/D2.3/D3.3/D4.3: WP2 adds versioned bounded coverage state, opt-in campaign/API wiring, exact domain/prefix-scheduled whole-campaign maxima, an offline CPU-fixture calibration path, and durable cooldown counters with explicit capped escalation. Null extensions preserve legacy configuration digests and evidence. Finite coverage state survives cooldown expiry without silently renewing its statistical horizon. Independent benign audits, domain validation, operational retention and lifetime budgets, volume/topic-order comparisons, and teacher/student effectiveness evidence remain open. No checkbox is completed by these fixture results.
+
+WP4 C1 baseline note: offline `harness link-accounts` implements bounded rare-template overlap plus timing corroboration with provenance. CPU fixtures cover split sweeps, public benchmarks, timing without overlap, mixed proxies and determinism. No spectral method, independent cluster null, enforcement, identity-truth qualification or measured performance is claimed; C1.1-C1.5 remain open.
+
+Implementation note for C3.5 and the output prevention candidate: WP3 restores the cached `distill output-study` stack and adds opt-in `HARNESS_OUTPUT_POLICY` at the gateway's release boundary, with CPU fixture coverage only. No checkbox is completed. It has never run on a real teacher or student, measures no suppression or legitimate-user impact, leaves correct answers available as training data, and changes the product for every client when always on.

@@ -352,7 +352,7 @@ def bench_command(
 	encode: Annotated[bool, typer.Option(help="time the BGE encoder too")] = True,
 	device: str | None = None,
 ) -> None:
-	"""Time the harness's own serving costs, unit by unit, for the paper's Table X.
+	"""Time the harness's own serving costs, unit by unit.
 
 	Replays up to --limit requests from a request file as one account. Victim inference is
 	excluded; measure it with the traffic benchmark at the same load and hardware.
@@ -430,11 +430,25 @@ def evidence_calibrate_command(
 	output: Annotated[Path, typer.Option(dir_okay=False)],
 	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 	corpus_index: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	coverage_seed: int | None = None,
+	coverage_width: int | None = None,
+	coverage_ridge: float | None = None,
 	device: str | None = None,
 ) -> None:
 	"""Fit separate opt-in evidence nulls using only the declared score-calibration role."""
 	from harness.corpus import CorpusIndex
 	from harness.evidence import file_hash, fit_evidence
+	from harness.logdet import CoverageSpec
+	from harness.path_runtime import encoder_contract
+
+	options = (coverage_seed, coverage_width, coverage_ridge)
+	if any(value is not None for value in options) and any(value is None for value in options):
+		raise typer.BadParameter("coverage requires explicit seed, width and ridge")
+	coverage = (
+		CoverageSpec(seed=coverage_seed, input_dim=coverage_width, ridge=coverage_ridge)
+		if coverage_seed is not None and coverage_width is not None and coverage_ridge is not None
+		else None
+	)
 
 	calibration, _ = load_calibration(calibration_dir)
 	rows = read_any_requests(score_calibration)
@@ -446,18 +460,158 @@ def evidence_calibrate_command(
 	encoder = make_encoder(embeddings, device)
 	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
 	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
-	null = fit_evidence(rows, vectors, calibration, corpus)
+	null = fit_evidence(rows, vectors, calibration, corpus, coverage)
 	artifact = {
 		"version": "evidence-v1",
 		"role": "score_calibration",
 		"requests_sha256": file_hash(score_calibration),
 		"calibration_sha256": file_hash(calibration_dir / "calibration.json"),
-		"encoder": encoder.identity(),
+		"encoder": encoder_contract(encoder.identity())
+		if coverage is not None
+		else encoder.identity(),
 		"null": null.model_dump(mode="json"),
 	}
+	if coverage is not None:
+		artifact["fit_accounts"] = sorted({row.account for row in rows})
+		artifact["fit_prompts"] = sorted(
+			{hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
+		)
 	output.parent.mkdir(parents=True, exist_ok=True)
 	with output.open("x", encoding="utf-8") as sink:
 		sink.write(json.dumps(artifact, indent="\t") + "\n")
+
+
+def _monitor_campaigns(
+	path: Path, task: str, encoder: Encoder
+) -> tuple[list[str], list[list[tuple[str, str, Any]]]]:
+	"""Each account's requests in order as (detector text, domain, embedding) campaigns."""
+	from harness.shadow import request_domain
+
+	rows = read_any_requests(path)
+	vectors = encoder.encode([detector_text(task, row.text) for row in rows])  # type: ignore[arg-type]
+	streams: dict[str, list[tuple[str, str, Any]]] = {}
+	for row, vector in zip(rows, vectors, strict=True):
+		streams.setdefault(row.account, []).append(
+			(detector_text(task, row.text), request_domain(task, row.text), vector)  # type: ignore[arg-type]
+		)
+	return list(streams), list(streams.values())
+
+
+@app.command("evidence-monitor-calibrate")
+def evidence_monitor_calibrate_command(
+	fitting: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	score_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	policy_calibration: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False, help="New monitor calibration.")],
+	task: str = "gateway",
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+	look_every: int = 50,
+	rarefied_size: int = 40,
+	alpha: float = 0.01,
+	cells: int = 64,
+	seed: int = 0,
+	encoder_model: Annotated[
+		str | None, typer.Option(help="Model behind --embeddings, checked at API startup.")
+	] = None,
+	encoder_revision: str | None = None,
+) -> None:
+	"""Fit the whole-campaign evidence monitor from three disjoint benign roles.
+
+	Feature nulls come from score-calibration accounts and the alert rule from separate
+	policy-calibration accounts. Never pass the locked benign test.
+	"""
+	from harness.campaign_evidence import EvidenceSettings, calibrate
+
+	if embeddings is not None and not (encoder_model and encoder_revision):
+		raise typer.BadParameter(
+			"cached embeddings need --encoder-model and --encoder-revision of the model behind them"
+		)
+	encoder = make_encoder(embeddings, device)
+	identity = (
+		{"model": encoder_model, "revision": encoder_revision, "source": "declared"}
+		if embeddings is not None
+		else encoder.identity()
+	)
+	settings = EvidenceSettings(
+		look_every=look_every, rarefied_size=rarefied_size, alpha=alpha, cells=cells, seed=seed
+	)
+	fit_rows = read_any_requests(fitting)
+	fit_vectors = encoder.encode([detector_text(task, r.text) for r in fit_rows])  # type: ignore[arg-type]
+	score_accounts, score = _monitor_campaigns(score_calibration, task, encoder)
+	policy_accounts, policy = _monitor_campaigns(policy_calibration, task, encoder)
+	if set(score_accounts) & set(policy_accounts):
+		raise typer.BadParameter("score and policy calibration must use different accounts")
+	monitor = calibrate(
+		fitting=np.asarray(fit_vectors, dtype=np.float64),
+		score_campaigns=score,
+		policy_campaigns=policy,
+		settings=settings,
+		encoder=identity,
+	)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(monitor.model_dump_json(indent=4) + "\n")
+	for profile, maxima in monitor.maxima.items():
+		typer.echo(
+			f"{profile}: {len(maxima)} benign campaigns, horizon "
+			f"{monitor.horizon_looks[profile]} looks of {look_every}"
+		)
+
+
+@app.command("evidence-monitor-check")
+def evidence_monitor_check_command(
+	monitor: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False, help="New JSON report.")],
+	task: str = "gateway",
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+) -> None:
+	"""Replay accounts through the monitor offline and report each one's first alert."""
+	from harness.campaign_evidence import EvidenceCalibration, new_state, observe
+
+	calibration = EvidenceCalibration.model_validate_json(monitor.read_text())
+	centroids = calibration.cell_centroids()
+	accounts, campaigns = _monitor_campaigns(requests, task, make_encoder(embeddings, device))
+	report = []
+	for account, campaign in zip(accounts, campaigns, strict=True):
+		state = new_state()
+		looks = []
+		for text, domain, vector in campaign:
+			result = observe(
+				state,
+				text=text,
+				domain=domain,
+				embedding=vector,
+				calibration=calibration,
+				centroids=centroids,
+			)
+			if result is not None:
+				looks.append({k: v for k, v in result.items() if k != "features"})
+		alert = next((look for look in looks if look["decision"] == "alert"), None)
+		report.append(
+			{
+				"account": account,
+				"requests": len(campaign),
+				"looks": len(looks),
+				"alert_look": alert["look"] if alert else None,
+				"alert_requests": alert["requests"] if alert else None,
+				"final": looks[-1] if looks else None,
+			}
+		)
+	summary = {
+		"version": calibration.settings.version,
+		"monitor_sha256": calibration.digest,
+		"accounts": len(report),
+		"alerted": sum(r["alert_look"] is not None for r in report),
+		"results": report,
+		"qualified": False,
+	}
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(json.dumps(summary, indent=4) + "\n")
+	typer.echo(f"{summary['alerted']} of {summary['accounts']} accounts alerted")
 
 
 @app.command("corpus-index")
@@ -490,6 +644,7 @@ def evidence_check_command(
 	"""Offline account and optional cluster evidence for benign or A1-A8 schedule files."""
 	from harness.corpus import CorpusIndex
 	from harness.evidence import check_evidence, file_hash
+	from harness.path_runtime import encoder_contract
 	from harness.signals import SignalCalibration
 
 	if reorder not in {"none", "topic"}:
@@ -502,8 +657,19 @@ def evidence_check_command(
 	null = SignalCalibration.model_validate(artifact["null"])
 	corpus = CorpusIndex.load(corpus_index) if corpus_index else None
 	rows = read_any_requests(requests)
+	if null.coverage is not None and (
+		{row.account for row in rows} & set(artifact.get("fit_accounts", []))
+		or {hashlib.sha256(row.text.encode()).hexdigest() for row in rows}
+		& set(artifact.get("fit_prompts", []))
+		or file_hash(requests) == artifact["requests_sha256"]
+	):
+		raise typer.BadParameter("coverage comparison requires held-out accounts and prompts")
 	encoder = make_encoder(embeddings, device)
-	if encoder.identity() != artifact["encoder"]:
+	if (
+		encoder_contract(encoder.identity()) != encoder_contract(artifact["encoder"])
+		if null.coverage is not None
+		else encoder.identity() != artifact["encoder"]
+	):
 		raise typer.BadParameter("evidence encoder differs from the calibrated encoder")
 	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
 	report = check_evidence(rows, vectors, calibration, null, corpus, reorder)
@@ -599,6 +765,119 @@ def review_decide(
 		typer.echo(result)
 
 
+linkage_app = typer.Typer(no_args_is_help=True)
+app.add_typer(linkage_app, name="linkage")
+
+
+def _linkage_tx(path: Path, config_path: Path) -> Any:
+	import sqlite3
+
+	from harness.linkage import load_linkage_config
+	from harness.store import _SQLiteTransaction
+
+	if not path.is_file():
+		raise typer.BadParameter("state database does not exist")
+	config = load_linkage_config(config_path)
+	db = sqlite3.connect(path, isolation_level=None)
+	bound = db.execute("SELECT value FROM meta WHERE key = 'linkage_config'").fetchone()
+	if bound is None or bound[0] != config.digest:
+		db.close()
+		raise typer.BadParameter("the database is not bound to this linkage config")
+	return db, _SQLiteTransaction(db), config
+
+
+@linkage_app.command("show")
+def linkage_show(
+	principal: str,
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+) -> None:
+	"""The principal's inferred cluster and the signal kinds behind each pair link."""
+	from harness.linkage import cluster_id, members, strength
+
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		cluster = members(tx, principal)
+		pairs = []
+		for index, left in enumerate(cluster):
+			for right in cluster[index + 1 :]:
+				evidence = tx.linkage(
+					"e:" + json.dumps(sorted((left, right)), separators=(",", ":"))
+				)
+				if evidence:
+					pairs.append(
+						{
+							"pair": [left, right],
+							"evidence": evidence,
+							"strength": strength(linkage, evidence),
+						}
+					)
+		result = {"cluster": cluster_id(linkage, cluster), "members": cluster, "pairs": pairs}
+		typer.echo(json.dumps({**result, "qualified": False}, indent=4))
+
+
+@linkage_app.command("sever")
+def linkage_sever(
+	left: str,
+	right: str,
+	operator: Annotated[str, typer.Option()],
+	reason: Annotated[str, typer.Option()],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+) -> None:
+	"""Record that two principals are unrelated and rebuild their cluster without that link."""
+	import time
+
+	from harness.linkage import LinkageError, sever
+
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		try:
+			db.execute("BEGIN IMMEDIATE")
+			groups = sever(
+				tx, linkage, left, right, operator=operator, reason=reason, now=time.time()
+			)
+			db.execute("COMMIT")
+		except LinkageError as error:
+			db.execute("ROLLBACK")
+			raise typer.BadParameter(str(error)) from error
+		typer.echo(json.dumps({"clusters": groups}, indent=4))
+
+
+@linkage_app.command("export")
+def linkage_export(
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	state_db: Annotated[Path, typer.Option(envvar="HARNESS_STATE_DB")],
+	config: Annotated[Path, typer.Option(envvar="HARNESS_LINKAGE_CONFIG", exists=True)],
+	requests: Annotated[
+		Path | None,
+		typer.Option(
+			exists=True,
+			dir_okay=False,
+			help="Keep only pairs whose principals both appear in these requests.",
+		),
+	] = None,
+) -> None:
+	"""Write request-path links in the format `evidence-check --links` reads."""
+	from harness.linkage import export_links
+
+	principals = None
+	if requests is not None:
+		with requests.open() as stream:
+			principals = {
+				BenignRequest.model_validate_json(line).account for line in stream if line.strip()
+			}
+	db, tx, linkage = _linkage_tx(state_db, config)
+	with db:
+		result = export_links(tx, linkage, principals)
+	try:
+		with output.open("x") as target:
+			target.write(json.dumps(result, indent="\t") + "\n")
+	except OSError as error:
+		raise typer.BadParameter(str(error)) from error
+	typer.echo(json.dumps({"edges": len(result["edges"]), "qualified": False}))
+
+
 @app.command("separation")
 def separation_command(
 	benign: Annotated[
@@ -690,3 +969,194 @@ def separation_command(
 	with (output / "summary.md").open("x", encoding="utf-8") as sink:
 		sink.write(summary_markdown(report))
 	typer.echo(f"{report['decision']} ({output / 'summary.md'})")
+
+
+@app.command("path-calibrate")
+def path_calibrate_command(
+	calibration_dir: Annotated[Path, typer.Option("--calibration", exists=True, file_okay=False)],
+	campaigns: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	request_horizon: Annotated[int, typer.Option(min=2)],
+	stratum: Annotated[str, typer.Option()],
+	alpha: float = 0.01,
+	streams: str = "mmd",
+	weights: str | None = None,
+	evidence: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	device: str | None = None,
+) -> None:
+	"""Fit an unqualified terminal stop from complete benign principal paths, never test data."""
+	from harness.evidence import file_hash
+	from harness.path_calibration import PathScoring, fit_path_calibration
+	from harness.path_runtime import (
+		PathRecipe,
+		RuntimePathCalibration,
+		detector_hash,
+		encoder_contract,
+		path_look,
+	)
+	from harness.shadow import request_domain
+	from harness.signals import SignalCalibration
+
+	calibration, scorer = load_calibration(calibration_dir)
+	if request_horizon < scorer.window_size or request_horizon % scorer.window_size:
+		raise typer.BadParameter("request horizon must be a positive multiple of window size")
+	names = tuple(streams.split(","))
+	if set(names) - {"mmd", "coverage_mean_logdet"}:
+		raise typer.BadParameter("streams must be mmd and/or coverage_mean_logdet")
+	scoring = PathScoring(
+		name="prompt-path-v1",
+		streams=names,
+		weights=tuple(float(w) for w in weights.split(",")) if weights else None,
+	)
+	rows = read_requests(campaigns)
+	encoder = make_encoder(embeddings, device)
+	vectors = encoder.encode([detector_text(calibration.config.task, row.text) for row in rows])
+	null = None
+	if evidence:
+		payload = json.loads(evidence.read_text())
+		if payload["calibration_sha256"] != file_hash(calibration_dir / "calibration.json"):
+			raise typer.BadParameter("evidence was fitted against a different calibration")
+		if encoder_contract(payload["encoder"]) != encoder_contract(encoder.identity()):
+			raise typer.BadParameter("evidence uses a different encoder")
+		if {row.account for row in rows} & set(payload.get("fit_accounts", [])) or {
+			hashlib.sha256(row.text.encode()).hexdigest() for row in rows
+		} & set(payload.get("fit_prompts", [])):
+			raise typer.BadParameter("path calibration must be disjoint from feature-null fitting")
+		null = SignalCalibration.model_validate(payload["null"])
+	if "coverage_mean_logdet" in names and (null is None or null.coverage is None):
+		raise typer.BadParameter("coverage requires --evidence with fitted coverage nulls")
+	recipe = PathRecipe(
+		detector_hash=detector_hash(calibration, scorer),
+		encoder=encoder_contract(encoder.identity()),
+		request_horizon=request_horizon,
+		window_size=scorer.window_size,
+		evidence=null,
+	)
+	groups: dict[str, list[int]] = {}
+	for i, row in enumerate(rows):
+		groups.setdefault(row.account, []).append(i)
+	paths = []
+	for indices in groups.values():
+		if len(indices) > request_horizon or len(indices) < scorer.window_size:
+			raise typer.BadParameter("each campaign needs one complete look and at most H prompts")
+		if len(indices) % scorer.window_size:
+			raise typer.BadParameter("campaign paths must end on a predetermined look")
+		path = []
+		for end in range(scorer.window_size, len(indices) + 1, scorer.window_size):
+			prefix = indices[:end]
+			values, reason = path_look(
+				recipe,
+				names,
+				vectors[prefix].tolist(),
+				[hashlib.sha256(rows[i].text.encode()).hexdigest() for i in prefix],
+				{request_domain(calibration.config.task, rows[i].text) for i in prefix},
+				calibration,
+				scorer,
+				stratum,
+			)
+			if values is None:
+				raise typer.BadParameter(f"benign campaign has an unsupported look: {reason}")
+			path.append(values)
+		paths.append(path)
+	fitted = fit_path_calibration(
+		paths,
+		scoring=scoring,
+		alpha=alpha,
+		horizon=request_horizon // scorer.window_size,
+		stratum=stratum,
+	)
+	artifact = RuntimePathCalibration(
+		recipe=recipe, calibration=fitted, benign_paths_sha256=file_hash(campaigns)
+	)
+	output.parent.mkdir(parents=True, exist_ok=True)
+	with output.open("x", encoding="utf-8") as sink:
+		sink.write(artifact.model_dump_json(indent=4).replace("    ", "\t") + "\n")
+	typer.echo(
+		json.dumps(
+			{
+				"calibration_hash": artifact.input_hash,
+				"campaigns": fitted.n,
+				"abstained": fitted.abstained,
+				"abstention_reason": fitted.abstention_reason,
+				"qualified": False,
+			}
+		)
+	)
+
+
+@app.command("campaign-coverage-calibrate")
+def campaign_coverage_calibrate_command(
+	monitor: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	campaigns: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option(dir_okay=False)],
+	embeddings: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+	alpha: float = 0.01,
+	device: str = "cpu",
+) -> None:
+	"""Fit independent benign accounts at a complete, declared domain/prefix schedule."""
+	from harness.campaign_coverage import CoverageMonitor, fit_coverage_calibration
+	from harness.path_runtime import encoder_contract
+
+	recipe = CoverageMonitor.model_validate_json(monitor.read_text())
+	encoder = make_encoder(embeddings, device)
+	if encoder_contract(encoder.identity()) != recipe.encoder_identity:
+		raise typer.BadParameter("encoder identity differs from coverage monitor")
+	rows = read_requests(campaigns)
+	# These files declare a single domain. Bounds apply to what serving encodes.
+	texts = [recipe.serialize(row.text) for row in rows]
+	if any(len(text) > recipe.max_text_chars for text in texts):
+		raise typer.BadParameter("calibration input exceeds coverage character bound")
+	complete = getattr(encoder, "input_complete", None)
+	if embeddings is None and (not callable(complete) or any(not complete(t) for t in texts)):
+		raise typer.BadParameter("all calibration inputs must have complete embeddings")
+	vectors = encoder.encode(texts)
+	paths: dict[str, list[Any]] = {}
+	for row, vector in zip(rows, vectors, strict=True):
+		paths.setdefault(row.account, []).append(vector)
+	artifact = fit_coverage_calibration(recipe, paths.values(), alpha)
+	with output.open("x") as target:
+		target.write(
+			json.dumps(artifact.model_dump(mode="json"), indent="\t", allow_nan=False) + "\n"
+		)
+	typer.echo(json.dumps({"calibration_sha256": artifact.digest, "qualified": False}))
+
+
+@app.command("link-accounts")
+def link_accounts_command(
+	requests: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+	output: Annotated[Path, typer.Option()],
+	max_accounts: int = 256,
+	max_requests: int = 512,
+	max_features: int = 256,
+	max_df: float = 0.5,
+	minimum_overlap: float = 0.5,
+	time_bin_seconds: float = 10,
+	minimum_coactivity: float = 0.5,
+) -> None:
+	"""Propose offline inferred links from rare prompt overlap AND timing co-activity."""
+	from harness.account_links import propose_links
+
+	try:
+		# Bound ingestion before collecting a potentially large file in memory.
+		rows: list[BenignRequest] = []
+		with requests.open() as stream:
+			for line in stream:
+				if len(line) > 131072 or len(rows) >= max_accounts * max_requests:
+					raise ValueError("input exceeds bounds")
+				if line.strip():
+					rows.append(BenignRequest.model_validate_json(line))
+		result = propose_links(
+			rows,
+			max_accounts=max_accounts,
+			max_requests=max_requests,
+			max_features=max_features,
+			max_df=max_df,
+			minimum_overlap=minimum_overlap,
+			time_bin_seconds=time_bin_seconds,
+			minimum_coactivity=minimum_coactivity,
+		)
+		with output.open("x") as target:
+			target.write(json.dumps(result, indent="\t") + "\n")
+	except (ValueError, OSError) as error:
+		raise typer.BadParameter(str(error)) from error

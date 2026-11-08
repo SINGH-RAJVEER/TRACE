@@ -1,15 +1,17 @@
 """Fresh shadow references disclose their simulation and independent account units."""
 
 from collections import defaultdict
+from typing import Any
 
 import pytest
+from distillation.schemas import PromptRecord
 from distillation.session_workloads import SessionModel, session_clients
 from workload_fixtures import prompt_record
 
 CAPS = {"coding": 512, "gsm8k": 256}
 
 
-def pools(count: int):
+def pools(count: int) -> dict[str, list[PromptRecord]]:
 	return {
 		d: [prompt_record(d, "score_calibration", i)[0] for i in range(count)]
 		for d in ("coding", "gsm8k")
@@ -17,7 +19,7 @@ def pools(count: int):
 
 
 def test_session_reference_counts_independence_and_reproducibility() -> None:
-	kwargs = dict(
+	kwargs: dict[str, Any] = dict(
 		pools=pools(500), caps=CAPS, role="score_calibration", window_size=4, horizon_size=4
 	)
 	rows, manifest = session_clients(**kwargs)

@@ -6,70 +6,6 @@ from collections import defaultdict
 from typing import Any
 
 CHECKPOINTS = (100, 300, 1000, 3000, 6000, 12000)
-BASELINES = (
-	"allow",
-	"full_mmd",
-	"instantaneous_mmd",
-	"request_quota",
-	"rate",
-	"request_token_quota",
-)
-
-
-def campaign_report(events: list[dict[str, Any]]) -> dict[str, Any]:
-	"""Summarize observed events without inferring admission from a successful response."""
-	attempts = [e for e in events if e.get("event") == "attempt"]
-	outcomes = {e["id"]: e for e in events if e.get("event") == "outcome"}
-	decisions = {e["policy_request_id"]: e for e in events if e.get("event") == "policy"}
-	released = [a for a in attempts if outcomes.get(a["id"], {}).get("status") == "received"]
-	tokens = [outcomes[a["id"]].get("output_tokens") for a in released]
-
-	def first(predicate: Any) -> float | None:
-		return min((float(a["at_seconds"]) for a in attempts if predicate(a)), default=None)
-
-	def decision(a: dict[str, Any]) -> dict[str, Any]:
-		return decisions.get(a.get("policy_request_id"), {})
-
-	return {
-		"attempts": len(attempts),
-		"admitted": None,
-		"admission_reason": "current event log does not record admission for every attempt",
-		"released": len(released),
-		"failed": sum(
-			outcomes.get(a["id"], {}).get("status") in ("failed", "deadline") for a in attempts
-		),
-		"cancelled": None,
-		"pending": sum(a["id"] not in outcomes for a in attempts),
-		"released_tokens": sum(tokens) if all(t is not None for t in tokens) else None,
-		"known_released_tokens": sum(t for t in tokens if t is not None),
-		"released_tokens_unknown_count": sum(t is None for t in tokens),
-		"distinct_examples": len({a["example_id"] for a in released if a.get("example_id")})
-		if all(a.get("example_id") for a in released)
-		else None,
-		"first_alert_seconds": first(lambda a: decision(a).get("level", 0) >= 1),
-		# Policy events are keyed by prompt, so a redeemed challenge keeps only its later serve
-		# decision; the per-attempt outcome status still records the challenge itself.
-		"first_restriction_seconds": first(
-			lambda a: (
-				outcomes.get(a["id"], {}).get("status") in ("challenge", "blocked")
-				or decision(a).get("action") in ("challenge", "refuse")
-			)
-		),
-		"first_refusal_seconds": first(
-			lambda a: (
-				outcomes.get(a["id"], {}).get("status") == "blocked"
-				or decision(a).get("action") == "refuse"
-			)
-		),
-		"levels": {
-			f"L{level}": first(lambda a, level=level: decision(a).get("level", 0) >= level)
-			for level in range(1, 5)
-		},
-		"restriction_coverage": "challenge and refusal actions only; delayed serve is not recorded",
-		"decision_attribution_complete": all(
-			a.get("policy_request_id") in decisions for a in attempts if a.get("kind") == "query"
-		),
-	}
 
 
 def benign_profiles(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -166,8 +102,13 @@ def compare_conditions(
 	*,
 	capacity_evidence: dict[str, Any] | None = None,
 	schedule_sha256: str | None = None,
+	utility_validity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-	"""Require explicitly declared matching dimensions before presenting a comparison."""
+	"""Require explicitly declared matching dimensions before presenting a comparison.
+
+	A legitimate-utility comparison also needs `utility_validity` to be valid or to record an
+	override; the check is absent for hand-written conditions, so they need the override too.
+	"""
 	if len(conditions) < 2:
 		raise ValueError("need at least two conditions")
 	fields = {
@@ -214,11 +155,15 @@ def compare_conditions(
 			):
 				issues.append("utility_observed")
 				break
+	validity = utility_validity or {}
+	if view == "legitimate_utility" and not (validity.get("valid") or validity.get("override")):
+		issues.append("utility_baseline_validity")
 	return {
 		"view": view,
 		"comparable": not issues,
 		"unmatched_or_missing": issues,
 		"conditions": conditions,
+		"utility_validity": utility_validity,
 		"note": "Declared matching requires independent verification against observed "
 		"outcomes and schedules.",
 	}

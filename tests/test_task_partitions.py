@@ -7,7 +7,7 @@ import pytest
 from distillation.gateway_cli import _pools
 from distillation.io import read_jsonl
 from distillation.schemas import PromptRecord
-from distillation.tasks import budget_run, build_task
+from distillation.tasks import build_task
 
 
 def _rows(count: int, prefix: str) -> list[dict[str, str]]:
@@ -45,16 +45,7 @@ def test_partitions_are_disjoint_and_cover_the_attacker_role(math_dir: Path) -> 
 	}
 
 
-def test_campaign_inputs_draw_only_the_requested_partition(math_dir: Path, tmp_path: Path) -> None:
-	confirmatory = {
-		prompt.example_id
-		for prompt in read_jsonl(math_dir / "attacker-confirmatory.jsonl", PromptRecord)
-	}
-	summary = budget_run(task_dir=math_dir, budget=10, seed=1, output_dir=tmp_path / "run")
-	selected = read_jsonl(tmp_path / "run" / "prompts.jsonl", PromptRecord)
-	assert summary["partition"] == "exploratory"
-	assert not {prompt.example_id for prompt in selected} & confirmatory
-
+def test_builds_without_sealed_partitions_are_refused(math_dir: Path) -> None:
 	# Builds without sealed partitions would mix confirmatory prompts into campaigns.
 	manifest = json.loads((math_dir / "manifest.json").read_text())
 	del manifest["attacker_partitions"]

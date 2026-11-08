@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Evaluating an account-level harness against multi-domain model distillation"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+	"dashboard-api",
 	"distillation-core",
 	"extraction-harness",
 	"harness-api",
@@ -20,11 +21,15 @@ eval = [
 embed = [
 	"extraction-harness[embed]"
 ]
+train = [
+	"distillation-core[train]"
+]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
+dashboard-api = { workspace = true }
 distillation-core = { workspace = true }
 extraction-harness = { workspace = true }
 harness-api = { workspace = true }
@@ -34,6 +39,7 @@ coding-task = { workspace = true }
 [tool.uv.workspace]
 members = [
 	"packages/coding",
+	"apps/dashboard-api",
 	"apps/harness-api",
 	"apps/teacher-api",
 	"packages/distillation",
@@ -58,8 +64,6 @@ line-length = 100
 target-version = "py314"
 # Frozen study outputs include historical scripts; preserve them byte-for-byte.
 extend-exclude = ["readings"]
-# The launcher bootstrap runs on any system Python before the workspace environment exists.
-per-file-target-version = { "scripts/*.py" = "py39" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
@@ -72,9 +76,9 @@ quote-style = "double"
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-exclude = ["artifacts", "outputs"]
+exclude = ["artifacts"]
 
 [[tool.mypy.overrides]]
-module = ["accelerate.*", "datasets.*", "huggingface_hub.*", "peft.*", "safetensors.*", "tokenizers.*", "torch.*", "transformers.*", "trl.*"]
+module = ["datasets.*", "huggingface_hub.*", "peft.*", "torch.*", "transformers.*", "trl.*"]
 ignore_missing_imports = true
 follow_imports = "skip"

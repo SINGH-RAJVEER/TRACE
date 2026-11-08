@@ -349,16 +349,31 @@ def external_command(
 		raise typer.BadParameter(str(error)) from None
 
 
-def _served_policy(url: str) -> str | None:
-	"""The policy a harness gateway reports, or None for a teacher that reports none."""
+def _served_health(url: str) -> dict[str, Any]:
+	"""What a harness gateway reports, or nothing for a teacher that reports none."""
 	import httpx
 
 	try:
 		response = httpx.get(f"{url.rstrip('/')}/healthz", timeout=10)
-		policy = response.json().get("policy") if response.is_success else None
+		health = response.json() if response.is_success else None
 	except httpx.HTTPError, ValueError, AttributeError:
-		return None
+		return {}
+	return health if isinstance(health, dict) else {}
+
+
+def _served_policy(url: str) -> str | None:
+	"""The policy a harness gateway reports, or None for a teacher that reports none."""
+	policy = _served_health(url).get("policy")
 	return policy if isinstance(policy, str) else None
+
+
+def check_declared_campaign(health: dict[str, Any], declared: str | None) -> None:
+	"""Refuse before any request when a reporting gateway serves another campaign config."""
+	if "policy_revision" not in health:
+		return  # This gateway predates the report; the decision log binding still applies.
+	served = health.get("campaign_digest")
+	if served != declared:
+		raise ValueError(f"the gateway serves campaign {served}, not the declared {declared}")
 
 
 @app.command("collect")
@@ -368,8 +383,8 @@ def collect_command(
 	policy: Annotated[
 		str,
 		typer.Option(
-			help="Policy the gateway serves for this arm: mmd, quota, rate, allow, or none "
-			"for a direct teacher. mmd arms must pass the detectability gate."
+			help="Policy the gateway serves: mmd, path, quota, quota_tokens, rate, allow, or none "
+			"for a direct teacher. Only mmd arms run the detectability gate; path is unqualified."
 		),
 	],
 	teacher_url: str = "http://127.0.0.1:8003",
@@ -437,6 +452,32 @@ def collect_command(
 		bool,
 		typer.Option(help="Run an undetected mmd arm anyway, recorded as a quota comparison."),
 	] = False,
+	restriction_strategy: Annotated[
+		str | None,
+		typer.Option(
+			help="Opt into attributed 429 restrictions and a v3 contract: give_up or "
+			"wait_and_retry. Rejected submissions and waits are charged to the attacker."
+		),
+	] = None,
+	restriction_retries: Annotated[
+		int,
+		typer.Option(min=0, help="Per-prompt resubmissions allowed under wait_and_retry."),
+	] = 0,
+	campaign_config: Annotated[
+		Path | None,
+		typer.Option(dir_okay=False, help="The campaign configuration the gateway serves."),
+	] = None,
+	campaign_mode: Annotated[
+		str | None, typer.Option(help="The mode that configuration must declare.")
+	] = None,
+	thinking: Annotated[
+		bool | None,
+		typer.Option(
+			"--thinking/--no-thinking",
+			help="Teacher reasoning mode. Omitted uses the teacher default, which reasons; "
+			"--no-thinking reproduces historical non-thinking readings.",
+		),
+	] = None,
 ) -> None:
 	"""Execute a schedule or A8 online rounds with one global HTTP budget and response ledger.
 
@@ -446,6 +487,7 @@ def collect_command(
 	"""
 	import asyncio
 
+	from distillation.campaign import ExperimentBinding
 	from distillation.collection import CollectionOptions
 	from distillation.detectability_gate import (
 		DEFAULT_ACCUMULATORS,
@@ -458,8 +500,21 @@ def collect_command(
 	try:
 		if alternative_url and policy != "none":
 			raise ValueError("alternative teacher mixing requires --policy none")
-		if policy not in {"mmd", "quota", "rate", "allow", "none"}:
-			raise ValueError("policy must be mmd, quota, rate, allow, or none")
+		if policy not in {"mmd", "path", "quota", "quota_tokens", "rate", "allow", "none"}:
+			raise ValueError("policy must be mmd, path, quota, quota_tokens, rate, allow, or none")
+		experiment = None
+		if restriction_strategy is not None:
+			experiment = ExperimentBinding(
+				base_policy=policy,
+				restriction_strategy=restriction_strategy,
+				max_retries_per_prompt=restriction_retries,
+				campaign_config=campaign_config,
+				campaign_mode=campaign_mode,
+			)
+			# Refuse a bad declaration before the schedule or the gateway is touched.
+			experiment.record()
+		elif campaign_config or campaign_mode or restriction_retries:
+			raise ValueError("campaign binding options need --restriction-strategy")
 		manifest = json.loads((input_dir / "manifest.json").read_text())
 		schedule = input_dir / "requests.jsonl"
 		if digest(schedule) != manifest["sha256"][schedule.name]:
@@ -467,6 +522,12 @@ def collect_command(
 		served = _served_policy(teacher_url)
 		if served is not None and served != policy:
 			raise ValueError(f"the gateway serves {served}, not the declared {policy} policy")
+		if experiment is not None:
+			declared_campaign = experiment.record()["campaign"]
+			check_declared_campaign(
+				_served_health(teacher_url),
+				declared_campaign["digest"] if declared_campaign else None,
+			)
 		record = None
 		if policy == "mmd":
 			if calibration is None or benign_test is None:
@@ -509,7 +570,9 @@ def collect_command(
 				url=teacher_url,
 				keys=keys,
 				options=CollectionOptions(
-					terms_review_id=terms_review_id, concurrency=concurrency, enable_thinking=False
+					terms_review_id=terms_review_id,
+					concurrency=concurrency,
+					enable_thinking=thinking,
 				),
 				attempt_budget=manifest["attempt_budget"],
 				deadline_seconds=manifest["deadline_seconds"],
@@ -524,6 +587,7 @@ def collect_command(
 				confidence_scorer=scorer,
 				confidence_scorer_id=confidence_scorer,
 				confidence_threshold=confidence_threshold,
+				experiment=experiment,
 			)
 		)
 		from distillation.campaign_timing import campaign_timing
@@ -535,6 +599,10 @@ def collect_command(
 			campaign_timing(output, schedule=None if online_timing else schedule),
 		)
 		typer.echo(json.dumps(result, indent="\t"))
+		binding = result.get("policy_binding")
+		if binding is not None and binding["status"] != "bound":
+			typer.echo(f"policy binding is {binding['status']}: {binding['problems']}", err=True)
+			raise typer.Exit(code=1)
 	except (ValueError, OSError, KeyError) as error:
 		raise typer.BadParameter(str(error)) from None
 

@@ -80,7 +80,7 @@ class TrafficTarget(StrictModel):
 class TrafficConfig(StrictModel):
 	experiment: str = Field(min_length=1)
 	suite_path: Path
-	output_dir: Path = Path("outputs/traffic-benchmarks")
+	output_dir: Path = Path("artifacts/traffic-benchmarks")
 	model: str = Field(min_length=1)
 	model_revision: str = Field(min_length=1)
 	generation: GenerationConfig = Field(default_factory=GenerationConfig)

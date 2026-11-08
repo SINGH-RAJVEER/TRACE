@@ -1,10 +1,14 @@
 """Tests use synthetic records, without a teacher or student training."""
 
+import hashlib
+import json
+from pathlib import Path
+
 import pytest
+from distillation import results_index
 from distillation.cli import app
 from distillation.evaluation_protocol import (
 	benign_profiles,
-	campaign_report,
 	clopper_pearson,
 	cluster_interval,
 	compare_conditions,
@@ -12,51 +16,6 @@ from distillation.evaluation_protocol import (
 	zero_event_upper,
 )
 from typer.testing import CliRunner
-
-
-def test_campaign_unknowns_and_interventions() -> None:
-	events = [
-		{
-			"event": "attempt",
-			"id": "1",
-			"kind": "query",
-			"policy_request_id": "p1",
-			"example_id": "x",
-			"at_seconds": 0,
-		},
-		{"event": "outcome", "id": "1", "status": "received", "output_tokens": None},
-		{"event": "policy", "policy_request_id": "p1", "level": 1, "action": "serve"},
-		{
-			"event": "attempt",
-			"id": "2",
-			"kind": "query",
-			"policy_request_id": "p2",
-			"at_seconds": 4,
-		},
-		{"event": "policy", "policy_request_id": "p2", "level": 3, "action": "challenge"},
-		{"event": "outcome", "id": "2", "status": "failed"},
-	]
-	report = campaign_report(events)
-	assert report["admitted"] is None and report["cancelled"] is None
-	assert report["released_tokens"] is None and report["released_tokens_unknown_count"] == 1
-	assert report["distinct_examples"] == 1 and report["failed"] == 1
-	assert report["first_alert_seconds"] == 0 and report["first_restriction_seconds"] == 4
-	assert report["first_refusal_seconds"] is None
-
-
-def test_redeemed_challenge_still_counts_as_restriction() -> None:
-	attempt = {"event": "attempt", "kind": "query", "policy_request_id": "p1", "example_id": "x"}
-	events = [
-		{**attempt, "id": "1", "at_seconds": 2},
-		{"event": "outcome", "id": "1", "status": "challenge"},
-		{**attempt, "id": "2", "kind": "proof", "at_seconds": 3},
-		{"event": "outcome", "id": "2", "status": "received", "output_tokens": 5},
-		# The later redemption decision replaces the challenge decision for this prompt.
-		{"event": "policy", "policy_request_id": "p1", "level": 3, "action": "serve"},
-	]
-	report = campaign_report(events)
-	assert report["first_restriction_seconds"] == 2 and report["first_refusal_seconds"] is None
-	assert report["released"] == 1 and report["released_tokens"] == 5
 
 
 def test_profiles_intervals_and_matching() -> None:
@@ -73,7 +32,7 @@ def test_profiles_intervals_and_matching() -> None:
 	assert not compare_conditions(conditions, "attacker_budget")["comparable"]
 
 
-def test_student_plan_and_cli(tmp_path) -> None:
+def test_student_plan_and_cli(tmp_path: Path) -> None:
 	plan = student_plan(["student-a", "student-b"], [1, 2, 3], 2)
 	assert len(plan["runs"]) == 114 and plan["estimated_cost"] == 228
 	assert not plan["executes_training"]
@@ -95,7 +54,7 @@ def test_student_plan_and_cli(tmp_path) -> None:
 	assert (tmp_path / "plan.json").exists()
 
 
-def test_comparisons_require_matching_passing_teacher_capacity(tmp_path) -> None:
+def test_comparisons_require_matching_passing_teacher_capacity(tmp_path: Path) -> None:
 	import hashlib
 	import json
 
@@ -161,3 +120,93 @@ def test_comparisons_require_matching_passing_teacher_capacity(tmp_path) -> None
 	result = CliRunner().invoke(app, args)
 	assert result.exit_code == 1, result.output
 	assert "teacher_capacity" in result.output
+
+
+def test_utility_comparison_refuses_an_invalid_baseline_unless_overridden(tmp_path: Path) -> None:
+	sha = hashlib.sha256(b"schedule\n").hexdigest()
+	schedule = tmp_path / "requests.jsonl"
+	schedule.write_text("schedule\n")
+	checks = dict.fromkeys(
+		[
+			"offered_throughput",
+			"completed_throughput",
+			"latency_p95",
+			"errors",
+			"timeouts",
+			"queue_end",
+			"queue_growth",
+			"undefended",
+		],
+		True,
+	)
+	evidence = tmp_path / "capacity.json"
+	evidence.write_text(
+		json.dumps(
+			{
+				"version": "teacher-capacity-v1",
+				"passed": True,
+				"schedule_sha256": sha,
+				"slo": {},
+				"checks": checks,
+			}
+		)
+	)
+	shared = dict.fromkeys(results_index.COLUMNS, "")
+	shared.update(status="complete", study="development", stratum="all", run_id="r1", attack="A1")
+	shared.update(attempt_budget="6000", deadline_seconds="86400", completion_rate="0.9")
+	rows = []
+	for arm in ("quota", "full"):
+		rows.append({**shared, "kind": "campaign", "arm": arm, "policy": arm})
+		rows.append(
+			{**shared, "kind": "utility", "attack": "benign_test", "arm": arm, "policy": arm}
+			| {"validity": "valid"}
+		)
+	baseline = {**shared, "kind": "utility", "attack": "benign_test", "arm": "allow"}
+	baseline.update(policy="allow", validity="invalid", validity_reason="completed 29%")
+	rows.append(baseline)
+	index = tmp_path / "index.tsv"
+	results_index.update_index(index, rows)
+	args = [
+		"gateway",
+		"comparison-report",
+		"--index",
+		str(index),
+		"--attack",
+		"A1",
+		"--arm",
+		"quota",
+		"--arm",
+		"full",
+		"--view",
+		"legitimate_utility",
+		"--utility-metric",
+		"completion_rate",
+		"--utility-target",
+		"0.9",
+		"--utility-tolerance",
+		"0.01",
+		"--utility-baseline-arm",
+		"allow",
+		"--capacity-evidence",
+		str(evidence),
+		"--benign-schedule",
+		str(schedule),
+	]
+	refused = CliRunner().invoke(app, args)
+	assert refused.exit_code == 1, refused.output
+	report = json.loads(refused.output)
+	assert report["unmatched_or_missing"] == ["utility_baseline_validity"]
+	assert report["utility_validity"]["issues"][0]["reason"] == "completed 29%"
+	allowed = CliRunner().invoke(app, [*args, "--allow-invalid-utility-baseline", "pilot only"])
+	assert allowed.exit_code == 0, allowed.output
+	report = json.loads(allowed.output)
+	assert report["comparable"] is True
+	assert report["utility_validity"]["valid"] is False
+	assert report["utility_validity"]["override"] == "pilot only"
+	# The attacker-budget view is not a utility comparison; it marks the values and proceeds.
+	budget = [*args]
+	budget[budget.index("legitimate_utility")] = "attacker_budget"
+	budget += ["--output-token-budget", "1", "--money-budget", "1"]
+	marked = CliRunner().invoke(app, budget)
+	assert marked.exit_code == 0, marked.output
+	assert json.loads(marked.output)["utility_validity"]["arms"]["allow"] == "invalid"

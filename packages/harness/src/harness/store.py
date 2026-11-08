@@ -42,6 +42,7 @@ from typing import Any, Literal, Protocol
 import numpy as np
 
 from harness.mmd import Array
+from harness.path_runtime import CampaignState
 from harness.pow import Challenge
 
 Settlement = Literal["released", "failed", "cancelled"]
@@ -60,6 +61,7 @@ class AccountState:
 	buffer_digests: list[str] = field(default_factory=list)
 	last_release: float = -math.inf
 	recent: deque[float] = field(default_factory=deque)
+	path: CampaignState | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,13 @@ class TierBudget:
 	tiers: dict[str, str]
 	contracts: dict[str, RollingBudget]
 
+	def level(self, tx: Transaction, account: str, now: float) -> str:
+		"""The effective tier: a declared new principal is established once promoted."""
+		declared = self.tiers.get(account, "new")
+		if declared != "new":
+			return declared
+		return "new" if self.is_new(tx, account, now) else "established"
+
 	def is_new(self, tx: Transaction, account: str, now: float) -> bool:
 		if self.tiers.get(account, "new") != "new":
 			return False
@@ -268,6 +277,13 @@ def _exposure(rows: list[Reservation], now: float) -> Exposure:
 
 
 class Transaction(Protocol):
+	def campaign(self, key: str) -> dict[str, Any] | None: ...
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None: ...
+	def linkage(self, key: str) -> dict[str, Any] | None: ...
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None: ...
+	def linkage_keys(self, prefix: str) -> list[str]: ...
+	def evidence(self, key: str) -> dict[str, Any] | None: ...
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None: ...
 	def account(self, name: str) -> AccountState | None: ...
 	def put_account(self, name: str, state: AccountState) -> None: ...
 	def challenge(self, nonce: str) -> tuple[Challenge, dict[str, Any]] | None: ...
@@ -298,13 +314,21 @@ class Transaction(Protocol):
 	def put_organization(self, name: str, horizon_start: float) -> None: ...
 	def idempotency(self, account: str, key: str) -> IdempotencyRecord | None: ...
 	def put_idempotency(self, record: IdempotencyRecord) -> None: ...
-	def delete_idempotency(self, account: str, key: str) -> None: ...
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int: ...
 	def take_aggregate(self) -> tuple[int, list[tuple[Array, str, float]]]: ...
 	def put_aggregate_alert(self, index: int, alert: dict[str, Any]) -> None: ...
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None: ...
 
 
 class StateStore(Protocol):
+	def enable_output_receipts(self) -> None: ...
+	def bind_campaign(self, config_hash: str) -> None: ...
+	def bind_linkage(self, config_hash: str) -> None: ...
+	def bind_evidence(self, calibration_hash: str) -> None: ...
+	def bind_path(self, calibration_hash: str) -> None: ...
+
 	def transaction(self) -> AbstractContextManager[Transaction]:
 		"""A Transaction that commits on exit; SQLite rolls back if the block raises."""
 		...
@@ -399,6 +423,32 @@ def _settled(
 
 
 class _MemoryTransaction:
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None:
+		self.store.output_receipts.setdefault(key, (account, now, copy.deepcopy(receipt)))
+
+	def campaign(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.campaigns.get(key))
+
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None:
+		self.store.campaigns[key] = copy.deepcopy(value)
+
+	def linkage(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.links.get(key))
+
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None:
+		self.store.links[key] = copy.deepcopy(value)
+
+	def linkage_keys(self, prefix: str) -> list[str]:
+		return sorted(key for key in self.store.links if key.startswith(prefix))
+
+	def evidence(self, key: str) -> dict[str, Any] | None:
+		return copy.deepcopy(self.store.evidence.get(key))
+
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None:
+		self.store.evidence[key] = copy.deepcopy(value)
+
 	def __init__(self, store: MemoryStore) -> None:
 		self.store = store
 
@@ -508,9 +558,6 @@ class _MemoryTransaction:
 	def put_idempotency(self, record: IdempotencyRecord) -> None:
 		self.store.idempotency[(record.account, record.key)] = record
 
-	def delete_idempotency(self, account: str, key: str) -> None:
-		self.store.idempotency.pop((account, key), None)
-
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
 		self.store.aggregate.append((np.asarray(embedding, dtype=np.float64), account, now))
 		return len(self.store.aggregate)
@@ -537,6 +584,41 @@ class MemoryStore:
 		self.aggregate_windows = 0
 		self.aggregate_alerts: dict[int, dict[str, Any]] = {}
 		self._lock = threading.RLock()
+		self._path_binding: str | None = None
+		self._campaign_binding: str | None = None
+		self.campaigns: dict[str, dict[str, Any]] = {}
+		self.output_receipts: dict[str, tuple[str, float, dict[str, Any]]] = {}
+		self._linkage_binding: str | None = None
+		self.links: dict[str, dict[str, Any]] = {}
+		self._evidence_binding: str | None = None
+		self.evidence: dict[str, dict[str, Any]] = {}
+
+	def enable_output_receipts(self) -> None:
+		pass
+
+	def bind_linkage(self, config_hash: str) -> None:
+		with self._lock:
+			if self._linkage_binding not in {None, config_hash}:
+				raise ValueError("state store is bound to another linkage config")
+			self._linkage_binding = config_hash
+
+	def bind_evidence(self, calibration_hash: str) -> None:
+		with self._lock:
+			if self._evidence_binding not in {None, calibration_hash}:
+				raise ValueError("state store is bound to another campaign evidence calibration")
+			self._evidence_binding = calibration_hash
+
+	def bind_campaign(self, config_hash: str) -> None:
+		with self._lock:
+			if self._campaign_binding not in {None, config_hash}:
+				raise ValueError("state store is bound to another campaign config")
+			self._campaign_binding = config_hash
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self._lock:
+			if self._path_binding not in {None, calibration_hash}:
+				raise ValueError("state store is bound to another path calibration")
+			self._path_binding = calibration_hash
 
 	@contextmanager
 	def transaction(self) -> Iterator[_MemoryTransaction]:
@@ -551,6 +633,10 @@ class MemoryStore:
 					self.aggregate,
 					self.aggregate_windows,
 					self.aggregate_alerts,
+					self.campaigns,
+					self.output_receipts,
+					self.links,
+					self.evidence,
 				)
 			)
 			try:
@@ -565,6 +651,10 @@ class MemoryStore:
 					self.aggregate,
 					self.aggregate_windows,
 					self.aggregate_alerts,
+					self.campaigns,
+					self.output_receipts,
+					self.links,
+					self.evidence,
 				) = snapshot
 				raise
 
@@ -588,6 +678,7 @@ def _encode_state(state: AccountState) -> str:
 			"buffer_digests": state.buffer_digests,
 			"last_release": state.last_release,
 			"recent": list(state.recent),
+			**({"path": state.path.model_dump(mode="json")} if state.path is not None else {}),
 		}
 	)
 
@@ -605,6 +696,7 @@ def _decode_state(text: str) -> AccountState:
 		buffer_digests=data["buffer_digests"],
 		last_release=data["last_release"],
 		recent=deque(data["recent"]),
+		path=CampaignState.model_validate(data["path"]) if "path" in data else None,
 	)
 
 
@@ -706,6 +798,56 @@ def _outcome(text: str | None) -> Outcome | None:
 
 
 class _SQLiteTransaction:
+	def put_output_receipt(
+		self, key: str, account: str, now: float, receipt: dict[str, Any]
+	) -> None:
+		self.db.execute(
+			"INSERT OR IGNORE INTO output_receipts VALUES (?, ?, ?, ?)",
+			(key, account, now, json.dumps(receipt, allow_nan=False)),
+		)
+
+	def campaign(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute("SELECT state FROM campaign WHERE key = ?", (key,)).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_campaign(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO campaign VALUES (?, ?) "
+			"ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
+
+	def linkage(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute("SELECT state FROM linkage WHERE key = ?", (key,)).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_linkage(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO linkage VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
+
+	def linkage_keys(self, prefix: str) -> list[str]:
+		# Keys are hex digests with ASCII prefixes, so a range scan selects the prefix.
+		rows = self.db.execute(
+			"SELECT key FROM linkage WHERE key >= ? AND key < ? ORDER BY key",
+			(prefix, prefix + "\uffff"),
+		).fetchall()
+		return [row[0] for row in rows]
+
+	def evidence(self, key: str) -> dict[str, Any] | None:
+		row = self.db.execute(
+			"SELECT state FROM campaign_evidence WHERE key = ?", (key,)
+		).fetchone()
+		return None if row is None else json.loads(row[0])
+
+	def put_evidence(self, key: str, value: dict[str, Any]) -> None:
+		self.db.execute(
+			"INSERT INTO campaign_evidence VALUES (?, ?) "
+			"ON CONFLICT(key) DO UPDATE SET state=excluded.state",
+			(key, json.dumps(value, allow_nan=False)),
+		)
+
 	def __init__(self, connection: sqlite3.Connection, review_enabled: bool = False) -> None:
 		self.db = connection
 		self.review_enabled = review_enabled
@@ -921,9 +1063,6 @@ class _SQLiteTransaction:
 			),
 		)
 
-	def delete_idempotency(self, account: str, key: str) -> None:
-		self.db.execute("DELETE FROM idempotency WHERE account = ? AND key = ?", (account, key))
-
 	def append_aggregate(self, embedding: Array, account: str, now: float) -> int:
 		self.db.execute(
 			"INSERT INTO aggregate (embedding, account, time) VALUES (?, ?, ?)",
@@ -1003,6 +1142,60 @@ class SQLiteStore:
 			from harness.review import initialize
 
 			initialize(self._db)
+
+	def enable_output_receipts(self) -> None:
+		"""Add the output policy's ledger. Without a policy the file's schema is unchanged."""
+		with self.transaction() as tx:
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS output_receipts ("
+				"key TEXT PRIMARY KEY, account TEXT NOT NULL, "
+				"settled_at REAL NOT NULL, receipt TEXT NOT NULL)"
+			)
+
+	def bind_campaign(self, config_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'campaign_config'").fetchone()
+			if row is not None and row[0] != config_hash:
+				raise ValueError("state store is bound to another campaign config")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta VALUES ('campaign_config', ?)", (config_hash,)
+			)
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS campaign (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
+
+	def bind_linkage(self, config_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'linkage_config'").fetchone()
+			if row is not None and row[0] != config_hash:
+				raise ValueError("state store is bound to another linkage config")
+			tx.db.execute("INSERT OR IGNORE INTO meta VALUES ('linkage_config', ?)", (config_hash,))
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS linkage (key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
+
+	def bind_evidence(self, calibration_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'campaign_evidence'").fetchone()
+			if row is not None and row[0] != calibration_hash:
+				raise ValueError("state store is bound to another campaign evidence calibration")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta VALUES ('campaign_evidence', ?)", (calibration_hash,)
+			)
+			tx.db.execute(
+				"CREATE TABLE IF NOT EXISTS campaign_evidence "
+				"(key TEXT PRIMARY KEY, state TEXT NOT NULL)"
+			)
+
+	def bind_path(self, calibration_hash: str) -> None:
+		with self.transaction() as tx:
+			row = tx.db.execute("SELECT value FROM meta WHERE key = 'path_calibration'").fetchone()
+			if row is not None and row[0] != calibration_hash:
+				raise ValueError("state store is bound to another path calibration")
+			tx.db.execute(
+				"INSERT OR IGNORE INTO meta (key, value) VALUES ('path_calibration', ?)",
+				(calibration_hash,),
+			)
 
 	@contextmanager
 	def transaction(self) -> Iterator[_SQLiteTransaction]:

@@ -16,10 +16,8 @@ from distillation.schemas import GatewayRequest, Message, PromptRecord, PromptSo
 from distillation.tasks import AG_NEWS_PROMPT, GSM8K_EVAL_SUFFIX, SQUAD_PROMPT
 from distillation.workloads import (
 	CLIENT_TYPES,
-	LEGACY_CONCENTRATED_SHARE,
 	assign_types,
 	client_shares,
-	clients,
 	mixed_clients,
 )
 from typer.testing import CliRunner
@@ -117,7 +115,7 @@ def test_mixed_benign_profiles_preserve_domain_identity_and_disclose_realized_mi
 		accounts=10,
 		generalist_share=share,
 		requests_per_account=30,
-		concentrated=LEGACY_CONCENTRATED_SHARE,
+		concentrated=0.4,
 	)
 	by_account: dict[str, list[GatewayRequest]] = defaultdict(list)
 	for row in rows:
@@ -155,7 +153,7 @@ def test_mixed_benign_profiles_preserve_domain_identity_and_disclose_realized_mi
 		accounts=10,
 		generalist_share=share,
 		requests_per_account=30,
-		concentrated=LEGACY_CONCENTRATED_SHARE,
+		concentrated=0.4,
 	)
 
 
@@ -209,19 +207,13 @@ def test_benign_account_lengths_are_heavy_tailed_and_capacity_limited() -> None:
 
 def test_concentrated_share_sets_the_benign_client_mix() -> None:
 	# The v1 equal split is plain round-robin; other shares are met to within one slot.
-	assert assign_types(10, client_shares(LEGACY_CONCENTRATED_SHARE)) == [
-		CLIENT_TYPES[i % 5] for i in range(10)
-	]
+	assert assign_types(10, client_shares(0.4)) == [CLIENT_TYPES[i % 5] for i in range(10)]
 	for share in (0.0, 0.1, 0.4):
 		counts = Counter(assign_types(127, client_shares(share)))
 		for kind, expected in client_shares(share).items():
 			assert abs(counts[kind] - expected * 127) < 1
 	with pytest.raises(ValueError, match="concentrated share"):
 		client_shares(0.9)
-	prompts = [prompt for pool in _pools(100).values() for prompt in pool]
-	broad = clients(prompts, "fitting", concentrated=0.0)
-	assert {r.client_type for r in broad} == {"batch", "bursty", "short"}
-	assert len(broad) == len(prompts)
 
 
 def test_gateway_rejects_unusable_pools_and_impossible_allocations() -> None:
@@ -448,7 +440,7 @@ async def test_live_campaign_charges_failures_and_wakes_future_accounts_when_bud
 			attempt_budget=2,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == calls == 2
+	assert result["attempts"] == calls == 2
 	assert result["failed"] == result["received"] == 1
 	assert result["pending"] == 0
 
@@ -482,7 +474,7 @@ async def test_live_gateway_deadline_includes_waiting_and_pending_http(tmp_path:
 			deadline_seconds=0.02,
 			transport=httpx.MockTransport(respond),
 		)
-	assert result["queries"] == result["deadline"] == 2
+	assert result["attempts"] == result["deadline"] == 2
 	assert result["pending"] == result["received"] == 0
 	assert set(result["termination_by_account"].values()) == {"deadline"}
 

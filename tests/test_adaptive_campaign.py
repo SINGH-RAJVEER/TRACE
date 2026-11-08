@@ -5,7 +5,7 @@ import json
 import time
 from collections import Counter
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -123,7 +123,7 @@ async def test_online_rounds_count_failures_proofs_and_account_limits(
 		variants=manifest["variants"],
 		transport=httpx.MockTransport(respond),
 	)
-	assert calls == result["queries"] == 9
+	assert calls == result["attempts"] == 9
 	assert result["failed"] == 1
 	events = [
 		json.loads(line) for line in (output / "campaign.events.jsonl").read_text().splitlines()
@@ -132,9 +132,9 @@ async def test_online_rounds_count_failures_proofs_and_account_limits(
 	if limit:
 		assert max(Counter(e["account"] for e in attempts).values()) <= limit
 	if limit == 1:
-		assert result["proof_requests"] == 0
+		assert result["proof_attempts"] == 0
 	else:
-		assert result["proof_requests"] > 0
+		assert result["proof_attempts"] > 0
 	rounds = [e for e in events if e["event"] == "selection_round"]
 	assert len(rounds) > 1
 	assert rounds[0]["attempts_spent"] == 0
@@ -219,7 +219,7 @@ async def test_a8_deadline_and_failure_stop(tmp_path: Path) -> None:
 			transport=transport,
 		)
 		assert set(result["termination_by_account"].values()) == {name}
-		assert result["queries"] == (1 if name == "deadline" else MAX_CONSECUTIVE_FAILURES)
+		assert result["attempts"] == (1 if name == "deadline" else MAX_CONSECUTIVE_FAILURES)
 
 
 @pytest.mark.asyncio
@@ -302,7 +302,6 @@ def test_cli_passes_online_contract_to_collection(
 	monkeypatch: pytest.MonkeyPatch,
 	tmp_path: Path,
 ) -> None:
-	from typing import Any
 
 	from distillation import campaign_timing, gateway_campaign, gateway_cli
 	from typer.testing import CliRunner
@@ -334,7 +333,7 @@ def test_cli_passes_online_contract_to_collection(
 	async def collect(**kwargs: Any) -> dict[str, Any]:
 		captured.update(kwargs)
 		kwargs["output"].mkdir()
-		return {"queries": 0}
+		return {"attempts": 0}
 
 	def timing(directory: Path, *, schedule: Path | None) -> dict[str, Any]:
 		assert schedule is None  # Candidate timestamps are not actual scheduled arrivals.
@@ -400,7 +399,7 @@ async def test_alternative_teacher_shares_http_budget_and_records_contract(tmp_p
 	contract = json.loads((output / "contract.json").read_text())
 	assert contract["alternative_teacher"]["share"] == 0.5
 	assert contract["alternative_teacher"]["seed"] == 42
-	assert result["queries"] == len(hosts) == 4
+	assert result["attempts"] == len(hosts) == 4
 	ledger = read_jsonl(output / "ledger.jsonl", LedgerRecord)
 	assert [record.teacher.endpoint.removeprefix("http://") for record in ledger] == hosts
 	assert set(hosts) == {"primary", "alternative"}
@@ -423,12 +422,13 @@ def test_schedule_transforms_are_opt_in_and_declared(option: str) -> None:
 	from distillation.attack_transforms import offline_rewrite, transform_inventory
 
 	rows, _ = campaign_schedule(pools=_pools(5), caps=CAPS, attack="A1", budget=9)
-	kwargs = {
+	options: dict[str, dict[str, Any]] = {
 		"paraphrase": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
 		"user_prefix": {"user_prefix": "Answer briefly."},
 		"assistant_prefill": {"assistant_prefill": "The answer is"},
 		"human_bursts": {"bursts": True},
-	}[option]
+	}
+	kwargs = options[option]
 	transformed, settings = transform_inventory(rows, **kwargs)
 	assert len(transformed) == len(rows)
 	assert settings
@@ -492,7 +492,7 @@ async def test_verifier_and_selective_retry_share_budget(tmp_path: Path) -> None
 		selective_retries=1,
 		transport=httpx.MockTransport(respond),
 	)
-	assert calls == result["queries"] == 2
+	assert calls == result["attempts"] == 2
 	assert result["ledger_records"] == 1
 	contract = json.loads((output / "contract.json").read_text())
 	assert contract["response_selection"]["selective_retries"] == 1
@@ -541,7 +541,7 @@ async def test_session_replay_consumes_shared_budget_without_entering_ledger(
 		variants={"session_replay": {"request_ids": replay_ids, "sha256": "fixture"}},
 		transport=httpx.MockTransport(respond),
 	)
-	assert result["queries"] == 6
+	assert result["attempts"] == 6
 	assert result["ledger_records"] == 4
 	assert (
 		json.loads((output / "contract.json").read_text())["variants"]["session_replay"][
@@ -583,7 +583,7 @@ async def test_batched_requests_charge_once_and_retain_members(tmp_path: Path) -
 		variants={"batching": {"size": 2, "members": members}},
 		transport=httpx.MockTransport(respond),
 	)
-	assert result["queries"] == 1
+	assert result["attempts"] == 1
 	assert result["ledger_records"] == 2
 	assert json.loads((output / "contract.json").read_text())["variants"]["batching"]["size"] == 2
 
@@ -598,12 +598,13 @@ async def test_schedule_variant_contract_and_http_budget(tmp_path: Path, variant
 	rows, _ = campaign_schedule(
 		pools=_pools(3), caps=CAPS, attack="A1", budget=3, interval_seconds=0
 	)
-	settings = {
+	options: dict[str, dict[str, Any]] = {
 		"rewriter": {"rewriter": offline_rewrite, "rewriter_id": "offline-phrases-v1"},
 		"user_prefix": {"user_prefix": "Answer briefly."},
 		"assistant_prefill": {"assistant_prefill": "Answer:"},
 		"arrival_pattern": {"bursts": True},
-	}[variant]
+	}
+	settings = options[variant]
 	rows, declared = transform_inventory(rows, **settings)
 	schedule = tmp_path / "requests.jsonl"
 	write_jsonl(schedule, rows)
@@ -626,7 +627,7 @@ async def test_schedule_variant_contract_and_http_budget(tmp_path: Path, variant
 		variants=declared,
 		transport=httpx.MockTransport(respond),
 	)
-	assert result["queries"] == 1
+	assert result["attempts"] == 1
 	assert (
 		json.loads((output / "contract.json").read_text())["variants"][variant] == declared[variant]
 	)
@@ -667,7 +668,7 @@ async def test_low_confidence_retry_records_scorer_and_spends_budget(tmp_path: P
 		confidence_threshold=0.5,
 		transport=httpx.MockTransport(respond),
 	)
-	assert calls == result["queries"] == 2
+	assert calls == result["attempts"] == 2
 	assert result["ledger_records"] == 1
 	selection = json.loads((output / "contract.json").read_text())["response_selection"]
 	assert selection["confidence_scorer"] == "fixture:confidence"
