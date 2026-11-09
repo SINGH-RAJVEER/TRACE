@@ -895,7 +895,7 @@
 				0.7650098991225734
 			]
 		},
-		"A6/unprotected": {
+		"unprotected": {
 			"role": "student",
 			"model": "Qwen/Qwen3.5-2B-Base",
 			"revision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
@@ -992,9 +992,9 @@
 			"mcnemar_exact_p": 1.6348687421017298e-24,
 			"mcnemar_holm_p": 3.2697374842034594e-23
 		},
-		"base minus A6/unprotected": {
+		"base minus unprotected": {
 			"a": "base",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": -0.21715817694369974,
 			"a_only": 65,
 			"b_only": 227,
@@ -1057,9 +1057,9 @@
 			"mcnemar_exact_p": 6.473733481736755e-09,
 			"mcnemar_holm_p": 7.121106829910431e-08
 		},
-		"teacher minus A6/unprotected": {
+		"teacher minus unprotected": {
 			"a": "teacher",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": 0.09517426273458444,
 			"a_only": 103,
 			"b_only": 32,
@@ -1109,9 +1109,9 @@
 			"mcnemar_exact_p": 0.057163645246601856,
 			"mcnemar_holm_p": 0.45730916197281485
 		},
-		"A2/full minus A6/unprotected": {
+		"A2/full minus unprotected": {
 			"a": "A2/full",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": -0.028150134048257374,
 			"a_only": 56,
 			"b_only": 77,
@@ -1148,9 +1148,9 @@
 			"mcnemar_exact_p": 0.06956519633623019,
 			"mcnemar_holm_p": 0.48695637435361133
 		},
-		"A2/instantaneous minus A6/unprotected": {
+		"A2/instantaneous minus unprotected": {
 			"a": "A2/instantaneous",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": -0.02680965147453083,
 			"a_only": 61,
 			"b_only": 81,
@@ -1174,9 +1174,9 @@
 			"mcnemar_exact_p": 0.017609056867909565,
 			"mcnemar_holm_p": 0.17609056867909564
 		},
-		"A5/full minus A6/unprotected": {
+		"A5/full minus unprotected": {
 			"a": "A5/full",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": -0.03351206434316354,
 			"a_only": 52,
 			"b_only": 77,
@@ -1187,9 +1187,9 @@
 			"mcnemar_exact_p": 0.034186728347739094,
 			"mcnemar_holm_p": 0.30768055512965187
 		},
-		"A5/instantaneous minus A6/unprotected": {
+		"A5/instantaneous minus unprotected": {
 			"a": "A5/instantaneous",
-			"b": "A6/unprotected",
+			"b": "unprotected",
 			"difference": 0.0,
 			"a_only": 65,
 			"b_only": 65,

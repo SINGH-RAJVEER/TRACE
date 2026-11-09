@@ -10,7 +10,7 @@ Validated recorded inference on the same frozen 746-item GSM8K development suite
 | A2/instantaneous | 95 | 528 / 746 | 70.78% | [67.41, 73.93]% |
 | A5/full | 197 | 523 / 746 | 70.11% | [66.73, 73.28]% |
 | A5/instantaneous | 98 | 548 / 746 | 73.46% | [70.18, 76.50]% |
-| A6/unprotected | 1473 | 548 / 746 | 73.46% | [70.18, 76.50]% |
+| unprotected | 1473 | 548 / 746 | 73.46% | [70.18, 76.50]% |
 
 ## Scope and uncertainty
 

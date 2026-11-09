@@ -158,7 +158,7 @@ def students():
 	data = json.loads((HERE / "students.json").read_text())
 	rows = [
 		("teacher", "Teacher", NEUTRAL),
-		("A6/unprotected end", "A6, no control, 1,473", SLOT[1]),
+		("unprotected end", "A6, no control, 1,473", SLOT[1]),
 		("A5/full end", "A5, full policy, 197", SLOT[0]),
 		("base", "Untrained base", NEUTRAL),
 	]

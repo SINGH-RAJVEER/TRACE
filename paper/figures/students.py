@@ -23,15 +23,15 @@ CELLS = {
 	"base": "base-dev.json",
 	"teacher": "teacher-dev.json",
 	"A5/full end": "plan-A5-full/scores/end-s42.json",
-	"A6/unprotected end": "plan-A6-unprotected/scores/end-s42.json",
+	"unprotected end": "plan-A6-unprotected/scores/end-s42.json",
 }
-PLANS = {"A5/full": "plan-A5-full/plan.json", "A6/unprotected": "plan-A6-unprotected/plan.json"}
+PLANS = {"A5/full": "plan-A5-full/plan.json", "unprotected": "plan-A6-unprotected/plan.json"}
 PAIRS = [
-	("A6/unprotected end", "A5/full end"),
+	("unprotected end", "A5/full end"),
 	("A5/full end", "base"),
-	("A6/unprotected end", "base"),
+	("unprotected end", "base"),
 	("teacher", "A5/full end"),
-	("teacher", "A6/unprotected end"),
+	("teacher", "unprotected end"),
 ]
 Z = 1.959964
 
@@ -99,7 +99,7 @@ def main():
 	gap = data["cells"]["teacher"]["accuracy"] - data["cells"]["base"]["accuracy"]
 	data["gap_closed"] = {
 		name: (data["cells"][name]["accuracy"] - data["cells"]["base"]["accuracy"]) / gap
-		for name in ("A5/full end", "A6/unprotected end")
+		for name in ("A5/full end", "unprotected end")
 	}
 	OUT.write_text(json.dumps(data, indent="\t") + "\n")
 
