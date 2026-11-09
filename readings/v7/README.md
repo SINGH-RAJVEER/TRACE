@@ -66,6 +66,6 @@ Not exported: client credentials, harness state databases, the deception key, vL
 
 ## Unprotected run
 
-`campaigns/unprotected/` is the unprotected run, taken from the A6 schedule (moved from `campaigns/A6/unprotected/`; its contents are unchanged). It was collected through the quota arm, whose quota never fired on A6, so its files match `campaigns/A6/quota/`; `SOURCE.md` there gives the details.
+`campaigns/A6/unprotected/` is the unprotected A6 run. It was collected through the quota arm, whose quota never fired on A6, so its files match `campaigns/A6/quota/`; `SOURCE.md` there gives the details.
 
 `campaigns/A6/unprotected-v3-archive/` is a second unprotected A6 ledger from the v3 run on the `archive` branch, with a different teacher and corpus build; `SOURCE.md` there records its origin.
