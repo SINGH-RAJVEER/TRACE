@@ -23,9 +23,9 @@ CELLS = {
 	"base": "base-dev.json",
 	"teacher": "teacher-dev.json",
 	"A5/full end": "plan-A5-full/scores/end-s42.json",
-	"unprotected end": "plan-A6-unprotected/scores/end-s42.json",
+	"unprotected end": "plan-unprotected/scores/end-s42.json",
 }
-PLANS = {"A5/full": "plan-A5-full/plan.json", "unprotected": "plan-A6-unprotected/plan.json"}
+PLANS = {"A5/full": "plan-A5-full/plan.json", "unprotected": "plan-unprotected/plan.json"}
 PAIRS = [
 	("unprotected end", "A5/full end"),
 	("A5/full end", "base"),
