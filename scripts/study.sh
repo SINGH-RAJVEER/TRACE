@@ -41,6 +41,17 @@ BUDGET=${BUDGET:-6000}
 PARTITION=${PARTITION:-exploratory}
 ATTACKS=${ATTACKS:-A1 A2 A3 A5 A6 A7}
 ARMS=${ARMS:-full instantaneous quota}
+# The unprotected reading is taken last, after every protected arm and utility run: the same
+# schedule served with no intervention. Its student is trained and benchmarked after that.
+UNPROTECTED=${UNPROTECTED:-1}
+UNPROTECTED_ATTACK=${UNPROTECTED_ATTACK:-A6}
+STUDENT_TRAIN=${STUDENT_TRAIN:-1}
+STUDENT_TARGET_ACCURACY=${STUDENT_TARGET_ACCURACY:-}
+STUDENT_SUITE=${STUDENT_SUITE:-data/math/development-suite.json}
+STUDENT_SEED=${STUDENT_SEED:-42}
+# Student weights stay outside the run directory so the readings export never copies them.
+STUDENT_DIR=${STUDENT_ROOT:-artifacts/students}/$RUN_ID/unprotected
+GPU_LOCK=${GPU_LOCK:-${XDG_RUNTIME_DIR:-$ROOT/artifacts}/trace-gpu.lock}
 DOMAINS=${DOMAINS:-ag_news,squad,gsm8k,coding}
 BENIGN_ACCOUNTS=${BENIGN_ACCOUNTS:-125}
 WORKLOAD_VERSION=${WORKLOAD_VERSION:-gateway-clients-v3}
@@ -140,6 +151,15 @@ if [ "${#CAMPAIGN_ARMS[@]}" -gt 0 ]; then
 	if [[ " ${CAMPAIGN_ARMS[*]} " == *" campaign-throttle "* ]] \
 		&& [ "${HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT:-}" != true ]; then
 		finish 2 "campaign-throttle requires HARNESS_CAMPAIGN_ALLOW_UNQUALIFIED_ENFORCEMENT=true"
+	fi
+fi
+
+# The unprotected reading reuses one frozen schedule, and its student needs a declared target.
+if [ "$UNPROTECTED" = 1 ]; then
+	[[ " $ATTACKS " == *" $UNPROTECTED_ATTACK "* ]] \
+		|| finish 2 "UNPROTECTED_ATTACK $UNPROTECTED_ATTACK must be one of ATTACKS [$ATTACKS]"
+	if [ "$STUDENT_TRAIN" = 1 ] && [ -z "$STUDENT_TARGET_ACCURACY" ]; then
+		finish 2 "the unprotected student needs STUDENT_TARGET_ACCURACY in (0, 1], or STUDENT_TRAIN=0"
 	fi
 fi
 
@@ -361,6 +381,7 @@ start_harness() { # ARM DIR SCHEDULE_REQUESTS
 		full) policy=mmd ;;
 		instantaneous) policy=mmd accumulator=instantaneous ;;
 		quota | rate | allow) policy=$arm ;;
+		unprotected) policy=allow ;;
 		campaign-observe | campaign-throttle)
 			# The product launcher, with this arm's own new state under its fresh directory.
 			policy=allow
@@ -474,6 +495,58 @@ if [ "$UTILITY" = 1 ]; then
 		stop_harness
 		[ "$code" -eq 0 ] || finish 1 "utility failed for $arm; see $LOGS/$name.log"
 	done
+fi
+
+# 9. The unprotected reading, last: the same schedule served with no intervention at all.
+if [ "$UNPROTECTED" = 1 ]; then
+	attack=$UNPROTECTED_ATTACK
+	dir=$RUN/campaigns/$attack/unprotected
+	name=campaign-$attack-unprotected
+	if [ -f "$STEPS/$name.done" ]; then
+		printf '%s\t%s\t%s\n' "$attack" unprotected "$(cat "$dir/outcome")" >> "$RUN/summary.tsv"
+	else
+		[ ! -e "$dir/campaign" ] || finish 2 "partial campaign in $dir; preserve it, then rerun with a new RUN_ID"
+		rm -rf "$dir"
+		mkdir -p "$dir"
+		start_harness unprotected "$dir" "$RUN/schedules/$attack/requests.jsonl" \
+			|| finish 1 "harness did not start for $attack/unprotected; see $dir/harness.log"
+		note "campaign $attack/unprotected started"
+		step "$name" "${UV[@]}" distill gateway collect --policy allow \
+			--input-dir "$RUN/schedules/$attack" --output "$dir/campaign" \
+			--teacher-url "http://127.0.0.1:$HARNESS_RUN_PORT" --keys-file "$dir/credentials.json" \
+			--decision-log "$dir/decisions.jsonl" --concurrency "$CONCURRENCY"
+		code=$?
+		stop_harness
+		[ "$code" -eq 0 ] || finish 1 "campaign $attack/unprotected failed; see $LOGS/$name.log"
+		"${UV[@]}" distill gateway evaluation-report \
+			--events "$dir/campaign/campaign.events.jsonl" > "$dir/evaluation-report.json" \
+			2>> "$LOGS/$name.log"
+		"${TOOLS[@]}" summary "$dir/campaign/campaign.json" > "$dir/outcome"
+		note "campaign $attack/unprotected done: $(cat "$dir/outcome")"
+		printf '%s\t%s\t%s\n' "$attack" unprotected "$(cat "$dir/outcome")" >> "$RUN/summary.tsv"
+	fi
+
+	# 10. Train and benchmark the unprotected student on that reading. The teacher and vLLM are
+	# stopped first so the GPU is free; training holds the shared GPU lock.
+	if [ "$STUDENT_TRAIN" = 1 ]; then
+		cleanup
+		STUDENT_UV=(uv run --frozen --extra eval --extra train)
+		fresh student-export "$STUDENT_DIR/export"
+		step student-export "${UV[@]}" distill checkpoints export \
+			--campaign "$dir/campaign" --output "$STUDENT_DIR/export" \
+			|| finish 1 "unprotected checkpoint export failed; see $LOGS/student-export.log"
+		fresh student-plan "$STUDENT_DIR/plan"
+		step student-plan "${UV[@]}" distill checkpoints plan --export "$STUDENT_DIR/export" \
+			--suite "$STUDENT_SUITE" --output "$STUDENT_DIR/plan" \
+			--target-accuracy "$STUDENT_TARGET_ACCURACY" --seed "$STUDENT_SEED" \
+			|| finish 1 "unprotected student plan failed; see $LOGS/student-plan.log"
+		step student-execute flock "$GPU_LOCK" "${STUDENT_UV[@]}" distill checkpoints execute \
+			--output "$STUDENT_DIR/plan" \
+			|| finish 1 "unprotected student training failed; see $LOGS/student-execute.log"
+		step student-summary "${UV[@]}" distill checkpoints summary --output "$STUDENT_DIR/plan" \
+			|| finish 1 "unprotected student summary failed; see $LOGS/student-summary.log"
+		note "unprotected student benchmark in $STUDENT_DIR/plan"
+	fi
 fi
 
 note "summary:"

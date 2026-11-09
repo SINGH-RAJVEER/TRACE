@@ -250,3 +250,11 @@ def test_study_campaign_arms_refuse_missing_declarations(tmp_path: Path) -> None
 		assert message in result.stdout + result.stderr
 		# Refused before provenance and setup, so no later step ran.
 		assert not list((tmp_path / "runs" / "refused" / "provenance").iterdir())
+
+
+def test_study_unprotected_student_needs_a_declared_target(tmp_path: Path) -> None:
+	result = _study_refusal(tmp_path)
+	assert result.returncode == 2, result.stdout + result.stderr
+	assert "STUDENT_TARGET_ACCURACY" in result.stdout + result.stderr
+	result = _study_refusal(tmp_path, ATTACKS="A1")
+	assert result.returncode == 2 and "UNPROTECTED_ATTACK" in result.stdout + result.stderr
