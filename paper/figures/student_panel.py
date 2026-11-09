@@ -30,7 +30,7 @@ MODELS = (
 		"plan-A5-instantaneous",
 		"trace-v7-a5-instantaneous-s42",
 	),
-	("unprotected", "v7", "plan-unprotected", "trace-v7-a6-unprotected-s42"),
+	("unprotected", "v7", "plan-unprotected", "trace-v7-unprotected-s42"),
 )
 LIMITS = (
 	"Recorded inference is reused; this report does not perform a fresh inference run.",
