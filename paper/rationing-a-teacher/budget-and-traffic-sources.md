@@ -1,6 +1,6 @@
 # Campaign budget and traffic mix: evidence and sources
 
-Notes for the manuscript, compiled 2026-11-02. Repository figures come from the v3 readings and the v4 audit ([REPORT.md](../readings/v4/analysis/REPORT.md)). External figures are quoted from the cited sources. Where a source does not report a quantity, these notes say so.
+Notes for the manuscript, compiled 2026-11-02. Repository figures come from the v3 readings and the v4 audit ([REPORT.md](../../readings/v4/analysis/REPORT.md)). External figures are quoted from the cited sources. Where a source does not report a quantity, these notes say so.
 
 ## Effectiveness of the 6,000-prompt A1 campaign
 

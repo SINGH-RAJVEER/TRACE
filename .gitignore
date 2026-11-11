@@ -19,7 +19,7 @@ artifacts/
 # The frozen v4 method checks write here by default.
 outputs/
 data/
-/paper/main.pdf
+/paper/*/main.pdf
 
 # Environment files
 .env
