@@ -1,0 +1,6 @@
+24
+               total        used        free      shared  buff/cache   available
+Mem:              31           2          19           1          10          28
+Swap:              8           0           7
+scripts/start.sh: line 172: nvidia-smi: command not found
+no nvidia-smi

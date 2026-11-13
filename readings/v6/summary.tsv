@@ -1,0 +1,19 @@
+attack	arm	outcome
+A1	full	gate refused: attacker not escalated beyond held-out benign accounts
+A1	instantaneous	gate refused: attacker not escalated beyond held-out benign accounts
+A1	quota	received 1215, blocked 4785, challenge 0, failed 0, deadline 0, released_tokens 150442, 1.67 h
+A2	full	received 1699, blocked 4201, challenge 100, failed 0, deadline 0, released_tokens 73774, 1.64 h
+A2	instantaneous	received 1599, blocked 4401, challenge 0, failed 0, deadline 0, released_tokens 37890, 1.67 h
+A2	quota	received 1215, blocked 4785, challenge 0, failed 0, deadline 0, released_tokens 2796, 1.67 h
+A3	full	gate refused: attacker not escalated beyond held-out benign accounts
+A3	instantaneous	gate refused: attacker not escalated beyond held-out benign accounts
+A3	quota	received 1215, blocked 4785, challenge 0, failed 0, deadline 0, released_tokens 201361, 1.89 h
+A5	full	received 4619, blocked 1281, challenge 100, failed 0, deadline 0, released_tokens 282232, 1.64 h
+A5	instantaneous	received 4599, blocked 1401, challenge 0, failed 0, deadline 0, released_tokens 252516, 1.67 h
+A5	quota	received 5430, blocked 570, challenge 0, failed 0, deadline 0, released_tokens 642418, 4.02 h
+A6	full	gate refused: attacker not escalated beyond held-out benign accounts
+A6	instantaneous	gate refused: attacker not escalated beyond held-out benign accounts
+A6	quota	received 6000, blocked 0, challenge 0, failed 0, deadline 0, released_tokens 744962, 1.67 h
+A7	full	gate refused: attacker not escalated beyond held-out benign accounts
+A7	instantaneous	gate refused: attacker not escalated beyond held-out benign accounts
+A7	quota	received 1215, blocked 4785, challenge 0, failed 0, deadline 0, released_tokens 235535, 2.21 h
