@@ -12,6 +12,8 @@ Enter `devenv shell`, copy `.env.example` to `.env` and run `just setup`. Config
 
 Per-principal output watermarking is enabled by default. On first configured startup, the teacher generates a private key at `artifacts/teacher.watermark.key` and reuses it on restarts. Override the path with `TEACHER_WATERMARK_KEY_FILE`; `watermark.key` and `*.watermark.key` are gitignored. Back up the key securely for historical detection. Set `HARNESS_WATERMARK=false` explicitly to opt out. Existing state databases from unwatermarked runs need replacing, because watermarking changes the policy revision. See [watermark setup and limitations](docs/watermark.md).
 
+The context-dependent KGW watermark is now maintained in `packages/watermark` and integrates directly with vLLM. Enable it explicitly with `TEACHER_WATERMARK_SCHEME=kgw-v1` using the [pinned runtime setup and detection guide](docs/watermark-vllm.md). Existing deployments keep `unigram-v1` unless selected otherwise; KGW quality and student inheritance are not yet measured.
+
 ## Run
 
 Create a fresh campaign configuration, configure its durable state and validate the launch:
