@@ -2,38 +2,37 @@
 
 ## Versioned inventory
 
-The older readings were restored from `origin/archive` at `443e5d63`.
-Original dated folder names are retained: their version numbers belong to the
-original study and are distinct from the later short-name readings.
+The top-level run folders are `v0` through `v7`. Each contains its related
+narratives, data and historical snapshots. Cross-version source material lives
+under [shared](shared/), rather than being attributed to an arbitrary run.
+
+The older readings were restored from `origin/archive` at `443e5d63`. Their
+version numbers belong to the original study and are distinct from the later
+short-name readings. `original-study/` and `legacy-20261031/` subfolders keep those
+records separate from later runs; they are not additional experimental runs.
 
 | Folder | Record |
 |---|---|
-| [v0-2026-10-16-start](v0-2026-10-16-start/) | Original teacher collection and traffic measurements |
-| [v1-2026-10-17-start-v2](v1-2026-10-17-start-v2/) | Original detector calibration and benign replay |
-| [v2-2026-10-21-gateway-bounded-v1](v2-2026-10-21-gateway-bounded-v1/) | Bounded gateway study and development sweep |
-| [v3-2026-10-29-gateway-replay](v3-2026-10-29-gateway-replay/) | Replay, interrupted campaigns, student scores and adapters |
-| [v4-2026-10-29-kaggle-training](v4-2026-10-29-kaggle-training/) | Kaggle student training |
-| [v5-2026-10-30-undefended-a2-student](v5-2026-10-30-undefended-a2-student/) | Original undefended A2 student |
-| [v3](v3/) | Reorganized frozen workloads and policy replay |
-| [v4](v4/) | Detection audit, analysis and evidence |
-| [v5-development-notes](v5-development-notes/) | Historical development observations, not confirmation |
-| [v5](v5/) | Complete v5 account-control run, including raw data and corpus |
-| [v6](v6/) | Complete v6 account-control run |
-| [v7](v7/) | Later study readings; unchanged by the archive restoration |
-| [raw-2026-11-02](raw-2026-11-02/) | Dated raw-file archive with its original path manifest |
-| [legacy-20261031](legacy-20261031/) | Earlier `legacy/readings` snapshot, preserved separately without overwriting later readings |
+| [v0](v0/) | Original teacher collection, traffic measurements and attributable raw files |
+| [v1](v1/) | Original detector calibration, benign replay and attributable raw files |
+| [v2](v2/) | Original bounded gateway study and development sweep |
+| [v3](v3/) | Frozen workloads and policy replay; original replay, student scores and adapters in subfolders |
+| [v4](v4/) | Detection audit and evidence; original Kaggle training in subfolders |
+| [v5](v5/) | Account-control run; original undefended A2 student, raw files and development notes in subfolders |
+| [v6](v6/) | Account-control run; earlier unstarted attempt under `raw-2026-11-02/` |
+| [v7](v7/) | Later study readings |
+| [shared](shared/) | Cross-version raw files, demo outputs, historical overview and relocation map |
 
 Large data, model weights, training state and databases are stored in Git LFS.
 Narratives and small text metadata are stored directly in Git. After cloning,
 run `git lfs pull --include="readings/**"` to download the reading objects.
-The existing [results index](index.tsv) is unchanged; duplicate historical
-snapshots are not additional experimental runs.
+The [results index](index.tsv) remains at this level and is unchanged.
 
-The legacy snapshot and original narratives retain their historical wording and
-relative links, including references to old code and files outside `readings/`.
-That code, the separate top-level `corpora/`, research papers and legacy build
-environments were not imported. Credentials and files omitted by the original
-archive remain omitted; see the raw-file manifest for its exclusions.
+Historical narratives retain their wording; links to relocated reading files
+are updated. Recorded run-machine paths and manifests remain historical provenance,
+not current checkout paths. See [the relocation map](shared/relocations.tsv).
+References to old code and files outside `readings/` can still be unavailable.
+Credentials and files omitted by the original archive remain omitted.
 
 ## Original study narrative
 
@@ -50,12 +49,12 @@ copies are now versioned here, including the dated raw-file archive below.
 
 | Run | Date | Run directory | Code | Protocol | Stopped at | What it measured |
 |---|---|---|---|---|---|---|
-| [v0](v0-2026-10-16-start/) | 2026-10-16 | `artifacts/start` | not recorded | pre-`task-study-v2` (AG News, SQuAD, GSM8K) | after the harness traffic `before` phase | undefended teacher collection, teacher test-suite benchmarks, unprotected harness traffic |
-| [v1](v1-2026-10-17-start-v2/) | 2026-10-17 | `artifacts/start-v2` | `866ade6` | `task-study-v2` (AG News, SQuAD) | undefended collection: `collect-protected` rejected `--teacher-url` | MMD detector calibration, benign holdout replay of three defenses, single-account attacker detectability |
-| [v2](v2-2026-10-21-gateway-bounded-v1/) | 2026-10-21 → (running) | `artifacts/gateway-bounded-v1` | `4bb6381`, resumed on `3a50a1a` | gateway study (AG News, SQuAD, GSM8K, coding; A1, A2, A5, A7; 3 seeds) | interim: all 12 undefended campaigns and the development sweep done; protected campaigns pending | undefended ledgers (74,000 responses, committed), development transfer gate |
-| [v3](v3-2026-10-29-gateway-replay/) | 2026-10-29 → 2026-11-01 | `artifacts/gateway-bounded-v1` | `3599d6e` plus collection-order change; resumed on `93c9f1a`; A2 attempt 4 on `c102078` | continuation of v2, narrowed on 2026-10-30 to seed 42, `full` harness, A1/A2/A5/A6/A7 | interim: A1 protected campaigns done (`full`, `instantaneous`, `quota`); A6 undefended ledger collected; four A2 attempts interrupted (the fourth stopped on 2026-10-31 at 3,494 submissions); scope narrowed to A7 on 2026-10-31; A5 and A6 dropped; A7 `full` campaign done (L0 throughout); A1 students scored; run stopped 2026-11-01 08:10 UTC before scoring A7 students (benchmark leak in A7 training set) | benign policy replay, A1 protected ledgers and decisions, partial A2 protected traces, A6 undefended ledger, live benign utility per defense, development recipe selection with adapters (LFS), calibration, workloads, schedules, evaluation-method checks, A7 protected ledger and decisions, A1 teacher/gold/undefended/`full`/matched-control student scores and adapters, A7 teacher scores and undefended adapter (LFS) |
-| [v4](v4-2026-10-29-kaggle-training/) | 2026-10-29 | Kaggle `trace-training/undefended` | `1e5b3d8` (notebook) | LoRA student training, FP16, three epochs | training completed | 4,448 training examples, 834 optimizer steps; no validation |
-| [v5](v5-2026-10-30-undefended-a2-student/) | 2026-10-30 | `artifacts/undefended-a2-benchmark` | `e53503f` | pre-defense shared student on v2's A2/s42 undefended ledger; development-selected recipe (1e-4, three epochs), BF16 LoRA | training completed; held-out evaluation pending | 4,816 accepted training examples (GSM8K 367 of 1,500), 903 optimizer steps; adapter in LFS |
+| [v0](v0/original-study/) | 2026-10-16 | `artifacts/start` | not recorded | pre-`task-study-v2` (AG News, SQuAD, GSM8K) | after the harness traffic `before` phase | undefended teacher collection, teacher test-suite benchmarks, unprotected harness traffic |
+| [v1](v1/original-study/) | 2026-10-17 | `artifacts/start-v2` | `866ade6` | `task-study-v2` (AG News, SQuAD) | undefended collection: `collect-protected` rejected `--teacher-url` | MMD detector calibration, benign holdout replay of three defenses, single-account attacker detectability |
+| [v2](v2/original-study/) | 2026-10-21 → (running) | `artifacts/gateway-bounded-v1` | `4bb6381`, resumed on `3a50a1a` | gateway study (AG News, SQuAD, GSM8K, coding; A1, A2, A5, A7; 3 seeds) | interim: all 12 undefended campaigns and the development sweep done; protected campaigns pending | undefended ledgers (74,000 responses, committed), development transfer gate |
+| [v3](v3/original-study/) | 2026-10-29 → 2026-11-01 | `artifacts/gateway-bounded-v1` | `3599d6e` plus collection-order change; resumed on `93c9f1a`; A2 attempt 4 on `c102078` | continuation of v2, narrowed on 2026-10-30 to seed 42, `full` harness, A1/A2/A5/A6/A7 | interim: A1 protected campaigns done (`full`, `instantaneous`, `quota`); A6 undefended ledger collected; four A2 attempts interrupted (the fourth stopped on 2026-10-31 at 3,494 submissions); scope narrowed to A7 on 2026-10-31; A5 and A6 dropped; A7 `full` campaign done (L0 throughout); A1 students scored; run stopped 2026-11-01 08:10 UTC before scoring A7 students (benchmark leak in A7 training set) | benign policy replay, A1 protected ledgers and decisions, partial A2 protected traces, A6 undefended ledger, live benign utility per defense, development recipe selection with adapters (LFS), calibration, workloads, schedules, evaluation-method checks, A7 protected ledger and decisions, A1 teacher/gold/undefended/`full`/matched-control student scores and adapters, A7 teacher scores and undefended adapter (LFS) |
+| [v4](v4/original-study/) | 2026-10-29 | Kaggle `trace-training/undefended` | `1e5b3d8` (notebook) | LoRA student training, FP16, three epochs | training completed | 4,448 training examples, 834 optimizer steps; no validation |
+| [v5](v5/original-study/) | 2026-10-30 | `artifacts/undefended-a2-benchmark` | `e53503f` | pre-defense shared student on v2's A2/s42 undefended ledger; development-selected recipe (1e-4, three epochs), BF16 LoRA | training completed; held-out evaluation pending | 4,816 accepted training examples (GSM8K 367 of 1,500), 903 optimizer steps; adapter in LFS |
 
 ## Results so far
 
@@ -77,8 +76,8 @@ The v4 run trained a student adapter, but has no held-out evaluation, so there a
 
 ## Raw run files
 
-[`raw-2026-11-02/`](raw-2026-11-02/) holds, in Git LFS and under their original paths, every file from the run machine's `artifacts/`, `data/` and `outputs/` that no branch held on 2026-11-02. Its `MANIFEST.tsv` maps all 1,585 files to where each is stored, so the large per-request files listed in the run READMEs are now versioned too. Intermediate training-checkpoint state and gateway credentials are not committed.
+The [raw-file overview](shared/raw-2026-11-02/) describes the 2026-11-02 snapshot of the run machine's `artifacts/`, `data/` and `outputs/`. Version-specific files now live under `vN/raw-2026-11-02/`; cross-version material remains under `shared/raw-2026-11-02/`. The original `MANIFEST.tsv` records all 1,585 source files and their historical storage locations; use the [relocation map](shared/relocations.tsv) for current paths. Intermediate training-checkpoint state and gateway credentials are not committed.
 
 ## Adding a run
 
-Name the directory `vN-YYYY-MM-DD-<run-dir name>`, increasing `N`, and add a row to both tables above. Record every reading the run produced, including partial and failed stages, with the code commit, the full protocol, a UTC timeline, the stop cause, and SHA-256 digests of the source artifacts. Report escalation rates over scored accounts as well as over all accounts, and label simulated or demo outputs (such as `outputs/tasks-demo`, which `just benchmark-demo` creates) as not measured.
+Keep related material under its `vN/` directory, using descriptive subfolders for distinct attempts or historical snapshots. Add a new version only for a new study version. Record every reading the run produced, including partial and failed stages, with the code commit, the full protocol, a UTC timeline, the stop cause, and SHA-256 digests of the source artifacts. Report escalation rates over scored accounts as well as over all accounts, and label simulated or demo outputs (such as `outputs/tasks-demo`, which `just benchmark-demo` creates) as not measured.

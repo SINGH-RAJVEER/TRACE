@@ -1,5 +1,10 @@
 # v5: run v5-20261102
 
+Related records: [original undefended A2 student](original-study/),
+[earlier snapshot](legacy-20261031/v5-2026-10-30-undefended-a2-student/),
+[raw checkpoint metadata](raw-2026-11-02/), and
+[development notes](development-notes/). They remain distinct from this run.
+
 **Status:** complete, exit 0. **Code:** `eac63e64ae4e1a2294d161b7b8c6bfcb579ea888` plus the `wait_http` fix recorded in `provenance/20261102T152538Z/git-diff.patch`. **Steps:** 2026-11-02T12:54:20Z to 2026-11-03T15:13:00Z UTC.
 
 This is the first `scripts/start.sh` run on the rebuilt corpus. It uses fresh benign roles (gateway-clients-v3, 125 accounts per role), the sealed exploratory attacker partition, one seed, and three arms per attack. No setting was tuned on its results. A student was not trained on these responses, so the reading measures what each control released, not what a student learned from it.

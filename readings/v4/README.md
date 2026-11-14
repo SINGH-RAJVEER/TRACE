@@ -1,5 +1,9 @@
 # v4: frozen gateway MMD audit
 
+Related records: [original Kaggle training](original-study/) and
+[its earlier snapshot](legacy-20261031/v4-2026-10-29-kaggle-training/).
+Their original-study numbering does not identify this audit as the same run.
+
 **Date:** 2026-10-30; independently replayed on 2026-10-31.
 
 This offline audit examines the [v3 gateway observations](../v3/) and explains why the frozen MMD policy did not restrict the A1 extraction campaign. Replaying the recorded calibration reproduced all 60 completed-window p-values for each A1 MMD arm and all 15 in the interrupted A2 arm. The full MMD policy released all 6,000 A1 responses and stayed at L0. These are historical results for one study, not measurements of the current deployment.

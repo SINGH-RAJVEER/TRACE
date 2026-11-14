@@ -1,6 +1,6 @@
 # v5: undefended A2 student, before the defense stage
 
-This run trains one shared student on every usable response from the completed undefended A2 campaign of the bounded gateway study ([v2](../v2-2026-10-21-gateway-bounded-v1/), seed 42, 6,000 submissions). It is the pre-defense reference: what an attacker learns from the A2 ledger when no harness intervenes. Training finished on 2026-10-30. Held-out evaluation against the base student is pending, so this run has no measured distillation gain yet.
+This run trains one shared student on every usable response from the completed undefended A2 campaign of the bounded gateway study ([v2](../../../v2/legacy-20261031/v2-2026-10-21-gateway-bounded-v1/), seed 42, 6,000 submissions). It is the pre-defense reference: what an attacker learns from the A2 ledger when no harness intervenes. Training finished on 2026-10-30. Held-out evaluation against the base student is pending, so this run has no measured distillation gain yet.
 
 ## Inputs
 
@@ -20,7 +20,7 @@ Usability review (`task-usability-v1`, no gold labels) accepted 4,816 responses 
 ## Training
 
 - Base model `Qwen/Qwen3.5-2B-Base`, revision `b1485b2fa6dfa1287294f269f5fb618e03d52d7c`, BF16 LoRA (rank 16, alpha 32, dropout 0.05, all linear modules), 2,048-token limit, effective batch 16, seed 42.
-- Recipe: learning rate 1e-4, three epochs, the recipe selected on development data in [v3](../v3-2026-10-29-gateway-replay/).
+- Recipe: learning rate 1e-4, three epochs, the recipe selected on development data in [v3](../../../v3/legacy-20261031/v3-2026-10-29-gateway-replay/).
 - Dataset: 4,816 rows, SHA-256 `ec0db543bbd84f33a40e40ca95f05cd0f17054c6c9bde1ba41bb02452447899c`. Prompts `8a0f9779…8d67`, reviews `c1579138…72f5`.
 - 903 optimizer steps in 3,303 s on one RTX 4000 Ada (20 GB, WSL2, driver 596.51, CUDA 13.0, Python 3.14.8). Final mean training loss 0.1218; last logged step loss 0.0534, mean token accuracy 0.9876. Validation was disabled, so these are training-set figures, not held-out results.
 - Code: checkout `e53503f`; `c64c4f0` added only a document. The training manifest does not record a code revision.
@@ -29,7 +29,7 @@ Usability review (`task-usability-v1`, no gold labels) accepted 4,816 responses 
 
 ## Files
 
-`adapter/` holds the final adapter, tokenizer files, chat template, and the training manifest. Intermediate checkpoints and optimizer state are not included. `train.toml`, `provenance.json`, `train.manifest.json` and `reviews.summary.json` are the run's configuration and data summaries; `training.log` is the training output. Weights, `training_args.bin`, `tokenizer.json`, and the log are stored with Git LFS. `train.jsonl` (the 4,816 training rows), `prompts.jsonl` (the 6,000 prompts) and `reviews.jsonl` (per-response usability reviews) are included in Git LFS; the ledger they derive from is committed with v2.
+`adapter/` holds the final adapter, tokenizer files, chat template, and the training manifest. Intermediate checkpoints and optimizer state are not included. `train.toml`, `provenance.json`, `train.manifest.json` and `reviews.summary.json` are the run's configuration and data summaries; `training.log` is the training output. Weights, `training_args.bin`, `tokenizer.json`, and the log are stored with Git LFS. The training rows, prompts and per-response reviews stay on the run machine under `artifacts/undefended-a2-benchmark/`; the ledger they derive from is committed with v2.
 
 ## Limitations
 

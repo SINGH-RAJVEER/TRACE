@@ -1,6 +1,6 @@
 # v3: harness-protected campaigns on the bounded gateway study (from 2026-10-29)
 
-This is the continuation of the shared gateway study documented in [v2](../v2-2026-10-21-gateway-bounded-v1/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: protected campaigns are complete for A1 and A7, students are trained and scored for A1 only (see [A1 students](#a1-students)), and the run stopped on 2026-11-01 before scoring the A7 students (see [Run stop on 2026-11-01](#run-stop-on-2026-11-01)).
+This is the continuation of the shared gateway study documented in [v2](../../v2/original-study/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: protected campaigns are complete for A1 and A7, students are trained and scored for A1 only (see [A1 students](#a1-students)), and the run stopped on 2026-11-01 before scoring the A7 students (see [Run stop on 2026-11-01](#run-stop-on-2026-11-01)).
 
 ## Scope change on 2026-10-30
 
@@ -44,7 +44,7 @@ A protected campaign cannot resume after an interruption, because its harness st
 | Attempt | Directory | UTC window | Submissions decided | Responses released | GSM8K responses at 256-token cap | Scored windows (min p) | Stop cause |
 |---|---|---|---:|---:|---:|---:|---|
 | 1 | `full.interrupted-2026-10-30` | 10-30 05:02–05:32 | 1,537 | 1,536 (AG News 1,500, GSM8K 36) | 28 | 15 (0.896) | old runner stopped for the scope change above |
-| 2 | `full.interrupted-2026-10-30-2` | 10-30 08:45–10:58 | 2,223 | 2,222 (AG News 1,500, GSM8K 722) | 532 | 22 (0.327) | interrupted (SIGINT) to free the GPU for the undefended A2 student ([v5](../v5-2026-10-30-undefended-a2-student/)) |
+| 2 | `full.interrupted-2026-10-30-2` | 10-30 08:45–10:58 | 2,223 | 2,222 (AG News 1,500, GSM8K 722) | 532 | 22 (0.327) | interrupted (SIGINT) to free the GPU for the undefended A2 student ([v5](../../v5/original-study/)) |
 | 3 | `full.interrupted-2026-10-30-3` | 10-30 12:15–15:05 | 2,481 | 2,480 (AG News 1,500, GSM8K 980) | 724 | 24 (0.327) | killed with the agent session that launched it (see below) |
 | 4 | `full.interrupted-2026-10-31-4` | 10-31 07:29–12:10 | 3,494 | 3,493 (AG News 1,500, GSM8K 1,500, coding 493) | 1,117 | 34 (0.322) | stopped on request to run A7 directly (see below) |
 
@@ -72,7 +72,7 @@ Before any protected collection, the run trained six shared students (Qwen3.5-2B
 | lr 2e-4, 2 epochs | 85.0 | 80.1 | 27.9 | 63.2 | 3.125 |
 | lr 2e-4, 3 epochs | 83.2 | 80.2 | 32.2 | 63.4 | 2.75 |
 
-On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/development/). Each trial directory also holds its prompt inventory (`prompts.jsonl`) and per-response usability reviews (`reviews.jsonl`), and [development-suites/](development-suites/) holds the frozen source-disjoint selection and qualification suites with their split records; these are stored in Git LFS.
+On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../../v2/original-study/ledgers/development/). Each trial directory also holds its prompt inventory (`prompts.jsonl`) and per-response usability reviews (`reviews.jsonl`), and [development-suites/](development-suites/) holds the frozen source-disjoint selection and qualification suites with their split records; these are stored in Git LFS.
 
 ## Calibration, workloads and schedules
 
@@ -168,7 +168,7 @@ All students are Qwen3.5-2B-Base with a LoRA adapter trained on the selected rec
 
 The `full` harness never escalated the A1 attacker, so its student is within about one point of the undefended student in every domain. Distillation transfers on AG News (+20 pp over the base student) and slightly on SQuAD; on GSM8K every teacher-trained student falls below the base student, because the teacher itself scores 23.5% with responses capped at 256 tokens.
 
-Files are under [students/](students/) in Git LFS: `A1/s42-b6000/{teacher,undefended,gold,full,full/matched-prefix,full/matched-volume}`, and the base student's benchmark runs under `base-student/s42-b6000/`. Each student directory holds `scores.json` (with per-item samples), the training set and manifest, prompt inventory and usability reviews, evaluation configs, per-domain benchmark outputs and the final adapter (`adapter_config.json`, `adapter_model.safetensors`, training manifest and run record). Intermediate checkpoints, optimizer state and tokenizer copies are not published. The matched controls also keep `control.json` and the matched ledger. The ledgers of the undefended campaigns are in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/).
+Files are under [students/](students/) in Git LFS: `A1/s42-b6000/{teacher,undefended,gold,full,full/matched-prefix,full/matched-volume}`, and the base student's benchmark runs under `base-student/s42-b6000/`. Each student directory holds `scores.json` (with per-item samples), the training set and manifest, prompt inventory and usability reviews, evaluation configs, per-domain benchmark outputs and the final adapter (`adapter_config.json`, `adapter_model.safetensors`, training manifest and run record). Intermediate checkpoints, optimizer state and tokenizer copies are not published. The matched controls also keep `control.json` and the matched ledger. The ledgers of the undefended campaigns are in [v2](../../v2/original-study/ledgers/).
 
 ## Run stop on 2026-11-01
 

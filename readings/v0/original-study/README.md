@@ -6,7 +6,7 @@ This is the first `just start` run on this machine. It used the protocol that ex
 - teacher benchmarks on all three official test suites
 - the unprotected `before` phase of the harness traffic suite, for every task and seed
 
-It trained no student and never started the harness. Every number below was read or derived from `artifacts/start/` and `data/tasks/<task>/`, both gitignored on the run machine. [`readings.json`](readings.json) holds the same data in machine-readable form. The v1 run in [`../v1-2026-10-17-start-v2/`](../v1-2026-10-17-start-v2/) could not reuse this directory because its protocol changed.
+It trained no student and never started the harness. Every number below was read or derived from `artifacts/start/` and `data/tasks/<task>/`, both gitignored on the run machine. [`readings.json`](readings.json) holds the same data in machine-readable form. The v1 run in [`../v1-2026-10-17-start-v2/`](../../v1/original-study/) could not reuse this directory because its protocol changed.
 
 ## Summary
 

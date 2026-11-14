@@ -39,7 +39,7 @@ All 13 campaigns received every submission, with 0 failed, 0 blocked, 0 challeng
 |---|---|---|---|---|---|---|
 | [`A1/s1-b6000/undefended`](ledgers/A1/s1-b6000/undefended/ledger.jsonl) | 6,000 | 12.6 MB | 589,192 | 5.40 h | 10-22 12:36 – 10-22 18:00 | `071f530cc3ca751d…` |
 | [`A1/s20-b6000/undefended`](ledgers/A1/s20-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 596,545 | 5.45 h | 10-23 08:38 – 10-23 14:05 | `8ce2039762487241…` |
-| [`A1/s42-b6000/undefended`](../../../readings/v4/evidence/v2/A1/s42-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 588,239 | 5.39 h | 10-21 16:05 – 10-21 21:28 | `5661b50f2bf27877…` |
+| [`A1/s42-b6000/undefended`](../../../v4/evidence/v2/A1/s42-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 588,239 | 5.39 h | 10-21 16:05 – 10-21 21:28 | `5661b50f2bf27877…` |
 | [`A2/s1-b6000/undefended`](ledgers/A2/s1-b6000/undefended/ledger.jsonl) | 6,000 | 12.6 MB | 589,192 | 5.38 h | 10-22 18:00 – 10-22 23:23 | `e2cbc64385291a0b…` |
 | [`A2/s20-b6000/undefended`](ledgers/A2/s20-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 596,545 | 5.45 h | 10-23 14:05 – 10-23 19:32 | `0129d5c2a346f1e3…` |
 | [`A2/s42-b6000/undefended`](ledgers/A2/s42-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 588,309 | 5.74 h | 10-21 21:28 – 10-22 03:12 | `55a778db0121e830…` |
@@ -48,7 +48,7 @@ All 13 campaigns received every submission, with 0 failed, 0 blocked, 0 challeng
 | [`A5/s42-b6000/undefended`](ledgers/A5/s42-b6000/undefended/ledger.jsonl) | 6,000 | 12.7 MB | 587,246 | 3.46 h | 10-22 03:12 – 10-22 06:40 | `4f03e7228c8da209…` |
 | [`A7/s1-b6000/undefended`](ledgers/A7/s1-b6000/undefended/ledger.jsonl) | 6,000 | 18.8 MB | 635,518 | 5.85 h | 10-23 02:47 – 10-23 08:38 | `3855627a53b18e6e…` |
 | [`A7/s20-b6000/undefended`](ledgers/A7/s20-b6000/undefended/ledger.jsonl) | 6,000 | 18.7 MB | 633,631 | 5.84 h | 10-23 23:02 – 10-24 04:52 | `fd41f0d763fe79f7…` |
-| [`A7/s42-b6000/undefended`](../../../readings/v4/evidence/v2/A7/s42-b6000/undefended/ledger.jsonl) | 6,000 | 18.7 MB | 632,739 | 5.94 h | 10-22 06:40 – 10-22 12:36 | `975e4a3d08509f7c…` |
+| [`A7/s42-b6000/undefended`](../../../v4/evidence/v2/A7/s42-b6000/undefended/ledger.jsonl) | 6,000 | 18.7 MB | 632,739 | 5.94 h | 10-22 06:40 – 10-22 12:36 | `975e4a3d08509f7c…` |
 | [`development/campaign`](ledgers/development/campaign/ledger.jsonl) | 2,000 | 4.2 MB | 196,300 | 1.79 h | 10-24 04:52 – 10-24 06:40 | `7cdf77bbb61d7438…` |
 | **Total** | **74,000** | **174.4 MB** | **7,418,940** | | | |
 

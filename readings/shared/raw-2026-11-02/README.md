@@ -1,5 +1,23 @@
 # Raw run files, 2026-11-02
 
+## Current checkout layout
+
+The original inventory below describes the snapshot before reorganization.
+Clearly attributable files now live under `v0`, `v1`, `v5` and `v6`; this folder
+retains cross-version gateway files, shared logs and simulated demo outputs.
+Use the [relocation map](../relocations.tsv) to translate old checkout paths.
+`MANIFEST.tsv` is unchanged historical provenance, not a current path inventory.
+
+| Original source | Current folder |
+|---|---|
+| `artifacts/start`, `artifacts/tasks`, `data/tasks` | [v0 raw files](../../v0/raw-2026-11-02/) |
+| `artifacts/start-v2` | [v1 raw files](../../v1/raw-2026-11-02/) |
+| `artifacts/undefended-a2-benchmark` | [v5 raw files](../../v5/raw-2026-11-02/) |
+| `artifacts/gateway-v6` | [v6 raw files](../../v6/raw-2026-11-02/) |
+| v2/v3 continuation, abandoned full-pool attempt, logs and demos | Remain here under their original paths |
+
+## Original snapshot inventory
+
 This directory holds every file from the lab machine's gitignored `artifacts/`, `data/` and `outputs/` directories that was not already committed to a branch of this repository on 2026-11-02. Each file keeps its original path, so `artifacts/start/...` here is the file that was at `artifacts/start/...` on the run machine. All files except this README and `MANIFEST.tsv` are stored in Git LFS.
 
 `MANIFEST.tsv` lists all 1,585 files under those three directories, with each file's SHA-256, size, and where it is stored:

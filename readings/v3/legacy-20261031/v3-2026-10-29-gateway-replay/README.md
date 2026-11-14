@@ -1,6 +1,6 @@
 # v3: harness-protected campaigns on the bounded gateway study (from 2026-10-29)
 
-This is the continuation of the shared gateway study documented in [v2](../v2-2026-10-21-gateway-bounded-v1/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: the [protected campaigns](#protected-campaigns) below are complete for A1 only, and student training and evaluation are pending.
+This is the continuation of the shared gateway study documented in [v2](../../../v2/legacy-20261031/v2-2026-10-21-gateway-bounded-v1/). It reuses v2's undefended 6,000-submission ledgers and adds the harness-protected campaigns. It is interim: the [protected campaigns](#protected-campaigns) below are complete for A1 only, and student training and evaluation are pending.
 
 ## Scope change on 2026-10-30
 
@@ -51,7 +51,7 @@ Before any protected collection, the run trained six shared students (Qwen3.5-2B
 | lr 2e-4, 2 epochs | 85.0 | 80.1 | 27.9 | 63.2 | 3.125 |
 | lr 2e-4, 3 epochs | 83.2 | 80.2 | 32.2 | 63.4 | 2.75 |
 
-On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../v2-2026-10-21-gateway-bounded-v1/ledgers/development/).
+On the separate qualification split, the selected recipe gained +20.0 pp on AG News (passed the 2 pp minimum), +2.8 pp on SQuAD, −14.5 pp on GSM8K and +0.2 pp on coding (not qualified). Only AG News is informative for transfer, so the overall transfer gate did not pass; the study continues with AG News as the informative domain. Per-trial scores, training manifests, benchmark samples and the six adapters (`adapter_model.safetensors`, stored in Git LFS) are under `development/`. The development ledger itself is in [v2](../../../v2/legacy-20261031/v2-2026-10-21-gateway-bounded-v1/ledgers/development/).
 
 ## Calibration, workloads and schedules
 

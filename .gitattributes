@@ -16,8 +16,9 @@ readings/**/*.sqlite filter=lfs diff=lfs merge=lfs -text
 readings/**/*.sqlite3 filter=lfs diff=lfs merge=lfs -text
 
 # Preserve the original archive's LFS layout, including bundled run inputs.
-readings/raw-2026-11-02/** filter=lfs diff=lfs merge=lfs -text
-readings/raw-2026-11-02/README.md !filter !diff !merge text
-readings/raw-2026-11-02/MANIFEST.tsv !filter !diff !merge text
-readings/v3-2026-10-29-gateway-replay/run/tasks/** filter=lfs diff=lfs merge=lfs -text
-readings/v3-2026-10-29-gateway-replay/students/** filter=lfs diff=lfs merge=lfs -text
+readings/v*/raw-2026-11-02/** filter=lfs diff=lfs merge=lfs -text
+readings/shared/raw-2026-11-02/** filter=lfs diff=lfs merge=lfs -text
+readings/shared/raw-2026-11-02/README.md !filter !diff !merge text
+readings/shared/raw-2026-11-02/MANIFEST.tsv !filter !diff !merge text
+readings/v3/original-study/run/tasks/** filter=lfs diff=lfs merge=lfs -text
+readings/v3/original-study/students/** filter=lfs diff=lfs merge=lfs -text

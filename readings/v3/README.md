@@ -1,5 +1,10 @@
 # v3: bounded gateway harness observations
 
+Related records: [original study](original-study/),
+[earlier snapshot](legacy-20261031/v3-2026-10-29-gateway-replay/),
+and [shared v2/v3 raw files](../shared/raw-2026-11-02/artifacts/gateway-bounded-v1/).
+These are historical snapshots, not additional independent runs.
+
 **Date:** 2026-10-29 to 2026-10-30.
 
 This is an interim historical record. The original protocol and calibration are retained here for provenance; use the current evaluation workflow for new runs.

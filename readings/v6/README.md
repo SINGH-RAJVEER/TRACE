@@ -1,5 +1,8 @@
 # v6: run v6-20261105
 
+Related records: [raw files from the earlier unstarted v6 attempt](raw-2026-11-02/).
+That attempt is separate from the completed run below.
+
 **Status:** complete. **Code:** `44b79b71bbac4a51a833ed791d07f0276e252116`. **Steps:** 2026-11-05T13:13:26Z to 2026-11-06T13:04:21Z UTC.
 
 Exported by `scripts/start.sh` from `artifacts/runs/v6-20261105`. Write the results, limitations and stop cause here before committing.
