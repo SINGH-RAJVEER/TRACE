@@ -19,15 +19,15 @@
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcolumntype{R}{>{\raggedleft\arraybackslash}X}
 \newcommand{\I}{\mathbb{I}}
-% This paper's figures first, then the shared v7 figures.
-\graphicspath{{figures/}{../figures/}}
-\title{Too late to matter: account-level distillation controls act after the student has learned}
+% figures/plots.py writes every figure this file includes into figures/.
+\graphicspath{{figures/}}
+\title{Intervention timing of account-level distillation controls relative to student learning: a measurement on a model API}
 \author{Rajveer~Singh, Dhruv~Deepak, Vansh~Kulshrestha, and Aryash~Kushwaha}
 \begin{document}
 \maketitle
 
 \begin{abstract}
-A model API also hands out the data needed to copy the model. Providers now fight distillation at the account level with detectors, rate limits and bans, but no public measurement says whether these controls act before an attacker has collected what a student needs. We measure both sides of that race on one bench. TRACE serves a Qwen3.5-9B teacher on four tasks behind a gateway that records every released token. It replays six collection campaigns against a content detector built on maximum mean discrepancy, the same detector without memory, and a calibrated per-account quota, then trains Qwen3.5-2B students on exactly what each arm released. On GSM8K, every refusal that withheld math came after at least 99 math answers had left the gateway, except a quota that ran out on news labels before the campaign reached its math. Students trained on what got through, 95 to 197 answers or 6 to 13\% of the unprotected run's 1,473, scored 70.1 to 73.5\% on 746 held-out problems. The untrained student scored 51.7\%, the student trained on everything 73.5\%, and the teacher 83.0\%. The defended students kept 85 to 100\% of the unprotected student's gain, no defended student differs from it after Holm correction (smallest adjusted $p=0.31$), and a student trained on 98 answers tied it at 548 correct. The detector never escalated four of the six campaigns while escalating 10 of 100 held-out legitimate accounts, and the quota did nothing to a campaign split across six accounts. A window detector cannot act before a full window of answers in one task has left, and on this bench that window was already enough. On this bench, account-level controls rationed tokens. They did not ration what the student learned.
+A model API hands out the data needed to copy the model. Providers now fight distillation at the account level with detectors, rate limits and bans, but no public measurement says whether these controls act before an attacker has collected what a student needs. We measure both sides of that race on one bench. TRACE, our harness, puts a Qwen3.5-9B teacher on four tasks behind a gateway that records every released response. We replay six collection campaigns through it under three controls. Two score each account's recent requests with a content detector built on maximum mean discrepancy, one with memory across windows and one without. The third is a calibrated per-account quota. For four defended runs and one unprotected run, we then fine-tune a Qwen3.5-2B student on exactly the GSM8K answers the gateway released. Every refusal that withheld math came after at least 99 math answers had left the gateway. The one exception is a quota arm that exhausted the account on news labels before the campaign reached its math. The defended students trained on 95 to 197 answers, 6 to 13\% of the unprotected run's 1,473, and scored 70.1 to 73.5\% on 746 held-out problems. The untrained student scored 51.7\%, the student trained on all 1,473 answers 73.5\%, and the teacher 83.0\%. The defended students kept 85 to 100\% of the unprotected student's gain, no defended student differs from it after Holm correction (smallest adjusted $p=0.31$), and the student trained on 98 answers tied it at 548 correct. The detector never escalated four of the six campaigns while escalating 10 of 100 held-out legitimate accounts, and the quota did nothing to a campaign split across six accounts. A detector that scores fixed windows cannot act on an account before its first window closes, and on this bench one window of math answers was already enough to train the student. The controls rationed tokens. They did not ration what the student learned.
 \end{abstract}
 \begin{IEEEkeywords}
 Model extraction, knowledge distillation, access control, rate limiting, maximum mean discrepancy, API security, measurement.
@@ -38,26 +38,26 @@ Model extraction, knowledge distillation, access control, rate limiting, maximum
 
 An account-level control does not change the answers it serves. It only decides how many get served before it steps in. Whether it protects anything therefore depends on timing. If the control refuses an account after the attacker already holds enough supervision to train a useful student, the refusal changes the provider's token count and nothing else. Two quantities decide the outcome. One is how many answers a student needs. The other is how many answers a control releases before it acts. Published work measures them separately, if at all. Distillation papers report what a student learns from a fixed set~\cite{muennighoff2025s1,ye2025limo,jiang2026distillguard}. Detection papers report detection rates on batches of queries~\cite{juuti2019prada,liu2026detector,liu2026lifecycle}. Recent work judges output defenses by the student under explicit query and data budgets~\cite{libon2026break,allouah2026game}, but leaves out detectors and rate limits, and one benchmark excludes them by name~\cite{jiang2026distillguard}.
 
-We put both quantities on one axis. TRACE~\cite{trace2026artifact} serves one teacher on four tasks behind a gateway. A policy layer decides per request whether to serve, slow, challenge or refuse, and a release ledger records every response that left. Scripted campaigns and simulated legitimate users share the endpoint. We cut each campaign's ledger at each intervention and train a student on exactly what the cut contains. Figure~\ref{fig:race} shows the result for grade-school math in run v7.
+We put both quantities on one axis. TRACE, our harness~\cite{trace2026artifact}, puts one teacher on four tasks behind a gateway. A policy layer decides per request whether to serve, slow, challenge or refuse, and a release ledger records every response that left the gateway. Scripted campaigns and simulated legitimate users share the endpoint. We cut each campaign's ledger at each intervention and train a student on exactly the responses the cut contains. Figure~\ref{fig:race} shows the result for grade-school math in run v7.
 
 \begin{figure*}[!t]
 \centering
 \includegraphics[width=\textwidth]{race.pdf}
-\caption{Student accuracy and control interventions on one axis of GSM8K answers. Top: accuracy on 746 held-out problems of five students, each trained on what one v7 arm released, with 95\% Wilson intervals. Students sit at their trainable count, which excludes responses stopped at the output cap. Squares are A2 and circles A5; the A2 and A5 points are offset by 5\% so they do not overlap. Bottom: GSM8K answers released before each control refused a campaign's math. Filled markers are cuts a student trained on and hollow markers are cuts with no student. The detector arms of A1 and A6 were refused by a pre-campaign replay check, so their position is the replay's prediction that nothing would fire. The A2 quota refused before any math and cannot appear on a log axis. No student was trained below 95 answers, the shaded region.}
+\caption{Student accuracy and control interventions on one axis of GSM8K answers. Top: accuracy on 746 held-out problems of five students, each trained on what one v7 arm released, with 95\% Wilson intervals. Students sit at their trainable count, which excludes responses stopped at the output cap. Squares mark A2 (one account, one task at a time) and circles A5 (six accounts, each on one task), offset by 5\% along the axis so that they do not overlap. Table~\ref{tab:campaigns} defines all campaigns. Bottom: GSM8K answers released before each control refused a campaign's math. Filled markers are cuts a student trained on and hollow markers are cuts with no student. The unprotected run sits at 1,500. A replay check before the campaign refused the detector arms of A1 and A6, so they share that marker as the replay's prediction that the detector would never fire. The A2 quota refused before any math and cannot appear on a log axis. The shaded region, below 95 answers, holds no student.}
 \label{fig:race}
 \end{figure*}
 
 The controls lost the race. Our findings:
 \begin{itemize}
-	\item \textit{The detector could not see most campaigns.} A pre-campaign replay found that it never escalated four of six campaigns, while it escalated 10 of 100 held-out legitimate accounts. Users concentrate on one task and topic. A campaign that samples every task looks more ordinary than they do.
-	\item \textit{When it saw one, it saw it late.} It fired only on accounts that sent a block of math. The first refusal came after 99 math answers under the instantaneous policy and after 199 under the full policy.
-	\item \textit{The quota bounded accounts.} It held each single-account campaign to 1,215 responses, which left between 0 and 1,215 math answers depending only on the campaign's layout, and it never fired on a campaign split across six accounts.
-	\item \textit{What got through was enough.} Students on 95 to 197 answers scored 70.1 to 73.5\%. The student trained on all 1,473 scored 73.5\%. No defended student differs from it after Holm correction, and the student trained on 98 answers solved exactly as many problems.
+	\item \textit{The detector could not see most campaigns.} A replay before each campaign found that the detector never escalated four of the six, while it escalated 10 of 100 held-out legitimate accounts. The simulated users concentrate on one task and topic. A campaign that samples every task looks more ordinary to the detector than those users do.
+	\item \textit{When the detector fired, it fired late.} It fired only on accounts that sent a block of math. The first refusal came after 99 math answers under the instantaneous policy and after 199 under the full policy.
+	\item \textit{The quota bounded accounts, not campaigns.} It held every account to 1,215 responses. How many math answers that left depended only on the order of each campaign's prompts: none for A2, about 300 for A1 and A3, and 1,215 for A5's math-only account. A campaign split across six accounts, each under the limit, lost nothing.
+	\item \textit{What got through was enough.} Students trained on 95 to 197 answers scored 70.1 to 73.5\%. The student trained on all 1,473 scored 73.5\%. No defended student differs from it after Holm correction, and the student trained on 98 answers solved exactly as many problems.
 \end{itemize}
 
 We also argue that the late arrival is structural. A detector that scores windows of $W$ requests cannot decide anything about an account before its first window closes. It fires on accounts whose windows are concentrated, so a window that triggers it is mostly one task, and roughly $W$ answers in that task have left by the time it acts. On this bench $W=100$, and 95 answers were already enough.
 
-The evidence has limits that we state up front. It comes from one run, one seed per student, one task and synthetic legitimate users. No student trained on fewer than 95 answers, so we cannot say where the useful supervision starts. We claim only what the panel shows. Every refusal of math we observed, except one quota that ran out before its campaign reached any math, arrived after a point at which the students had already learned most of what the full set taught.
+The evidence has limits that we state up front. It comes from one run, one seed per student, one task and synthetic legitimate users. No student trained on fewer than 95 answers, so we cannot say where the useful supervision starts. We claim only what the panel shows. Every refusal of math we observed, except one quota that ran out before its campaign reached any math, arrived after the released answers had already taught a student most of what the full set taught.
 
 Section~\ref{sec:related} reviews related work. Section~\ref{sec:method} describes the bench and the measurement, and Section~\ref{sec:protocol} the v7 protocol. Section~\ref{sec:timing} reports when each control acted, Section~\ref{sec:students} what the students learned, and Section~\ref{sec:cost} the cost to legitimate users. Section~\ref{sec:discussion} discusses what a control would need to win.
 
@@ -65,7 +65,7 @@ Section~\ref{sec:related} reviews related work. Section~\ref{sec:method} describ
 \label{sec:related}
 \textit{Extraction and distillation.} An attacker queries a victim, collects input-output pairs and trains a surrogate. Task accuracy and fidelity to the victim are different goals~\cite{jagielski2020high}. Krishna et al.\ extracted BERT-based APIs with synthetic queries~\cite{krishna2020thieves}, and Model Leeching reached 75\% exact match on SQuAD for about \$50 in API fees~\cite{birch2023leeching}. Our attacker trains on response-token cross-entropy, which is sequence-level distillation from decoded outputs~\cite{kim2016sequence}, with low-rank adapters~\cite{hu2022lora}. A student can copy a teacher's style without its capability~\cite{gudibande2024false}, so we score students on a benchmark.
 
-\textit{How much supervision a student needs.} Small sets of good answers go a long way. s1 fine-tuned a strong reasoning model on 1,000 curated examples~\cite{muennighoff2025s1}, and LIMO reports strong math reasoning from about 1\% of the data earlier work used~\cite{ye2025limo}. These results concern curated sets and stronger students than ours. They predict, and our panel confirms for one recipe, that an attacker does not need thousands of answers in a task to move a small student most of the way.
+\textit{How much supervision a student needs.} Small sets of good answers go a long way. s1 fine-tuned a strong reasoning model on 1,000 curated examples~\cite{muennighoff2025s1}, and LIMO reports strong math reasoning from about 1\% of the data earlier work used~\cite{ye2025limo}. These results concern curated sets and stronger students than ours. They predict, and our panel confirms for one recipe, that an attacker does not need thousands of answers in a task to close most of the gap between a small student and its teacher.
 
 \textit{Per-client detection.} PRADA tracks the distribution of distances between a client's queries, and its authors note that splitting queries across clients defeats it~\cite{juuti2019prada}. Kesarwani et al.\ track feature-space coverage per user~\cite{kesarwani2018warning}, and VarDetect uses latent query distributions~\cite{pal2021stateful}. Liu et al.\ detect extraction in language-model traffic with a kernel two-sample statistic over sentence embeddings and 1,500-query windows~\cite{liu2026detector,mmd2026artifact}. We apply their score per account with 100-request windows. Sun et al.\ show that stateful monitors cannot stop task decomposition across unlinkable identities without denying legitimate traffic~\cite{sun2026decomposition}. Our quota result is the distillation version of that limit.
 
@@ -76,7 +76,7 @@ Section~\ref{sec:related} reviews related work. Section~\ref{sec:method} describ
 \section{Measuring the race}
 \label{sec:method}
 \subsection{Gateway and threat model}
-One endpoint serves a fixed teacher across four domains, listed in Table~\ref{tab:data}. Each request carries its domain's prompt template and output cap, and the gateway rejects anything else before any policy decision. Before inference the policy layer sees the prompt, the arrival time and the authenticated account. A campaign controls one or more accounts, collects from every domain, and pools its responses into one training set. The attacker knows how the detector works and sees service actions, but not calibration data or internal scores. Bearer keys give stable identities and put no price on a new account. All accounts in a campaign share one budget of 6,000 HTTP attempts, 1,500 prompts per domain, within 24 hours. Failed requests and proof-of-work submissions spend attempts.
+One endpoint serves a fixed teacher across four domains, listed in Table~\ref{tab:data}. Each request carries its domain's prompt template and output cap, and the gateway rejects a request that matches no template before any policy decision. Before inference the policy layer sees the prompt, the arrival time and the authenticated account. A campaign controls one or more accounts, collects from every domain, and pools its responses into one training set. The attacker knows how the detector works and sees service actions, but not calibration data or internal scores. Bearer keys give stable identities and put no price on a new account. All accounts in a campaign share one budget of 6,000 HTTP attempts, 1,500 prompts per domain, within 24 hours. Failed requests and proof-of-work submissions spend attempts.
 
 \begin{table}[!t]
 \centering\footnotesize
@@ -131,7 +131,7 @@ The gateway reserves each admission in a release ledger before producing output,
 	box/.default=18mm,
 	arr/.style={-{Stealth[length=1.6mm]}, draw=black!70}
 ]
-\node[box] (atk) at (0, 0) {Campaign accounts\\A1 to A7};
+\node[box] (atk) at (0, 0) {Campaign\\accounts};
 \node[box] (ben) at (0, -1.15) {Legitimate clients\\125 per role};
 \node[box=17mm, minimum height=18mm] (gw) at (3.05, -0.575) {Gateway\\policy: detector\\or quota};
 \node[box=15mm] (teach) at (5.65, -0.575) {Teacher\\Qwen3.5-9B};
@@ -153,15 +153,15 @@ The gateway reserves each admission in a release ledger before producing output,
 
 \subsection{Indicators}
 \label{sec:indicators}
-Each model gets its accuracy on the suite with a 95\% Wilson interval~\cite{wilson1927probable}. For a student we also report three ratios built from the untrained student's accuracy $a_0$, the teacher's $a_T$ and the unprotected student's $a_U$. The gain over the base is $a-a_0$. The share of the base-to-teacher gap closed is $(a-a_0)/(a_T-a_0)$. The share of the unprotected gain kept is $(a-a_0)/(a_U-a_0)$, which is 100\% when withholding cost the student nothing. Two models scored on the same items are compared with an exact McNemar test on the items they disagree on~\cite{mcnemar1947note}, Holm-adjusted across all 21 pairs of the seven models~\cite{holm1979simple}, and a 95\% paired bootstrap interval over items from 10,000 draws~\cite{efron1993bootstrap,koehn2004significance}. For each control we report the GSM8K answers released to the campaign before it refused the campaign's math.
+Each model gets its accuracy on the suite with a 95\% Wilson interval~\cite{wilson1927probable}. For a student we also report three ratios built from the untrained student's accuracy $a_0$, the teacher's $a_T$ and the unprotected student's $a_U$.\footnote{The unprotected ledger is the release ledger of campaign A6 under the quota arm. No control fired on that arm, so the ledger holds every one of the 6,000 responses, including all 1,500 GSM8K answers, and we use it as the undefended reference throughout. The unprotected student is the student trained on it.} The gain over the base is $a-a_0$. The share of the base-to-teacher gap closed is $(a-a_0)/(a_T-a_0)$. The share of the unprotected gain kept is $(a-a_0)/(a_U-a_0)$, which is 100\% when withholding cost the student nothing. We compare two models scored on the same items with an exact McNemar test on the items they disagree on~\cite{mcnemar1947note}, Holm-adjusted across all 21 pairs of the seven models~\cite{holm1979simple}, and with a 95\% paired bootstrap interval over items from 10,000 draws~\cite{efron1993bootstrap,koehn2004significance}. For each control we report the GSM8K answers the campaign received before the control refused its math requests.
 
 \section{Protocol}
 \label{sec:protocol}
 \subsection{Data and users}
-Each domain's pinned source is split by source group into disjoint roles: development, attacker, benign fitting, score calibration, policy calibration and benign test. The attacker role is split again into an exploratory half for development and a confirmatory half that stays unqueried until a preregistered test. Run v7 used the exploratory half, so it is development evidence. The benign generator creates 125 synthetic accounts per role. About 10\% are generalists that use several domains and the rest are single-domain specialists that send prompts in topic-ordered blocks. Account lengths follow a Pareto distribution with shape 1.5, a 100-request minimum and a 2,000-request cap.
+We split each domain's pinned source by source group into disjoint roles: development, attacker, benign fitting, score calibration, policy calibration and benign test. We split the attacker role again into an exploratory half for development and a confirmatory half that stays unqueried until a preregistered test. Run v7 used the exploratory half, so it is development evidence. The benign generator creates 125 synthetic accounts per role. About 10\% are generalists that use several domains and the rest are single-domain specialists that send prompts in topic-ordered blocks. Account lengths follow a Pareto distribution with shape 1.5, a 100-request minimum and a 2,000-request cap.
 
 \subsection{Calibration}
-Fitting traffic gives the reference windows and kernel bandwidth, score-calibration traffic gives the null, and policy-calibration traffic sets the thresholds so that 10, 5, 2 and 1\% of scored benign horizons reach L1 to L4. The quota is fitted to the 1\% target on the same horizons. The v7 calibration passed with 199 independent null windows and 100 scored policy horizons, which puts the smallest attainable rank at 0.0017. Table~\ref{tab:cal} gives the thresholds. Before any campaign ran, a mixture control scored 50 shuffled windows of pooled benign traffic. All 50 ranked below the median benign account window, with a median rank of 0.970. To this score, a window that looks like the average of all users looks more ordinary than almost any single user.
+Fitting traffic gives the reference windows and kernel bandwidth, score-calibration traffic gives the null, and policy-calibration traffic sets the thresholds so that 10, 5, 2 and 1\% of scored benign horizons reach L1 to L4. We fit the quota to the 1\% target on the same horizons. The v7 null holds 598 window scores, 199 of them from non-overlapping windows, so the smallest attainable rank is $1/599=0.0017$, and 100 scored policy horizons set the thresholds in Table~\ref{tab:cal}. Before any campaign ran, a mixture control scored 50 shuffled windows of pooled benign traffic. All 50 ranked below the median benign account window, with a median rank of 0.970. Under this score, a window that looks like the average of all users looks more ordinary than almost any single user.
 
 \begin{table}[!t]
 \centering\footnotesize
@@ -178,27 +178,29 @@ Quota, requests per horizon & & & & 1,215 \\\bottomrule
 \end{table}
 
 \subsection{Campaigns}
-Table~\ref{tab:campaigns} lists the six campaigns. A1, A2, A5 and A6 send the same prompts and differ only in order and account ownership. Each runs against three arms, the full policy, the instantaneous policy and the quota, each with a fresh gateway, fresh credentials and its own state. Before a detector arm sends a request, a detectability check replays the frozen campaign offline through the served calibration together with the 125 held-out benign accounts. If the campaign reaches no level that fewer than 10\% of benign horizons reach, the arm sends nothing and the runner records a refusal. A refused arm is still a detector result, because replay predicts that the live arm would release everything.
+Table~\ref{tab:campaigns} lists the eight campaign designs in the harness and what each tests. v7 ran six of them. A4 repeats A1 at a lower declared request rate, and A8 picks its next prompts from what it observes during collection. Both are implemented and neither was run in v7, so the numbering skips them. A1, A2, A5 and A6 send the same prompts and differ only in order and account ownership. Each campaign runs against three arms: the full policy, the instantaneous policy and the quota. Every arm gets a fresh gateway, fresh credentials and its own state. Before a detector arm sends a request, a detectability check replays the frozen campaign offline through the served calibration together with the 125 held-out benign accounts. The arm runs only if the campaign's highest level in replay is above L0 and fewer than 10\% of the benign horizons reach that level. Otherwise the arm sends nothing and the runner records it as refused. A refused arm is still a detector result, because the replay predicts that the live arm would release everything.
 
 \begin{table}[!t]
 \centering\footnotesize
-\caption{Collection campaigns in v7.}
+\caption{Collection campaigns. A4 and A8 are implemented and were not run in v7.}
 \label{tab:campaigns}
-\begin{tabularx}{\columnwidth}{@{}lY@{}}\toprule
-ID & Accounts and order \\\midrule
-A1 & One account; domains interleaved. \\
-A2 & One account; one block per domain, AG News first, GSM8K second. \\
-A3 & One account; half the budget spent on in-distribution cover traffic. \\
-A5 & Six accounts, one domain each: two AG News, two coding, one SQuAD, one GSM8K. \\
-A6 & Six accounts; A1's prompts split across them by a seeded permutation. \\
-A7 & One account; prompts from separately pinned corpora, MathQA for math. \\\bottomrule
+\begin{tabularx}{\columnwidth}{@{}lYY@{}}\toprule
+ID & Accounts and order & What it tests \\\midrule
+A1 & One account; domains interleaved. & Broad extraction, the baseline. \\
+A2 & One account; one block per domain, AG News first, GSM8K second. & Collecting one task at a time. \\
+A3 & One account; half the budget spent on in-distribution cover traffic. & Cover traffic that dilutes the detector's score. \\
+A4 & A1 at a lower declared request rate. & Not run. \\
+A5 & Six accounts, one domain each: two AG News, two coding, one SQuAD, one GSM8K. & Splitting accounts by task. \\
+A6 & Six accounts; A1's prompts split across them by a seeded permutation. & Splitting accounts at random. \\
+A7 & One account; prompts from separately pinned corpora, MathQA for math. & Prompts from sources other than the other campaigns'. \\
+A8 & Picks prompts from feedback observed during collection. & Not run. \\\bottomrule
 \end{tabularx}
 \end{table}
 
 \subsection{Teacher, students and suite}
-The teacher is \texttt{Qwen3.5-9B}~\cite{qwen2026qwen35} quantized to Q4\_K\_M, served by llama.cpp~\cite{llamacpp} on one laptop RTX~4060 in non-thinking mode at temperature 0. Every student is a LoRA adapter on \texttt{Qwen3.5-2B-Base} with rank 16, $\alpha=32$ and dropout 0.05 on all linear layers, trained for three epochs at learning rate $10^{-4}$ with an effective batch of 16, a 2,048-token limit, bf16 weights~\cite{hu2022lora,loshchilov2019adamw} and seed 42. We trained five students, one on the end ledger of each detector arm that released math (A2 and A5 under both policies) and one on the unprotected run. The unprotected run is A6 under the quota, which never fired, so it holds all 1,500 GSM8K answers. In A2 and A5 no math arrived after the refusal, so each end ledger equals its refusal ledger. We trained no quota students.
+The teacher is \texttt{Qwen3.5-9B}~\cite{qwen2026qwen35} quantized to Q4\_K\_M, served by llama.cpp~\cite{llamacpp} on one laptop RTX~4060 in non-thinking mode at temperature 0. Every student is a LoRA adapter on \texttt{Qwen3.5-2B-Base} with rank 16, $\alpha=32$ and dropout 0.05 on all linear layers, trained for three epochs at learning rate $10^{-4}$ with an effective batch of 16, a 2,048-token limit, bf16 weights~\cite{hu2022lora,loshchilov2019adamw} and seed 42. We trained five students, one on the end ledger of each detector arm that released math (A2 and A5 under both policies) and one on the unprotected ledger, which holds all 1,500 GSM8K answers. In A2 and A5 no math arrived after the refusal, so each end ledger equals its refusal ledger. We trained no quota students.
 
-Students and the base are scored greedily with a 512-token limit on a frozen 746-problem GSM8K development suite. The teacher is scored through the same API the campaigns used. Before training any student we set 65\% as the accuracy of a useful student. On 746 items a binary accuracy has a 95\% half-width of about 3.6 points near 50\%, and a paired comparison with 20\% discordant items resolves about 4.6 points at 80\% power~\cite{connor1987paired,card2020power}.
+We score the students and the base with greedy decoding and a 512-token limit on a frozen 746-problem GSM8K development suite, and the teacher through the same API the campaigns used. Before training any student we set 65\% as the accuracy threshold for a useful student. On 746 items a binary accuracy has a 95\% half-width of about 3.6 points near 50\%, and a paired comparison with 20\% discordant items resolves about 4.6 points at 80\% power~\cite{connor1987paired,card2020power}.
 
 \section{When the controls act}
 \label{sec:timing}
@@ -214,7 +216,7 @@ A1 & never & never & 303 \\
 A2 & alert 99, refuse 199 & refuse 99 & 0 \\
 A3 & never & never & 314 \\
 A5 & alert 99, refuse 199 & refuse 99 & 1,215 \\
-A6 & never & never & never, 1,500 \\
+A6 & never & never & never, 1,500 (unprotected) \\
 A7 & never & never & 303 MathQA \\\bottomrule
 \end{tabularx}
 \end{table}
@@ -222,9 +224,9 @@ A7 & never & never & 303 MathQA \\\bottomrule
 \subsection{The detector cannot see broad campaigns}
 The detectability check refused both detector arms for A1, A3, A6 and A7. In replay each campaign stayed at L0 under both policies, while the same replay escalated 10 of the 100 scored held-out benign horizons under each policy. Under the full policy 4 of them reached refusal, above the 1\% target and inside its 4.7\% upper bound. The earlier run v5, on a different teacher build, refused the same eight arms.
 
-The mixture control already explains why. Legitimate users in this generator concentrate on one task and topic, so their windows sit far from the pooled reference. A campaign that samples every task sits close to it. The score ends up measuring topic concentration, and a broad campaign is less concentrated than the users it hides among. An audit of the earlier v3 run found that sorting the same 6,000 prompts by topic within each domain moved every window back into the benign bulk, under upper-tail, lower-tail and two-sided variants alike~\cite{trace2026artifact}.
+The mixture control explains why. Legitimate users in this generator concentrate on one task and topic, so their windows sit far from the pooled reference. A campaign that samples every task sits close to it. The score ends up measuring topic concentration, and a broad campaign is less concentrated than the users it hides among. An audit of the earlier v3 run found that sorting the same 6,000 prompts by topic within each domain moved every window back into the benign bulk, under upper-tail, lower-tail and two-sided variants alike~\cite{trace2026artifact}.
 
-\subsection{When it sees, it sees a full window late}
+\subsection{When the detector fires, it fires one window late}
 The detector escalated A2 and A5, and in both it escalated on math. Figure~\ref{fig:ranks} shows A5's window ranks. The GSM8K account's two windows ranked 0.015 and 0.030. Every window from the other five accounts ranked above 0.42 and added no risk, so those accounts stayed at L0 and received 4,494 responses, including 1,494 coding answers.
 
 \begin{figure}[!t]
@@ -237,15 +239,15 @@ The detector escalated A2 and A5, and in both it escalated on math. Figure~\ref{
 The timing follows from the window. A rank exists only once a 100-request window closes, so the first possible decision about the GSM8K account came at its 100th math request. Under the full policy the first window's rank of 0.015 gave a risk of 3.20 by Eq.~\eqref{eq:risk}. That cleared the L3 threshold but not the L4 threshold of 4.01, which a single window reaches only with a rank below about 0.007. Under the instantaneous policy the same window scored $-\log 0.015=4.20$, above its L4 threshold of 3.50. Under the full policy the account received a proof-of-work challenge, which cost the campaign 100 attempts, and was refused at its 200th math request after 199 answers. The instantaneous policy refused at the 100th, after 99 answers. A2 behaved the same way inside its GSM8K block, after 1,500 AG News prompts that the detector ignored.
 
 \subsection{The quota bounds accounts, not campaigns}
-The quota fired where it was set. It held each single-account campaign to at most 1,215 responses and refused every request from attempt 1,216. How much math that left depended only on layout. A1 and A3 interleave domains and kept 303 and 314 math answers. A2 sends AG News first, so its quota ran out on one-word labels and it kept no math at all. That is the only refusal on this bench that withheld all math, and it came from the order of the campaign, not from anything the control noticed. Against account splitting the quota did what its definition implies. A5's GSM8K account kept 1,215 math answers. A6 spread its prompts over six accounts that each stayed under the limit and received all 6,000 responses.
+The quota fired where it was set. It held each account to at most 1,215 responses and refused every request from attempt 1,216. How much math that left depended only on the order of each campaign's prompts. A1 and A3 interleave domains and kept 303 and 314 math answers. A2 sends AG News first, so its quota ran out on one-word labels and it kept no math at all. That is the only refusal on this bench that withheld all math, and it came from the order of the campaign, not from anything the control noticed. Against account splitting the quota did what its definition implies. A5's GSM8K account kept 1,215 math answers. A6 spread its prompts over six accounts that each stayed under the limit and received all 6,000 responses. That ledger is the unprotected run.
 
 \subsection{Tokens tell a different story}
 Measured in tokens, the detector looked effective against A5. GSM8K answers averaged 370 tokens and AG News answers 2.3, so refusing one math account removed most of the campaign's tokens. Figure~\ref{fig:tokens} shows the breakdown. Under the full policy A5 received 321,831 tokens, 40\% of the 806,570 the unprotected run received, and 71,142 GSM8K tokens, 12.8\% of 555,498. A provider that scores its controls by tokens withheld would count this as a success. Section~\ref{sec:students} asks whether the student agrees.
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=\columnwidth]{released-tokens.pdf}
-\caption{Released output tokens by domain for every v7 arm that ran, from the release ledger. A6 under the quota is the unprotected run. SQuAD and AG News responses are too short to show at this scale.}
+\includegraphics[width=\columnwidth]{tokens.pdf}
+\caption{Released output tokens by domain for every v7 arm that ran, from the release ledger. SQuAD and AG News responses are too short to show at this scale.}
 \label{fig:tokens}
 \end{figure}
 
@@ -289,12 +291,12 @@ Figure~\ref{fig:paired} shows each defended student minus the unprotected one. T
 \label{fig:paired}
 \end{figure}
 
-The panel also shows how far one-seed students move for reasons other than data size. A5 under the instantaneous policy trained on 98 answers and beat A5 under the full policy, trained on 197, by 3.4 points (raw $p=0.018$, Holm 0.18). The student with half the data did better, by the same margin that separates the full-policy A5 student from the unprotected one. With one training seed per student, a difference of about three points is within what this panel shows between students for reasons other than data size. We read the 3.4-point gap between A5 under the full policy and the unprotected student in that light.
+The panel also shows how far one-seed students move for reasons other than data size. A5 under the instantaneous policy trained on 98 answers and beat A5 under the full policy, trained on 197, by 3.4 points (raw $p=0.018$, Holm 0.18). The student with half the data did better, by the same margin that separates the full-policy A5 student from the unprotected one. With one training seed per student, a three-point difference is within the spread this panel shows between students that differ in something other than data size. We read the 3.4-point gap between A5 under the full policy and the unprotected student in that light.
 
 The recipe adds a second confound. It trains for three epochs at any size, so the unprotected student took 279 optimizer steps and the instantaneous A5 student 21. More data came with more training, yet the student with a thirteenth of the steps tied the one with all of them. If extra steps help at all here, they did not show.
 
 \subsection{Inference is not the noise}
-We re-ran inference three times for every model on the same 746 problems. All five students and the base produced byte-identical outputs on every pass, so their scores carry no decoding noise. The teacher, served through llama.cpp, scored 619, 620 and 626, a spread of 0.9 points. We use the 619 pass throughout. Resampling normalized question families instead of items widens the unprotected student's interval only to 70.1 to 76.7\%.
+We re-ran inference three times for every model on the same 746 problems. All five students and the base produced byte-identical outputs on every pass, so their scores carry no decoding noise. The teacher, served through llama.cpp, scored 619, 620 and 626, a spread of 0.9 points. We use the 619 pass throughout. Resampling by normalized question family instead of by item widens the unprotected student's interval only to 70.1 to 76.7\%.
 
 \section{Cost to legitimate users}
 \label{sec:cost}
@@ -315,14 +317,14 @@ Live: completion & 9.3\% & 11.3\% & 11.8\% \\\bottomrule
 \end{tabularx}
 \end{table}
 
-The live pass measures something else, and here mostly the teacher. With a 120-second client deadline the laptop teacher completed only 9 to 12\% of requests under every arm, and about 21,300 timed out each time. Completion therefore measures teacher capacity, not policy cost. The comparable live numbers are refusals and the quality of what was served. The full policy refused 464 benign requests and the other two none. The quota refused nobody live because most requests timed out before admission. Utility ran after each campaign on separate accounts, so no run has measured a real mixture of attack and benign traffic.
+The live pass measures something else, and on this hardware mostly the teacher. With a 120-second client deadline the laptop teacher completed only 9 to 12\% of requests under every arm, and about 21,300 timed out each time. Completion therefore measures teacher capacity, not policy cost. The comparable live numbers are refusals and the quality of what was served. The full policy refused 464 benign requests and the other two arms none. The quota refused nobody live because most requests timed out before admission. The utility pass ran after each campaign on separate accounts, so no run has measured a real mixture of attack and benign traffic.
 
 Set against Section~\ref{sec:students}, these costs buy little. The full policy refused 4 of 100 held-out legitimate accounts in replay and 464 live requests, and its refusals of A2 and A5 came after students on the released answers already scored at or near the unprotected level.
 
 \section{Discussion}
 \label{sec:discussion}
 \subsection{Why a window detector arrives late}
-The detector on this bench decides only when a window closes. Call the window length $W$ and suppose an account sends a fraction $c$ of its requests in one task. The earliest decision about the account comes after $W$ requests, of which about $cW$ are in that task. The detector fires on accounts that look concentrated, which means $c$ near 1, because concentration is what moves the score away from the pooled reference. So when it fires on a task, roughly $W$ answers in that task have already left. Campaigns with small $c$ would be caught earlier in task terms if they were caught at all, but those are exactly the campaigns that look like the average user and are never caught. Memory delayed it further. The full policy needed two windows and released 199 answers, and the instantaneous policy needed one window and released 99.
+The detector on this bench decides only when a window closes. Call the window length $W$ and suppose an account sends a fraction $c$ of its requests in one task. The earliest decision about the account comes after $W$ requests, of which about $cW$ are in that task. The detector fires on accounts that look concentrated, which means $c$ near 1, because concentration is what moves the score away from the pooled reference. So when it fires on a task, roughly $W$ answers in that task have already left. Campaigns with small $c$ would be caught earlier in task terms if they were caught at all, but those are exactly the campaigns that look like the average user and are never caught. Memory delayed the full policy further. It needed two windows and released 199 answers, and the instantaneous policy needed one window and released 99.
 
 On this bench $W=100$ and $c=1$ for A2's math block and A5's math account, and students trained on 95 to 98 answers already reached 70.8 and 73.5\%. To have withheld the supervision that produced those students, the detector would have had to refuse at well under 100 answers. We have no student below 95, so we cannot say how far under.
 
@@ -338,7 +340,7 @@ Output defenses take the other route and change what each answer teaches~\cite{s
 
 \section{Limitations}
 \label{sec:limits}
-The student evidence is one task, one recipe, one training seed per student and five students. The paired tests resample problems, not training runs, so they cannot see seed variance, and the panel itself suggests that variance is about three points. The recipe ties optimizer steps to data size. No student trained on fewer than 95 answers, so where useful supervision begins is unmeasured. The legitimate users are synthetic, and their topic concentration drives the detector result. A provider whose users are mostly math tutors would see a different picture. All campaigns use one seed and the exploratory half of the attacker data. The utility pass ran after each campaign on a teacher that could serve only about a tenth of its requests within the deadline. The teacher's 83.0\% counts 96 answers that reached the 512-token limit, so it may understate the teacher. Bearer keys stand in for identity, and nothing prices a new account. Coding answers, which no detector arm withheld, have no student.
+The student evidence is one task, one recipe, one training seed per student and five students. The paired tests resample problems, not training runs, so they cannot see seed variance, and the panel itself suggests that variance is about three points. The recipe ties optimizer steps to data size. No student trained on fewer than 95 answers, so where useful supervision begins is unmeasured. The legitimate users are synthetic, and their topic concentration drives the detector result. A provider whose users are mostly math tutors would see a different picture. All campaigns use one seed and the exploratory half of the attacker data. The utility pass ran after each campaign on a teacher that could serve only about a tenth of its requests within the deadline. The teacher's 83.0\% scores 96 answers that were cut at the 512-token limit as they stand, so it may understate the teacher. Bearer keys stand in for identity, and nothing prices a new account. Coding answers, which no detector arm withheld, have no student.
 
 \section{What would sharpen the result}
 \label{sec:next}
