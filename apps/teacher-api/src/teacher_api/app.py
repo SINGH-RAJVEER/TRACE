@@ -14,6 +14,7 @@ from distillation.teacher import (
 )
 from distillation.watermark import WatermarkSpec, load_or_create_master_secret
 from fastapi import FastAPI, Header, HTTPException, status
+from trace_watermark.serving import KgwSpec
 
 from teacher_api.settings import Settings
 
@@ -24,11 +25,23 @@ def create_app(*, settings: Settings | None = None, teacher: Teacher | None = No
 	resolved_settings = settings or Settings()
 	resolved_teacher = teacher
 	if resolved_teacher is None and resolved_settings.is_configured:
-		watermark = WatermarkSpec(
-			gamma=resolved_settings.watermark_gamma,
-			delta=resolved_settings.watermark_delta,
-			eligible_vocab=resolved_settings.watermark_eligible_vocab,
-		)
+		watermark: WatermarkSpec | KgwSpec
+		if resolved_settings.watermark_scheme == "kgw-v1":
+			if resolved_settings.watermark_vocab_size is None:
+				raise ValueError("KGW requires TEACHER_WATERMARK_VOCAB_SIZE")
+			watermark = KgwSpec(
+				vocab_size=resolved_settings.watermark_vocab_size,
+				gamma=resolved_settings.watermark_gamma,
+				delta=resolved_settings.watermark_delta,
+				context_width=resolved_settings.watermark_context_width,
+				epoch=resolved_settings.watermark_epoch,
+			)
+		else:
+			watermark = WatermarkSpec(
+				gamma=resolved_settings.watermark_gamma,
+				delta=resolved_settings.watermark_delta,
+				eligible_vocab=resolved_settings.watermark_eligible_vocab,
+			)
 		secret = load_or_create_master_secret(resolved_settings.watermark_key_file)
 		resolved_teacher = OpenAICompatibleTeacher(
 			base_url=resolved_settings.upstream_base_url,

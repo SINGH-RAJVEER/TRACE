@@ -1,0 +1,3 @@
+# Engine interface version verified in docs/watermark-vllm.md.
+# Install this in the separate Python 3.12 vLLM environment, not the app workspace.
+vllm==0.28.0

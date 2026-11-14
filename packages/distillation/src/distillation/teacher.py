@@ -1,11 +1,20 @@
 """Clients for vLLM teacher inference and TRACE's HTTP teacher adapter."""
 
+import hmac
+import secrets
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
+from trace_watermark.serving import (
+	ACK_HEADER,
+	CHALLENGE_HEADER,
+	KgwSpec,
+	acknowledgement,
+	request_args,
+)
 
 from distillation.schemas import (
 	Message,
@@ -109,7 +118,7 @@ class OpenAICompatibleTeacher:
 		transport: httpx.AsyncBaseTransport | None = None,
 		default_thinking: bool = True,
 		reasoning_budget_tokens: int = DEFAULT_REASONING_BUDGET_TOKENS,
-		watermark: WatermarkSpec | None = None,
+		watermark: WatermarkSpec | KgwSpec | None = None,
 		watermark_secret: bytes | None = None,
 	) -> None:
 		if (watermark is None) != (watermark_secret is None):
@@ -152,16 +161,30 @@ class OpenAICompatibleTeacher:
 			payload["top_p"] = request.top_p
 		if request.top_k is not None:
 			payload["top_k"] = request.top_k
+		headers: dict[str, str] = {}
+		expected_ack: str | None = None
 		if request.watermark_key is not None:
 			if self._watermark is None or self._watermark_secret is None:
 				raise TeacherWatermarkError("this teacher has no watermark configured")
-			payload["logit_bias"] = logit_bias(
-				self._watermark_secret, request.watermark_key, self._watermark
-			)
+			if isinstance(self._watermark, KgwSpec):
+				nonce = secrets.token_hex(16)
+				headers[CHALLENGE_HEADER] = nonce
+				payload["vllm_xargs"] = request_args(
+					self._watermark_secret, request.watermark_key, self._watermark, nonce
+				)
+				expected_ack = acknowledgement(self._watermark_secret, nonce, self._watermark)
+			else:
+				payload["logit_bias"] = logit_bias(
+					self._watermark_secret, request.watermark_key, self._watermark
+				)
 
 		try:
-			response = await self._client.post("chat/completions", json=payload)
+			response = await self._client.post("chat/completions", json=payload, headers=headers)
 			response.raise_for_status()
+			if expected_ack is not None and not hmac.compare_digest(
+				response.headers.get(ACK_HEADER, ""), expected_ack
+			):
+				raise TeacherWatermarkError("vLLM did not acknowledge the configured KGW watermark")
 			upstream = _UpstreamResponse.model_validate(response.json())
 		except httpx.HTTPStatusError as error:
 			raise TeacherUpstreamError(

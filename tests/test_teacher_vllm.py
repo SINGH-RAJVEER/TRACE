@@ -116,3 +116,31 @@ def test_all_teacher_launches_use_vllm() -> None:
 		script = (ROOT / "scripts" / name).read_text()
 		assert "bash scripts/teacher-vllm.sh" in script
 		assert '"$VLLM_BIN" serve' not in script
+
+
+def test_kgw_launch_registers_processor_and_middleware(
+	vllm_capture: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: Path,
+) -> None:
+	monkeypatch.setenv("TEACHER_WATERMARK_SCHEME", "kgw-v1")
+	monkeypatch.setenv("TEACHER_WATERMARK_VOCAB_SIZE", "512")
+	key_file = tmp_path / "new.watermark.key"
+	monkeypatch.setenv("TEACHER_WATERMARK_KEY_FILE", str(key_file))
+	result = subprocess.run(
+		["bash", str(ROOT / "scripts" / "teacher-vllm.sh")],
+		capture_output=True,
+		text=True,
+		timeout=30,
+	)
+	assert result.returncode == 0, result.stderr
+	argv = vllm_capture.read_bytes().decode().split("\0")[:-1]
+	assert argv[-5:] == [
+		"--logits-processors",
+		"trace_watermark.vllm:KgwLogitsProcessor",
+		"--middleware",
+		"trace_watermark.middleware.KgwMiddleware",
+		"--no-async-scheduling",
+	]
+	assert len(bytes.fromhex(key_file.read_text().strip())) == 32
+	assert key_file.read_text().strip() not in result.stdout + result.stderr

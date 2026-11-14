@@ -1,6 +1,7 @@
 """Environment-backed teacher API settings."""
 
 from pathlib import Path
+from typing import Literal
 
 from distillation.teacher import DEFAULT_REASONING_BUDGET_TOKENS
 from pydantic import Field
@@ -26,6 +27,16 @@ class Settings(BaseSettings):
 	watermark_key_file: Path = Field(
 		default=Path("artifacts/teacher.watermark.key"), alias="TEACHER_WATERMARK_KEY_FILE"
 	)
+	watermark_scheme: Literal["unigram-v1", "kgw-v1"] = Field(
+		default="unigram-v1", alias="TEACHER_WATERMARK_SCHEME"
+	)
+	watermark_vocab_size: int | None = Field(
+		default=None, ge=2, lt=2**32, alias="TEACHER_WATERMARK_VOCAB_SIZE"
+	)
+	watermark_context_width: int = Field(
+		default=2, ge=1, lt=2**32, alias="TEACHER_WATERMARK_CONTEXT_WIDTH"
+	)
+	watermark_epoch: int = Field(default=0, ge=0, lt=2**32, alias="TEACHER_WATERMARK_EPOCH")
 	watermark_gamma: float = Field(default=0.25, gt=0, lt=1, alias="TEACHER_WATERMARK_GAMMA")
 	watermark_delta: float = Field(default=2.0, gt=0, le=20, alias="TEACHER_WATERMARK_DELTA")
 	watermark_eligible_vocab: int = Field(
