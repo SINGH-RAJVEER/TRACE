@@ -69,7 +69,7 @@ def test_key_publication_error_fails_closed_and_cleans_up(
 	def denied(*args: object) -> None:
 		raise PermissionError("key publication denied")
 
-	monkeypatch.setattr("distillation.watermark.os.link", denied)
+	monkeypatch.setattr("trace_watermark.keys.os.link", denied)
 	path = tmp_path / "teacher.watermark.key"
 	with pytest.raises(PermissionError, match="publication denied"):
 		load_or_create_master_secret(path)

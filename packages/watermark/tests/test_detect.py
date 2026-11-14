@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pytest
 
-from watermark_probe.core import (
+from trace_watermark.core import (
 	ALGORITHM_ID,
 	ALGORITHM_VERSION,
 	WatermarkKey,
@@ -14,7 +14,7 @@ from watermark_probe.core import (
 	context_seed,
 	is_green,
 )
-from watermark_probe.detect import (
+from trace_watermark.detect import (
 	binomial_log_upper_tail,
 	binomial_upper_tail,
 	binomial_z_score,
@@ -168,7 +168,7 @@ def test_no_scorable_tokens_abstains_with_no_z_score() -> None:
 )
 def test_rejects_alpha_outside_the_open_interval(bad: dict[str, float]) -> None:
 	with pytest.raises(ValueError, match="alpha"):
-		detect([1, 2, 3], KEY, PROFILE, **bad)
+		detect([1, 2, 3], KEY, PROFILE, alpha=bad["alpha"], min_effective=1)
 
 
 def test_rejects_a_floor_that_lets_no_evidence_read_as_negative() -> None:
@@ -178,9 +178,9 @@ def test_rejects_a_floor_that_lets_no_evidence_read_as_negative() -> None:
 
 def test_thresholds_have_no_defaults() -> None:
 	with pytest.raises(TypeError):
-		detect([1, 2, 3], KEY, PROFILE, alpha=ALPHA)
+		detect([1, 2, 3], KEY, PROFILE, alpha=ALPHA)  # type: ignore[call-arg]
 	with pytest.raises(TypeError):
-		detect([1, 2, 3], KEY, PROFILE, min_effective=1)
+		detect([1, 2, 3], KEY, PROFILE, min_effective=1)  # type: ignore[call-arg]
 
 
 def test_rejects_scored_token_outside_vocabulary() -> None:
@@ -191,10 +191,10 @@ def test_rejects_scored_token_outside_vocabulary() -> None:
 def test_accepts_numpy_token_ids() -> None:
 	generated = green_sequence(KEY, 16)
 	as_numpy = detect(
-		np.array(generated, dtype=np.int64),
+		np.array(generated, dtype=np.int64),  # type: ignore[arg-type]
 		KEY,
 		PROFILE,
-		np.array(PROMPT, dtype=np.int64),
+		np.array(PROMPT, dtype=np.int64),  # type: ignore[arg-type]
 		alpha=ALPHA,
 		min_effective=1,
 	)
@@ -214,6 +214,7 @@ def test_green_sequence_detected_under_right_key_only() -> None:
 	assert (right.candidate_key_id, right.key_epoch) == ("fixture", 3)
 	assert (right.algorithm_id, right.algorithm_version) == (ALGORITHM_ID, ALGORITHM_VERSION)
 	assert wrong.decision == "not_detected"
+	assert wrong.raw_p_value is not None
 	assert wrong.raw_p_value > ALPHA
 
 
@@ -258,6 +259,7 @@ def test_candidates_correct_across_keys_and_keep_input_order() -> None:
 	assert holm_adjust([result.raw_p_value for result in results]) == [
 		result.adjusted_p_value for result in results
 	]
+	assert results[1].raw_p_value is not None
 	assert results[1].adjusted_p_value == pytest.approx(3 * results[1].raw_p_value)
 
 
@@ -371,6 +373,7 @@ def test_duplicate_candidate_keys_keep_holm_valid() -> None:
 	assert first.green_count == second.green_count
 	assert first.raw_p_value == second.raw_p_value
 	assert first.tested_hypotheses == 2
+	assert first.raw_p_value is not None
 	assert first.adjusted_p_value == second.adjusted_p_value == min(1.0, 2 * first.raw_p_value)
 
 
@@ -378,7 +381,7 @@ def test_duplicate_candidate_keys_keep_holm_valid() -> None:
 @pytest.mark.parametrize("bad", [-1, 1.9, True, 10**6])
 def test_every_supplied_token_is_validated_even_without_scoring(field: str, bad: object) -> None:
 	profile = WatermarkProfile(gamma=0.25, delta=1.0, context_width=4, vocab_size=512)
-	generated, prompt = ([bad], []) if field == "generated" else ([1], [bad, 1, 2])
+	generated, prompt = ([bad], []) if field == "generated" else ([1], [bad, 1, 2])  # type: ignore[list-item]
 	with pytest.raises(ValueError):
 		detect(generated, KEY, profile, prompt, alpha=0.05, min_effective=1)  # type: ignore[arg-type]
 
@@ -394,7 +397,7 @@ def test_p_value_uses_the_rounded_threshold_rather_than_gamma(
 ) -> None:
 	profile = WatermarkProfile(gamma=1.5 * 2.0**-64, delta=1.0, context_width=1, vocab_size=2)
 	assert profile.green_probability == 2.0**-64
-	monkeypatch.setattr("watermark_probe.detect.is_green", lambda *_: True)
+	monkeypatch.setattr("trace_watermark.detect.is_green", lambda *_: True)
 	result = detect([1], KEY, profile, prompt_ids=[0], alpha=0.05, min_effective=1)
 	assert result.green_count == 1
 	assert result.raw_p_value == pytest.approx(2.0**-64, rel=1e-12, abs=0.0)

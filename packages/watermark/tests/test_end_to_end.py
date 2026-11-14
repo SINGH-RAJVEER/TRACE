@@ -7,9 +7,9 @@ each other. They say nothing about a real model, tokenizer or task.
 import numpy as np
 from numpy.typing import NDArray
 
-from watermark_probe.bias import KgwBatchProcessor
-from watermark_probe.core import WatermarkKey, WatermarkProfile
-from watermark_probe.detect import detect, detect_candidates
+from trace_watermark.bias import KgwBatchProcessor
+from trace_watermark.core import WatermarkKey, WatermarkProfile
+from trace_watermark.detect import detect, detect_candidates
 
 VOCAB = 2000
 TENANT_A = WatermarkKey("tenant-a", 0, b"public-test-material-tenant-a")

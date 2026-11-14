@@ -1,4 +1,4 @@
-"""Command line for the watermark probe."""
+"""Reference vectors and CPU arithmetic benchmarks for TRACE's watermark."""
 
 import argparse
 import json
@@ -6,7 +6,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from watermark_probe.vectors import compute_vectors, find_mismatches, load_fixture
+from trace_watermark.vectors import compute_vectors, find_mismatches, load_fixture
 
 
 def _vectors(args: argparse.Namespace) -> int:
@@ -35,7 +35,7 @@ def _vectors(args: argparse.Namespace) -> int:
 
 
 def _bench(args: argparse.Namespace) -> int:
-	from watermark_probe.benchmark import run_benchmarks
+	from trace_watermark.benchmark import run_benchmarks
 
 	report = run_benchmarks(quick=args.quick)
 	try:
@@ -47,16 +47,8 @@ def _bench(args: argparse.Namespace) -> int:
 	return 0
 
 
-def _not_implemented(args: argparse.Namespace) -> int:
-	print(
-		f"{args.command}: not implemented; it needs a serving stage or data that does not exist",
-		file=sys.stderr,
-	)
-	return 2
-
-
 def _build_parser() -> argparse.ArgumentParser:
-	parser = argparse.ArgumentParser(prog="watermark-probe", description=__doc__)
+	parser = argparse.ArgumentParser(prog="trace-watermark", description=__doc__)
 	commands = parser.add_subparsers(dest="command", required=True)
 
 	vectors = commands.add_parser("vectors", help="check and write the reference vectors")
@@ -69,23 +61,6 @@ def _build_parser() -> argparse.ArgumentParser:
 	bench.add_argument("--quick", action="store_true", help="prove it runs; timings mean little")
 	bench.set_defaults(handler=_bench)
 
-	planned = {
-		"replay": (
-			"--manifest",
-			"--profiles",
-			"--temperatures",
-			"--lengths",
-			"--concurrency",
-			"--output",
-		),
-		"calibrate": ("--split", "--generations", "--familywise-alpha", "--output"),
-		"evaluate": ("--split", "--calibration", "--generations", "--output"),
-	}
-	for name, options in planned.items():
-		command = commands.add_parser(name, help="not implemented")
-		for option in options:
-			command.add_argument(option)
-		command.set_defaults(handler=_not_implemented)
 	return parser
 
 

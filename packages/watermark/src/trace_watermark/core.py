@@ -5,8 +5,8 @@ a seed through HMAC-SHA256. The seed then assigns each token ID to the green lis
 splitmix64 finalizer, so a whole-vocabulary mask stays cheap and a single membership test is O(1).
 
 The HMAC step is a standard keyed PRF. The splitmix64 step is not: it is a statistical mixer, and
-an adversary who observes many memberships under one context may learn that context's seed. Treat
-this as a research prototype until a vetted token expansion replaces it.
+an adversary who observes many memberships under one context may learn that context's seed.
+Serving integration does not remove that limitation or establish adversarial robustness.
 """
 
 import hashlib
@@ -23,7 +23,7 @@ from numpy.typing import NDArray
 
 ALGORITHM_ID = "kgw-hmac-splitmix"
 ALGORITHM_VERSION = 1
-_DOMAIN = b"trace-watermark-probe"
+_DOMAIN = b"trace-watermark-probe"  # Version 1 wire constant; retain the reference vectors.
 _GOLDEN = 0x9E3779B97F4A7C15
 _MIX_A = 0xBF58476D1CE4E5B9
 _MIX_B = 0x94D049BB133111EB

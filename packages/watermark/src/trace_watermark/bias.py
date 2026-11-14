@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from watermark_probe.core import (
+from trace_watermark.core import (
 	WatermarkKey,
 	WatermarkProfile,
 	context_of,

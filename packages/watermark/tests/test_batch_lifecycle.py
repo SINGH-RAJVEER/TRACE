@@ -5,15 +5,26 @@ biased logits must equal what apply_bias gives for that request's own history.
 """
 
 import random
+from typing import TypedDict
 
 import numpy as np
 import pytest
 
-from watermark_probe.bias import KgwBatchProcessor, apply_bias
-from watermark_probe.core import WatermarkKey, WatermarkProfile
+from trace_watermark.bias import KgwBatchProcessor, apply_bias
+from trace_watermark.core import WatermarkKey, WatermarkProfile
 
 PROFILE = WatermarkProfile(gamma=0.25, delta=1.5, context_width=2, vocab_size=128)
 KEYS = [WatermarkKey(f"tenant-{i}", i, f"public-test-tenant-key-{i}".encode()) for i in range(3)]
+
+
+class LiveRequest(TypedDict):
+	id: str
+	key: WatermarkKey
+	history: list[int]
+	enabled: bool
+	biased: int
+	skipped: int
+	disabled: int
 
 
 @pytest.mark.parametrize("seed", range(20))
@@ -21,7 +32,7 @@ def test_random_lifecycle_matches_each_request_alone(seed: int) -> None:
 	rng = random.Random(seed)
 	logits_rng = np.random.default_rng(seed)
 	processor = KgwBatchProcessor(PROFILE)
-	live: dict[int, dict] = {}
+	live: dict[int, LiveRequest] = {}
 	finished = 0
 	serial = 0
 	for _ in range(300):
@@ -30,7 +41,7 @@ def test_random_lifecycle_matches_each_request_alone(seed: int) -> None:
 		if action < 0.2 and empty:
 			slot = rng.choice(empty)
 			prompt = [rng.randrange(128) for _ in range(rng.randrange(4))]
-			request = {
+			request: LiveRequest = {
 				"id": f"request-{serial}",
 				"key": rng.choice(KEYS),
 				"history": prompt,

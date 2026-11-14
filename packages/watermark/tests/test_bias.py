@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from watermark_probe.bias import KgwBatchProcessor, apply_bias
-from watermark_probe.core import WatermarkKey, WatermarkProfile, context_seed, green_mask, is_green
+from trace_watermark.bias import KgwBatchProcessor, apply_bias
+from trace_watermark.core import WatermarkKey, WatermarkProfile, context_seed, green_mask, is_green
 
 KEY = WatermarkKey("tenant-a", 0, b"public-test-material-only")
 OTHER_KEY = WatermarkKey("tenant-b", 0, b"another-public-test-key")
@@ -165,7 +165,7 @@ def test_slot_errors() -> None:
 	]
 	for call in calls:
 		with pytest.raises(ValueError):
-			call()
+			call()  # type: ignore[no-untyped-call]
 
 
 def test_failed_apply_changes_no_counts() -> None:

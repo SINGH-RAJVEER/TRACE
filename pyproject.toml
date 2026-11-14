@@ -35,6 +35,7 @@ extraction-harness = { workspace = true }
 harness-api = { workspace = true }
 teacher-api = { workspace = true }
 coding-task = { workspace = true }
+trace-watermark = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -43,7 +44,8 @@ members = [
 	"apps/harness-api",
 	"apps/teacher-api",
 	"packages/distillation",
-	"packages/harness"
+	"packages/harness",
+	"packages/watermark"
 ]
 
 [dependency-groups]
@@ -56,7 +58,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/watermark/tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]

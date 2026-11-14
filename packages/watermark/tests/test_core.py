@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from watermark_probe.core import (
+from trace_watermark.core import (
 	WatermarkKey,
 	WatermarkProfile,
 	context_of,
@@ -58,7 +58,7 @@ def test_context_outside_vocabulary_raises_value_error(context: tuple[int, int])
 
 def test_membership_accepts_numpy_integers_and_rejects_outside_vocabulary() -> None:
 	seed = context_seed(KEY, PROFILE, (1, 2))
-	assert is_green(seed, np.int64(7), PROFILE) == is_green(seed, 7, PROFILE)
+	assert is_green(seed, np.int64(7), PROFILE) == is_green(seed, 7, PROFILE)  # type: ignore[arg-type]
 	with pytest.raises(ValueError):
 		is_green(seed, 5000, PROFILE)
 

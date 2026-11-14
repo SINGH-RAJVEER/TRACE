@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from watermark_probe.__main__ import main
-from watermark_probe.vectors import compute_vectors, find_mismatches, load_fixture
+from trace_watermark.__main__ import main
+from trace_watermark.vectors import compute_vectors, find_mismatches, load_fixture
 
 FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "reference.json"
 
@@ -110,15 +110,17 @@ def test_cli_vectors_requires_expected_values(fixture: dict[str, Any], tmp_path:
 	],
 	ids=["replay", "calibrate", "evaluate", "replay-bare"],
 )
-def test_planned_commands_exit_2_and_write_nothing(
+def test_unimplemented_commands_are_not_advertised(
 	command: list[str],
 	tmp_path: Path,
 	monkeypatch: pytest.MonkeyPatch,
 	capsys: pytest.CaptureFixture[str],
 ) -> None:
 	monkeypatch.chdir(tmp_path)
-	assert main(command) == 2
-	assert "not implemented" in capsys.readouterr().err
+	with pytest.raises(SystemExit) as error:
+		main(command)
+	assert error.value.code == 2
+	assert "invalid choice" in capsys.readouterr().err
 	assert list(tmp_path.iterdir()) == []
 
 
@@ -128,7 +130,7 @@ def test_python_dash_m_runs(tmp_path: Path) -> None:
 		[
 			sys.executable,
 			"-m",
-			"watermark_probe",
+			"trace_watermark",
 			"vectors",
 			"--fixture",
 			str(FIXTURE_PATH),

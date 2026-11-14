@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from watermark_probe.core import (
+from trace_watermark.core import (
 	ALGORITHM_ID,
 	ALGORITHM_VERSION,
 	WatermarkKey,

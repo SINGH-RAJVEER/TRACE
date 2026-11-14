@@ -15,7 +15,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Literal
 
-from watermark_probe.core import (
+from trace_watermark.core import (
 	ALGORITHM_ID,
 	ALGORITHM_VERSION,
 	WatermarkKey,
@@ -151,6 +151,41 @@ def detect_candidates(
 	excluded_ids: AbstractSet[int] = frozenset(),
 ) -> list[Detection]:
 	"""Test each candidate key under Holm-Bonferroni familywise correction, in input order."""
+	scored, events = _collect_events(generated_ids, profile, prompt_ids, excluded_ids)
+	return _detect_events(scored, events, candidates, profile, alpha, min_effective)
+
+
+def detect_texts(
+	texts: Sequence[Sequence[int]],
+	candidates: Sequence[WatermarkKey],
+	profile: WatermarkProfile,
+	*,
+	alpha: float,
+	min_effective: int,
+) -> list[Detection]:
+	"""Pool answer-only texts without cross-text contexts or duplicate evidence.
+
+	Without the exact generation prompt, the first context_width tokens of each answer cannot
+	be scored. Each context contributes at most once across the entire pool, not once per text.
+	"""
+	scored = 0
+	events: dict[tuple[int, ...], int] = {}
+	for text in texts:
+		count, collected = _collect_events(text, profile, (), frozenset())
+		scored += count
+		for context, token in collected:
+			events.setdefault(context, token)
+	return _detect_events(scored, list(events.items()), candidates, profile, alpha, min_effective)
+
+
+def _detect_events(
+	scored: int,
+	events: list[_Event],
+	candidates: Sequence[WatermarkKey],
+	profile: WatermarkProfile,
+	alpha: float,
+	min_effective: int,
+) -> list[Detection]:
 	if not 0.0 < alpha < 1.0:
 		raise ValueError("alpha must lie strictly between 0 and 1")
 	if exact_integer(min_effective, "min_effective") < 1:
@@ -160,7 +195,6 @@ def detect_candidates(
 	if not candidates:
 		raise ValueError("at least one candidate key is required")
 
-	scored, events = _collect_events(generated_ids, profile, prompt_ids, excluded_ids)
 	n = len(events)
 	p = profile.green_probability
 	greens = [_count_green(events, key, profile) for key in candidates]

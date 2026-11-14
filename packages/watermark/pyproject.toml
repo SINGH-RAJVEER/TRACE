@@ -1,12 +1,12 @@
 [project]
-name = "watermark-probe"
+name = "trace-watermark"
 version = "0.1.0"
-description = "Keyed soft KGW decoder watermark prototype, independent of any serving engine"
+description = "TRACE keyed KGW watermark generation, vLLM integration and detection"
 requires-python = ">=3.12,<3.15"
 dependencies = ["numpy>=2.1,<3"]
 
 [project.scripts]
-watermark-probe = "watermark_probe.__main__:main"
+trace-watermark = "trace_watermark.__main__:main"
 
 [dependency-groups]
 dev = ["pytest>=8.4.1,<9", "ruff>=0.12.9"]

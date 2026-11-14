@@ -11,7 +11,8 @@ dependencies = [
 	"huggingface-hub>=0.34.0",
 	"pydantic>=2.11.7",
 	"rich>=13.7",
-	"typer>=0.16.0"
+	"typer>=0.16.0",
+	"trace-watermark"
 ]
 
 [project.optional-dependencies]
@@ -38,6 +39,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 coding-task = { workspace = true }
+trace-watermark = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/distillation"]

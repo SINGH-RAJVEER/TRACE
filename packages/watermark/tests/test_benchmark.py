@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from watermark_probe.__main__ import main
+from trace_watermark.__main__ import main
 
 
 def test_quick_benchmark_reports_every_path_and_no_key_material(tmp_path: Path) -> None:

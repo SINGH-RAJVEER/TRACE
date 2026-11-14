@@ -14,9 +14,9 @@ from typing import Any
 
 import numpy as np
 
-from watermark_probe.bias import KgwBatchProcessor, apply_bias
-from watermark_probe.core import WatermarkKey, WatermarkProfile, context_seed, green_mask
-from watermark_probe.detect import detect_candidates
+from trace_watermark.bias import KgwBatchProcessor, apply_bias
+from trace_watermark.core import WatermarkKey, WatermarkProfile, context_seed, green_mask
+from trace_watermark.detect import detect_candidates
 
 _KEYS = [WatermarkKey(f"bench-{i}", 0, f"public-benchmark-key-{i:04d}".encode()) for i in range(8)]
 _THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")

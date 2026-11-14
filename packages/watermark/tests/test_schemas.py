@@ -1,9 +1,10 @@
 from dataclasses import asdict, fields
+from typing import Any
 
 import pytest
 
-from watermark_probe.core import WatermarkKey
-from watermark_probe.schemas import GenerationRow, RunManifest, looks_like_secret
+from trace_watermark.core import WatermarkKey
+from trace_watermark.schemas import GenerationRow, RunManifest, looks_like_secret
 
 MANIFEST_FIELDS = [
 	"schema_version",
@@ -80,11 +81,11 @@ ROW_FIELDS = [
 ]
 
 
-def manifest(**overrides: object) -> RunManifest:
+def manifest(**overrides: Any) -> RunManifest:
 	return RunManifest(run_id="run-1", created_at="2026-11-06T00:00:00Z", **overrides)
 
 
-def row(**overrides: object) -> GenerationRow:
+def row(**overrides: Any) -> GenerationRow:
 	return GenerationRow(request_id="r1", prompt_id="p1", split="test", task="squad", **overrides)
 
 

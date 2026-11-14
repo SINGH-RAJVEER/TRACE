@@ -25,16 +25,13 @@ import hashlib
 import hmac
 import json
 import math
-import os
-import secrets
-import tempfile
 from collections.abc import Callable, Sequence
-from contextlib import suppress
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from trace_watermark.keys import load_or_create_master_secret as load_or_create_master_secret
+from trace_watermark.keys import read_master_secret as read_master_secret
 
 VERSION: Final = "unigram-v1"
 
@@ -51,41 +48,6 @@ class WatermarkSpec(BaseModel):
 		return hashlib.sha256(
 			json.dumps(self.model_dump(mode="json"), sort_keys=True).encode()
 		).hexdigest()
-
-
-def read_master_secret(path: Path) -> bytes:
-	"""A hex secret of at least 16 bytes; never logged or written to manifests."""
-	try:
-		secret = bytes.fromhex(path.read_text().strip())
-	except (OSError, ValueError) as error:
-		raise ValueError("the watermark key file must hold a hex secret") from error
-	if len(secret) < 16:
-		raise ValueError("the watermark secret must be at least 16 bytes")
-	return secret
-
-
-def load_or_create_master_secret(path: Path) -> bytes:
-	"""Persist one private random key, publishing it atomically without replacing a key.
-
-	A complete mode-0600 temporary file is hard-linked into place so concurrent starters
-	cannot read a partial write or overwrite the winner's key. Existing invalid keys fail
-	validation; only a missing key is generated. Detection remains strictly read-only.
-	"""
-	if path.exists():
-		return read_master_secret(path)
-	path.parent.mkdir(parents=True, exist_ok=True)
-	fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".watermark-", suffix=".watermark.key")
-	try:
-		with os.fdopen(fd, "w") as stream:
-			stream.write(secrets.token_hex(32) + "\n")
-			stream.flush()
-			os.fsync(stream.fileno())
-		# Another starter may have published its complete key first.
-		with suppress(FileExistsError):
-			os.link(temporary, path)
-	finally:
-		os.unlink(temporary)
-	return read_master_secret(path)
 
 
 def key_id(namespace: str, principal: str) -> str:

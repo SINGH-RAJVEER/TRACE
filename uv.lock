@@ -16,6 +16,7 @@ members = [
     "extraction-harness",
     "harness-api",
     "teacher-api",
+    "trace-watermark",
 ]
 
 [[package]]
@@ -393,6 +394,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "trace-watermark" },
     { name = "typer" },
 ]
 
@@ -426,6 +428,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "rich", specifier = ">=13.7" },
     { name = "torch", marker = "extra == 'train'", specifier = ">=2.14.1,<3" },
+    { name = "trace-watermark", editable = "packages/watermark" },
     { name = "transformers", marker = "extra == 'train'", specifier = ">=5.19.0,<6" },
     { name = "trl", marker = "extra == 'train'", specifier = ">=1.17.1" },
     { name = "typer", specifier = ">=0.16.0" },
@@ -1728,6 +1731,29 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ffd99576daa5cc077722fc7d5bbc00bd133fa0c698dc6/tqdm-4.70.0.tar.gz", hash = "sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220", size = 795438, upload-time = "2026-07-27T11:33:15.271Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/1c/01bfd571a64e7f270e6bab5e33777debe0edc56759233ce84f27dec92d14/tqdm-4.70.0-py3-none-any.whl", hash = "sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953", size = 80184, upload-time = "2026-07-27T11:33:13.167Z" },
+]
+
+[[package]]
+name = "trace-watermark"
+version = "0.1.0"
+source = { editable = "packages/watermark" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.1,<3" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.4.1,<9" },
+    { name = "ruff", specifier = ">=0.12.9" },
 ]
 
 [[package]]
