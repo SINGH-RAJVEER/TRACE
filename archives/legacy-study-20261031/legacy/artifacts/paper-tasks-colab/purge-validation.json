@@ -1,0 +1,17 @@
+{
+	"checked_at": "2026-10-16T07:32:47.837222+00:00",
+	"tasks": {
+		"ag_news": {
+			"records": 1452,
+			"original_records_preserved": 1150,
+			"new_records_since_resume": 302,
+			"unique_ids": true
+		},
+		"squad": {
+			"records": 1073,
+			"original_records_preserved": 847,
+			"new_records_since_resume": 226,
+			"unique_ids": true
+		}
+	}
+}

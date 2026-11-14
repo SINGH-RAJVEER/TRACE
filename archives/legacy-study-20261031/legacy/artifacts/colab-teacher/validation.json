@@ -1,0 +1,49 @@
+{
+	"checked_at": "2026-10-15T22:29:18.352735+00:00",
+	"teacher_url": "http://127.0.0.1:18010",
+	"unauthenticated_status": 401,
+	"samples": [
+		{
+			"prompt": "What is 7 * 8? Reply with only the number.",
+			"elapsed_seconds": 0.877,
+			"response": {
+				"id": "chatcmpl-BYCKaFbbD61EYQRGJlKyQHjPswM5CAj9",
+				"provider": "colab-llamacpp-q4_k_m",
+				"model": "Qwen3.5-9B-Q4_K_M",
+				"generated_at": "2026-10-15T22:29:15.702430Z",
+				"message": {
+					"role": "assistant",
+					"content": "56"
+				},
+				"finish_reason": "stop",
+				"usage": {
+					"input_tokens": 26,
+					"output_tokens": 3
+				},
+				"request_id": null,
+				"endpoint": "http://127.0.0.1:18011/v1/chat/completions"
+			}
+		},
+		{
+			"prompt": "Explain in two sentences why four-bit model weights use less GPU memory than sixteen-bit weights.",
+			"elapsed_seconds": 2.649,
+			"response": {
+				"id": "chatcmpl-SYLtZUiVP6qxwWIMZGETnIKjfe5fo9kw",
+				"provider": "colab-llamacpp-q4_k_m",
+				"model": "Qwen3.5-9B-Q4_K_M",
+				"generated_at": "2026-10-15T22:29:18.351957Z",
+				"message": {
+					"role": "assistant",
+					"content": "Four-bit weights require only one-quarter of the storage space needed for sixteen-bit weights because they represent each parameter with 4 bits instead of 16. Consequently, this reduction in data size allows the model to occupy significantly less GPU memory, enabling larger models to run on hardware with limited resources."
+				},
+				"finish_reason": "stop",
+				"usage": {
+					"input_tokens": 31,
+					"output_tokens": 60
+				},
+				"request_id": null,
+				"endpoint": "http://127.0.0.1:18011/v1/chat/completions"
+			}
+		}
+	]
+}

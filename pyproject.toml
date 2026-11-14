@@ -63,7 +63,7 @@ asyncio_mode = "auto"
 line-length = 100
 target-version = "py314"
 # Frozen study outputs include historical scripts; preserve them byte-for-byte.
-extend-exclude = ["readings"]
+extend-exclude = ["readings", "archives"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
@@ -76,7 +76,7 @@ quote-style = "double"
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-exclude = ["artifacts"]
+exclude = ["artifacts", "archives"]
 
 [[tool.mypy.overrides]]
 module = ["datasets.*", "huggingface_hub.*", "peft.*", "torch.*", "transformers.*", "trl.*"]

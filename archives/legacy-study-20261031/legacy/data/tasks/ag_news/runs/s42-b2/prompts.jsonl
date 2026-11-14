@@ -1,0 +1,2 @@
+{"example_id":"0","split":"train","task":"ag_news","source":{"corpus":"fixture","source_id":"0","license":"mit","content_sha256":null,"group_id":null},"prompt":[{"role":"user","content":"0"}]}
+{"example_id":"1","split":"train","task":"ag_news","source":{"corpus":"fixture","source_id":"1","license":"mit","content_sha256":null,"group_id":null},"prompt":[{"role":"user","content":"1"}]}

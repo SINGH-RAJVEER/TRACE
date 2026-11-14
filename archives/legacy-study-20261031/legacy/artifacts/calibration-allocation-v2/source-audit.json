@@ -1,0 +1,100 @@
+{
+	"seed": 42,
+	"concentrated_share": 0.1,
+	"results": {
+		"ag_news": {
+			"build": "data/tasks/ag_news-split-v2-s42",
+			"manifest_sha256": "81abf9d3c1d9be653cd1879554ea2099b6b98e2d799839665cc22ac754cef666",
+			"roles": {
+				"attacker": 35944,
+				"benign_test": 10950,
+				"development": 11848,
+				"fitting": 6012,
+				"policy_calibration": 40748,
+				"score_calibration": 14337
+			},
+			"workloads": {
+				"score_calibration": {
+					"scored_horizons": 38,
+					"nonoverlapping_windows": 128,
+					"accounts": 184
+				},
+				"policy_calibration": {
+					"scored_horizons": 108,
+					"nonoverlapping_windows": 365,
+					"accounts": 517
+				}
+			},
+			"preserved": {
+				"legitimate/benign_test.jsonl": "a2345d93d5f4620058a7f90f31ee7799cfd8cabfcf4f3ae75297955e6f858f70",
+				"development-suite.json": "8fdcc70e4d67d34ce502a3ea74498ddbdfc31a6cd65ece04bf6e759954a739c3",
+				"test-suite.json": "94fda5ffd693bf2e14d1a63fd2d90946d53f162ccf22c7534e4c2696f58e63c3"
+			},
+			"group_disjoint": true,
+			"attacker_subset": true
+		},
+		"squad": {
+			"build": "data/tasks/squad-split-v2-s42",
+			"manifest_sha256": "27bcb3b04502afbade776d4eb85d7e8f8e7ebb57eec7f2b627926ea6d3af206d",
+			"roles": {
+				"attacker": 10353,
+				"benign_test": 10431,
+				"development": 7141,
+				"fitting": 4110,
+				"policy_calibration": 42145,
+				"score_calibration": 13226
+			},
+			"workloads": {
+				"score_calibration": {
+					"scored_horizons": 35,
+					"nonoverlapping_windows": 116,
+					"accounts": 176
+				},
+				"policy_calibration": {
+					"scored_horizons": 113,
+					"nonoverlapping_windows": 386,
+					"accounts": 526
+				}
+			},
+			"preserved": {
+				"legitimate/benign_test.jsonl": "257ae867a160282b0063ed3f581a31b402f2f25e3b9af2b93d6a369e11b3b734",
+				"development-suite.json": "e850e4b1988c12f642544197babe3f5f4340b3a4944335a631d5d47cf8b35f10",
+				"test-suite.json": "47ce56291afc870452182d437a8391bc2d6346a5c83a12ebc4f282260a14932d"
+			},
+			"group_disjoint": true,
+			"attacker_subset": true
+		},
+		"gsm8k": {
+			"build": "data/tasks/gsm8k",
+			"manifest_sha256": "14cf6dcffef6ef4afecd9b913fb23393eec6f683ad86be724ecd2a0946e620d4",
+			"roles": {
+				"attacker": 3389,
+				"benign_test": 659,
+				"development": 746,
+				"fitting": 1328,
+				"policy_calibration": 669,
+				"score_calibration": 682
+			},
+			"workloads": {
+				"score_calibration": {
+					"scored_horizons": 3,
+					"nonoverlapping_windows": 5,
+					"accounts": 11
+				},
+				"policy_calibration": {
+					"scored_horizons": 2,
+					"nonoverlapping_windows": 4,
+					"accounts": 11
+				}
+			},
+			"preserved": {
+				"legitimate/benign_test.jsonl": "f81c49e4d25e82b6cf88d9d04d5433f3a6605c5800f71d98c8ef0c925f934c54",
+				"development-suite.json": "e4c73a5080c08e7a11d8ea0824dca741ba8fa65728bb53d09f0e10e8aa77077f",
+				"test-suite.json": "3a4318e57f476b4891c5c42754690734e7647bc31a496baf6bff79abd334c1df"
+			},
+			"group_disjoint": true,
+			"attacker_subset": true
+		}
+	},
+	"scope": "source and workload audit; no model or threshold effectiveness measured"
+}
