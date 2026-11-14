@@ -21,6 +21,3 @@ readings/raw-2026-11-02/README.md !filter !diff !merge text
 readings/raw-2026-11-02/MANIFEST.tsv !filter !diff !merge text
 readings/v3-2026-10-29-gateway-replay/run/tasks/** filter=lfs diff=lfs merge=lfs -text
 readings/v3-2026-10-29-gateway-replay/students/** filter=lfs diff=lfs merge=lfs -text
-
-# Generated inventory of the byte-preserved legacy artifact snapshot.
-archives/legacy-study-20261031/MANIFEST.tsv filter=lfs diff=lfs merge=lfs -text
