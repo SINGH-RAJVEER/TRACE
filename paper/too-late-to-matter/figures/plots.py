@@ -5,12 +5,15 @@ uv run --no-project --with matplotlib python paper/too-late-to-matter/figures/pl
 
 Inputs are the shared v7 records in paper/figures: v7.json (campaign outcomes, from
 readings/v7) and student-panel.json (the validated student benchmark panel). Outputs are
-written next to this file: race.pdf, supervision.pdf, paired.pdf and numbers.json.
+written next to this file: race.pdf, supervision.pdf, paired.pdf, tokens.pdf and
+numbers.json, plus a copy of the shared a5-ranks.pdf, so that this directory holds every
+file main.tex needs and can be uploaded to Overleaf as it is.
 """
 
 import json
 import math
 import pathlib
+import shutil
 
 import matplotlib
 
@@ -239,7 +242,7 @@ def race():
 				(math_released("A5", "quota"), "A5", False),
 			],
 		),
-		("No refusal", NEUTRAL, [(math_released("A6", "quota"), "A6, every arm; A1 detectors", True)]),
+		("No refusal", NEUTRAL, [(math_released("A6", "quota"), "Unprotected; A1, A6 detectors", True)]),
 	]
 	for y, (label, color, marks) in enumerate(rows):
 		for x, text, trained in marks:
@@ -325,8 +328,47 @@ def paired():
 	fig.savefig(HERE / "paired.pdf")
 
 
+DOMAINS = [("gsm8k", "GSM8K"), ("coding", "Coding"), ("squad", "SQuAD"), ("ag_news", "AG News")]
+DOMAIN_COLOR = [FULL, INST, "#1baf7a", "#eda100"]
+HATCH = ["", "//", "\\\\", ".."]
+
+
+def tokens():
+	"""Released output tokens by domain for every arm that ran. The A6 quota arm is the unprotected run."""
+	cells = [
+		("A1", "quota", "A1 quota"),
+		("A2", "full", "A2 full"),
+		("A2", "instantaneous", "A2 instantaneous"),
+		("A2", "quota", "A2 quota"),
+		("A3", "quota", "A3 quota"),
+		("A5", "full", "A5 full"),
+		("A5", "instantaneous", "A5 instantaneous"),
+		("A5", "quota", "A5 quota"),
+		("A6", "quota", "Unprotected"),
+		("A7", "quota", "A7 quota"),
+	]
+	fig, ax = plt.subplots(figsize=(3.5, 2.9))
+	y = list(range(len(cells)))[::-1]
+	left = [0.0] * len(cells)
+	for slot, (key, label) in enumerate(DOMAINS):
+		widths = [V7["campaigns"][a][arm]["by_domain"].get(key, {"tokens": 0})["tokens"] / 1000 for a, arm, _ in cells]
+		ax.barh(y, widths, left=left, height=0.62, color=DOMAIN_COLOR[slot], hatch=HATCH[slot], edgecolor="white", linewidth=0.8, label=label)
+		left = [l + w for l, w in zip(left, widths)]
+	for yi, total in zip(y, left):
+		ax.text(total + 12, yi, f"{total:,.0f}k", va="center", fontsize=7, color=INK)
+	ax.set_yticks(y, [c[2] for c in cells])
+	ax.set_xlabel("Released output tokens (thousands)")
+	ax.set_xlim(0, 960)
+	style(ax)
+	ax.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.4, 1.0), frameon=False, fontsize=7, handlelength=1.4, columnspacing=0.9)
+	fig.tight_layout(pad=0.3)
+	fig.savefig(HERE / "tokens.pdf")
+
+
 if __name__ == "__main__":
 	(HERE / "numbers.json").write_text(json.dumps(numbers(), indent="\t") + "\n")
 	race()
 	supervision()
 	paired()
+	tokens()
+	shutil.copyfile(SHARED / "a5-ranks.pdf", HERE / "a5-ranks.pdf")
