@@ -1,0 +1,410 @@
+{
+	"source": [
+		"paper/figures/v7.json",
+		"paper/figures/student-panel.json"
+	],
+	"reference_ledger": "A6/quota",
+	"detection": {
+		"A2": {
+			"math_window_ranks": [
+				0.018363939899833055,
+				0.011686143572621035
+			],
+			"full_risk_after_math_windows": [
+				2.997366325317079,
+				6.146981141845507
+			],
+			"instantaneous_score_first_math_window": 3.997366325317079,
+			"smallest_rank_outside_math_windows": 0.6510851419031719,
+			"windows_outside_math": 15
+		},
+		"A5": {
+			"math_window_ranks": [
+				0.015025041736227046,
+				0.03005008347245409
+			],
+			"full_risk_after_math_windows": [
+				3.19803702077923,
+				5.383123158920592
+			],
+			"instantaneous_score_first_math_window": 4.19803702077923,
+			"smallest_rank_outside_math_windows": 0.4240400667779633,
+			"windows_outside_math": 43
+		},
+		"full_thresholds": [
+			0.3846263040191935,
+			1.4967630265491594,
+			2.7598362690023004,
+			4.0089672369955585
+		],
+		"instantaneous_thresholds": [
+			1.3846263040191935,
+			2.2363785147557773,
+			3.0630570879402454,
+			3.5048898402192847
+		],
+		"single_window_full_L4_rank": 0.006677796327212022,
+		"instantaneous_L4_rank": 0.030050083472454088,
+		"rank_floor": 0.001669449081803005
+	},
+	"released": {
+		"A2/full": {
+			"attempts": 6000,
+			"received": 1699,
+			"blocked": 4201,
+			"challenge": 100,
+			"first_refusal_decision": 1700,
+			"released_tokens": 77408,
+			"share_of_reference_tokens": 0.09597183133516,
+			"gsm8k_responses": 199,
+			"share_of_reference_gsm8k_responses": 0.13266666666666665,
+			"gsm8k_tokens": 73964,
+			"share_of_reference_gsm8k_tokens": 0.13314899423580284,
+			"by_domain": {
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3444
+				},
+				"gsm8k": {
+					"responses": 199,
+					"tokens": 73964
+				}
+			}
+		},
+		"A2/instantaneous": {
+			"attempts": 6000,
+			"received": 1599,
+			"blocked": 4401,
+			"challenge": 0,
+			"first_refusal_decision": 1600,
+			"released_tokens": 40355,
+			"share_of_reference_tokens": 0.050032855176860035,
+			"gsm8k_responses": 99,
+			"share_of_reference_gsm8k_responses": 0.066,
+			"gsm8k_tokens": 36911,
+			"share_of_reference_gsm8k_tokens": 0.0664466838764496,
+			"by_domain": {
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3444
+				},
+				"gsm8k": {
+					"responses": 99,
+					"tokens": 36911
+				}
+			}
+		},
+		"A2/quota": {
+			"attempts": 6000,
+			"received": 1215,
+			"blocked": 4785,
+			"challenge": 0,
+			"first_refusal_decision": 1216,
+			"released_tokens": 2784,
+			"share_of_reference_tokens": 0.003451653297295957,
+			"gsm8k_responses": 0,
+			"share_of_reference_gsm8k_responses": 0.0,
+			"gsm8k_tokens": 0,
+			"share_of_reference_gsm8k_tokens": 0.0,
+			"by_domain": {
+				"ag_news": {
+					"responses": 1215,
+					"tokens": 2784
+				}
+			}
+		},
+		"A5/full": {
+			"attempts": 6000,
+			"received": 4693,
+			"blocked": 1207,
+			"challenge": 100,
+			"first_refusal_decision": 2121,
+			"released_tokens": 321831,
+			"share_of_reference_tokens": 0.39901186505820946,
+			"gsm8k_responses": 199,
+			"share_of_reference_gsm8k_responses": 0.13266666666666665,
+			"gsm8k_tokens": 71142,
+			"share_of_reference_gsm8k_tokens": 0.12806886793471803,
+			"by_domain": {
+				"gsm8k": {
+					"responses": 199,
+					"tokens": 71142
+				},
+				"squad": {
+					"responses": 1500,
+					"tokens": 11626
+				},
+				"coding": {
+					"responses": 1494,
+					"tokens": 235619
+				},
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3444
+				}
+			}
+		},
+		"A5/instantaneous": {
+			"attempts": 6000,
+			"received": 4599,
+			"blocked": 1401,
+			"challenge": 0,
+			"first_refusal_decision": 1038,
+			"released_tokens": 286332,
+			"share_of_reference_tokens": 0.35499956606370187,
+			"gsm8k_responses": 99,
+			"share_of_reference_gsm8k_responses": 0.066,
+			"gsm8k_tokens": 34903,
+			"share_of_reference_gsm8k_tokens": 0.06283190938581237,
+			"by_domain": {
+				"gsm8k": {
+					"responses": 99,
+					"tokens": 34903
+				},
+				"squad": {
+					"responses": 1500,
+					"tokens": 11700
+				},
+				"coding": {
+					"responses": 1500,
+					"tokens": 236283
+				},
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3446
+				}
+			}
+		},
+		"A5/quota": {
+			"attempts": 6000,
+			"received": 5430,
+			"blocked": 570,
+			"challenge": 0,
+			"first_refusal_decision": 4687,
+			"released_tokens": 696685,
+			"share_of_reference_tokens": 0.8637625996503713,
+			"gsm8k_responses": 1215,
+			"share_of_reference_gsm8k_responses": 0.81,
+			"gsm8k_tokens": 447418,
+			"share_of_reference_gsm8k_tokens": 0.8054358431533507,
+			"by_domain": {
+				"gsm8k": {
+					"responses": 1215,
+					"tokens": 447418
+				},
+				"squad": {
+					"responses": 1215,
+					"tokens": 9461
+				},
+				"coding": {
+					"responses": 1500,
+					"tokens": 236362
+				},
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3444
+				}
+			}
+		},
+		"reference": {
+			"released_tokens": 806570,
+			"gsm8k_responses": 1500,
+			"gsm8k_tokens": 555498,
+			"gsm8k_share_of_tokens": 0.6887164164300681,
+			"by_domain": {
+				"gsm8k": {
+					"responses": 1500,
+					"tokens": 555498
+				},
+				"coding": {
+					"responses": 1500,
+					"tokens": 235939
+				},
+				"squad": {
+					"responses": 1500,
+					"tokens": 11687
+				},
+				"ag_news": {
+					"responses": 1500,
+					"tokens": 3446
+				}
+			}
+		}
+	},
+	"benign_replay_peaks": {
+		"full": {
+			"L0": 90,
+			"L1": 5,
+			"L2": 1,
+			"L3": 0,
+			"L4": 4
+		},
+		"instantaneous": {
+			"L0": 90,
+			"L1": 5,
+			"L2": 0,
+			"L3": 3,
+			"L4": 2
+		}
+	},
+	"utility": {
+		"full": {
+			"submitted": 24047,
+			"served": 2230,
+			"served_only_quality": 0.8215254097109825,
+			"completion_rate": 0.0927350605065081,
+			"latency_p95": 119.02055807805883,
+			"statuses": {
+				"valid": 2226,
+				"truncated": 4,
+				"timeout": 21353,
+				"refused": 464
+			}
+		},
+		"instantaneous": {
+			"submitted": 24047,
+			"served": 2725,
+			"served_only_quality": 0.8339293337448587,
+			"completion_rate": 0.11331974882521728,
+			"latency_p95": 117.82317616860091,
+			"statuses": {
+				"valid": 2719,
+				"timeout": 21322,
+				"truncated": 5,
+				"invalid": 1
+			}
+		},
+		"quota": {
+			"submitted": 24047,
+			"served": 2827,
+			"served_only_quality": 0.8346597150443297,
+			"completion_rate": 0.11756144217573918,
+			"latency_p95": 117.99002116139745,
+			"statuses": {
+				"valid": 2820,
+				"truncated": 6,
+				"timeout": 21220,
+				"invalid": 1
+			}
+		}
+	},
+	"base_accuracy": 0.517426273458445,
+	"teacher_accuracy": 0.8297587131367292,
+	"students": {
+		"A2/instantaneous": {
+			"training_examples": 95,
+			"correct": 528,
+			"accuracy": 0.707774798927614,
+			"wilson95": [
+				0.674141557924003,
+				0.7392791676551019
+			],
+			"gain_over_base": 0.19034852546916892,
+			"share_of_base_teacher_gap": 0.609442060085837,
+			"share_of_unprotected_supervision": 0.06449422946367957,
+			"share_of_unprotected_gain": 0.8765432098765431,
+			"optimizer_steps_by_recipe": 18,
+			"minus_unprotected": {
+				"difference": -0.02680965147453083,
+				"bootstrap95": [
+					-0.058981233243967826,
+					0.005361930294906166
+				],
+				"mcnemar_p": 0.11051344647284383,
+				"holm_p": 0.5525672323642192
+			}
+		},
+		"A5/instantaneous": {
+			"training_examples": 98,
+			"correct": 548,
+			"accuracy": 0.7345844504021448,
+			"wilson95": [
+				0.7017554362086741,
+				0.7650098991225734
+			],
+			"gain_over_base": 0.21715817694369977,
+			"share_of_base_teacher_gap": 0.6952789699570817,
+			"share_of_unprotected_supervision": 0.06653088934147998,
+			"share_of_unprotected_gain": 1.0,
+			"optimizer_steps_by_recipe": 21,
+			"minus_unprotected": {
+				"difference": 0.0,
+				"bootstrap95": [
+					-0.030831099195710455,
+					0.029490616621983913
+				],
+				"mcnemar_p": 1.0,
+				"holm_p": 1.0
+			}
+		},
+		"A2/full": {
+			"training_examples": 193,
+			"correct": 527,
+			"accuracy": 0.7064343163538874,
+			"wilson95": [
+				0.6727645260863955,
+				0.7379889690051025
+			],
+			"gain_over_base": 0.18900804289544237,
+			"share_of_base_teacher_gap": 0.6051502145922748,
+			"share_of_unprotected_supervision": 0.13102511880515955,
+			"share_of_unprotected_gain": 0.8703703703703703,
+			"optimizer_steps_by_recipe": 39,
+			"minus_unprotected": {
+				"difference": -0.028150134048257374,
+				"bootstrap95": [
+					-0.058981233243967826,
+					0.0013404825737265416
+				],
+				"mcnemar_p": 0.08249129252516202,
+				"holm_p": 0.4949477551509721
+			}
+		},
+		"A5/full": {
+			"training_examples": 197,
+			"correct": 523,
+			"accuracy": 0.7010723860589813,
+			"wilson95": [
+				0.6672597672413061,
+				0.7328248058997633
+			],
+			"gain_over_base": 0.1836461126005362,
+			"share_of_base_teacher_gap": 0.5879828326180259,
+			"share_of_unprotected_supervision": 0.13374066530889342,
+			"share_of_unprotected_gain": 0.8456790123456789,
+			"optimizer_steps_by_recipe": 39,
+			"minus_unprotected": {
+				"difference": -0.03351206434316354,
+				"bootstrap95": [
+					-0.06300268096514745,
+					-0.004021447721179625
+				],
+				"mcnemar_p": 0.034186728347739094,
+				"holm_p": 0.30768055512965187
+			}
+		},
+		"unprotected": {
+			"training_examples": 1473,
+			"correct": 548,
+			"accuracy": 0.7345844504021448,
+			"wilson95": [
+				0.7017554362086741,
+				0.7650098991225734
+			],
+			"gain_over_base": 0.21715817694369977,
+			"share_of_base_teacher_gap": 0.6952789699570817,
+			"share_of_unprotected_supervision": 1.0,
+			"share_of_unprotected_gain": 1.0,
+			"optimizer_steps_by_recipe": 279
+		}
+	},
+	"A5_full_minus_A5_instantaneous": {
+		"difference": -0.03351206434316354,
+		"bootstrap95": [
+			-0.06032171581769437,
+			-0.006702412868632708
+		],
+		"mcnemar_p": 0.017609056867909565,
+		"holm_p": 0.17609056867909564
+	}
+}
