@@ -6,7 +6,7 @@ The campaign detector is an opt-in first implementation of the [detection roadma
 
 ### Task runner flow
 
-`just start` and its alias `just harness` launch the product API. They no longer run the full study. Enter `devenv shell`, use `just setup` for core dependencies and `just setup-eval` for encoder/evaluation dependencies. The teacher model server and `just teacher` adapter are managed separately.
+`just start` and its alias `just harness` launch the product API. They no longer run the full study. Enter `devenv shell`, use `just setup` for core dependencies and `just setup-eval` for encoder/evaluation dependencies. vLLM is the only supported teacher inference runtime: run `just teacher-vllm` for the model server and `just teacher` for the separately managed HTTP adapter.
 
 ```bash
 just campaign-config artifacts/campaign/config.json --namespace my-deployment
@@ -21,6 +21,7 @@ The generator creates a new JSON exclusively and defaults to observation mode; e
 | Command | Purpose |
 | --- | --- |
 | `just setup`, `just setup-eval` | Frozen core dependencies, or encoder/evaluation extras |
+| `just teacher-vllm [ARGS...]` | vLLM model server, the only supported teacher inference runtime |
 | `just teacher` | Teacher adapter only, using the configured upstream |
 | `just campaign-config OUTPUT --namespace NAME [--mode observe\|throttle]` | New versioned campaign configuration |
 | `just validate [--config FILE] [--state-db FILE] [--base-policy POLICY]` | Offline launch-setting and prerequisite-path validation |

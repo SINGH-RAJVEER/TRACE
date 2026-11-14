@@ -1,9 +1,9 @@
 """Keyed unigram watermark: a fixed green list per key, applied through upstream logit bias.
 
 The teacher adds `delta` to the logits of a secret `gamma` share of the eligible vocabulary,
-chosen per key. Because the green list does not depend on context, any OpenAI-compatible
-server that accepts `logit_bias`, including llama-server, can apply it without a custom
-sampler. Only token IDs below `eligible_vocab` are biased and counted; low IDs are the most
+chosen per key. Because the green list does not depend on context, vLLM can apply it through
+`logit_bias` without a custom sampler. vLLM is the only supported teacher inference runtime.
+Only token IDs below `eligible_vocab` are biased and counted; low IDs are the most
 common subwords in BPE vocabularies, which keeps the per-request bias map small.
 
 Detection counts how many of a pool's distinct eligible tokens fall in a key's green list

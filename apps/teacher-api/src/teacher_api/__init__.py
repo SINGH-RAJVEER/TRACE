@@ -1,1 +1,1 @@
-"""Hosted teacher inference API."""
+"""HTTP adapter for vLLM teacher inference."""

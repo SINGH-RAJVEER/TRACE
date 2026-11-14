@@ -337,13 +337,9 @@ else
 	if ! curl -fsS "http://127.0.0.1:$VLLM_PORT/health" > /dev/null 2>&1; then
 		[ -x "$VLLM_BIN" ] || finish 1 "no teacher at $TEACHER_URL and no vLLM at $VLLM_BIN"
 		note "starting vLLM ($TEACHER_MODEL@$TEACHER_MODEL_REVISION) on port $VLLM_PORT"
-		# shellcheck disable=SC2086
-		"$VLLM_BIN" serve "$TEACHER_MODEL" --revision "$TEACHER_MODEL_REVISION" \
-			--served-model-name "$TEACHER_MODEL" --host 127.0.0.1 --port "$VLLM_PORT" \
-			--max-model-len "${VLLM_MAX_MODEL_LEN:-8192}" \
-			--gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.90}" \
-			--reasoning-parser qwen3 --language-model-only \
-			${VLLM_EXTRA_ARGS:-} >> "$LOGS/vllm.log" 2>&1 &
+		VLLM_BIN="$VLLM_BIN" VLLM_PORT="$VLLM_PORT" TEACHER_UPSTREAM_MODEL="$TEACHER_MODEL" \
+			TEACHER_MODEL_REVISION="$TEACHER_MODEL_REVISION" bash scripts/teacher-vllm.sh \
+			>> "$LOGS/vllm.log" 2>&1 &
 		PIDS+=($!)
 		wait_http "http://127.0.0.1:$VLLM_PORT/health" "" "${VLLM_STARTUP_TIMEOUT:-1800}" $! \
 			|| finish 1 "vLLM did not start; see $LOGS/vllm.log"

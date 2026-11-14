@@ -13,9 +13,9 @@ setup:
 setup-eval:
 	uv sync --frozen --all-packages --extra eval --extra embed --extra train
 
-# Serve a local GGUF teacher on the study's upstream port; flags override these defaults.
-teacher-gguf *args:
-	bash scripts/teacher-gguf.sh "$@"
+# Serve the teacher with vLLM, the only supported inference runtime.
+teacher-vllm *args:
+	bash scripts/teacher-vllm.sh "$@"
 
 # Start the teacher adapter; the upstream model server must already be available.
 teacher:

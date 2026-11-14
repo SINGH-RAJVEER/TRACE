@@ -4,7 +4,7 @@ The watermark marks each principal's teacher output with a key of its own, so th
 
 ## How it works
 
-The `unigram-v1` scheme gives every key a fixed secret green list: a `gamma` share of the token IDs below `eligible_vocab`. The teacher adds `delta` to those tokens' logits through the upstream `logit_bias` field, which llama-server and vLLM both accept, so no custom sampler is required. The green list does not depend on context. Low token IDs are the most common subwords in BPE vocabularies, so limiting the list to `eligible_vocab` IDs keeps each request's bias map small.
+The `unigram-v1` scheme gives every key a fixed secret green list: a `gamma` share of the token IDs below `eligible_vocab`. The teacher adds `delta` to those tokens' logits through vLLM's `logit_bias` field, so no custom sampler is required. vLLM is the only supported inference runtime. The green list does not depend on context. Low token IDs are the most common subwords in BPE vocabularies, so limiting the list to `eligible_vocab` IDs keeps each request's bias map small.
 
 Keys are HMAC-SHA256 of a master secret and a public key ID. The gateway derives each principal's key ID from `HARNESS_WATERMARK_NAMESPACE` and the principal, and the teacher holds the secret. A client cannot choose a key: the gateway refuses requests that carry `watermark_key`.
 
@@ -34,9 +34,9 @@ distill watermark detect --texts suspect.jsonl --key-file artifacts/teacher.wate
 - **Student inheritance is unmeasured.** Fixed green lists are the easiest watermark for a student to learn, which is why this scheme was chosen, but whether a student distilled from this teacher carries a detectable bias needs the protected and unprotected student runs.
 - **Utility cost is unmeasured.** The bias also changes greedy answers. Default-on is not an effectiveness or performance qualification. Measure task accuracy with and without the watermark, and explicitly set `HARNESS_WATERMARK=false` for comparisons intended to remain unwatermarked.
 - **Short answers carry little evidence.** A 16-token classification answer is too short to test on its own, so detection pools many texts and abstains when they are too few.
-- **The vocabulary must match.** The GGUF and the Hugging Face tokenizer must share token IDs. Record the tokenizer revision with every report.
+- **The vocabulary must match.** Detection must use the same token IDs as the model tokenizer loaded by vLLM. Pin and record the tokenizer revision with every report.
 - **Detection is not proof.** A positive result shows a statistical bias toward a key's tokens. It does not show training, intent or which data was used, and paraphrasing, translation or mixing with other data weakens it. The key IDs of a cluster's principals can be tested together, but each test adds to the correction.
 
 ## Relation to the decoder watermark probe
 
-`experiments/watermark` ([docs](watermark-probe.md)) prototypes a context-dependent keyed watermark: each green list depends on the preceding tokens, which is harder to learn or strip but needs a logits processor inside the engine. `unigram-v1` is the scheme that can be served now, because `llama-server` and vLLM both accept `logit_bias`. Both test detection the same way in spirit, counting each independent event once (a distinct token here, a distinct context there) so that repeats do not inflate the evidence. Their keys and green lists are not interchangeable, and a text marked with one is not detectable with the other.
+`experiments/watermark` ([docs](watermark-probe.md)) prototypes a context-dependent keyed watermark: each green list depends on the preceding tokens, which is harder to learn or strip but needs a logits processor inside vLLM. `unigram-v1` is the scheme that can be served now through vLLM's `logit_bias`; the KGW prototype is not yet integrated. Both test detection the same way in spirit, counting each independent event once (a distinct token here, a distinct context there) so that repeats do not inflate the evidence. Their keys and green lists are not interchangeable, and a text marked with one is not detectable with the other.

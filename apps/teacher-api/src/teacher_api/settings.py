@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 	upstream_base_url: str = Field(default="", alias="TEACHER_UPSTREAM_BASE_URL")
 	upstream_api_key: str = Field(default="", alias="TEACHER_UPSTREAM_API_KEY")
 	upstream_model: str = Field(default="", alias="TEACHER_UPSTREAM_MODEL")
-	provider_name: str = Field(default="unknown", alias="TEACHER_PROVIDER_NAME")
+	provider_name: str = Field(default="self-hosted-vllm", alias="TEACHER_PROVIDER_NAME")
 	terms_review_id: str = Field(default="", alias="TEACHER_TERMS_REVIEW_ID")
 	timeout_seconds: float = Field(default=120.0, gt=0, alias="TEACHER_TIMEOUT_SECONDS")
 	# Requests that leave enable_thinking unset reason first. Reasoning is never returned.

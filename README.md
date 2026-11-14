@@ -6,7 +6,9 @@ The supported domains are AG News, SQuAD, GSM8K, and coding. Campaign schedules 
 
 ## Setup
 
-Enter `devenv shell`, copy `.env.example` to `.env` and run `just setup`. Configure the upstream teacher, authenticated account mapping and calibration matching `HARNESS_TASK`. Run `just setup-eval` when using encoder/calibration or student-evaluation tools. A separately managed model server and suitable hardware are required to serve the teacher.
+Enter `devenv shell`, copy `.env.example` to `.env` and run `just setup`. Configure the upstream teacher, authenticated account mapping and calibration matching `HARNESS_TASK`. Run `just setup-eval` when using encoder/calibration or student-evaluation tools.
+
+**vLLM is the only supported teacher inference runtime.** Install it in a separate Python 3.12 environment at `.venv-vllm` (or set `VLLM_BIN`), then run `just teacher-vllm` on suitable hardware. Run `just teacher` separately for TRACE's HTTP adapter; it does not load the model. There is no GGUF/`llama-server` fallback. See [deployment settings](docs/evaluation.md#prepare-and-deploy).
 
 Per-principal output watermarking is enabled by default. On first configured startup, the teacher generates a private key at `artifacts/teacher.watermark.key` and reuses it on restarts. Override the path with `TEACHER_WATERMARK_KEY_FILE`; `watermark.key` and `*.watermark.key` are gitignored. Back up the key securely for historical detection. Set `HARNESS_WATERMARK=false` explicitly to opt out. Existing state databases from unwatermarked runs need replacing, because watermarking changes the policy revision. See [watermark setup and limitations](docs/watermark.md).
 

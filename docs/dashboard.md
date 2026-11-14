@@ -74,7 +74,7 @@ The page uses a dark theme only. Each arm keeps one color in every run: full is 
 - Legitimate utility shows each arm's pooled completion, served-only quality, unconditional utility and p95 latency. Validity comes from the index or from `utility_validity`; unbound runs read unknown.
 - Teacher headroom (task capability against the pinned base) and the capacity preflight (whether the teacher could serve the workload) are separate verdicts.
 - A curve is charted only for an arm with at least two summarized sizes, with its bootstrap interval. Censored checkpoints are drawn hatched, never as zero accuracy.
-- Study labels (development or confirmatory), seeds, attacker partition, commits, suite hashes, the student base and revision and the teacher model and revision are shown wherever an artifact records them. Teacher identity is copied from the run's configuration. A GGUF or other quantized teacher appears under the name and revision it was configured with and is not merged with other teachers.
+- Study labels (development or confirmatory), seeds, attacker partition, commits, suite hashes, the student base and revision and the teacher model and revision are shown wherever an artifact records them. Teacher identity is copied from the run's configuration. Historical GGUF teacher metadata is still displayed under its recorded name and revision and is not merged with other teachers; it does not imply runtime support. vLLM is the only supported teacher inference runtime.
 
 ## Safety
 

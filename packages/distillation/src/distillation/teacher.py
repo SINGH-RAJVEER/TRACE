@@ -1,4 +1,4 @@
-"""Clients for hosted and locally wrapped teacher inference APIs."""
+"""Clients for vLLM teacher inference and TRACE's HTTP teacher adapter."""
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -67,7 +67,7 @@ def withhold_reasoning(content: str) -> tuple[str, bool]:
 class _UpstreamMessage(BaseModel):
 	role: str = "assistant"
 	content: str | None = None
-	# llama-server and vLLM reasoning parsers return the trace here. It is read only to
+	# vLLM reasoning parsers return the trace here. It is read only to
 	# detect that reasoning happened and is never returned.
 	reasoning_content: str | None = None
 	reasoning: str | None = None
@@ -96,7 +96,7 @@ class _UpstreamResponse(BaseModel):
 
 
 class OpenAICompatibleTeacher:
-	"""Calls a hosted provider implementing the chat-completions protocol."""
+	"""Calls vLLM through its OpenAI-compatible chat-completions protocol."""
 
 	def __init__(
 		self,

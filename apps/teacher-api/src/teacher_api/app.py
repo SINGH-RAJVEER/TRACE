@@ -1,4 +1,4 @@
-"""FastAPI application for authorized hosted-teacher inference."""
+"""FastAPI adapter for authorized vLLM teacher inference."""
 
 import hmac
 from collections.abc import AsyncIterator

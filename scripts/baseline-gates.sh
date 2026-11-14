@@ -115,13 +115,9 @@ start_teacher() {
 	TEACHER_LOCK_FD=8
 	note "starting vLLM ($TEACHER_MODEL@$TEACHER_MODEL_REVISION)"
 	[ -x "$VLLM_BIN" ] || stop "no vLLM at $VLLM_BIN"
-	# shellcheck disable=SC2086
-	"$VLLM_BIN" serve "$TEACHER_MODEL" --revision "$TEACHER_MODEL_REVISION" \
-		--served-model-name "$TEACHER_MODEL" --host 127.0.0.1 --port "$VLLM_PORT" \
-		--max-model-len "${VLLM_MAX_MODEL_LEN:-8192}" \
-		--gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.90}" \
-		--reasoning-parser qwen3 --language-model-only \
-		${VLLM_EXTRA_ARGS:-} >> "$LOGS/vllm.log" 2>&1 8>&- &
+	VLLM_BIN="$VLLM_BIN" VLLM_PORT="$VLLM_PORT" TEACHER_UPSTREAM_MODEL="$TEACHER_MODEL" \
+		TEACHER_MODEL_REVISION="$TEACHER_MODEL_REVISION" bash scripts/teacher-vllm.sh \
+		>> "$LOGS/vllm.log" 2>&1 8>&- &
 	PIDS+=($!)
 	wait_http "http://127.0.0.1:$VLLM_PORT/health" "${VLLM_STARTUP_TIMEOUT:-1800}" $! \
 		|| stop "vLLM did not start"
