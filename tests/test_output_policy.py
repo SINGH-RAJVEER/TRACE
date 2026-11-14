@@ -112,6 +112,8 @@ def make_app(
 	options = {
 		"HARNESS_TASK": "gsm8k",
 		"HARNESS_POLICY": "allow",
+		# These scripted responses test output rewriting, not decoder watermarking.
+		"HARNESS_WATERMARK": False,
 		"HARNESS_TOKENIZER_MODEL": "fixture-tokenizer",
 		"HARNESS_OUTPUT_POLICY": policy(),
 		"HARNESS_STATE_DB": state,

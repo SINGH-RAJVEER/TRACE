@@ -152,6 +152,8 @@ class Server:
 			"HARNESS_DECISION_LOG": str(self.log),
 			"HARNESS_L4_ACTION": "refuse",
 			"HARNESS_TASK": "text",
+			# The stand-in tests crash recovery and does not implement watermarking.
+			"HARNESS_WATERMARK": "false",
 			"HARNESS_PORT": str(self.port),
 			"HARNESS_LOG_LEVEL": "warning",
 			**env,

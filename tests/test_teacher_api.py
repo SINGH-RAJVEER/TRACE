@@ -10,6 +10,7 @@ from distillation.schemas import (
 	TokenUsage,
 )
 from distillation.teacher import TeacherUpstreamError
+from distillation.watermark import WatermarkSpec, read_master_secret
 from teacher_api.app import create_app
 from teacher_api.settings import Settings
 
@@ -130,3 +131,55 @@ async def test_unconfigured_teacher_reports_service_unavailable() -> None:
 
 	assert health.json() == {"status": "unconfigured"}
 	assert response.status_code == 503
+
+
+def test_unconfigured_teacher_does_not_create_a_watermark_key(tmp_path: Path) -> None:
+	settings = Settings(
+		TEACHER_UPSTREAM_BASE_URL="",
+		TEACHER_UPSTREAM_MODEL="",
+		TEACHER_TERMS_REVIEW_ID="",
+		TEACHER_WATERMARK_KEY_FILE=tmp_path / "unconfigured.watermark.key",
+	)
+	create_app(settings=settings)
+	assert not settings.watermark_key_file.exists()
+
+
+@pytest.mark.parametrize("custom_path", [False, True])
+def test_configured_teacher_creates_and_reuses_its_watermark_key(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch, custom_path: bool
+) -> None:
+	captured: list[dict[str, object]] = []
+
+	def adapter(**kwargs: object) -> FakeTeacher:
+		captured.append(kwargs)
+		return FakeTeacher()
+
+	monkeypatch.setattr("teacher_api.app.OpenAICompatibleTeacher", adapter)
+	settings = Settings(
+		TEACHER_UPSTREAM_BASE_URL="http://localhost:8001/v1",
+		TEACHER_UPSTREAM_MODEL="test-model",
+		TEACHER_TERMS_REVIEW_ID="test-review",
+	)
+	if custom_path:
+		settings.watermark_key_file = tmp_path / "private" / "custom.watermark.key"
+	else:
+		assert settings.watermark_key_file == Path("artifacts/teacher.watermark.key")
+	assert not settings.watermark_key_file.exists()
+	create_app(settings=settings)
+	first = read_master_secret(settings.watermark_key_file)
+	create_app(settings=settings)
+	assert len(captured) == 2
+	assert all(call["watermark_secret"] == first for call in captured)
+	assert all(isinstance(call["watermark"], WatermarkSpec) for call in captured)
+	assert read_master_secret(settings.watermark_key_file) == first
+
+
+def test_injected_teacher_does_not_create_a_watermark_key(tmp_path: Path) -> None:
+	settings = Settings(
+		TEACHER_UPSTREAM_BASE_URL="http://localhost:8001/v1",
+		TEACHER_UPSTREAM_MODEL="test-model",
+		TEACHER_TERMS_REVIEW_ID="test-review",
+		TEACHER_WATERMARK_KEY_FILE=tmp_path / "injected.watermark.key",
+	)
+	create_app(settings=settings, teacher=FakeTeacher())
+	assert not settings.watermark_key_file.exists()

@@ -21,9 +21,11 @@ class Settings(BaseSettings):
 	reasoning_budget_tokens: int = Field(
 		default=DEFAULT_REASONING_BUDGET_TOKENS, ge=1, alias="TEACHER_REASONING_BUDGET_TOKENS"
 	)
-	# Keyed unigram watermark for requests that carry a watermark key ID. Off without a key
-	# file; the secret never leaves this service and the detector.
-	watermark_key_file: Path | None = Field(default=None, alias="TEACHER_WATERMARK_KEY_FILE")
+	# Created on first configured startup and reused; keep this file for historical detection.
+	# The secret never leaves this service and the detector.
+	watermark_key_file: Path = Field(
+		default=Path("artifacts/teacher.watermark.key"), alias="TEACHER_WATERMARK_KEY_FILE"
+	)
 	watermark_gamma: float = Field(default=0.25, gt=0, lt=1, alias="TEACHER_WATERMARK_GAMMA")
 	watermark_delta: float = Field(default=2.0, gt=0, le=20, alias="TEACHER_WATERMARK_DELTA")
 	watermark_eligible_vocab: int = Field(

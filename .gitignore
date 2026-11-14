@@ -26,6 +26,10 @@ data/
 .env.local
 .env.*.local
 
+# Watermark master secrets (including temporary files used for atomic creation).
+watermark.key
+*.watermark.key
+
 # Model and experiment artifacts
 *.safetensors
 *.bin
