@@ -1,16 +1,87 @@
 """Keyed unigram watermark: key derivation, the adapter's logit bias, and detection."""
 
 import json
+import os
 import random
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import httpx
 import pytest
 from distillation.schemas import Message, TeacherGenerationRequest
 from distillation.teacher import OpenAICompatibleTeacher, TeacherWatermarkError
-from distillation.watermark import WatermarkSpec, detect, green_ids, key_id, logit_bias
+from distillation.watermark import (
+	WatermarkSpec,
+	detect,
+	green_ids,
+	key_id,
+	load_or_create_master_secret,
+	logit_bias,
+	read_master_secret,
+)
 
 SECRET = bytes(range(16))
 SPEC = WatermarkSpec(eligible_vocab=4096)
+
+
+def test_missing_master_secret_is_private_persistent_and_random(tmp_path: Path) -> None:
+	path = tmp_path / "nested" / "teacher.watermark.key"
+	first = load_or_create_master_secret(path)
+	assert len(first) == 32
+	assert read_master_secret(path) == first
+	assert load_or_create_master_secret(path) == first
+	assert load_or_create_master_secret(tmp_path / "other.watermark.key") != first
+	if os.name == "posix":
+		assert path.stat().st_mode & 0o777 == 0o600
+	assert list(path.parent.iterdir()) == [path]
+
+
+def test_existing_master_secret_is_not_replaced(tmp_path: Path) -> None:
+	path = tmp_path / "teacher.watermark.key"
+	original = SECRET.hex() + "\n"
+	path.write_text(original)
+	assert load_or_create_master_secret(path) == SECRET
+	assert path.read_text() == original
+
+
+@pytest.mark.parametrize("contents", ["", "not hex", "00"])
+def test_invalid_master_secret_is_not_regenerated(tmp_path: Path, contents: str) -> None:
+	path = tmp_path / "teacher.watermark.key"
+	path.write_text(contents)
+	with pytest.raises(ValueError, match="watermark"):
+		load_or_create_master_secret(path)
+	assert path.read_text() == contents
+	assert list(tmp_path.iterdir()) == [path]
+
+
+def test_concurrent_starters_share_one_complete_master_secret(tmp_path: Path) -> None:
+	path = tmp_path / "nested" / "teacher.watermark.key"
+	with ThreadPoolExecutor(max_workers=16) as pool:
+		keys = list(pool.map(load_or_create_master_secret, [path] * 32))
+	assert all(key == keys[0] for key in keys)
+	assert read_master_secret(path) == keys[0]
+	assert list(path.parent.iterdir()) == [path]
+
+
+def test_key_publication_error_fails_closed_and_cleans_up(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	def denied(*args: object) -> None:
+		raise PermissionError("key publication denied")
+
+	monkeypatch.setattr("distillation.watermark.os.link", denied)
+	path = tmp_path / "teacher.watermark.key"
+	with pytest.raises(PermissionError, match="publication denied"):
+		load_or_create_master_secret(path)
+	assert not path.exists()
+	assert list(tmp_path.iterdir()) == []
+
+
+def test_detector_key_reader_does_not_generate_a_missing_key(tmp_path: Path) -> None:
+	path = tmp_path / "teacher.watermark.key"
+	with pytest.raises(ValueError, match="hex secret"):
+		read_master_secret(path)
+	assert not path.exists()
 
 
 def test_green_lists_are_keyed_stable_and_near_gamma() -> None:

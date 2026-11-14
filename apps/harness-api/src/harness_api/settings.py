@@ -113,9 +113,9 @@ class Settings(BaseSettings):
 	tier_output_caps: dict[Tier, int] = Field(
 		default_factory=dict, alias="HARNESS_TIER_OUTPUT_CAPS"
 	)
-	# Opt-in keyed watermark: each principal's requests carry its key ID to the teacher, which
-	# must have TEACHER_WATERMARK_KEY_FILE. Unwatermarked output is withheld, never released.
-	watermark: bool = Field(default=False, alias="HARNESS_WATERMARK")
+	# Default-on keyed watermark: each principal's requests carry its key ID to the teacher,
+	# which creates its secret file if missing. Unmarked output is withheld when enabled.
+	watermark: bool = Field(default=True, alias="HARNESS_WATERMARK")
 	watermark_namespace: str = Field(
 		default="trace", min_length=1, alias="HARNESS_WATERMARK_NAMESPACE"
 	)

@@ -12,7 +12,7 @@ from distillation.teacher import (
 	TeacherUpstreamError,
 	TeacherWatermarkError,
 )
-from distillation.watermark import WatermarkSpec, read_master_secret
+from distillation.watermark import WatermarkSpec, load_or_create_master_secret
 from fastapi import FastAPI, Header, HTTPException, status
 
 from teacher_api.settings import Settings
@@ -23,21 +23,13 @@ def create_app(*, settings: Settings | None = None, teacher: Teacher | None = No
 
 	resolved_settings = settings or Settings()
 	resolved_teacher = teacher
-	watermark = (
-		WatermarkSpec(
+	if resolved_teacher is None and resolved_settings.is_configured:
+		watermark = WatermarkSpec(
 			gamma=resolved_settings.watermark_gamma,
 			delta=resolved_settings.watermark_delta,
 			eligible_vocab=resolved_settings.watermark_eligible_vocab,
 		)
-		if resolved_settings.watermark_key_file is not None
-		else None
-	)
-	secret = (
-		read_master_secret(resolved_settings.watermark_key_file)
-		if resolved_settings.watermark_key_file is not None
-		else None
-	)
-	if resolved_teacher is None and resolved_settings.is_configured:
+		secret = load_or_create_master_secret(resolved_settings.watermark_key_file)
 		resolved_teacher = OpenAICompatibleTeacher(
 			base_url=resolved_settings.upstream_base_url,
 			api_key=resolved_settings.upstream_api_key,

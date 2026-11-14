@@ -10,15 +10,19 @@ Keys are HMAC-SHA256 of a master secret and a public key ID. The gateway derives
 
 ## Configuration
 
-On the teacher API, `TEACHER_WATERMARK_KEY_FILE` holds a hex secret of at least 16 bytes. Generate one with `openssl rand -hex 32` and keep it outside readings and calibration directories; `study.sh` redacts variables named `*_KEY*` from recorded environments. `TEACHER_WATERMARK_GAMMA` (0.25), `TEACHER_WATERMARK_DELTA` (2.0) and `TEACHER_WATERMARK_ELIGIBLE_VOCAB` (32,768) set the scheme.
+On the teacher API, `TEACHER_WATERMARK_KEY_FILE` defaults to `artifacts/teacher.watermark.key`, relative to the service's working directory. On first configured startup the teacher creates missing parent directories and generates a cryptographically random 32-byte hex secret in a mode-0600 file (owner read/write on POSIX). Creation is atomic: concurrent starters reuse the same winning key, and restarts never overwrite an existing key. An unreadable, malformed or too-short existing key fails startup instead of being regenerated. Unconfigured services and injected test teachers do not create keys.
 
-On the harness, `HARNESS_WATERMARK=true` sends each principal's key ID with its requests. The teacher must report that it applied the watermark; otherwise the response is withheld as a failed generation, never released unmarked. The flag is removed from client responses. The setting enters the policy revision. Noise responses at L4 are not watermarked.
+Override the path to use a private persistent location, or supply an existing hex secret of at least 16 bytes. Use the naming convention `watermark.key` or `<deployment>.watermark.key`; both are gitignored at any directory depth, including atomic-creation temporary files. Custom filenames are not automatically ignored. Keep secrets outside readings and calibration directories, restrict access with filesystem permissions/ACLs, and back them up securely. Deleting a key generates a new one on the next startup and loses detection continuity for old outputs; replicas must share the same file or be provisioned with the same key. The detector only reads existing keys and never generates them. `study.sh` redacts variables named `*_KEY*` from recorded environments. `TEACHER_WATERMARK_GAMMA` (0.25), `TEACHER_WATERMARK_DELTA` (2.0) and `TEACHER_WATERMARK_ELIGIBLE_VOCAB` (32,768) set the scheme.
+
+On the harness, watermarking is enabled by default for every principal, across policies and tasks. The harness sends each principal's key ID with its requests. The configured teacher prepares its key automatically before serving traffic. Key creation errors fail startup rather than allowing unmarked output. Set `HARNESS_WATERMARK=false` explicitly to opt out, including for unwatermarked comparison runs.
+
+The teacher must report that it applied the watermark; otherwise the response is withheld as a failed generation, never released unmarked. This flag records that the adapter sent the bias, not independent verification that the upstream engine honored it. The flag is removed from client responses. The setting enters the policy revision, so use a fresh state database when changing it. Noise responses at L4 are not watermarked.
 
 ## Detection
 
 ```bash
 distill watermark key-id alice
-distill watermark detect --texts suspect.jsonl --key-file artifacts/watermark.key \
+distill watermark detect --texts suspect.jsonl --key-file artifacts/teacher.watermark.key \
 	--principal alice --principal bob --tokenizer Qwen/Qwen3.5-9B \
 	--tokenizer-revision c202236235762e1c871ad0ccb60c8ee5ba337b9a --output artifacts/detect.json
 ```
@@ -28,7 +32,7 @@ distill watermark detect --texts suspect.jsonl --key-file artifacts/watermark.ke
 ## What this does not establish
 
 - **Student inheritance is unmeasured.** Fixed green lists are the easiest watermark for a student to learn, which is why this scheme was chosen, but whether a student distilled from this teacher carries a detectable bias needs the protected and unprotected student runs.
-- **Utility cost is unmeasured.** The bias also changes greedy answers. Measure task accuracy with and without the watermark before enabling it, and keep it off in arms whose student results are compared.
+- **Utility cost is unmeasured.** The bias also changes greedy answers. Default-on is not an effectiveness or performance qualification. Measure task accuracy with and without the watermark, and explicitly set `HARNESS_WATERMARK=false` for comparisons intended to remain unwatermarked.
 - **Short answers carry little evidence.** A 16-token classification answer is too short to test on its own, so detection pools many texts and abstains when they are too few.
 - **The vocabulary must match.** The GGUF and the Hugging Face tokenizer must share token IDs. Record the tokenizer revision with every report.
 - **Detection is not proof.** A positive result shows a statistical bias toward a key's tokens. It does not show training, intent or which data was used, and paraphrasing, translation or mixing with other data weakens it. The key IDs of a cluster's principals can be tested together, but each test adds to the correction.

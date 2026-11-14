@@ -33,6 +33,15 @@ from harness_api.settings import Settings
 KEY = "00112233445566778899aabbccddeeff"
 
 
+def test_watermark_defaults_on_and_environment_can_disable_it(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.delenv("HARNESS_WATERMARK", raising=False)
+	assert Settings(_env_file=None).watermark is True  # type: ignore[call-arg]
+	monkeypatch.setenv("HARNESS_WATERMARK", "false")
+	assert Settings(_env_file=None).watermark is False  # type: ignore[call-arg]
+
+
 def test_l4_defaults_and_unsupported_tasks() -> None:
 	assert Settings(_env_file=None).l4_action == "deceive"  # type: ignore[call-arg]
 	assert Settings(_env_file=None, HARNESS_TASK="coding").l4_action == "refuse"  # type: ignore[call-arg]
@@ -94,6 +103,8 @@ class Teacher:
 			usage=TokenUsage(input_tokens=5, output_tokens=1),
 			endpoint="fake",
 			thinking=True,
+			# Simulate the adapter receipt; this fixture does not perform real generation.
+			watermarked=request.watermark_key is not None,
 		)
 
 	async def close(self) -> None:
@@ -2125,6 +2136,7 @@ async def test_reasoning_and_sampling_alternatives_never_reach_a_client(
 			usage=TokenUsage(output_tokens=1, reasoning_tokens=40),
 			endpoint="fake",
 			thinking=True,
+			watermarked=request.watermark_key is not None,
 		)
 
 	teacher.generate = reasoning  # type: ignore[method-assign]
@@ -2250,7 +2262,7 @@ async def test_watermark_keys_are_per_principal_enforced_and_hidden(
 ) -> None:
 	from distillation.watermark import key_id
 
-	app, teacher, _ = _rolling_app(artifacts, tmp_path, HARNESS_WATERMARK=True)
+	app, teacher, _ = _rolling_app(artifacts, tmp_path)
 	seen: list[str | None] = []
 	applied = iter([True, False])
 	original = teacher.generate
@@ -2277,6 +2289,29 @@ async def test_watermark_keys_are_per_principal_enforced_and_hidden(
 	assert unmarked.status_code == 502
 	assert forged.status_code == 422 and len(seen) == 2
 	assert seen == [key_id("trace", "u1")] * 2
+
+
+@pytest.mark.asyncio
+async def test_watermark_explicit_opt_out_releases_unmarked_output(
+	artifacts: tuple[Calibration, WindowScorer, WindowScorer], tmp_path: Path
+) -> None:
+	app, teacher, _ = _rolling_app(artifacts, tmp_path, HARNESS_WATERMARK=False)
+	seen: list[str | None] = []
+	original = teacher.generate
+
+	async def unmarked(request: TeacherGenerationRequest) -> TeacherGeneration:
+		seen.append(request.watermark_key)
+		generation = await original(request)
+		assert generation.watermarked is False
+		return generation
+
+	teacher.generate = unmarked  # type: ignore[method-assign]
+	async with httpx.AsyncClient(
+		transport=httpx.ASGITransport(app=app), base_url="http://test"
+	) as client:
+		response = await _ask_at(client, "one", 0)
+	assert response.status_code == 200 and response.json()["watermarked"] is None
+	assert seen == [None]
 
 
 @pytest.mark.asyncio
