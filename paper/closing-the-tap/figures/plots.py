@@ -1,13 +1,13 @@
 """Draw the figures of the per-account detection paper and write the numbers its text quotes.
 
-Run from the repository root:
-uv run --no-project --with matplotlib python paper/closing-the-tap/figures/plots.py
+Run from the repository root (numpy needs the devenv shell's libstdc++):
+devenv shell -- uv run --no-project --with matplotlib python paper/closing-the-tap/figures/plots.py
 
 Inputs are the shared v7 records in paper/figures: v7.json (campaign outcomes, from
-readings/v7) and student-panel.json (the validated student benchmark panel). Outputs are
-written next to this file: release.pdf, ranks.pdf, tokens.pdf, exposure.pdf,
-supervision.pdf, paired.pdf and numbers.json, so that this directory holds every file
-main.tex needs and can be uploaded to Overleaf as it is.
+readings/v7) and student-panel.json (the validated student panel, whose figures the
+future-work section quotes). Outputs are written next to this file: release.pdf,
+ranks.pdf, tokens.pdf and numbers.json, so that this directory holds every file main.tex
+needs and can be uploaded to Overleaf as it is.
 
 The paper reports the sequential (A2) and task-partitioned (A5) campaigns. Its unprotected
 reference is the release ledger of the A6 quota arm: A6 sends the same 6,000 prompts split
@@ -41,7 +41,6 @@ INK = "#0b0b0b"
 MUTED = "#52514e"
 NEUTRAL = "#8a8984"
 GRID = "#e4e3df"
-SHADE = "#f1f0ec"
 ARM_COLOR = {"full": FULL, "instantaneous": INST, "quota": MUTED}
 ARM_DASH = {"full": "-", "instantaneous": "--", "quota": "-"}
 ARM_LABEL = {"full": "Full policy", "instantaneous": "Instantaneous policy", "quota": "Quota"}
@@ -64,28 +63,6 @@ plt.rcParams.update(
 )
 
 STUDENTS = ["A2/instantaneous", "A5/instantaneous", "A2/full", "A5/full", "unprotected"]
-LABEL = {
-	"A2/instantaneous": "A2, instantaneous",
-	"A5/instantaneous": "A5, instantaneous",
-	"A2/full": "A2, full",
-	"A5/full": "A5, full",
-	"unprotected": "Unprotected",
-}
-COLOR = {
-	"A2/instantaneous": INST,
-	"A5/instantaneous": INST,
-	"A2/full": FULL,
-	"A5/full": FULL,
-	"unprotected": MUTED,
-}
-SHORT = {
-	"A2/instantaneous": "A2 inst.",
-	"A5/instantaneous": "A5 inst.",
-	"A2/full": "A2 full",
-	"A5/full": "A5 full",
-	"unprotected": "Unprotected",
-}
-MARKER = {"A2": "s", "A5": "o", "unprotected": "D"}
 
 
 def style(ax, axis="x"):
@@ -268,7 +245,7 @@ def release():
 				factor, va = (0.85, "top") if arm == "instantaneous" else (1.15, "bottom")
 				ax.text(5900, ys[-1] * factor, f"{ARM_LABEL[arm]}, {ys[-1] / 1000:,.0f}k", fontsize=6.5, color=INK, ha="right", va=va)
 		ax.axhline(total, color=NEUTRAL, linewidth=1.0)
-		ax.text(150, total * 1.18, f"No control acted, {total / 1000:,.0f}k", fontsize=6.5, color=INK, va="bottom")
+		ax.text(150, total * 1.18, f"Unprotected reference, {total / 1000:,.0f}k", fontsize=6.5, color=INK, va="bottom")
 		if attack == "A2":
 			for x0, x1, name in ((0, 1500, "AG News"), (1500, 3000, "GSM8K"), (3000, 6000, "SQuAD, coding")):
 				ax.text((x0 + x1) / 2, 140, name, fontsize=6.3, color=MUTED, ha="center", va="bottom")
@@ -310,8 +287,8 @@ def ranks():
 	inst = math.exp(-V7["thresholds"]["instantaneous"][3])
 	ax.axvline(math.exp(-1), color=INK, linewidth=0.7, linestyle="--")
 	ax.axvline(inst, color=INST, linewidth=0.7, linestyle=":")
-	ax.text(math.exp(-1) * 0.9, -0.85, "adds risk", fontsize=6.5, color=INK, ha="right", va="bottom")
-	ax.text(inst * 0.9, -0.85, "refused at once,\ninstantaneous", fontsize=6.5, color=INK, ha="right", va="bottom")
+	ax.text(math.exp(-1) * 0.9, -0.85, "adds risk, full policy", fontsize=6.5, color=INK, ha="right", va="bottom")
+	ax.text(inst * 0.9, -0.85, "L4 in one window,\ninstantaneous policy", fontsize=6.5, color=INK, ha="right", va="bottom")
 	ax.set_xscale("log")
 	ax.set_xlim(0.004, 1.05)
 	ax.set_xticks([0.01, 0.03, 0.1, 0.37, 1], ["0.01", "0.03", "0.1", "0.37", "1"])
@@ -332,7 +309,7 @@ HATCH = ["", "//", "\\\\", ".."]
 def tokens():
 	"""Released output tokens by domain for every arm of both campaigns and the reference."""
 	cells = [(a, arm, f"{a} {'inst.' if arm == 'instantaneous' else arm}") for a in CAMPAIGNS for arm in ARMS]
-	cells.append((*REFERENCE, "No control"))
+	cells.append((*REFERENCE, "Unprotected"))
 	fig, ax = plt.subplots(figsize=(3.5, 2.35))
 	y = list(range(len(cells)))[::-1]
 	left = [0.0] * len(cells)
@@ -369,158 +346,8 @@ def tokens():
 	fig.savefig(HERE / "tokens.pdf")
 
 
-def exposure():
-	"""Student accuracy and control interventions on one axis of GSM8K answers."""
-	fig, (top, bottom) = plt.subplots(
-		2,
-		1,
-		figsize=(7.16, 3.5),
-		sharex=True,
-		gridspec_kw={"height_ratios": [3.0, 1.3], "hspace": 0.08},
-	)
-	xmin, xmax = 25, 2600
-	for ax in (top, bottom):
-		ax.axvspan(xmin, 95, color=SHADE, linewidth=0, zorder=0)
-		ax.set_xscale("log")
-		ax.set_xlim(xmin, xmax)
-
-	base = 100 * cell("base")["accuracy"]
-	teacher = 100 * cell("teacher")["accuracy"]
-	top.axhline(teacher, color=NEUTRAL, linewidth=1.0)
-	top.axhline(base, color=NEUTRAL, linewidth=1.0, linestyle="--")
-	top.text(xmax * 0.97, teacher + 0.8, f"Teacher, {teacher:.1f}%", ha="right", va="bottom", fontsize=7, color=INK)
-	top.text(xmax * 0.97, base + 0.8, f"Untrained student, {base:.1f}%", ha="right", va="bottom", fontsize=7, color=INK)
-	top.text(math.sqrt(xmin * 95), 61.5, "No student\ntrained\nbelow 95", ha="center", va="center", fontsize=6.5, color=MUTED)
-
-	# A2 and A5 students at almost the same count are offset by 5% for legibility.
-	# Label placement per student: x factor, label y (None keeps the point's), alignment.
-	PLACE = {
-		"A2/instantaneous": (0.9, None, "right", "center"),
-		"A5/instantaneous": (1.0, 77.6, "center", "bottom"),
-		"A2/full": (1.0, 66.4, "center", "top"),
-		"A5/full": (1.1, None, "left", "center"),
-		"unprotected": (0.9, None, "right", "center"),
-	}
-	dodge = {"A2": 0.95, "A5": 1.05, "unprotected": 1.0}
-	for name in STUDENTS:
-		c = cell(name)
-		attack = name.split("/")[0]
-		x = c["training_examples"] * dodge[attack]
-		acc = 100 * c["accuracy"]
-		low, high = (100 * v for v in c["wilson95"])
-		top.plot([x, x], [low, high], color=COLOR[name], linewidth=1.2, solid_capstyle="butt", zorder=2)
-		top.scatter([x], [acc], s=34, marker=MARKER[attack], color=COLOR[name], edgecolor="white", linewidth=0.8, zorder=3)
-		dx, y_text, ha, va = PLACE[name]
-		top.text(
-			x * dx,
-			acc if y_text is None else y_text,
-			f"{LABEL[name]}, {c['training_examples']:,}: {acc:.1f}%",
-			ha=ha,
-			va=va,
-			fontsize=6.5,
-			color=INK,
-		)
-	top.set_ylim(45, 90)
-	top.set_ylabel("GSM8K accuracy (%)")
-	style(top, "y")
-
-	# Each row is one control; x is the GSM8K answers released before it refused math.
-	math_released = lambda attack, arm: domain(campaign(attack, arm), "gsm8k", "responses")
-	rows = [
-		("Instantaneous", INST, [(math_released("A2", "instantaneous"), "A2, A5 refused", True)]),
-		("Full", FULL, [(99, "first escalation", False), (math_released("A5", "full"), "A2, A5 refused", True)]),
-		("Quota", MUTED, [(math_released("A5", "quota"), "A5 refused", False)]),
-		("No control", NEUTRAL, [(domain(reference(), "gsm8k", "responses"), "Unprotected", True)]),
-	]
-	for y, (label, color, marks) in enumerate(rows):
-		for x, text, trained in marks:
-			bottom.scatter(
-				[x],
-				[y],
-				s=30,
-				marker="v",
-				color=color if trained else "white",
-				edgecolor=color,
-				linewidth=1.1,
-				zorder=3,
-			)
-			if text:
-				bottom.text(x, y - 0.38, text, ha="center", va="bottom", fontsize=6, color=INK)
-	bottom.set_yticks(range(len(rows)), [r[0] for r in rows])
-	bottom.set_ylim(len(rows) - 0.45, -0.75)
-	bottom.set_xlabel("GSM8K answers released to the campaign (log scale)")
-	bottom.set_xticks([30, 50, 100, 200, 500, 1000, 2000], ["30", "50", "100", "200", "500", "1,000", "2,000"])
-	bottom.minorticks_off()
-	style(bottom, "x")
-	fig.subplots_adjust(left=0.11, right=0.985, top=0.98, bottom=0.12)
-	fig.savefig(HERE / "exposure.pdf")
-
-
-def supervision():
-	"""Share of the unprotected run's math supervision released, beside share of its gain kept."""
-	data = numbers()["students"]
-	names = STUDENTS
-	fig, (left, right) = plt.subplots(1, 2, figsize=(3.5, 1.95), sharey=True, gridspec_kw={"wspace": 0.16})
-	y = list(range(len(names)))
-	for ax, key, title in (
-		(left, "share_of_unprotected_supervision", "Answers released (%)"),
-		(right, "share_of_unprotected_gain", "Gain kept (%)"),
-	):
-		values = [100 * data[n][key] for n in names]
-		colors = [COLOR[n] for n in names]
-		ax.barh(y, values, height=0.58, color=colors, edgecolor="white", linewidth=0.8)
-		for yi, v in zip(y, values):
-			inside = v > 60
-			ax.text(
-				v - 3 if inside else v + 3,
-				yi,
-				f"{v:.0f}%",
-				va="center",
-				ha="right" if inside else "left",
-				fontsize=6.5,
-				color="white" if inside else INK,
-			)
-		ax.set_xlim(0, 100)
-		ax.set_xticks([0, 50, 100], ["0", "50", "100"])
-		ax.set_title(title, fontsize=7.5, color=INK, loc="left")
-		style(ax, "x")
-	left.set_yticks(y, [f"{SHORT[n]}, {data[n]['training_examples']:,}" for n in names])
-	left.invert_yaxis()
-	fig.text(0.98, 0.01, "Both as a share of the unprotected student", ha="right", va="bottom", fontsize=6.5, color=MUTED)
-	fig.subplots_adjust(left=0.31, right=0.97, top=0.88, bottom=0.17)
-	fig.savefig(HERE / "supervision.pdf")
-
-
-def paired():
-	"""Paired accuracy differences with item-bootstrap intervals and McNemar p-values."""
-	rows = [(n, "unprotected", f"{SHORT[n]} $-$ unprot.", COLOR[n]) for n in STUDENTS[:-1]]
-	rows.append(("A5/full", "A5/instantaneous", "A5 full $-$ A5 inst.", MUTED))
-	fig, ax = plt.subplots(figsize=(3.5, 1.95))
-	for y, (a, b, label, color) in enumerate(rows):
-		d, (low, high), p, holm = pair(a, b)
-		y_draw = y + (0.4 if y == len(rows) - 1 else 0)
-		ax.plot([100 * low, 100 * high], [y_draw, y_draw], color=color, linewidth=1.4, solid_capstyle="butt")
-		ax.scatter([100 * d], [y_draw], s=24, color=color, edgecolor="white", linewidth=0.6, zorder=3)
-		ax.text(4.2, y_draw, f"{p:.3f}  {holm:.2f}", va="center", ha="left", fontsize=6.5, color=INK)
-	ax.text(4.2, -0.95, "$p$     Holm", va="bottom", ha="left", fontsize=6.5, color=MUTED)
-	ax.axhline(len(rows) - 1.3, color=GRID, linewidth=0.6)
-	ax.axvline(0, color=INK, linewidth=0.7)
-	ax.set_yticks([y + (0.4 if y == len(rows) - 1 else 0) for y in range(len(rows))], [r[2] for r in rows])
-	ax.set_ylim(len(rows) - 0.2, -1.1)
-	ax.set_xlim(-8, 4)
-	ax.set_xticks([-8, -6, -4, -2, 0, 2, 4])
-	ax.set_xlabel("Accuracy difference, percentage points")
-	ax.spines["left"].set_visible(False)
-	style(ax, "x")
-	fig.subplots_adjust(left=0.31, right=0.8, top=0.97, bottom=0.2)
-	fig.savefig(HERE / "paired.pdf")
-
-
 if __name__ == "__main__":
 	(HERE / "numbers.json").write_text(json.dumps(numbers(), indent="\t") + "\n")
 	release()
 	ranks()
 	tokens()
-	exposure()
-	supervision()
-	paired()
