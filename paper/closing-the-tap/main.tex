@@ -21,6 +21,13 @@
 	\hfill\mbox{}\par
 	\mbox{}\hfill\begin{@IEEEauthorhalign}
 }
+% Abstract and index-term headings end in a colon instead of the IEEE em dash.
+\def\abstract{\normalfont
+	\@IEEEabskeysecsize\bfseries\textit{\abstractname}:\ \relax
+	\@IEEEgobbleleadPARNLSP}
+\def\IEEEkeywords{\normalfont
+	\@IEEEabskeysecsize\bfseries\textit{\IEEEkeywordsname}:\ \relax
+	\@IEEEgobbleleadPARNLSP}
 \makeatother
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcolumntype{R}{>{\raggedleft\arraybackslash}X}
@@ -61,7 +68,7 @@
 \maketitle
 
 \begin{abstract}
-Model extraction through a language model API requires the collection of many responses in the targeted task, and when such collection is performed through authenticated accounts, at least one account concentrates its traffic on a single task. This paper presents TRACE, a measurement harness in which a gateway serves a Qwen3.5-9B model on four tasks, scores the prompts of each account in windows of 100 requests with a maximum mean discrepancy (MMD) detector calibrated on synthetic benign traffic, maps the evidence to graded restrictions, and records every released response in a ledger. A single-account campaign issuing one block per task and a six-account campaign assigning one task to each account were evaluated against two detector policies, an instantaneous policy and a full policy with decayed cumulative memory, and against a calibrated per-account request quota. In both campaigns the first window of GSM8K requests ranked between 0.015 and 0.018 against the benign null distribution, whereas every window outside the GSM8K stream ranked at or above 0.42. The collecting account was refused after 99 of 1,500 GSM8K responses under the instantaneous policy and after 199 under the full policy, limiting released GSM8K tokens to 6.3--13.3\% of an unrestricted pass. The other five accounts of the six-account campaign were not escalated, whereas the quota released 1,215 GSM8K responses to the collecting account. In offline replay, both detector policies escalated 10 of 100 held-out benign accounts and refused 2 to 4. The window length sets a lower bound on the release that precedes refusal.
+Model extraction through a language model API requires the collection of many responses in the targeted task, and when such collection is performed through authenticated accounts, at least one account concentrates its traffic on a single task. This paper presents TRACE, a measurement harness in which a gateway serves a Qwen3.5-9B model on four tasks, scores the prompts of each account in windows of 100 requests with a maximum mean discrepancy (MMD) detector calibrated on synthetic benign traffic, maps the evidence to graded restrictions, and records every released response in a ledger. A single-account campaign issuing one block per task and a six-account campaign assigning one task to each account were evaluated against two detector policies, an instantaneous policy and a full policy with decayed cumulative memory, and against a calibrated per-account request quota. In both campaigns, the first window of GSM8K requests ranked between 0.015 and 0.018 against the benign null distribution, whereas every window outside the GSM8K stream ranked at or above 0.42. The collecting account was refused after 99 of 1,500 GSM8K responses under the instantaneous policy and after 199 under the full policy, limiting released GSM8K tokens to 6.3--13.3\% of an unrestricted pass. The other five accounts of the six-account campaign were not escalated, whereas the quota released 1,215 GSM8K responses to the collecting account. In offline replay, both detector policies escalated 10 of 100 held-out benign accounts and refused 2 to 4. The window length sets a lower bound on the release that precedes refusal.
 
 \end{abstract}
 \begin{IEEEkeywords}
@@ -73,7 +80,7 @@ Model extraction and knowledge distillation allow a party with query access to a
 
 An account-level control does not alter individual responses. Its effect is determined by the number of responses released to a campaign before the control intervenes and by the cost that the control imposes on legitimate users. Published query-based detectors are generally evaluated on fixed batches of queries and characterized by detection rates~\cite{juuti2019prada,liu2026detector,liu2026lifecycle}. Such rates do not state the volume of responses, by task, that a campaign has already received at the moment of intervention.
 
-The supervision available to an extraction campaign is not uniform across tasks. On the gateway evaluated here, GSM8K responses average 370 output tokens and account for 69\% of all released tokens, whereas AG News responses average 2.3 tokens. A campaign that targets a specific capability therefore has to collect a large number of responses in the corresponding task. When access is mediated by accounts, this requirement produces at least one account whose traffic is concentrated on a single task for hundreds of consecutive requests, either because one account issues the tasks in sequential blocks or because the campaign dedicates accounts to tasks. Per-account content detection is designed to identify this concentration. Campaigns that keep every account evenly mixed across tasks constitute a separate problem. They are characterized in Section~\ref{sec:scope} and are outside the scope of the evaluation.
+The supervision available to an extraction campaign is not uniform across tasks. On the gateway evaluated here, GSM8K responses average 370 output tokens and account for 69\% of all released tokens, whereas AG News responses average 2.3 tokens. A campaign that targets a specific capability therefore has to collect a large number of responses in the corresponding task. When accounts mediate access, this requirement produces at least one account whose traffic is concentrated on a single task for hundreds of consecutive requests, either because one account issues the tasks in sequential blocks or because the campaign dedicates accounts to tasks. Per-account content detection is designed to identify this concentration. Campaigns that keep every account evenly mixed across tasks constitute a separate problem. They are characterized in Section~\ref{sec:scope} and are outside the scope of the evaluation.
 
 This paper presents TRACE~\cite{trace2026artifact}, a harness that evaluates account-level extraction controls by the responses they release. A single gateway serves one model on four tasks. A policy layer decides for each request whether to serve, delay, challenge or refuse it, and a release ledger records every response that leaves the gateway. Scripted extraction campaigns and simulated legitimate users access the same endpoint. The harness was used to evaluate a per-account MMD detector under two escalation policies, together with a calibrated request quota, against two task-concentrated campaigns. Figure~\ref{fig:release} shows the cumulative release to each campaign under each control.
 
@@ -84,15 +91,15 @@ This paper presents TRACE~\cite{trace2026artifact}, a harness that evaluates acc
 \label{fig:release}
 \end{figure*}
 
-The contributions of this paper are as follows.
+This paper contributes as follows.
 \begin{itemize}
 	\item A measurement harness that couples a policy-enforcing gateway with a release ledger, so that each control is evaluated by the responses and output tokens, per task, released before and after each of its interventions.
 	\item A per-account adaptation of an MMD extraction detector~\cite{liu2026detector} with 100-request windows, graded restrictions calibrated to benign false-alarm targets, and an optional decayed cumulative memory across windows.
-	\item An evaluation against a single-account campaign with per-task blocks and a six-account campaign with one task per account. In both campaigns the account collecting GSM8K responses was identified at its first GSM8K window and refused after 99 or 199 of 1,500 GSM8K responses, while no window outside the GSM8K stream contributed evidence.
+	\item An evaluation against a single-account campaign with per-task blocks and a six-account campaign with one task per account. In both campaigns, the account collecting GSM8K responses was identified at its first GSM8K window and refused after 99 or 199 of 1,500 GSM8K responses, while no window outside the GSM8K stream contributed evidence.
 	\item A comparison with a per-account request quota calibrated to the same benign target, which released 1,215 GSM8K responses to the dedicated account, and a measurement of the benign cost of each control in offline replay.
 \end{itemize}
 
-Section~\ref{sec:related} reviews related work. Section~\ref{sec:system} defines the threat model and the targeted collection patterns. Section~\ref{sec:method} describes the harness and the controls, and Section~\ref{sec:setup} the experimental setup. Section~\ref{sec:results} reports detection, release and benign cost. Section~\ref{sec:discussion} discusses the results, Section~\ref{sec:limits} states the limitations, Section~\ref{sec:future} outlines future work, and Section~\ref{sec:conclusion} concludes the paper.
+Section~\ref{sec:related} reviews related work. Section~\ref{sec:system} defines the threat model and the targeted collection patterns. Section~\ref{sec:method} describes the harness and the controls, and Section~\ref{sec:setup} the experimental setup. Section~\ref{sec:results} reports detection, release, and benign cost. Section~\ref{sec:discussion} discusses the results, Section~\ref{sec:limits} states the limitations, Section~\ref{sec:future} outlines future work, and Section~\ref{sec:conclusion} concludes the paper.
 
 \section{Related Work}
 \label{sec:related}
@@ -100,7 +107,7 @@ In model extraction, an adversary queries a victim model, collects input-output 
 
 PRADA monitors the distribution of distances between the queries of a client, and its authors note that distributing queries across clients evades it~\cite{juuti2019prada}. Kesarwani et al.\ monitor the coverage of the feature space by each user~\cite{kesarwani2018warning}, and SEAT identifies near-duplicate attack queries~\cite{zhang2021seat}. VarDetect and HODA rely on latent query distributions and on sample hardness, respectively~\cite{pal2021stateful,sadeghzadeh2022hoda}, and adaptive misinformation assumes that attack queries are out of distribution~\cite{kariyappa2020adaptive}. Liu et al.\ detect extraction in language model traffic with a kernel two-sample statistic over sentence embeddings computed on windows of 1,500 queries~\cite{liu2026detector,mmd2026artifact}. The detector evaluated in this paper applies that statistic to individual accounts with windows of 100 requests. Testing by betting and conformal test martingales provide guarantees that hold at every inspection under stated conditional or exchangeability assumptions~\cite{shekhar2023betting,vovk2021retrain,ramdas2023gametheoretic}. The full policy evaluated here accumulates evidence with a decayed cumulative sum~\cite{page1954cusum} and carries no such guarantee. Sun et al.\ show that stateful monitors cannot prevent task decomposition across unlinkable identities without denying legitimate traffic~\cite{sun2026decomposition}. That result concerns identities whose traffic appears benign in isolation, a condition that an account dedicated to a single task does not satisfy with respect to a concentration score.
 
-Proof of work imposes a computational cost on access~\cite{dwork1992pricing}, and Dziedzic et al.\ calibrate its difficulty to the information revealed by the queries of a user~\cite{dziedzic2022pow}. The proof of work used in this paper has a fixed difficulty. Without a trusted identity authority, a single entity can present many identities~\cite{douceur2002sybil}, which limits any control that operates per account.
+Proof of work imposes a computational cost on access~\cite{dwork1992pricing}, and Dziedzic et al.\ calibrate its difficulty to the information revealed by the queries of a user~\cite{dziedzic2022pow}. The proof of work used in this paper has a fixed difficulty. Without a trusted identity authority, a single entity can present many identities~\cite{douceur2002sybil}, which limits any per-account control.
 
 Libon et al.\ argue that a distillation defense can be assessed only relative to the query budget, data budget and interface of the attacker~\cite{libon2026break}, and Allouah et al.\ find that adaptive students recover more capability than passive evaluation indicates~\cite{allouah2026game}. DistillGuard evaluates output-level defenses on a fixed set of 10,000 examples and excludes query detection and rate limiting~\cite{jiang2026distillguard}. A lifecycle benchmark evaluates ten extraction defenses, including MMD, PRADA and SEAT detectors on fixed batches of 50 queries~\cite{liu2026lifecycle}. None of these evaluations reports the release, by task, that an account-level control permits before it intervenes.
 
@@ -133,17 +140,17 @@ Let $c$ denote the fraction of the requests of an account that belong to one tas
 \caption{Collection patterns implemented in the harness and the content of one account window under each. The detector targets the concentrated patterns A2 and A5.}
 \label{tab:scope}
 \begin{tabularx}{\columnwidth}{@{}lYY@{}}\toprule
-ID & Accounts and order & One account window \\\midrule
+ID & Accounts and order: & one account window \\\midrule
 \multicolumn{3}{@{}l}{Concentrated collection (evaluated)} \\
-A2 & One account; one block per task, AG News first, GSM8K second. & One task for 1,500 requests at a time. \\
+A2: & one account; one block per task, AG News first, GSM8K second. & One task for 1,500 requests at a time. \\
 A5 & Six accounts, one task each: two AG News, two coding, one SQuAD, one GSM8K. & One task for the lifetime of the account. \\\midrule
 \multicolumn{3}{@{}l}{Mixed collection (outside the target)} \\
-A1 & One account; tasks interleaved. & All four tasks, close to the pooled mixture. \\
+A1: & One account; tasks interleaved. & All four tasks, close to the pooled mixture. \\
 A3 & One account; half of the budget spent on in-distribution cover traffic. & Diluted by cover traffic. \\
 A4 & A1 at a lower declared request rate. & As A1; windows count requests, not time. \\
-A6 & Six accounts; the prompts of A1 distributed among them at random. & A smaller copy of A1. \\
+A6: & Six accounts; the prompts of A1 distributed among them at random. & A smaller copy of A1. \\
 A7 & One account; the pattern of A1 with prompts from other corpora~\cite{greene2006bbc,trischler2017newsqa,wei2024selfcodealign}, MathQA~\cite{amini2019mathqa} for mathematics. & All four tasks, from other sources. \\
-A8 & Selects prompts from feedback during collection. & Determined by what it learns to send. \\\bottomrule
+A8 & selects prompts from feedback during collection. & Determined by what it learns to send. \\\bottomrule
 \end{tabularx}
 \end{table}
 
@@ -154,7 +161,7 @@ The request quota has no target in this sense. It bounds each account irrespecti
 \section{Methodology}
 \label{sec:method}
 \subsection{Gateway and Release Ledger}
-The gateway reserves each admitted request in a release ledger before generating output, and each reservation is settled once as released, failed or cancelled. All released-token counts in this paper are taken from the ledger. A checkpoint exporter cuts the ledger of a campaign at each intervention, namely the first alert, the first restriction, the first refusal and the end of the campaign. A cut contains exactly the responses released up to that point rather than a subsample of the final ledger, and therefore corresponds to the data an attacker would hold had the campaign ended there. Figure~\ref{fig:arch} shows the architecture of the harness.
+The gateway reserves each admitted request in a release ledger before generating output, and each reservation is settled once as released, failed, or cancelled. All released-token counts in this paper are taken from the ledger. A checkpoint exporter cuts the ledger of a campaign at each intervention, namely the first alert, the first restriction, the first refusal and the end of the campaign. A cut contains exactly the responses released up to that point rather than a subsample of the final ledger, and therefore corresponds to the data an attacker would hold had the campaign ended there. Figure~\ref{fig:arch} shows the architecture of the harness.
 
 \begin{figure}[!t]
 \centering
@@ -165,7 +172,7 @@ The gateway reserves each admitted request in a release ledger before generating
 	arr/.style={-{Stealth[length=1.6mm]}, draw=black!70}
 ]
 \node[box] (atk) at (0, 0) {Campaign\\accounts};
-\node[box] (ben) at (0, -1.15) {Legitimate clients\\125 per role};
+\node[box] (ben) at (0, -1.15) {Legitimate clients:\\125 per role};
 \node[box=17mm, minimum height=18mm] (gw) at (3.05, -0.575) {Gateway\\policy: detector\\or quota};
 \node[box=15mm] (teach) at (5.65, -0.575) {Served model\\Qwen3.5-9B};
 \node[box=17mm] (led) at (3.05, -2.2) {Release ledger};
@@ -204,7 +211,7 @@ Level & Action \\\midrule
 L0 & Serve. \\
 L1 & Serve and record an alert. \\
 L2 & Space admitted requests at least one second apart. \\
-L3 & L2, together with a SHA-256 proof of work with 20 leading zero bits. \\
+L3: & L2, together with a SHA-256 proof of work with 20 leading zero bits. \\
 L4 & Refuse until the horizon resets. \\\bottomrule
 \end{tabularx}
 \end{table}
@@ -214,12 +221,12 @@ The baseline control counts the requests of each account within a horizon, serve
 
 \subsection{Evaluation Metrics}
 \label{sec:metrics}
-For each arm, the following quantities are taken from the ledger: the responses received, the released output tokens, the GSM8K responses and the GSM8K tokens. Each quantity is also reported as a share of the unprotected reference, defined as the same 6,000 prompts served with no control acting.\footnote{The unprotected reference is the ledger of the quota arm of A6 (Table~\ref{tab:scope}), which issues the same 6,000 prompts distributed at random over six accounts. No account reached the quota, so no control acted and the ledger contains every response, including all 1,500 GSM8K responses.} The number of GSM8K responses released before the first refusal of a GSM8K request is reported for each arm. Benign cost is reported as the number of held-out legitimate accounts that each control escalates, restricts and refuses in offline replay.
+For each arm, the following quantities are taken from the ledger: the responses received, the released output tokens, the GSM8K responses and the GSM8K tokens. Each quantity is also reported as a share of the unprotected reference, defined as the same 6,000 prompts served with no control acting.\footnote{The unprotected reference is the ledger of the quota arm of A6 (Table~\ref{tab:scope}), which issues the same 6,000 prompts distributed at random over six accounts. No account reached the quota, so no control acted, and the ledger contains every response, including all 1,500 GSM8K responses.} The number of GSM8K responses released before the first refusal of a GSM8K request is reported for each arm. Benign cost is reported as the number of held-out legitimate accounts that each control escalates, restricts, and refuses in offline replay.
 
 \section{Experimental Setup}
 \label{sec:setup}
 \subsection{Data and Simulated Users}
-The pinned source of each task was partitioned by source group into disjoint roles: development, attacker, benign fitting, score calibration, policy calibration and benign test. Coding candidates were drawn from a seeded subset of OpenCodeInstruct and retained only if the reference solution passed its tests and a null stub failed them. Tests were executed in fresh bubblewrap namespaces without network access~\cite{bubblewrap}, and duplicates and 13-gram overlap with both evaluation sources were removed~\cite{brown2020language}. The attacker role was further divided into an exploratory half and a confirmatory half that remains unqueried until a preregistered test. Run v7 used the exploratory half and therefore constitutes development evidence. The benign traffic generator creates 125 synthetic accounts per role. Approximately 10\% are generalists that use several tasks, and the remainder are single-task specialists that issue prompts in topic-ordered blocks. Account lengths follow a Pareto distribution with shape 1.5, a minimum of 100 requests and a cap of 2,000 requests.
+The pinned source of each task was partitioned by source group into disjoint roles: development, attacker, benign fitting, score calibration, policy calibration, and benign test. Coding candidates were drawn from a seeded subset of OpenCodeInstruct and retained only if the reference solution passed its tests and a null stub failed them. Tests were executed in fresh bubblewrap namespaces without network access~\cite{bubblewrap}, and duplicates and 13-gram overlap with both evaluation sources were removed~\cite{brown2020language}. The attacker role was further divided into an exploratory half and a confirmatory half that remains unqueried until a preregistered test. Run v7 used the exploratory half and therefore constitutes development evidence. The benign traffic generator creates 125 synthetic accounts per role. Approximately 10\% are generalists that use several tasks, and the remainder are single-task specialists that issue prompts in topic-ordered blocks. Account lengths follow a Pareto distribution with shape 1.5, a minimum of 100 requests and a cap of 2,000 requests.
 
 \subsection{Served Model}
 The served model is \texttt{Qwen3.5-9B}~\cite{qwen2026qwen35}, quantized to Q4\_K\_M and served by llama.cpp~\cite{llamacpp} on a single laptop RTX~4060 in non-thinking mode at temperature 0.
@@ -258,9 +265,9 @@ Figure~\ref{fig:ranks} shows the rank of every window issued by both campaigns u
 \label{fig:ranks}
 \end{figure}
 
-A2 issued its 1,500 AG News prompts first. Its fifteen AG News windows ranked between 0.65 and 0.89, so the account remained at L0 and received every AG News response. The first window of its GSM8K block ranked 0.018. Under the instantaneous policy this rank corresponds to a score of $-\log 0.018=4.00$, above the L4 threshold of 3.50, and the account was refused at its 100th GSM8K request, after 99 responses. Under the full policy the same window produced a risk of 3.00 by Eq.~\eqref{eq:risk}. This value exceeded the L3 threshold of 2.76 but not the L4 threshold of 4.01, which a single window reaches only with a rank below approximately 0.007. The account was consequently required to solve a proof of work for its next window, at a cost of 100 attempts. That window ranked 0.012, the risk rose to 6.15, and the account was refused at its 200th GSM8K request, after 199 responses.
+A2 issued its 1,500 AG News prompts first. Its fifteen AG News windows ranked between 0.65 and 0.89, so the account remained at L0 and received every AG News response. The first window of its GSM8K block ranked 0.018. Under the instantaneous policy this rank corresponds to a score of $-\log 0.018=4.00$, above the L4 threshold of 3.50, and the account was refused at its 100th GSM8K request, after 99 responses. Under the full policy, the same window produced a risk of 3.00 by Eq.~\eqref{eq:risk}. This value exceeded the L3 threshold of 2.76 but not the L4 threshold of 4.01, which a single window reaches only with a rank below approximately 0.007. The account was consequently required to solve a proof of work for its next window, at a cost of 100 attempts. That window ranked 0.012, the risk rose to 6.15, and the account was refused at its 200th GSM8K request, after 199 responses.
 
-In A5 the GSM8K account ranked 0.015 and 0.030 in its two windows. The other five accounts issued 43 windows, the lowest of which ranked 0.42, so none of them added risk and all five remained at L0. Under the instantaneous policy the first GSM8K window scored 4.20, and the account was refused after 99 responses. Under the full policy the account reached a risk of 3.20, received a proof-of-work challenge, and was refused after its second window at a risk of 5.38, after 199 responses. Table~\ref{tab:timing} summarizes the timing in every arm.
+In A5, the GSM8K account ranked 0.015 and 0.030 in its two windows. The other five accounts issued 43 windows, the lowest of which ranked 0.42, so none of them added risk and all five remained at L0. Under the instantaneous policy the first GSM8K window scored 4.20, and the account was refused after 99 responses. Under the full policy, the account reached a risk of 3.20, received a proof-of-work challenge, and was refused after its second window at a risk of 5.38, after 199 responses. Table~\ref{tab:timing} summarizes the timing in every arm.
 
 \begin{table}[!t]
 \centering\footnotesize
@@ -278,7 +285,7 @@ A5 & Quota & & & 1,215 & 4,687 \\\bottomrule
 \end{tabular*}
 \end{table}
 
-In all four detector arms the first decision on the GSM8K account occurred at the earliest possible point. A rank exists only once a 100-request window closes, so no policy based on these windows could have refused the account before its 100th GSM8K request. The instantaneous policy refused the account at that point. The full policy required one additional window, because a single window must rank below 0.007 to reach the L4 threshold of that policy, and ranks of 0.015 to 0.018 did not.
+In all four detector arms, the first decision on the GSM8K account occurred at the earliest possible point. A rank exists only once a 100-request window closes, so no policy based on these windows could have refused the account before its 100th GSM8K request. The instantaneous policy refused the account at that point. The full policy required one additional window, because a single window must rank below 0.007 to reach the L4 threshold of that policy, and ranks of 0.015 to 0.018 did not.
 
 \subsection{Release}
 Table~\ref{tab:release} lists the release in every arm, and Figure~\ref{fig:tokens} decomposes it by task.
@@ -310,21 +317,21 @@ Unprotected & 6,000 & 806,570 & 100\% & 1,500 & 555,498 & 100\% \\\bottomrule
 
 Both detector policies limited both campaigns to a small fraction of the GSM8K responses. The instantaneous policy released 99 of 1,500 GSM8K responses, corresponding to 6.3 to 6.6\% of the GSM8K tokens, and the full policy released 199 responses, corresponding to 12.8 to 13.3\%. No GSM8K request produced a release after the refusal. Relative to the unprotected reference, the detector policies therefore withheld 86.7 to 93.7\% of the GSM8K tokens in both campaigns, together with 90.4 to 95.0\% of all tokens in A2 and 60.1 to 64.5\% of all tokens in A5.
 
-A refused account remains at L4 until its 24-hour horizon resets. In A2 the SQuAD and coding blocks followed the GSM8K block from the same account and received no responses. A2 therefore received its AG News responses, one or two windows of GSM8K responses and nothing else, which amounts to 5.0\% of the unprotected tokens under the instantaneous policy and 9.6\% under the full policy.
+A refused account remains at L4 until its 24-hour horizon resets. In A2, the SQuAD and coding blocks followed the GSM8K block from the same account and received no responses. A2 therefore received its AG News responses, one or two windows of GSM8K responses and nothing else, which amounts to 5.0\% of the unprotected tokens under the instantaneous policy and 9.6\% under the full policy.
 
-In A5 the refusal applied only to the GSM8K account. The other five accounts received 4,500 responses under the instantaneous policy and 4,494 under the full policy, including the coding responses, which carry 29\% of the unprotected tokens. Refusing one of six accounts nevertheless withheld 60.1 to 64.5\% of the tokens of the campaign, because GSM8K responses are long. Under the instantaneous policy, all 1,401 refused requests of A5 originated from the GSM8K account.
+In A5, the refusal applied only to the GSM8K account. The other five accounts received 4,500 responses under the instantaneous policy and 4,494 under the full policy, including the coding responses, which carry 29\% of the unprotected tokens. Refusing one of six accounts nevertheless withheld 60.1 to 64.5\% of the tokens of the campaign, because GSM8K responses are long. Under the instantaneous policy, all 1,401 refused requests of A5 originated from the GSM8K account.
 
 The quota refused every request after the 1,215th request of an account, so the release it permitted depended on the order and distribution of the prompts of a campaign rather than on their content. A2 issues AG News first. Its single account exhausted the quota on 1,215 AG News responses totaling 2,784 tokens and received no GSM8K responses. This is the smallest release in the evaluation, and it follows from the order of the campaign: had A2 issued GSM8K first, the same quota would have released 1,215 GSM8K responses. A5 realizes that case. Its GSM8K account received 1,215 GSM8K responses, 81\% of the set and 447,418 tokens, before refusal, which is six times the number released under the full policy. In A5 the quota withheld 19.5\% of the GSM8K tokens and 13.6\% of all tokens.
 
 \subsection{Cost to Legitimate Users}
-Table~\ref{tab:cost} reports the benign cost in offline replay, with each held-out account counted at the highest level it reached. Each detector policy escalated 10 of 100 held-out accounts. Under both policies, 5 of these accounts received only an alert, which leaves service unchanged, so 5 of 100 accounts experienced a restriction of service. Under the full policy 1 account was delayed and 4 were refused, which is above the 1\% target and within its 4.7\% upper bound. Under the instantaneous policy 3 accounts were required to solve a proof of work and 2 were refused. Under the quota, one of 125 held-out accounts exceeded 1,215 requests. It issued 1,832 requests and lost 617, approximately 2.6\% of the 24,047 requests of the benign-test schedule.
+Table~\ref{tab:cost} reports the benign cost in offline replay, with each held-out account counted at the highest level it reached. Each detector policy escalated 10 of 100 held-out accounts. Under both policies, 5 of these accounts received only an alert, which leaves service unchanged, so 5 of 100 accounts experienced a restriction of service. Under the full policy, 1 account was delayed and 4 were refused, which is above the 1\% target and within its 4.7\% upper bound. Under the instantaneous policy, 3 accounts were required to solve a proof of work and 2 were refused. Under the quota, one of 125 held-out accounts exceeded 1,215 requests. It issued 1,832 requests and lost 617, approximately 2.6\% of the 24,047 requests of the benign-test schedule.
 
 \begin{table}[!t]
 \centering\footnotesize
 \caption{Benign cost in offline replay of run v7. The detector policies were replayed on 100 scored held-out benign horizons and the quota on 125 held-out accounts. Each account is counted at the highest level it reached.}
 \label{tab:cost}
 \begin{tabularx}{\columnwidth}{@{}Yrrr@{}}\toprule
-Highest level reached & Full & Inst. & Quota \\\midrule
+Highest level reached: & Full & Inst. & Quota \\\midrule
 L1, alert only & 5 & 5 & \\
 L2, delayed & 1 & 0 & \\
 L3, proof of work & 0 & 3 & \\
@@ -339,7 +346,7 @@ Accounts with restricted service & 5 & 5 & 1 \\\bottomrule
 \subsection{Window Length and Time to Refusal}
 The detector reaches a decision only when a window closes. For a window length $W$ and an account that issues a fraction $c$ of its requests in one task, the earliest decision follows $W$ requests, approximately $cW$ of which belong to that task. Because the detector responds to accounts with $c$ close to 1, approximately $W$ responses in the task have been released when it first acts, irrespective of how atypical the window is. Both campaigns exhibit this bound. Their first GSM8K windows ranked at approximately ten times the calibration floor, and the instantaneous policy still released 99 responses, the minimum attainable with $W=100$. Cumulative memory added one window.
 
-Reducing $W$ lowers this bound but increases the variance of the window score, which widens the null distribution and makes short single-topic blocks of legitimate specialists harder to separate from collection. With $W=100$ the replay already escalated 10 of 100 held-out accounts. An alternative retains $W$ and acts within the first window, for example by delaying, rather than refusing, an account whose first requests all fall in one high-yield task until its window closes. Such a policy would bound the release at a cost in latency rather than in service. Neither alternative was evaluated.
+Reducing $W$ lowers this bound but increases the variance of the window score, which widens the null distribution and makes short single-topic blocks of legitimate specialists harder to separate from collection. With $W=100$, the replay already escalated 10 of 100 held-out accounts. An alternative retains $W$ and acts within the first window, for example by delaying, rather than refusing, an account whose first requests all fall in one high-yield task until its window closes. Such a policy would bound the release at a cost in latency rather than in service. Neither alternative was evaluated.
 
 \subsection{Selectivity}
 The content detector refused only the account that collected GSM8K responses and continued to serve the remainder of the campaign, whereas the quota acted on request counts alone. The outcome of the quota therefore depended on prompt order: it withheld all GSM8K responses from A2 and released 81\% of them to A5. A per-account count bounds what each account receives, and the ledger confirmed that bound to the request, but a campaign can add accounts until each remains below it~\cite{douceur2002sybil}. A5 divides its prompts by task rather than to remain under the count, and its GSM8K account exceeded the quota. The same division made the account visible to the detector, because dedicating an account to one task raises its concentration.
