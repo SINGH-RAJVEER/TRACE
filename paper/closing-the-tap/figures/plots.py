@@ -1,4 +1,4 @@
-"""Draw the figures of the per-account detection paper and write the numbers its text quotes.
+"""Draw the figures of the account-based detection paper and write the numbers its text quotes.
 
 Run from the repository root (numpy needs the devenv shell's libstdc++):
 devenv shell -- uv run --no-project --with matplotlib python paper/closing-the-tap/figures/plots.py
