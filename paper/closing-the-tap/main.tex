@@ -1,4 +1,4 @@
-\documentclass[journal]{IEEEtran}
+\documentclass[conference]{IEEEtran}
 \usepackage[T1]{fontenc}
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
@@ -15,6 +15,12 @@
 \setlength{\@dblfptop}{0pt}
 \setlength{\@dblfpsep}{16pt plus 2pt minus 2pt}
 \setlength{\@dblfpbot}{0pt plus 1fil}
+% Starts a new, centred row of author blocks, as in the IEEE conference template.
+\newcommand{\linebreakand}{%
+	\end{@IEEEauthorhalign}
+	\hfill\mbox{}\par
+	\mbox{}\hfill\begin{@IEEEauthorhalign}
+}
 \makeatother
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcolumntype{R}{>{\raggedleft\arraybackslash}X}
@@ -22,11 +28,35 @@
 % figures/plots.py writes every figure this file includes into figures/.
 \graphicspath{{figures/}}
 \title{Per-Account Detection and Refusal of Task-Concentrated Extraction Queries at a Language Model API Gateway}
-\author{Rajveer~Singh,
-	Dhruv~Deepak,
-	Vansh~Kulshrestha,
-	and~Aryash~Kushwaha%
-\thanks{R. Singh, D. Deepak, V. Kulshrestha, and A. Kushwaha are B.Tech. students with the School of Computer Science and Engineering (SCOPE), VIT-AP University, Amaravati 522241, Andhra Pradesh, India (e-mail: \mbox{therajveersingh@icloud.com}; \mbox{dhruv.deepak21@gmail.com}; \mbox{vanshryan@gmail.com}; \mbox{aryashkushwaha625@gmail.com}).}}
+\author{
+\IEEEauthorblockN{Rajveer Singh}
+\IEEEauthorblockA{\textit{School of Computer Science}\\
+	\textit{and Engineering (SCOPE)}\\
+	\textit{VIT-AP University}\\
+	Amaravati, Andhra Pradesh, India\\
+	therajveersingh@icloud.com}
+\and
+\IEEEauthorblockN{Dhruv Deepak}
+\IEEEauthorblockA{\textit{School of Computer Science}\\
+	\textit{and Engineering (SCOPE)}\\
+	\textit{VIT-AP University}\\
+	Amaravati, Andhra Pradesh, India\\
+	dhruv.deepak21@gmail.com}
+\linebreakand
+\IEEEauthorblockN{Vansh Kulshrestha}
+\IEEEauthorblockA{\textit{School of Computer Science}\\
+	\textit{and Engineering (SCOPE)}\\
+	\textit{VIT-AP University}\\
+	Amaravati, Andhra Pradesh, India\\
+	vanshryan@gmail.com}
+\and
+\IEEEauthorblockN{Aryash Kushwaha}
+\IEEEauthorblockA{\textit{School of Computer Science}\\
+	\textit{and Engineering (SCOPE)}\\
+	\textit{VIT-AP University}\\
+	Amaravati, Andhra Pradesh, India\\
+	aryashkushwaha625@gmail.com}
+}
 \begin{document}
 \maketitle
 
@@ -39,7 +69,7 @@ Model extraction, knowledge distillation, access control, maximum mean discrepan
 \end{IEEEkeywords}
 
 \section{Introduction}
-\IEEEPARstart{M}{odel} extraction and knowledge distillation allow a party with query access to a model to train a student on the responses of that model~\cite{tramer2016stealing,orekondy2019knockoff,hinton2015distilling,kim2016sequence}. Providers of commercial language model APIs have reported such collection at scale. Anthropic attributed more than 16 million exchanges, conducted through approximately 24,000 fraudulent accounts, to three laboratories~\cite{anthropic2026detecting}. OpenAI reported 16,000 patterned requests from more than 4,000 users within two days~\cite{openai2026disrupting}, and Google reported a single campaign exceeding 100,000 prompts~\cite{gtig2026distillation}. The reported countermeasures operate on accounts and include account linking, behavioral fingerprinting, identity verification, rate limiting and account termination~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}.
+Model extraction and knowledge distillation allow a party with query access to a model to train a student on the responses of that model~\cite{tramer2016stealing,orekondy2019knockoff,hinton2015distilling,kim2016sequence}. Providers of commercial language model APIs have reported such collection at scale. Anthropic attributed more than 16 million exchanges, conducted through approximately 24,000 fraudulent accounts, to three laboratories~\cite{anthropic2026detecting}. OpenAI reported 16,000 patterned requests from more than 4,000 users within two days~\cite{openai2026disrupting}, and Google reported a single campaign exceeding 100,000 prompts~\cite{gtig2026distillation}. The reported countermeasures operate on accounts and include account linking, behavioral fingerprinting, identity verification, rate limiting and account termination~\cite{anthropic2026detecting,anthropic2026defenses,openai2026disrupting}.
 
 An account-level control does not alter individual responses. Its effect is determined by the number of responses released to a campaign before the control intervenes and by the cost that the control imposes on legitimate users. Published query-based detectors are generally evaluated on fixed batches of queries and characterized by detection rates~\cite{juuti2019prada,liu2026detector,liu2026lifecycle}. Such rates do not state the volume of responses, by task, that a campaign has already received at the moment of intervention.
 
